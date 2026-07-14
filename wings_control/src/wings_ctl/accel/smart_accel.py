@@ -1,0 +1,262 @@
+"""wings-accel(resolve_smart_accel_from_config)接入适配器。
+
+职责:把"智能加速"(投机解码 / KV 卸载 / KV 稀疏)
+统一委托给 wings-accel 模块——wings-control **只忠实映射** MaaS 开关 + 上下文为 ``LoadFlags``、调用
+``resolve_smart_accel_from_config`` 定位 smart-accel YAML 并解析,把返回的
+``engine_params`` / scheme 收成 :class:`AccelResult` 供上层渲染。
+**wings-control 自己不算任何加速参数**。
+
+边界:wings-accel 模块**已合入本仓**(`src/wings_accel/`),batch1 已端到端验证
+(`tests/integration/test_accel_enabled_e2e.py`)。本适配器仍对**模块缺失 / 无资产 / 异常**做
+**guard 兜底**——任一情况 → 返回空 :class:`AccelResult`(accel 关闭,主流程零影响,no-op 安全)。
+
+trace 说明:wings-accel 的 ``engine_params.engine_config`` 是结构化引擎参数且与 trace 体系解耦,
+由 wings-control 统一渲染 argv;scheme 字段可写 audit。
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from dataclasses import dataclass, field
+from typing import Any
+
+from wings_ctl.utils.env_utils import parse_bool
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class AccelResult:
+    """wings-accel 三类产出的扁平汇总,供 wings-control append 到 argv / env / audit。
+
+    Attributes:
+        engine_config: 追加到引擎配置的结构化参数(``engine_params.engine_config``)。
+        env: 注入容器的环境变量(``engine_params.env``)。
+        audit: 选中 scheme 元数据,仅写 audit.json。
+        packages: 各选中 scheme 声明的 pip 依赖(``name:version`` 字符串);供 install 段 ``--config``。
+        enabled: 是否真正调用了 wings-accel(模块在场且成功产出);False = no-op/降级。
+    """
+
+    engine_config: dict[str, Any] = field(default_factory=dict)
+    env: dict[str, str] = field(default_factory=dict)
+    audit: dict[str, Any] = field(default_factory=dict)
+    packages: list[str] = field(default_factory=list)
+    enabled: bool = False
+
+
+def _import_accel():
+    """guard-import wings-accel 模块。
+
+    模块为顶层包 ``wings_accel``,非 ``wings_ctl.accel``(后者是本适配器自包)。
+
+    Returns:
+        模块对象(需含 ``resolve_smart_accel_from_config`` + ``LoadFlags``);缺失/不完整 → None
+        (accel 关闭,主流程不受影响)。
+    """
+    try:
+        import wings_accel as mod  # 顶层包:resolver + dataclasses + loader
+    except Exception:  # pragma: no cover - 取决于模块是否合入
+        return None
+    return mod if hasattr(mod, "resolve_smart_accel_from_config") else None
+
+
+def _as_bool(env: dict, key: str) -> bool:
+    """MaaS env dict 里 key 的值解析为布尔;缺失/空/非法 → False。
+
+    统一走 :func:`env_utils.parse_bool`(真值集合 ``{1,true,yes,y,on}``),
+    修复旧实现只认 ``"true"`` 导致 ``ENABLE_XXX=1/yes/on`` 不生效的问题。
+
+    Args:
+        env: MaaS 下发的环境变量字典。
+        key: 待解析的开关键(如 ``ENABLE_SPARSE``)。
+
+    Returns:
+        真值集合命中 → ``True``;缺失/空串/非法 → ``False``。
+    """
+    value = env.get(key)
+    return parse_bool(value if value is None else str(value), default=False)
+
+
+def _as_int(value: Any) -> int:
+    """容量类 env 转 int;空/非法 → 0(不抛,容错)。"""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _kv_mem_size(value: Any) -> str:
+    """KV_MEM_OFFLOAD_SIZE 原样归一:auto / 数值 GB / 空。"""
+    raw = str(value or "").strip().lower()
+    if raw in ("", "false", "0", "no", "off"):
+        return ""
+    if raw == "auto":
+        return "auto"
+    return raw if _as_int(raw) > 0 else ""
+
+
+def collect_accel_switches(env: dict) -> dict[str, Any]:
+    """收口读取 MaaS smart/accel ENV 开关(v3 命名)→ 归一字典(单一真相源)。"""
+    memory_size_mode = _kv_mem_size(env.get("KV_MEM_OFFLOAD_SIZE") or env.get("ENABLE_KV_MEM_OFFLOAD"))
+    mem_enabled = _as_bool(env, "ENABLE_KV_MEM_OFFLOAD") or bool(memory_size_mode)
+    return {
+        # 投机解码
+        "speculative_enabled": _as_bool(env, "ENABLE_SPECULATIVE_DECODE"),
+        "speculative_model_path": env.get("SPECULATIVE_DECODE_MODEL_PATH", "") or "",
+        # KV 稀疏
+        "sparse_enabled": _as_bool(env, "ENABLE_SPARSE"),
+        "sparse_level": env.get("SPARSE_LEVEL", "performance_first") or "performance_first",
+        # KV 卸载(一级 → 二级 mem/disk → 三级 qat)
+        "kv_offload_enabled": _as_bool(env, "ENABLE_KV_OFFLOAD") or mem_enabled,
+        "kv_mem_enabled": mem_enabled,
+        "kv_mem_size_mode": memory_size_mode,
+        "kv_mem_size_gb": 0 if memory_size_mode in ("", "auto") else _as_int(memory_size_mode),
+        "kv_disk_enabled": _as_bool(env, "ENABLE_KV_DISK_OFFLOAD"),
+        "kv_disk_path": env.get("KV_DISK_OFFLOAD_PATH", "") or "",
+        "kv_disk_size_gb": _as_int(env.get("KV_DISK_OFFLOAD_SIZE")),
+        "kv_qat_enabled": _as_bool(env, "ENABLE_KV_QAT"),
+        "kv_qat_compress_level": _as_int(env.get("KV_QAT_COMPRESS_LEVEL")),
+        "kv_qat_instance_num": _as_int(env.get("KV_QAT_INSTANCE_NUM")),
+        "available_pod_mem_gb": _as_int(env.get("AVAILABLE_POD_MEM_SIZE")),
+        "pd_role": env.get("PD_ROLE") or None,
+    }
+
+
+def build_smart_input(mod, *, hardware_family: str, gpu_count: int | None, model_path: str | None,
+                      model_name: str | None, engine: str, engine_version: str | None,
+                      switches: dict):
+    """兼容旧单测/旧调用:构造 SmartAccelInput;生产路径不使用本函数。"""
+    system_config_cls = mod.SystemConfig if hasattr(mod, "SystemConfig") else mod.HardwareConfig
+
+    return mod.SmartAccelInput(
+        hardware_config=system_config_cls(
+            gpu_type=hardware_family,
+            gpu_count=gpu_count or 1,
+            pod_available_memory_gb=switches["available_pod_mem_gb"],
+        ),
+        model_config=mod.ModelConfig(model_path=model_path or "", model_name=model_name),
+        engine_config=mod.EngineConfig(name=engine, version=engine_version or ""),
+        deployment_mode=mod.DeploymentMode(pd_role=switches["pd_role"]),
+        smart_decoding_config=mod.SmartDecodingConfig(
+            enabled=switches["speculative_enabled"],
+            model_path=switches["speculative_model_path"],
+        ),
+        smart_kv_cache_config=mod.SmartKVCacheConfig(
+            enabled=switches["kv_offload_enabled"],
+            memory_offload_enabled=switches["kv_mem_enabled"],
+            memory_offload_size_mode=switches["kv_mem_size_mode"],
+            disk_offload_enabled=switches["kv_disk_enabled"],
+            disk_capacity_gb=switches["kv_disk_size_gb"],
+            disk_path=switches["kv_disk_path"],
+            qat_enabled=switches["kv_qat_enabled"],
+            qat_device_count=switches["kv_qat_instance_num"],
+            qat_compression_level=switches["kv_qat_compress_level"],
+        ),
+        smart_kv_sparse_config=mod.SmartKVSparseConfig(
+            enabled=switches["sparse_enabled"],
+            mode=switches["sparse_level"],
+        ),
+        smart_accel={},  # 兼容旧单测/调用;生产路径走 resolve_smart_accel_from_config 加载 YAML
+    )
+
+
+def collect_output(output) -> AccelResult:
+    """把 wings-accel 输出汇总成 :class:`AccelResult`。"""
+    engine_params = getattr(output, "engine_params", None)
+    if engine_params is not None:
+        engine_config = dict(getattr(engine_params, "engine_config", {}) or {})
+        env = dict(getattr(engine_params, "env", {}) or {})
+        scheme_fields = {
+            "smart_decoding_scheme": getattr(output, "smart_decoding_scheme", None),
+            "smart_kv_sparse_scheme": getattr(output, "smart_kv_sparse_scheme", None),
+            "smart_kv_cache_scheme": getattr(output, "smart_kv_cache_scheme", None),
+        }
+        audit = {key: value for key, value in scheme_fields.items() if value is not None}
+        diagnostics = dict(getattr(output, "diagnostics", {}) or {})
+        if diagnostics:
+            audit["diagnostics"] = diagnostics
+        return AccelResult(
+            engine_config=engine_config,
+            env=env,
+            # 裸内容(scheme dict);由 emitter 统一包成 audit["wings_accel"](勿在此预包,否则双层嵌套)
+            audit=audit,
+            # 选中 scheme 声明的 pip 依赖;getattr 兜底旧/stub 输出无该字段 → []
+            packages=list(getattr(output, "packages", []) or []),
+            # enabled = 真有产出(对齐 docstring"成功产出";模块跑了但产空 → False,不触发 install 段)
+            enabled=bool(engine_config or env),
+        )
+
+    engine_config: dict[str, Any] = {}
+    env: dict[str, str] = {}
+    audit: dict[str, Any] = {}
+    for name in ("smart_decoding_output", "smart_kv_cache_output", "smart_kv_sparse_output"):
+        part = getattr(output, name, None)
+        if part is None:
+            continue
+        engine_config.update(dict(getattr(part, "engine_config", {}) or {}))
+        env.update(dict(getattr(part, "env", {}) or {}))
+        diag = dict(getattr(part, "wings_accel_params", {}) or {})
+        if diag:
+            audit[name] = diag
+    top = dict(getattr(output, "wings_accel_params", {}) or {})
+    if top:
+        audit["wings_accel"] = top
+    return AccelResult(
+        engine_config=engine_config, env=env, audit=audit, enabled=bool(engine_config or env)
+    )
+
+
+def apply_smart_accel(*, hardware_family: str, gpu_count: int | None, model_path: str | None,
+                      model_name: str | None, engine: str, engine_version: str | None,
+                      config_root: str = "", pd_role: str | None = None,
+                      env: dict | None = None) -> AccelResult:
+    """委托 wings-accel 生成加速产出;模块缺失/异常 → 空 :class:`AccelResult`(不打断启动)。"""
+    mod = _import_accel()
+    if mod is None:
+        logger.debug("wings-accel 模块未合入,智能加速委托跳过(no-op)")
+        return AccelResult()
+    resolved_env = os.environ if env is None else env
+    try:
+        switches = collect_accel_switches(resolved_env)
+        if pd_role is not None:
+            switches["pd_role"] = pd_role
+
+        # MaaS 开关为唯一驱动(框架已无 auto 机制):kv/sparse/decoding 是否启用 100% 由
+        # switches 决定,smart_accel YAML 仅作全量占位模板,块存在不再自动启用任何特性。
+        # 全关 → 全 no-op,由 tests/integration/test_accel_enabled_e2e.py::test_accel_disabled_is_no_op 守。
+        flags = mod.LoadFlags(
+            kv=switches["kv_offload_enabled"],
+            sparse=switches["sparse_enabled"],
+            disk=switches["kv_disk_enabled"],
+            qat=switches["kv_qat_enabled"],
+            disk_gb=switches["kv_disk_size_gb"],
+            disk_path=switches["kv_disk_path"],
+            qat_devices=switches["kv_qat_instance_num"],
+            qat_level=switches["kv_qat_compress_level"],
+            decoding_enabled=switches["speculative_enabled"],
+            decoding_model_path=switches["speculative_model_path"],
+            sparse_level=switches["sparse_level"],
+            pd_role=switches["pd_role"],
+            memory_offload_size_mode=switches["kv_mem_size_mode"],
+            pod_available_memory_gb=switches["available_pod_mem_gb"],
+        )
+        output = mod.resolve_smart_accel_from_config(
+            config_root=config_root,
+            engine=engine,
+            engine_version=engine_version or "",
+            hardware_family=hardware_family,
+            model_name=model_name or model_path or "",
+            flags=flags,
+        )
+        if output is None:
+            return AccelResult()
+        result = collect_output(output)
+        logger.info(
+            "wings-accel 已应用:+%d engine_config / +%d env / audit=%s",
+            len(result.engine_config), len(result.env), list(result.audit),
+        )
+        return result
+    except Exception as exc:  # 加速委托失败不应打断主流程 → 降级为不加速
+        logger.warning("wings-accel 调用失败,降级为不加速:%s", exc)
+        return AccelResult()

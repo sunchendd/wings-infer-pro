@@ -1,0 +1,15 @@
+{
+  "hardware_family": "nvidia-RTX5880",
+  "device": "nvidia",
+  "count": 1,
+  "gpu": {
+    "name": "NVIDIA RTX 5880 Ada",
+    "arch": "Ada Lovelace",
+    "compute_capability": "8.9",
+    "memory_gb": 48,
+    "driver_version": "550.00.00",
+    "cuda_version": "12.4"
+  },
+  "cann_version": null,
+  "_note": "Step 2.1: 仅 hardware_family 参与目录定位;其余字段携带+审计,不参与参数合并。cann_version 仅 ascend 有值。"
+}
