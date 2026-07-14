@@ -1,0 +1,652 @@
+"""wings_ctl CLI — trace-first 配置解析可执行入口。
+
+职责:解析 CLI/env → 收集用户具名参数(user_cli 覆盖层)→ 大策略层推导 topology → 调 pipeline。
+不负责:参数合并/翻译、脚本渲染、落盘 —— 分别归 core/config_resolver、translators、pipeline/rendering。
+
+用法:
+    python -m wings_ctl --model-name Qwen3.5-0.8B --hardware-info hardware_info.json
+    python -m wings_ctl --model-name kimi-k2.5 --engine vllm-ascend \\
+        --hardware-info hw.json --host 0.0.0.0 \\
+        --model-path /weights/custom-model
+    python -m wings_ctl --help
+
+定位参数 (驱动配置查找):
+    --model-name      模型名称, 用于 name_pattern 匹配(亦作 served_model_name);
+                      缺省时从 --model-path basename 推导
+    --hardware-info   hardware_info.json 路径 (可选; 不传则读固定目录 /shared-volume/hardware_info.json)
+    --engine          引擎名称 (fallback: ENGINE env, 默认 vllm)
+    --distributed     分布式判定总开关; topology 由大策略层从此+PD_ROLE/NODE_IPS/MASTER_IP 推导
+    --config-root     配置资产根目录 (默认 auto-detect)
+
+用户覆盖层 (选填, 进入 user_cli 合并层, 优先级最高):
+    --host / --port / --model-path / --model-name / --max-num-seqs / ...
+
+输出:
+    --output-dir / -o  脚本和 audit 输出目录 (默认: 存在 /shared-volume 则用之, 否则 cwd)
+    --dry-run          仅打印 argv, 不写文件
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import os
+import shlex
+from pathlib import Path
+from typing import Any, Dict, List
+
+from wings_ctl.core.config_resolver import DEFAULT_ENGINE_PORT
+from wings_ctl.core.models import ClusterPlacement, PipelineRequest, Target, UserInput
+from wings_ctl.engines.vllm_adapter import build_argv
+from wings_ctl.pipeline import resolve_pipeline, run_pipeline
+from wings_ctl.strategy.pre_template import pre_template_strategy
+from wings_ctl.translators.cli_translator import CLITranslator
+from wings_ctl.utils.env_utils import parse_node_ips
+
+
+logger = logging.getLogger(__name__)
+
+
+def _contains_removed_engine_param(unknown_args: List[str]) -> bool:
+    """识别已移除的 engine-param 入口。"""
+    for arg in unknown_args:
+        token = arg.split("=", 1)[0]
+        if token.startswith("--") and token[2:] == "engine-param":
+            return True
+    return False
+
+
+def _collect_user_cli_overrides(
+    host: str | None,
+    port: int | None,
+    model_path: str | None,
+    model_name: str | None = None,
+    max_num_seqs: int | None = None,
+    max_num_batched_tokens: int | None = None,
+    input_length: int | None = None,
+    output_length: int | None = None,
+    trust_remote_code: bool | None = None,
+    enable_auto_think_choice: bool | None = None,
+    enable_auto_tool_choice: bool | None = None,
+    dtype: str | None = None,
+    kv_cache_dtype: str | None = None,
+    quantization: str | None = None,
+    quantization_param_path: str | None = None,
+    gpu_memory_utilization: float | None = None,
+    block_size: int | None = None,
+    seed: int | None = None,
+    enable_chunked_prefill: bool | None = None,
+    enable_prefix_caching: bool | None = None,
+    enable_expert_parallel: bool | None = None,
+) -> Dict[str, Any]:
+    """收集用户 CLI 覆盖层 dict。
+
+    来源: 具名参数/语法糖.
+    Returns:
+        overrides dict, key 为 engine_config 的 canonical 参数名.
+        传给 resolve_config(..., user_cli_overrides=overrides) 作为最高优先级合并层.
+
+    端口转换:用户传的 --port 是 proxy 对外端口;引擎应监听 backend 端口(ENGINE_PORT/默认 17000)。
+    本函数**只读 env、不写 env**;proxy 端口写 env 的副作用在 main 中显式调用。
+    """
+    overrides: Dict[str, Any] = {}
+    if host is not None:
+        overrides["host"] = host
+    if port is not None:
+        # --port 有**两个去向**(别当 bug):用户 --port 是 **proxy 对外端口**,不是引擎端口。
+        #   ① 这里:engine 的 `port` 覆盖成 **backend 端口**(ENGINE_PORT / 默认 17000),它才进 argv。
+        #   ② 另一处:**proxy 对外端口**由 _export_proxy_port() 写入 env PORT(见该函数)。
+        # 所以用户传的端口值本身不进 argv,进 argv 的是 backend 端口。
+        backend_port = int(os.environ.get("ENGINE_PORT", str(DEFAULT_ENGINE_PORT)))
+        overrides["port"] = backend_port
+    if model_path is not None:
+        overrides["model_path"] = model_path
+    if model_name is not None:
+        overrides["model_name"] = model_name
+    if max_num_seqs is not None:
+        overrides["max_num_seqs"] = max_num_seqs
+    if max_num_batched_tokens is not None:
+        # 同名直通,由 user_cli 层覆盖 recipe。
+        overrides["max_num_batched_tokens"] = max_num_batched_tokens
+    if input_length is not None:
+        overrides["input_length"] = input_length
+    if output_length is not None:
+        overrides["output_length"] = output_length
+    # 显式派生 max_model_len = input + output;input/output 原值不直接进 argv。
+    derived_mml = _derive_max_model_len(input_length, output_length)
+    if derived_mml is not None:
+        overrides["max_model_len"] = derived_mml
+    if trust_remote_code is not None:
+        overrides["trust_remote_code"] = trust_remote_code
+    if enable_auto_think_choice is not None:
+        overrides["enable_auto_think_choice"] = enable_auto_think_choice
+    if enable_auto_tool_choice is not None:
+        overrides["enable_auto_tool_choice"] = enable_auto_tool_choice
+    if dtype is not None:
+        overrides["dtype"] = dtype
+    if kv_cache_dtype is not None:
+        overrides["kv_cache_dtype"] = kv_cache_dtype
+    if quantization is not None:
+        overrides["quantization"] = quantization
+    if quantization_param_path is not None:
+        overrides["quantization_param_path"] = quantization_param_path
+    if gpu_memory_utilization is not None:
+        overrides["gpu_memory_utilization"] = gpu_memory_utilization
+    if block_size is not None:
+        overrides["block_size"] = block_size
+    if seed is not None:
+        overrides["seed"] = seed
+    if enable_chunked_prefill is not None:
+        overrides["enable_chunked_prefill"] = enable_chunked_prefill
+    if enable_prefix_caching is not None:
+        overrides["enable_prefix_caching"] = enable_prefix_caching
+    if enable_expert_parallel is not None:
+        overrides["enable_expert_parallel"] = enable_expert_parallel
+
+    return overrides
+
+
+def _export_proxy_port(port: int | None) -> None:
+    """把用户 ``--port``(对外/代理端口)写入 ``os.environ["PORT"]``,供 proxy 子系统读取。
+
+    ⚠️ **有意的全局副作用**(sidecar 接缝:cli → env → proxy):独立成函数、由 main 显式调用。
+    引擎 backend 端口**不走这里**(见 ``_collect_user_cli_overrides`` / ENGINE_PORT)。
+
+    Args:
+        port: ``--port`` 值;None 时不写(保持 env 原样)。
+    """
+    if port is not None:
+        os.environ["PORT"] = str(port)
+
+
+def _canonicalize_engine(name: str) -> str:
+    """归一引擎名到 config 目录命名(连字符)。
+
+    MaaS/部署可能下发下划线形式(如 ``vllm_ascend``,对齐 wings-accel schema 命名),
+    而 wings-control 配置目录用连字符(``config/engines/vllm-ascend``)。统一把 ``_`` 归一为
+    ``-``,使两种写法都能定位到同一资产(数据归一,非 if-engine——对所有引擎一致处理)。
+
+    Args:
+        name: 原始引擎名(可能含下划线 / 首尾空白)。
+
+    Returns:
+        归一后的引擎名(去空白、``_``→``-``)。
+    """
+    return name.strip().replace("_", "-")
+
+
+def _derive_max_model_len(input_length: int | None, output_length: int | None) -> int | None:
+    """由 input/output 长度显式派生 max_model_len(= 总上下文窗口)。
+
+    ``max_model_len = input_length + output_length``(prompt 上限 + 生成上限 = 模型总序列长度),不加余量。
+    产出作为 user_cli 覆盖层的 ``max_model_len``,**覆盖 recipe 自带值**(用户必填值优先)。
+
+    Args:
+        input_length: 输入序列最大长度(MaaS 必填;None=未传)。
+        output_length: 输出序列最大长度(MaaS 必填;None=未传)。
+
+    Returns:
+        ``input_length + output_length``;任一缺失或非正 → None(不派生,不覆盖 recipe)。
+    """
+    if input_length is None or output_length is None:
+        return None
+    if input_length <= 0 or output_length <= 0:
+        logger.warning(
+            "input_length=%s / output_length=%s 含非正值,跳过 max_model_len 派生",
+            input_length, output_length,
+        )
+        return None
+    mml = input_length + output_length
+    logger.info(
+        "派生 max_model_len = input_length(%d) + output_length(%d) = %d(覆盖 recipe)",
+        input_length, output_length, mml,
+    )
+    return mml
+
+
+def _resolve_engine(cli_engine: str | None) -> str:
+    """解析引擎名称。优先级: CLI --engine > ENGINE env > "vllm";统一归一连字符。"""
+    if cli_engine is not None:
+        return _canonicalize_engine(cli_engine)
+    env_engine = os.environ.get("ENGINE", "").strip()
+    if env_engine:
+        return _canonicalize_engine(env_engine)
+    return "vllm"
+
+
+# sidecar 共享卷:wings-control 与 engine 容器通过该目录交换文件。
+# hardware_info.json 从此读入,start_command.sh/repro.sh/audit.json 默认写回这里。
+SHARED_VOLUME_DIR = Path("/shared-volume")
+# 硬件信息默认路径:wings-engine 探测后写入共享卷,wings-control 只读该文件。
+# MaaS/sidecar 部署下该文件通常固定在此,因此 --hardware-info 可省略。
+DEFAULT_HARDWARE_INFO_PATH = SHARED_VOLUME_DIR / "hardware_info.json"
+
+
+def _resolve_output_dir(cli_value: Path | None) -> Path:
+    """解析三件产物(start_command.sh / repro.sh / audit.json)输出目录。
+
+    优先级:``--output-dir``(CLI)> 共享卷 ``/shared-volume``(**存在则用**)> 当前目录 ``.``。
+    sidecar 部署下 engine 容器从共享卷读 ``start_command.sh``,故默认产物落共享卷,
+    免得还要显式传 ``--output-dir``;非 sidecar(本地/CI,无该卷)回退 cwd,行为不变。
+
+    Args:
+        cli_value: ``--output-dir`` 传入值;None 表示未传。
+
+    Returns:
+        实际输出目录。
+    """
+    if cli_value is not None:
+        return cli_value
+    if SHARED_VOLUME_DIR.is_dir():
+        logger.info("未传 --output-dir,检测到共享卷 → 三件产物落 %s(engine 从此读 start_command.sh)", SHARED_VOLUME_DIR)
+        return SHARED_VOLUME_DIR
+    return Path(".")
+
+
+def _resolve_hardware_info_path(cli_path: Path | None) -> Path:
+    """解析 hardware_info.json 路径(``--hardware-info`` 为**可选**参数)。
+
+    **仅两条途径**:① ``--hardware-info``(CLI 可选)② 不传则读固定目录
+    ``/shared-volume/hardware_info.json``。硬件信息由 wings-engine 探测写入共享卷、框架只读。
+    本函数只做**路径选择**,不校验文件是否存在;
+    缺失/不可读会在 ``resolve_hardware`` 阶段明确报错。
+
+    Args:
+        cli_path: ``--hardware-info`` 传入的路径;None 表示未传。
+
+    Returns:
+        ``cli_path`` 或默认共享卷路径。
+    """
+    if cli_path is not None:
+        return cli_path
+    logger.info(
+        "未传 --hardware-info,默认读固定目录 %s(wings-engine 探测产物)",
+        DEFAULT_HARDWARE_INFO_PATH,
+    )
+    return DEFAULT_HARDWARE_INFO_PATH
+
+
+def _resolve_device_count(cli_value: int | None) -> int | None:
+    """解析 device-count。优先级: CLI --device-count > DEVICE_COUNT env > None(未提供)。
+
+    非 None 时驱动小策略层 DeviceCountTransform 协调 DP(``DP = cnt // TP``,TP 静态,并写 trace)。
+    缺省返回 None(不触发协调,audit 记 'unset')。
+    """
+    if cli_value is not None:
+        return cli_value
+    env_val = os.environ.get("DEVICE_COUNT", "").strip()
+    if env_val:
+        try:
+            return int(env_val)
+        except ValueError:
+            logger.warning("DEVICE_COUNT env '%s' 非整数,忽略(按 unset 处理)", env_val)
+            return None
+    return None
+
+
+def _resolve_model_name(model_name: str | None, model_path: str | None) -> str:
+    """推导配方查找用的模型标识(name_pattern 匹配)。
+
+    优先级:``--model-name``(模型名称)> ``--model-path`` 的 basename。
+    `--model` 已删除(冗余):直接用 ``--model-name`` 做
+    ``model.match[].name_pattern`` 匹配,同时它也作 ``served_model_name``。缺 ``--model-name``
+    时退而取 ``--model-path`` 目录名(如 ``/…/MiniMax-M3-MXFP8`` → ``MiniMax-M3-MXFP8``)。
+
+    Args:
+        model_name: ``--model-name``(模型名称)。
+        model_path: ``--model-path``(模型路径;model_name 缺省时取其 basename)。
+
+    Returns:
+        用于 name_pattern 匹配的模型名。
+
+    Raises:
+        ValueError: ``--model-name`` 与 ``--model-path`` 都缺,无法确定配方标识。
+    """
+    if model_name:
+        return model_name
+    if model_path:
+        name = Path(model_path).name  # basename;应匹配 recipe 的 name_pattern
+        logger.info("未传 --model-name,从 --model-path 推导配方标识: %s", name)
+        return name
+    raise ValueError(
+        "需要 --model-name 或 --model-path 以确定配方(MaaS 下发 --model-name 模型名称)"
+    )
+
+
+def _collect_subsystem_switches(args: argparse.Namespace) -> List[str]:
+    """提取已开启的子系统开关(仅记录,不进入引擎 argv)。
+
+    Args:
+        args: argparse 解析结果。
+
+    Returns:
+        已开启开关名列表(为空表示未开启)。
+    """
+    switches = (
+        ("enable_rag_acc", args.enable_rag_acc),
+        ("enable_smartqos", args.enable_smartqos),
+        ("enable_otlp_traces", args.enable_otlp_traces),
+    )
+    return [name for name, enabled in switches if enabled]
+
+
+def _parse_runtime_context_from_env() -> tuple[str | None, str | None, list[str] | None]:
+    """读取 multi_node 运行时上下文环境变量。
+
+    Returns:
+        ``(rank_ip, master_ip, node_ips)``。若 ``NODE_IPS`` 缺失则 ``node_ips=None``。
+    """
+    rank_ip = os.environ.get("RANK_IP")
+    master_ip = os.environ.get("MASTER_IP")
+    # NODE_IPS 统一走 env_utils.parse_node_ips(先剥方括号再切分),避免 MaaS
+    # 下发 "[ip1,ip2]" 时首尾 IP 粘上方括号导致 multi_node 选节点失配。
+    node_ips = parse_node_ips(os.environ.get("NODE_IPS"))
+    return rank_ip, master_ip, node_ips
+
+
+def _print_multi_node_dry_run(engine: str, nodes: List[Any]) -> None:
+    """打印 dry-run 下的 multi_node 占位 argv 列表。
+
+    Args:
+        engine: 引擎名称。
+        nodes: multi_node 占位节点列表。
+
+    Returns:
+        None。
+    """
+    for node in nodes:
+        node_argv = build_argv(node.engine_config_traces, engine=engine)
+        print(f"# node[{node.role}] (multi_node 占位,未注入 $占位符)")
+        print(shlex.join(node_argv))
+
+
+def _print_multi_node_summary(engine: str, nodes: List[Any]) -> None:
+    """打印真跑模式下的 multi_node 占位摘要。
+
+    Args:
+        engine: 引擎名称。
+        nodes: multi_node 占位节点列表。
+
+    Returns:
+        None。
+    """
+    print(
+        f"multi_node: {len(nodes)} 节点(占位,未注入;"
+        "start_command.sh 为占位脚本,部署时各 Pod 携 RANK_IP/NODE_IPS 重跑)"
+    )
+    for node in nodes:
+        node_argv = build_argv(node.engine_config_traces, engine=engine)
+        print(f"  [{node.role}] argv: {shlex.join(node_argv)}")
+
+
+def _run_dry_mode(parser: argparse.ArgumentParser, request: PipelineRequest) -> None:
+    """执行 dry-run 分支:解析后打印 argv,不落盘。
+
+    Args:
+        parser: CLI parser(用于友好报错)。
+        request: 流水线请求(dry-run 与正常路径共用同一请求对象)。
+
+    Returns:
+        None。
+
+    Raises:
+        SystemExit: 通过 ``parser.error`` 触发。
+    """
+    engine = request.target.engine
+    try:
+        resolved = resolve_pipeline(request)
+    except (ValueError, FileNotFoundError, NotImplementedError) as exc:
+        parser.error(str(exc))
+        return
+
+    if resolved.nodes:
+        _print_multi_node_dry_run(engine, resolved.nodes)
+        return
+
+    # accel.engine_config 已并入 engine_config_traces,build_argv 输出即最终命令。
+    argv = build_argv(resolved.engine_config_traces, engine=engine)
+    print(shlex.join(argv))
+
+
+def _validate_unknown_args(parser: argparse.ArgumentParser, unknown_args: List[str]) -> None:
+    """校验未知参数列表并输出统一错误。
+
+    Args:
+        parser: CLI parser。
+        unknown_args: argparse 未识别参数列表。
+
+    Returns:
+        None。
+
+    Raises:
+        SystemExit: 参数不合法时通过 ``parser.error`` 退出。
+    """
+    if _contains_removed_engine_param(unknown_args):
+        parser.error(
+            "`--engine-param` 已移除; 需要裸透传请使用 direct_vllm_serve 逃生通道。"
+        )
+    if unknown_args:
+        parser.error(f"unrecognized arguments: {' '.join(unknown_args)}")
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="wings-ctl",
+        description="Trace-first config resolver for vLLM engine startup.",
+    )
+    parser.add_argument(
+        "--hardware-info",
+        type=Path,
+        default=None,
+        help="Path to hardware_info.json (optional; default: /shared-volume/hardware_info.json)",
+    )
+    parser.add_argument(
+        "--config-root",
+        type=Path,
+        default=None,
+        help="Config assets root (default: auto-detect)",
+    )
+    parser.add_argument(
+        "--output-dir", "-o",
+        type=Path,
+        default=None,
+        help="Output directory for scripts and audit (default: /shared-volume if present, else cwd)",
+    )
+    parser.add_argument(
+        "--distributed",
+        action="store_true",
+        default=None,
+        help="分布式判定总开关(MaaS 下发);topology 由大策略层从此 + PD_ROLE/NODE_IPS/MASTER_IP 推导",
+    )
+    parser.add_argument(
+        "--engine",
+        default=None,
+        help="Engine name (fallback: ENGINE env, else vllm)",
+    )
+    parser.add_argument(
+        "--host",
+        default=None,
+        help="Engine host override",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help=(
+            "对外/代理端口(sidecar:proxy 对外端口,默认 18000)。"
+            "注意:它**不设引擎端口**——引擎监听 backend(默认 17000),"
+            "引擎端口请用 ENGINE_PORT 环境变量调整。"
+        ),
+    )
+    parser.add_argument(
+        "--model-path",
+        default=None,
+        help="Model path override (engine_config.model)",
+    )
+    parser.add_argument("--model-name", default=None)
+    parser.add_argument("--max-num-seqs", type=int, default=None)
+    parser.add_argument("--max-num-batched-tokens", type=int, default=None)
+    parser.add_argument("--input-length", type=int, default=None)
+    parser.add_argument("--output-length", type=int, default=None)
+    parser.add_argument("--trust-remote-code", action="store_true", default=None)
+    parser.add_argument("--enable-auto-think-choice", action="store_true", default=None)
+    parser.add_argument("--enable-auto-tool-choice", action="store_true", default=None)
+    parser.add_argument("--dtype", default=None)
+    parser.add_argument("--kv-cache-dtype", default=None)
+    parser.add_argument("--quantization", default=None)
+    parser.add_argument("--quantization-param-path", default=None)
+    parser.add_argument("--gpu-memory-utilization", type=float, default=None)
+    parser.add_argument("--block-size", type=int, default=None)
+    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--enable-chunked-prefill", action="store_true", default=None)
+    parser.add_argument("--enable-prefix-caching", action="store_true", default=None)
+    parser.add_argument("--enable-expert-parallel", action="store_true", default=None)
+    # 子系统特性开关(rag / 优先级调度 / OTLP 追踪):当前仅接收留痕,业务逻辑由下游消费。
+    # 这些不是引擎参数,不进 vllm argv。
+    parser.add_argument("--enable-rag-acc", action="store_true", default=None)
+    parser.add_argument("--enable-smartqos", action="store_true", default=None)
+    parser.add_argument("--enable-otlp-traces", action="store_true", default=None)
+    parser.add_argument(
+        "--device-count",
+        type=int,
+        default=None,
+        help="GPU 卡数(MaaS 下发,fallback: DEVICE_COUNT env)。驱动 DP 协调(DP=cnt//TP,TP 静态;写 trace),未传则不触发。",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print argv to stdout without writing files",
+    )
+    return parser
+
+
+
+def main() -> None:
+    """CLI 入口函数。"""
+    parser = _build_parser()
+    args, unknown_args = parser.parse_known_args()
+    _validate_unknown_args(parser, unknown_args)
+
+    # 子系统特性开关当前仅接收留痕,不进入引擎 argv。
+    _received_subsys_switches = _collect_subsystem_switches(args)
+    if _received_subsys_switches:
+        logger.info("已接收子系统特性开关(当前仅保存):%s", _received_subsys_switches)
+
+    # --trust-remote-code 未显式开启时给出告警,但不阻断启动。
+    if not args.trust_remote_code:
+        logger.warning(
+            "未传 --trust-remote-code:引擎将不信任远程代码;若模型依赖 HuggingFace 自定义代码,"
+            "请显式传 --trust-remote-code。"
+        )
+
+    try:
+        engine = _resolve_engine(args.engine)
+        hardware_info_path = _resolve_hardware_info_path(args.hardware_info)
+        device_count = _resolve_device_count(args.device_count)
+        # 显式副作用:把 --port(对外/代理端口)写入 env PORT,供 proxy 子系统读取(独立成步,不藏在参数收集里)。
+        _export_proxy_port(args.port)
+        raw_user_cli_overrides = _collect_user_cli_overrides(
+            host=args.host,
+            port=args.port,
+            model_path=args.model_path,
+            model_name=args.model_name,
+            max_num_seqs=args.max_num_seqs,
+            max_num_batched_tokens=args.max_num_batched_tokens,
+            input_length=args.input_length,
+            output_length=args.output_length,
+            trust_remote_code=args.trust_remote_code,
+            enable_auto_think_choice=args.enable_auto_think_choice,
+            enable_auto_tool_choice=args.enable_auto_tool_choice,
+            dtype=args.dtype,
+            kv_cache_dtype=args.kv_cache_dtype,
+            quantization=args.quantization,
+            quantization_param_path=args.quantization_param_path,
+            gpu_memory_utilization=args.gpu_memory_utilization,
+            block_size=args.block_size,
+            seed=args.seed,
+            enable_chunked_prefill=args.enable_chunked_prefill,
+            enable_prefix_caching=args.enable_prefix_caching,
+            enable_expert_parallel=args.enable_expert_parallel,
+        )
+        user_cli_overrides, user_cli_dropped = CLITranslator.translate_overrides(
+            raw_user_cli_overrides, engine
+        )
+        # 特性开关本身不直接渲染进 argv。
+        # 这里只提取为 ON 的开关,后续由 feature_overlay 按 model.yaml features 生成实际参数。
+        feature_switches = {
+            k: raw_user_cli_overrides[k]
+            for k in ("enable_auto_tool_choice", "enable_auto_think_choice")
+            if raw_user_cli_overrides.get(k)
+        }
+    except ValueError as exc:
+        parser.error(str(exc))
+        return
+
+    # 大策略层:从 --distributed(CLI)+ PD_ROLE/NODE_IPS/MASTER_IP(env)推导 topology。
+    # 不读 yaml;resolve_config 只消费推导后的 topology。
+    try:
+        engine, topology = pre_template_strategy(
+            engine,
+            distributed=args.distributed,
+            pd_role=os.environ.get("PD_ROLE"),
+            master_ip=os.environ.get("MASTER_IP"),
+        )
+    except (ValueError, NotImplementedError) as exc:
+        # 缺 MASTER_IP / PD 预留(未实现)等 → 友好报错,不抛 traceback
+        parser.error(str(exc))
+        return
+
+    # 配方标识:--model-name(模型名称)或从 --model-path basename 推导。
+    try:
+        model_name = _resolve_model_name(args.model_name, args.model_path)
+    except ValueError as exc:
+        parser.error(str(exc))
+        return
+
+    # 运行时上下文:multi_node 选本 Pod 节点 + 注入用。缺省时走占位视图。
+    rank_ip, master_ip, node_ips = _parse_runtime_context_from_env()
+
+    # 分布式集群寻址:三 IP 全空(单机 / 无运行时上下文)→ placement=None,单机路径一眼知无关分布式。
+    placement = None
+    if rank_ip or node_ips or master_ip:
+        placement = ClusterPlacement(rank_ip=rank_ip, node_ips=node_ips, master_ip=master_ip)
+    request = PipelineRequest(
+        target=Target(model_name=model_name, topology=topology, engine=engine),
+        hardware_info_path=hardware_info_path,
+        config_root=args.config_root,
+        user_input=UserInput(
+            cli_overrides=user_cli_overrides,
+            cli_dropped=user_cli_dropped,
+            feature_switches=feature_switches,
+        ),
+        device_count=device_count,
+        placement=placement,
+    )
+
+    if args.dry_run:
+        _run_dry_mode(parser, request)
+        return
+
+    try:
+        resolved, start_path, repro_path, audit_path = run_pipeline(
+            request, output_dir=_resolve_output_dir(args.output_dir)
+        )
+    except (ValueError, FileNotFoundError, NotImplementedError) as exc:
+        # 配置缺失(硬件/engine 无资产)/ 未支持的 topology / 强校验失败 → 友好报错,不抛 traceback
+        parser.error(str(exc))
+        return
+
+    if resolved.nodes:
+        # multi_node 占位(无运行时上下文):顶层无扁平 argv,逐节点打印。
+        _print_multi_node_summary(engine, resolved.nodes)
+    else:
+        # accel 已并入 traces,不再 append。shlex.join 与 exec 行同款。
+        argv = build_argv(resolved.engine_config_traces, engine=engine)
+        print(f"argv: {shlex.join(argv)}")
+    print(f"start_command: {start_path}")
+    print(f"repro:         {repro_path}")
+    print(f"audit:         {audit_path}")
+
+
+if __name__ == "__main__":
+    main()

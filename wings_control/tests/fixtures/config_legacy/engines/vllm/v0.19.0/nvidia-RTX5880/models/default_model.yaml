@@ -1,0 +1,14 @@
+platform:
+  hardware_family: nvidia-RTX5880
+  engine: vllm
+  engine_version: "0.19.0"
+
+platform_env: {}
+
+feature_gates: {}
+
+param_validation:
+  enabled: true
+  policy: "drop_unsupported"   # 保留字段值(A3);runtime 按 warn-only 执行,不删参
+  supported_params_file: "supported_params.txt"
+  missing_supported_params_file_policy: "warning_skip"
