@@ -1,0 +1,85 @@
+# 来源追溯
+upstream_sources:
+  - id: sglang_deepseek-v4-flash
+    kind: cookbook
+    repo: sglang
+    file: docs_new/cookbook/autoregressive/DeepSeek/DeepSeek-V4.mdx
+    url: "https://github.com/sgl-project/sglang/blob/main/docs_new/cookbook/autoregressive/DeepSeek/DeepSeek-V4.mdx"
+    note: SGLang 官方 Cookbook 文档。自动生成。
+  - id: sglang_deepseek-v4-flash_config
+    kind: official_config
+    repo: sglang
+    file: docs_new/src/snippets/configs/deepseek-ai/deepseek-v4.jsx
+    url: "https://github.com/sgl-project/sglang/blob/main/docs_new/src/snippets/configs/deepseek-ai/deepseek-v4.jsx"
+    note: SGLang 官网 Deployment 面板配置矩阵。自动生成。
+
+# 模型基本信息
+model:
+  name: DeepSeek-V4-Flash  # 模型名称
+  provider: deepseek-ai  # 提供者/厂商
+  model_id: deepseek-ai/DeepSeek-V4-Flash  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.5.14  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)deepseek[-.]?v4[-.]?flash"
+  variant_name: DeepSeek-V4-Flash-fp4  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8  # 单节点 GPU/NPU 数量
+  vram_gb: 1128  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 可选功能列表
+features:
+  spec_decoding:
+    description: Enable speculative decoding.
+    args: [--speculative-algorithm, EAGLE, --speculative-num-steps, 3, --speculative-eagle-topk, 1, --speculative-num-draft-tokens, 4]
+    strategy_overrides:  # 该特性默认用上面的 args；此处仅列出 spec 参数与默认不一致、需按部署场景覆盖的项
+      standalone.single_node_balanced:
+        args: [--speculative-algorithm, EAGLE, --speculative-num-steps, 1, --speculative-eagle-topk, 1, --speculative-num-draft-tokens, 2]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "sglang_deepseek-v4-flash#single_node_low_latency"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_low_latency:
+        display_name: Low-Latency
+        orientation: latency
+        engine_config:
+          model: deepseek-ai/DeepSeek-V4-Flash
+          trust_remote_code: true
+          model_path: deepseek-ai/DeepSeek-V4-Flash
+          tp: 4
+          moe_runner_backend: marlin
+          host: $HOST_IP
+          port: $PORT
+        env: {}
+      single_node_balanced:
+        display_name: Balanced
+        orientation: balanced
+        engine_config:
+          model: deepseek-ai/DeepSeek-V4-Flash
+          trust_remote_code: true
+          model_path: deepseek-ai/DeepSeek-V4-Flash
+          tp: 4
+          moe_runner_backend: flashinfer_mxfp4
+          host: $HOST_IP
+          port: $PORT
+        env: {}
+        default_strategy: true
+      single_node_high_throughput:
+        display_name: High-Throughput
+        orientation: throughput
+        engine_config:
+          model: deepseek-ai/DeepSeek-V4-Flash
+          trust_remote_code: true
+          model_path: deepseek-ai/DeepSeek-V4-Flash
+          tp: 4
+          moe_runner_backend: marlin
+          host: $HOST_IP
+          port: $PORT
+        env: {}

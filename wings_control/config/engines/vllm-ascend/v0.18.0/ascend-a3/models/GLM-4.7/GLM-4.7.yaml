@@ -1,0 +1,337 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_ascend_glm-4.7
+    kind: official_doc
+    repo: vllm-ascend
+    file: docs/source/tutorials/models/GLM4.x.md
+    url: "https://github.com/vllm-project/vllm-ascend/blob/releases/v0.18.0/docs/source/tutorials/models/GLM4.x.md"
+    note: vLLM Ascend 官方教程文档。自动生成。
+
+# 模型基本信息
+model:
+  name: GLM-4.7  # 模型名称
+  provider: zai-org  # 提供者/厂商
+  model_id: zai-org/GLM-4.7  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.18.0  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)glm[-.]?4.7"
+  variant_name: GLM-4.7-W8A8-floatmtp  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 16  # 单节点 GPU/NPU 数量
+  vram_gb: 1024  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 可选功能列表
+features:
+  spec_decoding:
+    description: Speculative decoding (MTP draft) to accelerate generation.
+    args: [--speculative-config, "{\"num_speculative_tokens\":3,\"method\":\"mtp\"}"]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_ascend_glm-4.7#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: Eco-Tech/GLM-4.7-W8A8-floatmtp
+          data_parallel_size: 2
+          tensor_parallel_size: 8
+          enable_expert_parallel: true
+          seed: 1024
+          served_model_name: glm
+          max_model_len: 133000
+          max_num_batched_tokens: 8192
+          max_num_seqs: 16
+          async_scheduling: true
+          quantization: ascend
+          trust_remote_code: true
+          gpu_memory_utilization: 0.9
+          compilation_config:
+            cudagraph_capture_sizes: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
+            cudagraph_mode: FULL_DECODE_ONLY
+          additional_config:
+            enable_shared_expert_dp: true
+            ascend_fusion_config:
+              fusion_ops_gmmswigluquant: false
+        env:
+          HCCL_BUFFSIZE: 512
+          OMP_PROC_BIND: "false"
+          OMP_NUM_THREADS: 1
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          HCCL_OP_EXPANSION_MODE: AIV
+          VLLM_ASCEND_BALANCE_SCHEDULING: 1
+          VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE: 1
+  pd_disaggregation:
+    source_ref: "vllm_ascend_glm-4.7#pd_cluster"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        default_strategy: true
+        nodes:
+          - role: prefill  # Prefill Node 0
+            index: 0
+            engine_config:
+              model: Eco-Tech/GLM-4.7-W8A8-floatmtp
+              host: "0.0.0.0"
+              port: $2
+              data_parallel_size: $3
+              data_parallel_rank: $4
+              data_parallel_address: $5
+              data_parallel_rpc_port: $6
+              tensor_parallel_size: $7
+              enable_expert_parallel: true
+              seed: 1024
+              served_model_name: glm
+              max_model_len: 133000
+              max_num_batched_tokens: 8192
+              trust_remote_code: true
+              max_num_seqs: 64
+              gpu_memory_utilization: 0.9
+              quantization: ascend
+              enforce_eager: true
+              profiler_config:
+                profiler: torch
+                torch_profiler_dir: ./vllm_profile
+                torch_profiler_with_stack: false
+              additional_config:
+                recompute_scheduler_enable: true
+                enable_shared_expert_dp: true
+                ascend_fusion_config:
+                  fusion_ops_gmmswigluquant: false
+              kv_transfer_config:
+                kv_connector: MooncakeConnectorV1
+                kv_role: kv_producer
+                kv_port: 30000
+                engine_id: 0
+                kv_connector_extra_config:
+                  prefill:
+                    dp_size: 2
+                    tp_size: 8
+                  decode:
+                    dp_size: 8
+                    tp_size: 4
+            env:
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              TP_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+              HCCL_BUFFSIZE: 256
+              HCCL_OP_EXPANSION_MODE: AIV
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              OMP_PROC_BIND: "false"
+              OMP_NUM_THREADS: 1
+              ASCEND_AGGREGATE_ENABLE: 1
+              ASCEND_TRANSPORT_PRINT: 1
+              ACL_OP_INIT_MODE: 1
+              ASCEND_A3_ENABLE: 1
+              VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE: 1
+              ASCEND_RT_VISIBLE_DEVICES: $1
+              LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:$LD_LIBRARY_PATH"
+            system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+              commands: ["nic_name=\"xxxx\" # change to your own nic name", "local_ip=\"xxxx\" # change to your own ip"]
+          - role: prefill  # Prefill Node 1
+            index: 1
+            engine_config:
+              model: Eco-Tech/GLM-4.7-W8A8-floatmtp
+              host: "0.0.0.0"
+              port: $2
+              data_parallel_size: $3
+              data_parallel_rank: $4
+              data_parallel_address: $5
+              data_parallel_rpc_port: $6
+              tensor_parallel_size: $7
+              enable_expert_parallel: true
+              seed: 1024
+              served_model_name: glm
+              max_model_len: 133000
+              max_num_batched_tokens: 8192
+              trust_remote_code: true
+              max_num_seqs: 64
+              gpu_memory_utilization: 0.9
+              quantization: ascend
+              enforce_eager: true
+              profiler_config:
+                profiler: torch
+                torch_profiler_dir: ./vllm_profile
+                torch_profiler_with_stack: false
+              additional_config:
+                recompute_scheduler_enable: true
+                enable_shared_expert_dp: true
+                ascend_fusion_config:
+                  fusion_ops_gmmswigluquant: false
+              kv_transfer_config:
+                kv_connector: MooncakeConnectorV1
+                kv_role: kv_producer
+                kv_port: 30100
+                engine_id: 1
+                kv_connector_extra_config:
+                  prefill:
+                    dp_size: 2
+                    tp_size: 8
+                  decode:
+                    dp_size: 8
+                    tp_size: 4
+            env:
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              TP_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+              HCCL_BUFFSIZE: 256
+              HCCL_OP_EXPANSION_MODE: AIV
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              OMP_PROC_BIND: "false"
+              OMP_NUM_THREADS: 1
+              ASCEND_AGGREGATE_ENABLE: 1
+              ASCEND_TRANSPORT_PRINT: 1
+              ACL_OP_INIT_MODE: 1
+              ASCEND_A3_ENABLE: 1
+              VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE: 1
+              ASCEND_RT_VISIBLE_DEVICES: $1
+              LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:$LD_LIBRARY_PATH"
+            system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+              commands: ["nic_name=\"xxxx\" # change to your own nic name", "local_ip=\"xxxx\" # change to your own ip"]
+          - role: decode  # Decode Node 0
+            index: 0
+            engine_config:
+              model: Eco-Tech/GLM-4.7-W8A8-floatmtp
+              host: "0.0.0.0"
+              port: $2
+              data_parallel_size: $3
+              data_parallel_rank: $4
+              data_parallel_address: $5
+              data_parallel_rpc_port: $6
+              tensor_parallel_size: $7
+              enable_expert_parallel: true
+              seed: 1024
+              served_model_name: glm
+              max_model_len: 133000
+              max_num_batched_tokens: 128
+              max_num_seqs: 4
+              trust_remote_code: true
+              async_scheduling: true
+              gpu_memory_utilization: 0.9
+              quantization: ascend
+              profiler_config:
+                profiler: torch
+                torch_profiler_dir: ./vllm_profile
+                torch_profiler_with_stack: false
+              compilation_config:
+                cudagraph_mode: FULL_DECODE_ONLY
+                cudagraph_capture_sizes: [1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 24, 26, 28, 30, 32, 64, 128, 256, 512]
+              additional_config:
+                recompute_scheduler_enable: true
+                enable_shared_expert_dp: true
+                ascend_fusion_config:
+                  fusion_ops_gmmswigluquant: false
+              kv_transfer_config:
+                kv_connector: MooncakeConnectorV1
+                kv_role: kv_consumer
+                kv_port: 30200
+                engine_id: 2
+                kv_connector_extra_config:
+                  prefill:
+                    dp_size: 2
+                    tp_size: 8
+                  decode:
+                    dp_size: 8
+                    tp_size: 4
+            env:
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              TP_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+              HCCL_BUFFSIZE: 512
+              HCCL_OP_EXPANSION_MODE: AIV
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              OMP_PROC_BIND: "false"
+              OMP_NUM_THREADS: 1
+              ASCEND_AGGREGATE_ENABLE: 1
+              ASCEND_TRANSPORT_PRINT: 1
+              ACL_OP_INIT_MODE: 1
+              ASCEND_A3_ENABLE: 1
+              VLLM_MOONCAKE_ABORT_REQUEST_TIMEOUT: 480
+              TASK_QUEUE_ENABLE: 1
+              LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:$LD_LIBRARY_PATH"
+              VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE: 1
+              VLLM_ASCEND_ENABLE_FUSED_MC2: 1
+              ASCEND_RT_VISIBLE_DEVICES: $1
+            system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+              commands: ["nic_name=\"xxxx\" # change to your own nic name", "local_ip=\"xxxx\" # change to your own ip"]
+          - role: decode  # Decode Node 1
+            index: 1
+            engine_config:
+              model: Eco-Tech/GLM-4.7-W8A8-floatmtp
+              host: "0.0.0.0"
+              port: $2
+              data_parallel_size: $3
+              data_parallel_rank: $4
+              data_parallel_address: $5
+              data_parallel_rpc_port: $6
+              tensor_parallel_size: $7
+              enable_expert_parallel: true
+              seed: 1024
+              served_model_name: glm
+              max_model_len: 133000
+              max_num_batched_tokens: 128
+              max_num_seqs: 4
+              trust_remote_code: true
+              async_scheduling: true
+              gpu_memory_utilization: 0.9
+              quantization: ascend
+              profiler_config:
+                profiler: torch
+                torch_profiler_dir: ./vllm_profile
+                torch_profiler_with_stack: false
+              compilation_config:
+                cudagraph_mode: FULL_DECODE_ONLY
+                cudagraph_capture_sizes: [1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 24, 26, 28, 30, 32, 64, 128, 256, 512]
+              additional_config:
+                recompute_scheduler_enable: true
+                enable_shared_expert_dp: true
+                ascend_fusion_config:
+                  fusion_ops_gmmswigluquant: false
+              kv_transfer_config:
+                kv_connector: MooncakeConnectorV1
+                kv_role: kv_consumer
+                kv_port: 30200
+                engine_id: 2
+                kv_connector_extra_config:
+                  prefill:
+                    dp_size: 2
+                    tp_size: 8
+                  decode:
+                    dp_size: 8
+                    tp_size: 4
+            env:
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              TP_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+              HCCL_BUFFSIZE: 512
+              HCCL_OP_EXPANSION_MODE: AIV
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              OMP_PROC_BIND: "false"
+              OMP_NUM_THREADS: 1
+              ASCEND_AGGREGATE_ENABLE: 1
+              ASCEND_TRANSPORT_PRINT: 1
+              ACL_OP_INIT_MODE: 1
+              ASCEND_A3_ENABLE: 1
+              VLLM_MOONCAKE_ABORT_REQUEST_TIMEOUT: 480
+              TASK_QUEUE_ENABLE: 1
+              LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:$LD_LIBRARY_PATH"
+              VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE: 1
+              VLLM_ASCEND_ENABLE_FUSED_MC2: 1
+              ASCEND_RT_VISIBLE_DEVICES: $1
+            system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+              commands: ["nic_name=\"xxxx\" # change to your own nic name", "local_ip=\"xxxx\" # change to your own ip"]

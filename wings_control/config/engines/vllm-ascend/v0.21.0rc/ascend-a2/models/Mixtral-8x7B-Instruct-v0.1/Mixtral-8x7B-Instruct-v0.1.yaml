@@ -1,0 +1,54 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_ascend_mixtral-8x7b-instruct-v0.1
+    kind: official_doc
+    repo: vllm-ascend
+    file: docs/source/tutorials/models/Mixtral-8x7B-Instruct-v0.1.md
+    url: "https://github.com/vllm-project/vllm-ascend/blob/releases/v0.21.0rc/docs/source/tutorials/models/Mixtral-8x7B-Instruct-v0.1.md"
+    note: vLLM Ascend 官方教程文档。自动生成。
+
+# 模型基本信息
+model:
+  name: Mixtral-8x7B-Instruct-v0.1  # 模型名称
+  provider: mistralai  # 提供者/厂商
+  model_id: mistralai/Mixtral-8x7B-Instruct-v0.1  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.21.0rc  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)mixtral[-.]?8x7b[-.]?instruct[-.]?v0.1"
+  variant_name: Mixtral-8x7B-Instruct-v0.1  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8  # 单节点 GPU/NPU 数量
+  vram_gb: 512  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_ascend_mixtral-8x7b-instruct-v0.1#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: "mistralai/Mixtral-8x7B-Instruct-v0.1"
+          tensor_parallel_size: 4
+          max_model_len: 4096
+          dtype: bfloat16
+          trust_remote_code: true
+          enforce_eager: true
+          block_size: 128
+          gpu_memory_utilization: 0.7
+        env:
+          HCCL_OP_EXPANSION_MODE: AIV
+          OMP_PROC_BIND: "false"
+          OMP_NUM_THREADS: 10
+          VLLM_USE_V1: 1
+          HCCL_BUFFSIZE: 200
+          VLLM_ASCEND_ENABLE_MLAPO: 1
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          VLLM_ASCEND_ENABLE_FLASHCOMM1: 1

@@ -1,0 +1,65 @@
+# 来源追溯
+upstream_sources:
+  - id: sglang_minimax-m3
+    kind: cookbook
+    repo: sglang
+    file: docs_new/cookbook/autoregressive/MiniMax/MiniMax-M3.mdx
+    url: "https://github.com/sgl-project/sglang/blob/main/docs_new/cookbook/autoregressive/MiniMax/MiniMax-M3.mdx"
+    note: SGLang 官方 Cookbook 文档。自动生成。
+  - id: sglang_minimax-m3_config
+    kind: official_config
+    repo: sglang
+    file: docs_new/src/snippets/configs/MiniMaxAI/minimax-m3.jsx
+    url: "https://github.com/sgl-project/sglang/blob/main/docs_new/src/snippets/configs/MiniMaxAI/minimax-m3.jsx"
+    note: SGLang 官网 Deployment 面板配置矩阵。自动生成。
+
+# 模型基本信息
+model:
+  name: MiniMax-M3  # 模型名称
+  provider: MiniMaxAI  # 提供者/厂商
+  model_id: MiniMaxAI/MiniMax-M3-MXFP8  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.5.14  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)minimax[-.]?m3"
+  variant_name: MiniMax-M3-mxfp8  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8  # 单节点 GPU/NPU 数量
+  vram_gb: 1440  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: Enable tool/function calling via SGLang parser flags.
+    args: [--tool-call-parser, auto]
+  reasoning:
+    description: Enable model reasoning parser.
+    args: [--reasoning-parser, auto]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "sglang_minimax-m3#single_node_balanced"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_balanced:
+        display_name: Balanced
+        orientation: balanced
+        engine_config:
+          model: MiniMaxAI/MiniMax-M3-MXFP8
+          trust_remote_code: true
+          model_path: MiniMaxAI/MiniMax-M3-MXFP8
+          tp: 8
+          attention_backend: fa4
+          page_size: 128
+          moe_runner_backend: deep_gemm
+          chunked_prefill_size: 8192
+          mem_fraction_static: 0.65
+          host: $HOST_IP
+          port: $PORT
+        env: {}
+        default_strategy: true

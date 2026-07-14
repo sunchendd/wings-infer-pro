@@ -1,0 +1,79 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_mellum2-12b-a2.5b-thinking
+    kind: official_recipe
+    repo: recipes
+    file: models/JetBrains/Mellum2-12B-A2.5B-Thinking.yaml
+    url: "https://recipes.vllm.ai/JetBrains/Mellum2-12B-A2.5B-Thinking"
+    date_updated: 2026-06-02
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: Mellum2-12B-A2.5B-Thinking  # 模型名称
+  slug: mellum2-12b-a2.5b-thinking  # 模型标识
+  provider: JetBrains  # 提供者/厂商
+  description: "JetBrains' reasoning-augmented code MoE (12B total / 2.5B active) that emits explicit <think> chains for debugging, planning, and agentic coding"  # 模型描述
+  model_id: JetBrains/Mellum2-12B-A2.5B-Thinking  # HuggingFace 模型 ID
+  architecture: moe  # 模型架构（dense/moe）
+  parameter_count: 12B  # 总参数量
+  active_parameters: 2.5B  # 激活参数量（MoE 模型）
+  context_length: 131072  # 最大上下文长度
+  vram_minimum_gb: 29  # 最低显存需求(GB)
+  tasks: [text]  # 支持的任务类型
+  min_engine_version: "0.23.0"  # 最低引擎版本要求
+  date_updated: 2026-06-02  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)mellum2[-.]?12b[-.]?a2.5b[-.]?thinking"
+  variant_name: Mellum2-12B-A2.5B-Thinking-bf16
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 2048
+  multi_node: false
+
+# 可选功能列表
+features:
+  reasoning:
+    description: "Parse the model's <think>...</think> reasoning blocks (Qwen3-style parser)"
+    args: [--reasoning-parser, qwen3]
+  tool_calling:
+    description: Hermes tool-call parser for function calling
+    args: [--enable-auto-tool-choice, --tool-call-parser, hermes]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_mellum2-12b-a2.5b-thinking#single_node_dep"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_dep:
+        display_name: Data + Expert Parallel
+        orientation: throughput
+        engine_config:
+          model: JetBrains/Mellum2-12B-A2.5B-Thinking
+          max_model_len: 131072
+          enable_expert_parallel: true
+          data_parallel_size: 8
+        env: {}
+      single_node_tep:
+        display_name: Tensor + Expert Parallel
+        orientation: balanced
+        engine_config:
+          model: JetBrains/Mellum2-12B-A2.5B-Thinking
+          max_model_len: 131072
+          enable_expert_parallel: true
+          tensor_parallel_size: 8
+        env: {}
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: JetBrains/Mellum2-12B-A2.5B-Thinking
+          max_model_len: 131072
+          tensor_parallel_size: 1
+        env: {}

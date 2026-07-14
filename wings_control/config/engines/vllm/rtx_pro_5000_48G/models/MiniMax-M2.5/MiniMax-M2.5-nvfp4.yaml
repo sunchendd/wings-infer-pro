@@ -1,0 +1,74 @@
+# 来源追溯
+upstream_sources:
+  - id: minimax_m2.5_nvfp4_manual
+    kind: manual
+    repo: null
+    file: null
+    url: https://huggingface.co/nvidia/MiniMax-M2.5-NVFP4
+    date_updated: 2026-07-14
+    note: 手工录入
+
+# 模型基本信息
+model:
+  name: MiniMax-M2.5  # 模型名称
+  slug: minimax-m2.5  # 模型标识
+  provider: MiniMax  # 提供者/厂商
+  description: "MiniMax-M2.5 MoE 模型，NVFP4 量化。"  # 模型描述
+  model_id: nvidia/MiniMax-M2.5-NVFP4  # HuggingFace 模型 ID
+  architecture: null  # 待补充
+  parameter_count: null  # 待补充
+  active_parameters: null  # 待补充
+  context_length: null  # 待补充
+  vram_minimum_gb: 384  # 最低显存需求(GB)
+  tasks: [text]  # 支持的任务类型
+  min_engine_version: "0.23.0"  # 最低引擎版本要求（实测 vLLM 0.23.0）
+  date_updated: 2026-07-14  # 录入日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)minimax[-.]?m2.5"
+  variant_name: MiniMax-M2.5-nvfp4  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8  # 单节点 GPU 数量
+  vram_gb: 384  # 单节点总显存(GB)（8 × 48GB）
+  multi_node: false  # 仅支持单节点
+
+# 可选功能列表（不进 engine_config）
+features:
+  tool_calling:
+    description: Enable tool calling with MiniMax M2 tool parser.
+    args: ["--tool-call-parser", "minimax_m2", "--enable-auto-tool-choice"]
+  reasoning:
+    description: Enable reasoning/thinking mode via MiniMax M2 reasoning parser.
+    args: ["--reasoning-parser", "minimax_m2"]
+  spec_decoding:
+    description: Suffix-based speculative decoding.
+    args: ["--speculative_config", "{\"method\":\"suffix\",\"num_speculative_tokens\":10}"]
+  kv_offloading:
+    description: KV cache native offloading to reduce GPU memory usage.
+    args: ["--kv-offloading-backend", "native", "--kv-offloading-size", "40"]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "minimax_m2.5_nvfp4_manual#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: "nvidia/MiniMax-M2.5-NVFP4"
+          host: "0.0.0.0"
+          port: 7699
+          trust_remote_code: true
+          tensor_parallel_size: 4
+          kv_cache_dtype: "fp8"
+          gpu_memory_utilization: 0.9
+          max_model_len: 196608
+        env:
+          VLLM_USE_V1: "1"
+          CUDA_VISIBLE_DEVICES: "4,5,6,7"

@@ -1,0 +1,67 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_qwen3.5-4b
+    kind: official_recipe
+    repo: recipes
+    file: models/Qwen/Qwen3.5-4B.yaml
+    url: "https://recipes.vllm.ai/Qwen/Qwen3.5-4B"
+    date_updated: 2026-04-22
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: Qwen3.5-4B  # 模型名称
+  slug: qwen3.5-4b  # 模型标识
+  provider: Qwen  # 提供者/厂商
+  description: Qwen3.5 compact dense multimodal model (4B) — fits on 16 GB consumer GPUs with full 262K context or one Xeon 6 NUMA node  # 模型描述
+  model_id: Qwen/Qwen3.5-4B  # HuggingFace 模型 ID
+  architecture: dense  # 模型架构（dense/moe）
+  parameter_count: 4B  # 总参数量
+  active_parameters: 4B  # 激活参数量（MoE 模型）
+  context_length: 262144  # 最大上下文长度
+  vram_minimum_gb: 10  # 最低显存需求(GB)
+  tasks: [multimodal, text]  # 支持的任务类型
+  min_engine_version: "0.17.0"  # 最低引擎版本要求
+  date_updated: 2026-04-22  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)qwen3.5[-.]?4b"
+  variant_name: Qwen3.5-4B-bf16
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 4
+  vram_gb: 1024
+  multi_node: false
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: Enable automatic tool choice with Qwen3 Coder parser
+    args: [--enable-auto-tool-choice, --tool-call-parser, qwen3_coder]
+  reasoning:
+    description: Enable chain-of-thought reasoning with Qwen3 parser
+    args: [--reasoning-parser, qwen3]
+  spec_decoding:
+    description: Multi-token prediction speculative decoding for lower latency
+    args: [--speculative-config, "{\"method\":\"mtp\",\"num_speculative_tokens\":1}"]
+  text_only:
+    description: Skip loading the vision encoder for text-only workloads.
+    args: [--language-model-only]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_qwen3.5-4b#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: Qwen/Qwen3.5-4B
+          trust_remote_code: true
+          tensor_parallel_size: 1
+        env: {}

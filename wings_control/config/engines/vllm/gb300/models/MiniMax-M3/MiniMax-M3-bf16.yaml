@@ -1,0 +1,260 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_minimax-m3
+    kind: official_recipe
+    repo: recipes
+    file: models/MiniMaxAI/MiniMax-M3.yaml
+    url: "https://recipes.vllm.ai/MiniMaxAI/MiniMax-M3"
+    date_updated: 2026-06-25
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: MiniMax-M3  # 模型名称
+  slug: minimax-m3  # 模型标识
+  provider: MiniMax  # 提供者/厂商
+  description: "MiniMax M3 vision-language MoE (427B total / 26B active) for frontier coding, agent toolchains, and 1M-token reasoning via MSA sparse attention — native multimodal (image + video + computer use); BF16 plus MXFP8 and AMD MI355X MXFP4 variants. Runs on NVIDIA (Hopper/Blackwell) and AMD CDNA4/CDNA3."  # 模型描述
+  model_id: MiniMaxAI/MiniMax-M3  # HuggingFace 模型 ID
+  architecture: moe  # 模型架构（dense/moe）
+  parameter_count: 427B  # 总参数量
+  active_parameters: 26B  # 激活参数量（MoE 模型）
+  context_length: 1048576  # 最大上下文长度
+  vram_minimum_gb: 1025  # 最低显存需求(GB)
+  tasks: [text, multimodal]  # 支持的任务类型
+  min_engine_version: "0.24.0"  # 最低引擎版本要求
+  date_updated: 2026-06-25  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)minimax[-.]?m3"
+  variant_name: MiniMax-M3-bf16
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 4
+  vram_gb: 1152
+  multi_node: false
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: MiniMax M3 tool call parser with automatic tool choice
+    args: [--tool-call-parser, minimax_m3, --enable-auto-tool-choice]
+  reasoning:
+    description: "MiniMax M3 reasoning parser (supports `thinking` and `non-thinking` modes, switchable per request)"
+    args: [--reasoning-parser, minimax_m3]
+  spec_decoding:
+    description: Eagle3 speculative decoding with the Inferact MiniMax-M3 draft head — accelerates decoding.
+    args: [--speculative-config, "{\"method\": \"eagle3\", \"model\": \"Inferact/MiniMax-M3-EAGLE3\", \"num_speculative_tokens\": 3, \"attention_backend\": \"FLASH_ATTN\"}"]
+  text_only:
+    description: Skip loading the vision encoder for text-only workloads — frees VRAM for KV cache. Mutually exclusive with encoder_parallel.
+    args: [--language-model-only]
+  encoder_parallel:
+    description: "Run the vision encoder data-parallel instead of tensor-parallel — avoids TP comm overhead on the small encoder. Also enables the host-shared-memory multimodal processor cache and the per-brand encoder attention backend (FlashInfer on NVIDIA, AITER FlashAttention on AMD). Mutually exclusive with text_only."
+    args: []
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_minimax-m3#single_node_dep"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_dep:
+        display_name: Data + Expert Parallel
+        orientation: throughput
+        engine_config:
+          model: MiniMaxAI/MiniMax-M3
+          block_size: 128
+          enable_expert_parallel: true
+          data_parallel_size: 4
+        env: {}
+      single_node_tep:
+        display_name: Tensor + Expert Parallel
+        orientation: balanced
+        engine_config:
+          model: MiniMaxAI/MiniMax-M3
+          block_size: 128
+          enable_expert_parallel: true
+          tensor_parallel_size: 4
+        env: {}
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: MiniMaxAI/MiniMax-M3
+          block_size: 128
+          tensor_parallel_size: 4
+        env: {}
+  multi_node:
+    source_ref: "vllm_recipe_minimax-m3#multi_node_dep"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dep:
+        display_name: Multi-Node Data + Expert Parallel
+        orientation: throughput
+        head:  # Head Node 节点配置
+          engine_config:
+            model: MiniMaxAI/MiniMax-M3
+            block_size: 128
+            enable_expert_parallel: true
+            data_parallel_hybrid_lb: true
+            data_parallel_size: 8
+            data_parallel_size_local: 4
+            data_parallel_address: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: MiniMaxAI/MiniMax-M3
+            block_size: 128
+            enable_expert_parallel: true
+            data_parallel_hybrid_lb: true
+            data_parallel_size: 8
+            data_parallel_size_local: 4
+            data_parallel_address: $HEAD_IP
+            data_parallel_start_rank: 4
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+      multi_node_tep:
+        display_name: Multi-Node Tensor + Expert Parallel
+        orientation: balanced
+        head:  # Head Node 节点配置
+          engine_config:
+            model: MiniMaxAI/MiniMax-M3
+            block_size: 128
+            enable_expert_parallel: true
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 8
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: MiniMaxAI/MiniMax-M3
+            block_size: 128
+            enable_expert_parallel: true
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 8
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        head:  # Head Node 节点配置
+          engine_config:
+            model: MiniMaxAI/MiniMax-M3
+            block_size: 128
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 8
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: MiniMaxAI/MiniMax-M3
+            block_size: 128
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 8
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+      multi_node_tp_pp:
+        display_name: Multi-Node TP + Pipeline Parallel
+        head:  # Head Node 节点配置
+          engine_config:
+            model: MiniMaxAI/MiniMax-M3
+            block_size: 128
+            tensor_parallel_size: 4
+            pipeline_parallel_size: 2
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: MiniMaxAI/MiniMax-M3
+            block_size: 128
+            tensor_parallel_size: 4
+            pipeline_parallel_size: 2
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+  pd_disaggregation:
+    source_ref: "vllm_recipe_minimax-m3#pd_cluster"
+    match:
+      distributed: true
+      pd_role: null
+    # PD分离：1P×1D  # 根据官网默认配置
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        orientation: production
+        default_strategy: true
+        nodes:
+          - role: prefill  # P1 节点配置
+            index: 1
+            parallelism: tp
+            engine_config:
+              model: MiniMaxAI/MiniMax-M3
+              block_size: 128
+              port: 8001
+              kv_transfer_config:
+                kv_connector: NixlConnector
+                kv_role: kv_producer
+                kv_load_failure_policy: fail
+              enforce_eager: true
+              tensor_parallel_size: 4
+            env:
+              VLLM_USE_NCCL_SYMM_MEM: 1
+              NCCL_CUMEM_ENABLE: 1
+              NCCL_MNNVL_ENABLE: 1
+              NCCL_NVLS_ENABLE: 1
+              UCX_NET_DEVICES: all
+              VLLM_NIXL_SIDE_CHANNEL_PORT: 5557
+              VLLM_NIXL_SIDE_CHANNEL_HOST: $PREFILL_NODE_1
+              CUDA_VISIBLE_DEVICES: "0,1,2,3"
+          - role: decode  # D1 节点配置
+            index: 1
+            parallelism: tp
+            engine_config:
+              model: MiniMaxAI/MiniMax-M3
+              block_size: 128
+              port: 8002
+              kv_transfer_config:
+                kv_connector: NixlConnector
+                kv_role: kv_consumer
+                kv_load_failure_policy: fail
+              compilation_config:
+                cudagraph_mode: FULL_DECODE_ONLY
+              tensor_parallel_size: 4
+            env:
+              VLLM_NIXL_SIDE_CHANNEL_PORT: 5558
+              VLLM_NIXL_SIDE_CHANNEL_HOST: $DECODE_NODE_1
+              CUDA_VISIBLE_DEVICES: "0,1,2,3"

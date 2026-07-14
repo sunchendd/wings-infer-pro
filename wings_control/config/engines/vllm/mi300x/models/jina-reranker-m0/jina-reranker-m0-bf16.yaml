@@ -1,0 +1,93 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_jina-reranker-m0
+    kind: official_recipe
+    repo: recipes
+    file: models/jinaai/jina-reranker-m0.yaml
+    url: "https://recipes.vllm.ai/jinaai/jina-reranker-m0"
+    date_updated: 2026-04-17
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: Jina Reranker m0  # 模型名称
+  slug: jina-reranker-m0  # 模型标识
+  provider: Jina AI  # 提供者/厂商
+  description: "Multilingual, multimodal reranker for text and visual documents across 29+ languages via Qwen2-VL backbone"  # 模型描述
+  model_id: jinaai/jina-reranker-m0  # HuggingFace 模型 ID
+  architecture: dense  # 模型架构（dense/moe）
+  parameter_count: 2.4B  # 总参数量
+  active_parameters: 2.4B  # 激活参数量（MoE 模型）
+  context_length: 32768  # 最大上下文长度
+  vram_minimum_gb: 6  # 最低显存需求(GB)
+  tasks: [embedding]  # 支持的任务类型
+  min_engine_version: "0.8.0"  # 最低引擎版本要求
+  date_updated: 2026-04-17  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)jina[-.]?reranker[-.]?m0"
+  variant_name: jina-reranker-m0-bf16
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 1536
+  multi_node: false
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_jina-reranker-m0#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: jinaai/jina-reranker-m0
+          gpu_memory_utilization: 0.75
+          max_num_seqs: 32
+          tensor_parallel_size: 1
+        env:
+          VLLM_ROCM_USE_AITER: 1
+  multi_node:
+    source_ref: "vllm_recipe_jina-reranker-m0#multi_node_tp"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        head:  # Head Node 节点配置
+          engine_config:
+            model: jinaai/jina-reranker-m0
+            gpu_memory_utilization: 0.75
+            max_num_seqs: 32
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+            VLLM_ROCM_USE_AITER: 1
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: jinaai/jina-reranker-m0
+            gpu_memory_utilization: 0.75
+            max_num_seqs: 32
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+            VLLM_ROCM_USE_AITER: 1

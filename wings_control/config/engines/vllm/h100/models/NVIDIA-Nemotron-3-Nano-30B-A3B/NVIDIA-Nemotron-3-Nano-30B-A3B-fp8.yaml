@@ -1,0 +1,217 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_nemotron-3-nano-30b-a3b
+    kind: official_recipe
+    repo: recipes
+    file: models/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16.yaml
+    url: "https://recipes.vllm.ai/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16"
+    date_updated: 2026-04-17
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: NVIDIA Nemotron-3-Nano-30B-A3B  # 模型名称
+  slug: nemotron-3-nano-30b-a3b  # 模型标识
+  provider: NVIDIA  # 提供者/厂商
+  description: NVIDIA Nemotron-3-Nano Mamba-hybrid MoE (30B total / ~3B active) with BF16 and FP8 variants  # 模型描述
+  model_id: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8  # HuggingFace 模型 ID
+  architecture: moe  # 模型架构（dense/moe）
+  parameter_count: 30B  # 总参数量
+  active_parameters: 3B  # 激活参数量（MoE 模型）
+  context_length: 262144  # 最大上下文长度
+  vram_minimum_gb: 35  # 最低显存需求(GB)
+  tasks: [text]  # 支持的任务类型
+  min_engine_version: "0.11.2"  # 最低引擎版本要求
+  date_updated: 2026-04-17  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)nemotron[-.]?3[-.]?nano[-.]?30b[-.]?a3b"
+  variant_name: NVIDIA-Nemotron-3-Nano-30B-A3B-fp8
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 640
+  multi_node: false
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: Qwen3 Coder tool-call parser with automatic tool choice
+    args: [--enable-auto-tool-choice, --tool-call-parser, qwen3_coder]
+  reasoning:
+    description: "Custom Nano v3 reasoning parser (download plugin: nano_v3_reasoning_parser.py)"
+    args: [--reasoning-parser-plugin, nano_v3_reasoning_parser.py, --reasoning-parser, nano_v3]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_nemotron-3-nano-30b-a3b#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8
+          trust_remote_code: true
+          async_scheduling: true
+          kv_cache_dtype: fp8
+          tensor_parallel_size: 1
+        env:
+          VLLM_USE_FLASHINFER_MOE_FP8: 1
+          VLLM_FLASHINFER_MOE_BACKEND: throughput
+  multi_node:
+    source_ref: "vllm_recipe_nemotron-3-nano-30b-a3b#multi_node_dep"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dep:
+        display_name: Multi-Node Data + Expert Parallel
+        orientation: throughput
+        head:  # Head Node 节点配置
+          engine_config:
+            model: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8
+            trust_remote_code: true
+            async_scheduling: true
+            kv_cache_dtype: fp8
+            enable_expert_parallel: true
+            data_parallel_hybrid_lb: true
+            data_parallel_size: 16
+            data_parallel_size_local: 8
+            data_parallel_address: $HEAD_IP
+          env:
+            VLLM_USE_FLASHINFER_MOE_FP8: 1
+            VLLM_FLASHINFER_MOE_BACKEND: throughput
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8
+            trust_remote_code: true
+            async_scheduling: true
+            kv_cache_dtype: fp8
+            enable_expert_parallel: true
+            data_parallel_hybrid_lb: true
+            data_parallel_size: 16
+            data_parallel_size_local: 8
+            data_parallel_address: $HEAD_IP
+            data_parallel_start_rank: 8
+          env:
+            VLLM_USE_FLASHINFER_MOE_FP8: 1
+            VLLM_FLASHINFER_MOE_BACKEND: throughput
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+      multi_node_tep:
+        display_name: Multi-Node Tensor + Expert Parallel
+        orientation: balanced
+        head:  # Head Node 节点配置
+          engine_config:
+            model: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8
+            trust_remote_code: true
+            async_scheduling: true
+            kv_cache_dtype: fp8
+            enable_expert_parallel: true
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            VLLM_USE_FLASHINFER_MOE_FP8: 1
+            VLLM_FLASHINFER_MOE_BACKEND: throughput
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8
+            trust_remote_code: true
+            async_scheduling: true
+            kv_cache_dtype: fp8
+            enable_expert_parallel: true
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            VLLM_USE_FLASHINFER_MOE_FP8: 1
+            VLLM_FLASHINFER_MOE_BACKEND: throughput
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        head:  # Head Node 节点配置
+          engine_config:
+            model: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8
+            trust_remote_code: true
+            async_scheduling: true
+            kv_cache_dtype: fp8
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            VLLM_USE_FLASHINFER_MOE_FP8: 1
+            VLLM_FLASHINFER_MOE_BACKEND: throughput
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8
+            trust_remote_code: true
+            async_scheduling: true
+            kv_cache_dtype: fp8
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            VLLM_USE_FLASHINFER_MOE_FP8: 1
+            VLLM_FLASHINFER_MOE_BACKEND: throughput
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+      multi_node_tp_pp:
+        display_name: Multi-Node TP + Pipeline Parallel
+        head:  # Head Node 节点配置
+          engine_config:
+            model: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8
+            trust_remote_code: true
+            async_scheduling: true
+            kv_cache_dtype: fp8
+            tensor_parallel_size: 8
+            pipeline_parallel_size: 2
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            VLLM_USE_FLASHINFER_MOE_FP8: 1
+            VLLM_FLASHINFER_MOE_BACKEND: throughput
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8
+            trust_remote_code: true
+            async_scheduling: true
+            kv_cache_dtype: fp8
+            tensor_parallel_size: 8
+            pipeline_parallel_size: 2
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            VLLM_USE_FLASHINFER_MOE_FP8: 1
+            VLLM_FLASHINFER_MOE_BACKEND: throughput
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME

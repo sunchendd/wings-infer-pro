@@ -1,0 +1,86 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_ascend_minimax-m2.5
+    kind: official_doc
+    repo: vllm-ascend
+    file: docs/source/tutorials/models/MiniMax-M2.5.md
+    url: "https://github.com/vllm-project/vllm-ascend/blob/releases/v0.21.0rc/docs/source/tutorials/models/MiniMax-M2.5.md"
+    note: vLLM Ascend 官方教程文档。自动生成。
+
+# 模型基本信息
+model:
+  name: MiniMax-M2.5  # 模型名称
+  provider: MiniMax  # 提供者/厂商
+  model_id: MiniMax/MiniMax-M2.5  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.21.0rc  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)minimax[-.]?m2.5"
+  variant_name: MiniMax-M2.5-w8a8-QuaRot  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8  # 单节点 GPU/NPU 数量
+  vram_gb: 512  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: Enable automatic tool/function calling via the model's tool-call parser.
+    args: [--enable-auto-tool-choice, --tool-call-parser, minimax_m2]
+  reasoning:
+    description: Enable the model's reasoning-content parser.
+    args: [--reasoning-parser, minimax_m2_append_think]
+  spec_decoding:
+    description: Speculative decoding (MTP draft) to accelerate generation.
+    args: [--speculative-config, "{\"method\":\"eagle3\",\"model\":\"/path/to/weight/Eagle3/\",\"num_speculative_tokens\":3}"]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_ascend_minimax-m2.5#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: /path/to/weight/MiniMax-M2.5-w8a8-QuaRot
+          served_model_name: MiniMax-M2.5
+          host: "0.0.0.0"
+          port: 8000
+          trust_remote_code: true
+          tensor_parallel_size: 8
+          quantization: ascend
+          enable_expert_parallel: true
+          max_num_seqs: 32
+          seed: 1024
+          max_num_batched_tokens: 32768
+          compilation_config:
+            cudagraph_mode: FULL_DECODE_ONLY
+            cudagraph_capture_sizes: [4, 16, 20, 32, 80, 96, 128, 200, 256, 320]
+          gpu_memory_utilization: 0.9
+          enable_force_include_usage: true
+          additional_config:
+            enable_cpu_binding: true
+          model_loader_extra_config:
+            enable_multithread_load: true
+            num_threads: 16
+        env:
+          LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+          HCCL_OP_EXPANSION_MODE: AIV
+          HCCL_BUFFSIZE: 512
+          TASK_QUEUE_ENABLE: 1
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
+          HCCL_INTRA_PCIE_ENABLE: 1
+          HCCL_INTRA_ROCE_ENABLE: 0
+          OMP_PROC_BIND: "false"
+          OMP_NUM_THREADS: 1
+        system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+          sysctls:
+            vm.swappiness: 0
+            kernel.numa_balancing: 0
+            kernel.sched_migration_cost_ns: 50000

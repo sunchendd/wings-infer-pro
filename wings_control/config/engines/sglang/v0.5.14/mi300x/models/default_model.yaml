@@ -1,0 +1,12 @@
+# 硬件 + 引擎公共默认值
+# 该文件由 wings-config update yaml --engine sglang 自动生成
+
+hardware:
+  gpu_count: 8  # 单节点 GPU/NPU 数量
+  vram_gb: 1536  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+engine:
+  name: sglang  # 推理引擎
+  version: v0.5.14  # 引擎版本
+

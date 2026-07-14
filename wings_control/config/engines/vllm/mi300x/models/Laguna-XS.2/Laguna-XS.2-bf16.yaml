@@ -1,0 +1,82 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_laguna-xs.2
+    kind: official_recipe
+    repo: recipes
+    file: models/poolside/Laguna-XS.2.yaml
+    url: "https://recipes.vllm.ai/poolside/Laguna-XS.2"
+    date_updated: 2026-04-29
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: Laguna XS.2  # 模型名称
+  slug: laguna-xs.2  # 模型标识
+  provider: Poolside  # 提供者/厂商
+  description: "Poolside's 33B total / 3B activated MoE coding model with mixed sliding-window + global attention, native interleaved reasoning, and 256K context — designed for agentic coding."  # 模型描述
+  model_id: poolside/Laguna-XS.2  # HuggingFace 模型 ID
+  architecture: moe  # 模型架构（dense/moe）
+  parameter_count: 33B  # 总参数量
+  active_parameters: 3B  # 激活参数量（MoE 模型）
+  context_length: 262144  # 最大上下文长度
+  vram_minimum_gb: 80  # 最低显存需求(GB)
+  tasks: [text]  # 支持的任务类型
+  min_engine_version: "0.21.0"  # 最低引擎版本要求
+  date_updated: 2026-04-29  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)laguna[-.]?xs.2"
+  variant_name: Laguna-XS.2-bf16
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 1536
+  multi_node: false
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: Enable automatic tool choice with Poolside's tool-call parser
+    args: [--enable-auto-tool-choice, --tool-call-parser, poolside_v1]
+  reasoning:
+    description: Enable interleaved thinking with Poolside's reasoning parser
+    args: [--reasoning-parser, poolside_v1]
+  spec_decoding:
+    description: "DFlash speculative decoding with the Laguna-XS.2 draft model (7 tokens, greedy)"
+    args: [--speculative-config, "{\"model\":\"poolside/Laguna-XS.2-speculator.dflash\",\"num_speculative_tokens\":7,\"method\":\"dflash\"}"]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_laguna-xs.2#single_node_dep"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_dep:
+        display_name: Data + Expert Parallel
+        orientation: throughput
+        engine_config:
+          model: poolside/Laguna-XS.2
+          trust_remote_code: true
+          enable_expert_parallel: true
+          data_parallel_size: 8
+        env: {}
+      single_node_tep:
+        display_name: Tensor + Expert Parallel
+        orientation: balanced
+        engine_config:
+          model: poolside/Laguna-XS.2
+          trust_remote_code: true
+          enable_expert_parallel: true
+          tensor_parallel_size: 8
+        env: {}
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: poolside/Laguna-XS.2
+          trust_remote_code: true
+          tensor_parallel_size: 1
+        env: {}

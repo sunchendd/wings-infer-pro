@@ -1,0 +1,238 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_step-3.7-flash
+    kind: official_recipe
+    repo: recipes
+    file: models/stepfun-ai/Step-3.7-Flash.yaml
+    url: "https://recipes.vllm.ai/stepfun-ai/Step-3.7-Flash"
+    date_updated: 2026-05-30
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: Step-3.7-Flash  # 模型名称
+  slug: step-3.7-flash  # 模型标识
+  provider: StepFun  # 提供者/厂商
+  description: "Production-grade vision-language MoE (~198B total / 11B active parameters) combining a 196B sparse language backbone with a 1.8B perception encoder, hybrid SWA/Global attention, and 3-way Multi-Token Prediction"  # 模型描述
+  model_id: stepfun-ai/Step-3.7-Flash-FP8  # HuggingFace 模型 ID
+  architecture: moe  # 模型架构（dense/moe）
+  parameter_count: 198B  # 总参数量
+  active_parameters: 11B  # 激活参数量（MoE 模型）
+  context_length: 262144  # 最大上下文长度
+  vram_minimum_gb: 238  # 最低显存需求(GB)
+  tasks: [multimodal]  # 支持的任务类型
+  min_engine_version: "0.23.0"  # 最低引擎版本要求
+  date_updated: 2026-05-30  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)step[-.]?3.7[-.]?flash"
+  variant_name: Step-3.7-Flash-fp8
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 1128
+  multi_node: false
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: Step-3.5 tool call parser with automatic tool choice
+    args: [--tool-call-parser, step3p5, --enable-auto-tool-choice]
+  reasoning:
+    description: Step-3.5 reasoning parser for chain-of-thought extraction
+    args: [--reasoning-parser, step3p5]
+  spec_decoding:
+    description: 3-layer Multi-Token Prediction speculative decoding (MTP-3)
+    args: [--speculative-config, "{\"method\": \"mtp\", \"num_speculative_tokens\": 3}"]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_step-3.7-flash#single_node_dep"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_dep:
+        display_name: Data + Expert Parallel
+        orientation: throughput
+        engine_config:
+          model: stepfun-ai/Step-3.7-Flash-FP8
+          trust_remote_code: true
+          disable_cascade_attn: true
+          enable_expert_parallel: true
+          data_parallel_size: 8
+        env: {}
+      single_node_tep:
+        display_name: Tensor + Expert Parallel
+        orientation: balanced
+        engine_config:
+          model: stepfun-ai/Step-3.7-Flash-FP8
+          trust_remote_code: true
+          disable_cascade_attn: true
+          enable_expert_parallel: true
+          tensor_parallel_size: 8
+        env: {}
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: stepfun-ai/Step-3.7-Flash-FP8
+          trust_remote_code: true
+          enable_expert_parallel: true
+          disable_cascade_attn: true
+          tensor_parallel_size: 8
+        env: {}
+  multi_node:
+    source_ref: "vllm_recipe_step-3.7-flash#multi_node_dep"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dep:
+        display_name: Multi-Node Data + Expert Parallel
+        orientation: throughput
+        head:  # Head Node 节点配置
+          engine_config:
+            model: stepfun-ai/Step-3.7-Flash-FP8
+            trust_remote_code: true
+            disable_cascade_attn: true
+            enable_expert_parallel: true
+            data_parallel_hybrid_lb: true
+            data_parallel_size: 16
+            data_parallel_size_local: 8
+            data_parallel_address: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: stepfun-ai/Step-3.7-Flash-FP8
+            trust_remote_code: true
+            disable_cascade_attn: true
+            enable_expert_parallel: true
+            data_parallel_hybrid_lb: true
+            data_parallel_size: 16
+            data_parallel_size_local: 8
+            data_parallel_address: $HEAD_IP
+            data_parallel_start_rank: 8
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+      multi_node_tep:
+        display_name: Multi-Node Tensor + Expert Parallel
+        orientation: balanced
+        head:  # Head Node 节点配置
+          engine_config:
+            model: stepfun-ai/Step-3.7-Flash-FP8
+            trust_remote_code: true
+            disable_cascade_attn: true
+            enable_expert_parallel: true
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: stepfun-ai/Step-3.7-Flash-FP8
+            trust_remote_code: true
+            disable_cascade_attn: true
+            enable_expert_parallel: true
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        head:  # Head Node 节点配置
+          engine_config:
+            model: stepfun-ai/Step-3.7-Flash-FP8
+            trust_remote_code: true
+            enable_expert_parallel: true
+            disable_cascade_attn: true
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: stepfun-ai/Step-3.7-Flash-FP8
+            trust_remote_code: true
+            enable_expert_parallel: true
+            disable_cascade_attn: true
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+  pd_disaggregation:
+    source_ref: "vllm_recipe_step-3.7-flash#pd_cluster"
+    match:
+      distributed: true
+      pd_role: null
+    # PD分离：1P×1D  # 根据官网默认配置
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        orientation: production
+        default_strategy: true
+        nodes:
+          - role: prefill  # P1 节点配置
+            index: 1
+            parallelism: tp
+            engine_config:
+              model: stepfun-ai/Step-3.7-Flash-FP8
+              trust_remote_code: true
+              enable_expert_parallel: true
+              disable_cascade_attn: true
+              port: 8001
+              kv_transfer_config:
+                kv_connector: NixlConnector
+                kv_role: kv_producer
+                kv_load_failure_policy: fail
+              enforce_eager: true
+              tensor_parallel_size: 8
+            env:
+              VLLM_NIXL_SIDE_CHANNEL_PORT: 5557
+              VLLM_NIXL_SIDE_CHANNEL_HOST: $PREFILL_NODE_1
+              CUDA_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
+          - role: decode  # D1 节点配置
+            index: 1
+            parallelism: tp
+            engine_config:
+              model: stepfun-ai/Step-3.7-Flash-FP8
+              trust_remote_code: true
+              enable_expert_parallel: true
+              disable_cascade_attn: true
+              port: 8002
+              kv_transfer_config:
+                kv_connector: NixlConnector
+                kv_role: kv_consumer
+                kv_load_failure_policy: fail
+              compilation_config:
+                cudagraph_mode: FULL_DECODE_ONLY
+              tensor_parallel_size: 8
+            env:
+              VLLM_NIXL_SIDE_CHANNEL_PORT: 5558
+              VLLM_NIXL_SIDE_CHANNEL_HOST: $DECODE_NODE_1
+              CUDA_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"

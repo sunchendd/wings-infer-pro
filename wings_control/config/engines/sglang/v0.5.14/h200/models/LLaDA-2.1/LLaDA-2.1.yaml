@@ -1,0 +1,48 @@
+# 来源追溯
+upstream_sources:
+  - id: sglang_llada-2.1
+    kind: cookbook
+    repo: sglang
+    file: docs_new/cookbook/autoregressive/InclusionAI/LLaDA-2.1.mdx
+    url: "https://github.com/sgl-project/sglang/blob/main/docs_new/cookbook/autoregressive/InclusionAI/LLaDA-2.1.mdx"
+    note: SGLang 官方 Cookbook 文档。自动生成。
+
+# 模型基本信息
+model:
+  name: LLaDA 2.1  # 模型名称
+  provider: inclusionAI  # 提供者/厂商
+  model_id: inclusionAI/LLaDA2.1-mini  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.5.14  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)llada[-.]?2.1"
+  variant_name: LLaDA 2.1  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8  # 单节点 GPU/NPU 数量
+  vram_gb: 1128  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "sglang_llada-2.1#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Single Node
+        engine_config:
+          model: inclusionAI/LLaDA2.1-mini
+          model_path: inclusionAI/LLaDA2.1-mini
+          dllm_algorithm: JointThreshold
+          tp: 1
+          trust_remote_code: true
+          mem_fraction_static: 0.8
+          max_running_requests: 1
+          attention_backend: flashinfer
+          host: "0.0.0.0"
+          port: 8000
+        env: {}
+        default_strategy: true

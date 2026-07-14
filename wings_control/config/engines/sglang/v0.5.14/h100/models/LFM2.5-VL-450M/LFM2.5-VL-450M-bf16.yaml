@@ -1,0 +1,60 @@
+# 来源追溯
+upstream_sources:
+  - id: sglang_lfm2.5-vl-450m
+    kind: cookbook
+    repo: sglang
+    file: docs_new/cookbook/autoregressive/LiquidAI/LFM2.5.mdx
+    url: "https://github.com/sgl-project/sglang/blob/main/docs_new/cookbook/autoregressive/LiquidAI/LFM2.5.mdx"
+    note: SGLang 官方 Cookbook 文档。自动生成。
+  - id: sglang_lfm2-5-vl-450m_config
+    kind: official_config
+    repo: sglang
+    file: docs_new/src/snippets/configs/LiquidAI/lfm2.5.jsx
+    url: "https://github.com/sgl-project/sglang/blob/main/docs_new/src/snippets/configs/LiquidAI/lfm2.5.jsx"
+    note: SGLang 官网 Deployment 面板配置矩阵。自动生成。
+
+# 模型基本信息
+model:
+  name: LFM2.5-VL-450M  # 模型名称
+  provider: LiquidAI  # 提供者/厂商
+  model_id: LiquidAI/LFM2.5-VL-450M  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.5.14  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)lfm2.5[-.]?vl[-.]?450m"
+  variant_name: LFM2.5-VL-450M-bf16  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8  # 单节点 GPU/NPU 数量
+  vram_gb: 640  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: Enable tool/function calling via SGLang parser flags.
+    args: [--tool-call-parser, lfm2]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "sglang_lfm2.5-vl-450m#single_node_default"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_default:
+        display_name: default
+        orientation: balanced
+        engine_config:
+          model: LiquidAI/LFM2.5-VL-450M
+          trust_remote_code: true
+          model_path: LiquidAI/LFM2.5-VL-450M
+          tp: 1
+          mem_fraction_static: 0.8
+          host: $HOST_IP
+          port: $PORT
+        env:
+          SGLANG_USE_CUDA_IPC_TRANSPORT: 1
+          SGLANG_USE_IPC_POOL_HANDLE_CACHE: 1
+        default_strategy: true

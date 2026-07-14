@@ -1,0 +1,181 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_trinity-large-thinking
+    kind: official_recipe
+    repo: recipes
+    file: models/arcee-ai/Trinity-Large-Thinking.yaml
+    url: "https://recipes.vllm.ai/arcee-ai/Trinity-Large-Thinking"
+    date_updated: 2026-04-17
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: Trinity-Large-Thinking  # 模型名称
+  slug: trinity-large-thinking  # 模型标识
+  provider: Arcee AI  # 提供者/厂商
+  description: "Arcee AI's reasoning-focused sparse MoE (AfmoeForCausalLM) with structured <think> traces and agentic tool use"  # 模型描述
+  model_id: arcee-ai/Trinity-Large-Thinking  # HuggingFace 模型 ID
+  architecture: moe  # 模型架构（dense/moe）
+  parameter_count: 398B  # 总参数量
+  active_parameters: 13B  # 激活参数量（MoE 模型）
+  context_length: 262144  # 最大上下文长度
+  vram_minimum_gb: 955  # 最低显存需求(GB)
+  tasks: [text]  # 支持的任务类型
+  min_engine_version: "0.11.1"  # 最低引擎版本要求
+  date_updated: 2026-04-17  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)trinity[-.]?large[-.]?thinking"
+  variant_name: Trinity-Large-Thinking-bf16
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 2304
+  multi_node: false
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: Qwen3 Coder tool-call parser with automatic tool choice
+    args: [--enable-auto-tool-choice, --tool-call-parser, qwen3_coder]
+  reasoning:
+    description: "DeepSeek-R1 reasoning parser extracts <think>...</think> into message.reasoning"
+    args: [--reasoning-parser, deepseek_r1]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_trinity-large-thinking#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: arcee-ai/Trinity-Large-Thinking
+          dtype: bfloat16
+          tensor_parallel_size: 8
+        env: {}
+  multi_node:
+    source_ref: "vllm_recipe_trinity-large-thinking#multi_node_dep"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dep:
+        display_name: Multi-Node Data + Expert Parallel
+        orientation: throughput
+        head:  # Head Node 节点配置
+          engine_config:
+            model: arcee-ai/Trinity-Large-Thinking
+            dtype: bfloat16
+            enable_expert_parallel: true
+            data_parallel_hybrid_lb: true
+            data_parallel_size: 16
+            data_parallel_size_local: 8
+            data_parallel_address: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: arcee-ai/Trinity-Large-Thinking
+            dtype: bfloat16
+            enable_expert_parallel: true
+            data_parallel_hybrid_lb: true
+            data_parallel_size: 16
+            data_parallel_size_local: 8
+            data_parallel_address: $HEAD_IP
+            data_parallel_start_rank: 8
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+      multi_node_tep:
+        display_name: Multi-Node Tensor + Expert Parallel
+        orientation: balanced
+        head:  # Head Node 节点配置
+          engine_config:
+            model: arcee-ai/Trinity-Large-Thinking
+            dtype: bfloat16
+            enable_expert_parallel: true
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: arcee-ai/Trinity-Large-Thinking
+            dtype: bfloat16
+            enable_expert_parallel: true
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        head:  # Head Node 节点配置
+          engine_config:
+            model: arcee-ai/Trinity-Large-Thinking
+            dtype: bfloat16
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: arcee-ai/Trinity-Large-Thinking
+            dtype: bfloat16
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+      multi_node_tp_pp:
+        display_name: Multi-Node TP + Pipeline Parallel
+        head:  # Head Node 节点配置
+          engine_config:
+            model: arcee-ai/Trinity-Large-Thinking
+            dtype: bfloat16
+            tensor_parallel_size: 8
+            pipeline_parallel_size: 2
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: arcee-ai/Trinity-Large-Thinking
+            dtype: bfloat16
+            tensor_parallel_size: 8
+            pipeline_parallel_size: 2
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME

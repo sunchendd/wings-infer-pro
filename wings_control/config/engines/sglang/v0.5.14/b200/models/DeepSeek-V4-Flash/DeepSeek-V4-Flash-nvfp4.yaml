@@ -1,0 +1,61 @@
+# 来源追溯
+upstream_sources:
+  - id: sglang_deepseek-v4-flash
+    kind: cookbook
+    repo: sglang
+    file: docs_new/cookbook/autoregressive/DeepSeek/DeepSeek-V4.mdx
+    url: "https://github.com/sgl-project/sglang/blob/main/docs_new/cookbook/autoregressive/DeepSeek/DeepSeek-V4.mdx"
+    note: SGLang 官方 Cookbook 文档。自动生成。
+  - id: sglang_deepseek-v4-flash_config
+    kind: official_config
+    repo: sglang
+    file: docs_new/src/snippets/configs/deepseek-ai/deepseek-v4.jsx
+    url: "https://github.com/sgl-project/sglang/blob/main/docs_new/src/snippets/configs/deepseek-ai/deepseek-v4.jsx"
+    note: SGLang 官网 Deployment 面板配置矩阵。自动生成。
+
+# 模型基本信息
+model:
+  name: DeepSeek-V4-Flash  # 模型名称
+  provider: nvidia  # 提供者/厂商
+  model_id: nvidia/DeepSeek-V4-Flash-NVFP4  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.5.14  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)deepseek[-.]?v4[-.]?flash"
+  variant_name: DeepSeek-V4-Flash-nvfp4  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8  # 单节点 GPU/NPU 数量
+  vram_gb: 1440  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 可选功能列表
+features:
+  spec_decoding:
+    description: Enable speculative decoding.
+    args: [--speculative-algorithm, EAGLE, --speculative-num-steps, 3, --speculative-eagle-topk, 1, --speculative-num-draft-tokens, 4]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "sglang_deepseek-v4-flash#single_node_low_latency"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_low_latency:
+        display_name: Low-Latency
+        orientation: latency
+        engine_config:
+          model: nvidia/DeepSeek-V4-Flash-NVFP4
+          trust_remote_code: true
+          model_path: nvidia/DeepSeek-V4-Flash-NVFP4
+          tp: 4
+          moe_runner_backend: flashinfer_trtllm_routed
+          chunked_prefill_size: 4096
+          disable_flashinfer_autotune: true
+          swa_full_tokens_ratio: 0.1
+          host: $HOST_IP
+          port: $PORT
+        env: {}
+        default_strategy: true

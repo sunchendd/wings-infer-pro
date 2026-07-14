@@ -1,0 +1,329 @@
+# 来源追溯
+upstream_sources:
+  - id: sglang_deepseek-v3.2
+    kind: official_doc
+    repo: sglang
+    file: docs_new/docs/hardware-platforms/ascend-npus/best_practice/deepseek_v3_2.mdx
+    url: "https://github.com/sgl-project/sglang/blob/main/docs_new/docs/hardware-platforms/ascend-npus/best_practice/deepseek_v3_2.mdx"
+    note: SGLang 官方 Cookbook 文档。自动生成。
+
+# 模型基本信息
+model:
+  name: DeepSeek-V3.2  # 模型名称
+  provider: ""  # 提供者/厂商
+  model_id: DeepSeek-V3.2  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.5.14  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)deepseek[-.]?v3.2"
+  variant_name: DeepSeek-V3.2-w8a8  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 16  # 单节点 GPU/NPU 数量
+  vram_gb: 1024  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 可选功能列表
+features:
+  spec_decoding:
+    description: Enable speculative decoding.
+    args: [--speculative-algorithm, NEXTN, --speculative-num-steps, 1, --speculative-eagle-topk, 1, --speculative-num-draft-tokens, 2]
+    strategy_overrides:  # 该特性默认用上面的 args；此处仅列出 spec 参数与默认不一致、需按部署场景覆盖的项
+      pd_disaggregation.pd_cluster_deepseek-v3-2-w8a8-1p1d-32p-in128k-out1k-26ms.decode1:
+        args: [--speculative-algorithm, NEXTN, --speculative-num-steps, 3, --speculative-eagle-topk, 1, --speculative-num-draft-tokens, 4]
+      pd_disaggregation.pd_cluster_deepseek-v3-2-w8a8-1p1d-32p-in128k-out1k-bs16.decode1:
+        args: [--speculative-algorithm, NEXTN, --speculative-num-steps, 3, --speculative-eagle-topk, 1, --speculative-num-draft-tokens, 4]
+      pd_disaggregation.pd_cluster_deepseek-v3-2-w8a8-1p1d-32p-in128k-out1k-bs8.decode1:
+        args: [--speculative-algorithm, NEXTN, --speculative-num-steps, 3, --speculative-eagle-topk, 1, --speculative-num-draft-tokens, 4]
+
+# 部署场景
+scenarios:
+  pd_disaggregation:
+    source_ref: "sglang_deepseek-v3.2#pd_cluster_deepseek-v3-2-w8a8-1p1d-32p-in128k-out1k-26ms"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster_deepseek-v3-2-w8a8-1p1d-32p-in128k-out1k-26ms:
+        display_name: DeepSeek-V3.2 W8A8 1P1D 32P IN128K OUT1K 26ms
+        orientation: latency
+        nodes:
+          - role: prefill
+            index: 0
+            engine_config:
+              model: "${MODEL_PATH}"
+              model_path: $MODEL_PATH
+              disaggregation_mode: prefill
+              host: "${P_IP[$i]}"
+              port: 8000
+              dist_init_addr: "${P_IP[0]}:5000"
+              disaggregation_bootstrap_port: 8998
+              node_rank: $i
+              nnodes: 2
+              tp: 32
+              watchdog_timeout: 9000
+              mem_fraction_static: 0.73
+              disable_radix_cache: true
+              chunked_prefill_size: -1
+              max_prefill_tokens: 68000
+              max_running_requests: 1
+              moe_a2a_backend: deepep
+              deepep_mode: normal
+              quantization: modelslim
+              disaggregation_transfer_backend: ascend
+              disable_cuda_graph: true
+              moe_dense_tp_size: 1
+              enable_nsa_prefill_context_parallel: true
+              nsa_prefill_cp_mode: in-seq-split
+              attn_cp_size: 32
+              trust_remote_code: true
+              attention_backend: ascend
+              device: npu
+            env:
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              SGLANG_SET_CPU_AFFINITY: 1
+              STREAMS_PER_DEVICE: 32
+              ASCEND_MF_STORE_URL: "tcp://<your prefill ip1>:24670"
+              DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+              GLOO_SOCKET_IFNAME: "<network-interface>"
+              HCCL_BUFFSIZE: 1200
+              HCCL_SOCKET_IFNAME: "<network-interface>"
+              TASK_QUEUE_ENABLE: 2
+            system_setup:
+              commands: [unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh, "P_IP=('<your prefill ip1>' '<your prefill ip2>')", "D_IP=('<your decode ip1>' '<your decode ip2>')", MODEL_PATH=/path/to/model-weights]
+          - role: decode
+            index: 1
+            engine_config:
+              model: "${MODEL_PATH}"
+              model_path: $MODEL_PATH
+              disaggregation_mode: decode
+              host: "${D_IP[$i]}"
+              port: 8001
+              dist_init_addr: "${D_IP[0]}:5000"
+              node_rank: $i
+              nnodes: 2
+              tp: 32
+              dp: 8
+              ep: 32
+              moe_dense_tp_size: 1
+              enable_dp_attention: true
+              enable_dp_lm_head: true
+              watchdog_timeout: 9000
+              mem_fraction_static: 0.79
+              disable_radix_cache: true
+              chunked_prefill_size: -1
+              max_prefill_tokens: 68000
+              max_running_requests: 32
+              cuda_graph_max_bs: 4
+              moe_a2a_backend: deepep
+              deepep_mode: low_latency
+              quantization: modelslim
+              disaggregation_transfer_backend: ascend
+              trust_remote_code: true
+              attention_backend: ascend
+              device: npu
+            env:
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              SGLANG_SET_CPU_AFFINITY: 1
+              STREAMS_PER_DEVICE: 32
+              ASCEND_MF_STORE_URL: "tcp://<your prefill ip1>:24670"
+              DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+              GLOO_SOCKET_IFNAME: "<network-interface>"
+              HCCL_BUFFSIZE: 400
+              HCCL_SOCKET_IFNAME: "<network-interface>"
+              TASK_QUEUE_ENABLE: 0
+              SGLANG_DEEPEP_NUM_MAX_DISPATCH_TOKENS_PER_RANK: 8
+              SGLANG_ENABLE_OVERLAP_PLAN_STREAM: 1
+              SGLANG_ENABLE_SPEC_V2: 1
+              SGLANG_SCHEDULER_SKIP_ALL_GATHER: 1
+            system_setup:
+              commands: [unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh, "P_IP=('<your prefill ip1>' '<your prefill ip2>')", "D_IP=('<your decode ip1>' '<your decode ip2>')", MODEL_PATH=/path/to/model-weights]
+        default_strategy: true
+      pd_cluster_deepseek-v3-2-w8a8-1p1d-32p-in128k-out1k-bs16:
+        display_name: DeepSeek-V3.2 W8A8 1P1D 32P IN128K OUT1K BS16
+        orientation: latency
+        nodes:
+          - role: prefill
+            index: 0
+            engine_config:
+              model: "${MODEL_PATH}"
+              model_path: $MODEL_PATH
+              disaggregation_mode: prefill
+              host: "${P_IP[$i]}"
+              port: 8000
+              dist_init_addr: "${P_IP[0]}:5000"
+              disaggregation_bootstrap_port: 8998
+              node_rank: $i
+              nnodes: 2
+              tp: 32
+              watchdog_timeout: 9000
+              mem_fraction_static: 0.73
+              disable_radix_cache: true
+              chunked_prefill_size: -1
+              max_prefill_tokens: 68000
+              max_running_requests: 1
+              moe_a2a_backend: deepep
+              deepep_mode: normal
+              quantization: modelslim
+              disaggregation_transfer_backend: ascend
+              disable_cuda_graph: true
+              moe_dense_tp_size: 1
+              enable_nsa_prefill_context_parallel: true
+              nsa_prefill_cp_mode: in-seq-split
+              attn_cp_size: 32
+              trust_remote_code: true
+              attention_backend: ascend
+              device: npu
+            env:
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              SGLANG_SET_CPU_AFFINITY: 1
+              STREAMS_PER_DEVICE: 32
+              ASCEND_MF_STORE_URL: "tcp://<your prefill ip1>:24670"
+              DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+              GLOO_SOCKET_IFNAME: "<network-interface>"
+              HCCL_BUFFSIZE: 1200
+              HCCL_SOCKET_IFNAME: "<network-interface>"
+              TASK_QUEUE_ENABLE: 2
+            system_setup:
+              commands: [unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh, "P_IP=('<your prefill ip1>' '<your prefill ip2>')", "D_IP=('<your decode ip1>' '<your decode ip2>')", MODEL_PATH=/path/to/model-weights]
+          - role: decode
+            index: 1
+            engine_config:
+              model: "${MODEL_PATH}"
+              model_path: $MODEL_PATH
+              disaggregation_mode: decode
+              host: "${D_IP[$i]}"
+              port: 8001
+              dist_init_addr: "${D_IP[0]}:5000"
+              node_rank: $i
+              nnodes: 2
+              tp: 32
+              dp: 8
+              ep: 32
+              moe_dense_tp_size: 1
+              enable_dp_attention: true
+              enable_dp_lm_head: true
+              watchdog_timeout: 9000
+              mem_fraction_static: 0.79
+              disable_radix_cache: true
+              chunked_prefill_size: -1
+              max_prefill_tokens: 68000
+              max_running_requests: 32
+              cuda_graph_max_bs: 4
+              moe_a2a_backend: deepep
+              deepep_mode: low_latency
+              quantization: modelslim
+              disaggregation_transfer_backend: ascend
+              trust_remote_code: true
+              attention_backend: ascend
+              device: npu
+            env:
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              SGLANG_SET_CPU_AFFINITY: 1
+              STREAMS_PER_DEVICE: 32
+              ASCEND_MF_STORE_URL: "tcp://<your prefill ip1>:24670"
+              DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+              GLOO_SOCKET_IFNAME: "<network-interface>"
+              HCCL_BUFFSIZE: 400
+              HCCL_SOCKET_IFNAME: "<network-interface>"
+              TASK_QUEUE_ENABLE: 0
+              SGLANG_DEEPEP_NUM_MAX_DISPATCH_TOKENS_PER_RANK: 8
+              SGLANG_ENABLE_OVERLAP_PLAN_STREAM: 1
+              SGLANG_ENABLE_SPEC_V2: 1
+              SGLANG_SCHEDULER_SKIP_ALL_GATHER: 1
+            system_setup:
+              commands: [unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh, "P_IP=('<your prefill ip1>' '<your prefill ip2>')", "D_IP=('<your decode ip1>' '<your decode ip2>')", MODEL_PATH=/path/to/model-weights]
+      pd_cluster_deepseek-v3-2-w8a8-1p1d-32p-in128k-out1k-bs8:
+        display_name: DeepSeek-V3.2 W8A8 1P1D 32P IN128K OUT1K BS8
+        orientation: latency
+        nodes:
+          - role: prefill
+            index: 0
+            engine_config:
+              model: "${MODEL_PATH}"
+              model_path: $MODEL_PATH
+              disaggregation_mode: prefill
+              host: "${P_IP[$i]}"
+              port: 8000
+              dist_init_addr: "${P_IP[0]}:5000"
+              disaggregation_bootstrap_port: 8998
+              node_rank: $i
+              nnodes: 2
+              tp: 32
+              watchdog_timeout: 9000
+              mem_fraction_static: 0.73
+              disable_radix_cache: true
+              chunked_prefill_size: -1
+              max_prefill_tokens: 68000
+              max_running_requests: 1
+              moe_a2a_backend: deepep
+              deepep_mode: normal
+              quantization: modelslim
+              disaggregation_transfer_backend: ascend
+              disable_cuda_graph: true
+              moe_dense_tp_size: 1
+              enable_nsa_prefill_context_parallel: true
+              nsa_prefill_cp_mode: in-seq-split
+              attn_cp_size: 32
+              trust_remote_code: true
+              attention_backend: ascend
+              device: npu
+            env:
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              SGLANG_SET_CPU_AFFINITY: 1
+              STREAMS_PER_DEVICE: 32
+              ASCEND_MF_STORE_URL: "tcp://<your prefill ip1>:24670"
+              DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+              GLOO_SOCKET_IFNAME: "<network-interface>"
+              HCCL_BUFFSIZE: 1200
+              HCCL_SOCKET_IFNAME: "<network-interface>"
+              TASK_QUEUE_ENABLE: 2
+            system_setup:
+              commands: [unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh, "P_IP=('<your prefill ip1>' '<your prefill ip2>')", "D_IP=('<your decode ip1>' '<your decode ip2>')", MODEL_PATH=/path/to/model-weights]
+          - role: decode
+            index: 1
+            engine_config:
+              model: "${MODEL_PATH}"
+              model_path: $MODEL_PATH
+              disaggregation_mode: decode
+              host: "${D_IP[$i]}"
+              port: 8001
+              dist_init_addr: "${D_IP[0]}:5000"
+              node_rank: $i
+              nnodes: 2
+              tp: 32
+              dp: 8
+              ep: 32
+              moe_dense_tp_size: 1
+              enable_dp_attention: true
+              enable_dp_lm_head: true
+              watchdog_timeout: 9000
+              mem_fraction_static: 0.79
+              disable_radix_cache: true
+              chunked_prefill_size: -1
+              max_prefill_tokens: 68000
+              max_running_requests: 32
+              cuda_graph_max_bs: 4
+              moe_a2a_backend: deepep
+              deepep_mode: low_latency
+              quantization: modelslim
+              disaggregation_transfer_backend: ascend
+              trust_remote_code: true
+              attention_backend: ascend
+              device: npu
+            env:
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              SGLANG_SET_CPU_AFFINITY: 1
+              STREAMS_PER_DEVICE: 32
+              ASCEND_MF_STORE_URL: "tcp://<your prefill ip1>:24670"
+              DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+              GLOO_SOCKET_IFNAME: "<network-interface>"
+              HCCL_BUFFSIZE: 400
+              HCCL_SOCKET_IFNAME: "<network-interface>"
+              TASK_QUEUE_ENABLE: 0
+              SGLANG_DEEPEP_NUM_MAX_DISPATCH_TOKENS_PER_RANK: 8
+              SGLANG_ENABLE_OVERLAP_PLAN_STREAM: 1
+              SGLANG_ENABLE_SPEC_V2: 1
+              SGLANG_SCHEDULER_SKIP_ALL_GATHER: 1
+            system_setup:
+              commands: [unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh, "P_IP=('<your prefill ip1>' '<your prefill ip2>')", "D_IP=('<your decode ip1>' '<your decode ip2>')", MODEL_PATH=/path/to/model-weights]

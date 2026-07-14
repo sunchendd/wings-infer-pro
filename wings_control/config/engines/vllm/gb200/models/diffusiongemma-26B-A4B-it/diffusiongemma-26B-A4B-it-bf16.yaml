@@ -1,0 +1,61 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_diffusiongemma-26b-a4b-it
+    kind: official_recipe
+    repo: recipes
+    file: models/Google/diffusiongemma-26B-A4B-it.yaml
+    url: "https://recipes.vllm.ai/Google/diffusiongemma-26B-A4B-it"
+    date_updated: 2026-06-10
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: DiffusionGemma 26B-A4B IT  # 模型名称
+  slug: diffusiongemma-26b-a4b-it  # 模型标识
+  provider: Google  # 提供者/厂商
+  description: "Google's DiffusionGemma — a block-diffusion language model built on Gemma 4's MoE backbone (26B total / 4B active). Generates tokens via iterative denoising over a fixed-length canvas rather than left-to-right autoregressive decoding, enabling higher throughput with parallel block generation."  # 模型描述
+  model_id: google/diffusiongemma-26B-A4B-it  # HuggingFace 模型 ID
+  architecture: moe  # 模型架构（dense/moe）
+  parameter_count: 26B  # 总参数量
+  active_parameters: 4B  # 激活参数量（MoE 模型）
+  context_length: 262144  # 最大上下文长度
+  vram_minimum_gb: 64  # 最低显存需求(GB)
+  tasks: [multimodal, text]  # 支持的任务类型
+  min_engine_version: "0.24.0"  # 最低引擎版本要求
+  date_updated: 2026-06-10  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)diffusiongemma[-.]?26b[-.]?a4b[-.]?it"
+  variant_name: diffusiongemma-26B-A4B-it-bf16
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 4
+  vram_gb: 768
+  multi_node: false
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: Enable automatic tool choice with Gemma 4 parser and chat template
+    args: [--enable-auto-tool-choice, --tool-call-parser, gemma4, --chat-template, examples/tool_chat_template_gemma4.jinja]
+  reasoning:
+    description: Enable structured thinking/reasoning output
+    args: [--reasoning-parser, gemma4]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_diffusiongemma-26b-a4b-it#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: google/diffusiongemma-26B-A4B-it
+          max_num_seqs: 4
+          tensor_parallel_size: 1
+        env: {}

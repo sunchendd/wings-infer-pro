@@ -1,0 +1,54 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_ascend_paddleocr-vl
+    kind: official_doc
+    repo: vllm-ascend
+    file: docs/source/tutorials/models/PaddleOCR-VL.md
+    url: "https://github.com/vllm-project/vllm-ascend/blob/releases/v0.21.0rc/docs/source/tutorials/models/PaddleOCR-VL.md"
+    note: vLLM Ascend 官方教程文档。自动生成。
+
+# 模型基本信息
+model:
+  name: PaddleOCR-VL  # 模型名称
+  provider: PaddlePaddle  # 提供者/厂商
+  model_id: PaddlePaddle/PaddleOCR-VL  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.21.0rc  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)paddleocr[-.]?vl"
+  variant_name: PaddleOCR-VL  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 16  # 单节点 GPU/NPU 数量
+  vram_gb: 1024  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_ascend_paddleocr-vl#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: "${MODEL_PATH}"
+          max_num_batched_tokens: 16384
+          served_model_name: PaddleOCR-VL-0.9B
+          trust_remote_code: true
+          enable_prefix_caching: false
+          mm_processor_cache_gb: 0
+          compilation_config:
+            cudagraph_mode: FULL_DECODE_ONLY
+          additional_config:
+            enable_cpu_binding: true
+          port: 8000
+        env:
+          VLLM_USE_MODELSCOPE: "True"
+          MODEL_PATH: PaddlePaddle/PaddleOCR-VL
+          TASK_QUEUE_ENABLE: 1
+          CPU_AFFINITY_CONF: 1
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"

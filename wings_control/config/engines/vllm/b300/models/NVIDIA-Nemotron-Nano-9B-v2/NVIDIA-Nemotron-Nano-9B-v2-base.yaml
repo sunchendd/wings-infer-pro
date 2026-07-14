@@ -1,0 +1,120 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_nemotron-nano-9b-v2
+    kind: official_recipe
+    repo: recipes
+    file: models/nvidia/NVIDIA-Nemotron-Nano-9B-v2.yaml
+    url: "https://recipes.vllm.ai/nvidia/NVIDIA-Nemotron-Nano-9B-v2"
+    date_updated: 2026-04-28
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: NVIDIA Nemotron-Nano-9B-v2  # 模型名称
+  slug: nemotron-nano-9b-v2  # 模型标识
+  provider: NVIDIA  # 提供者/厂商
+  description: NVIDIA Nemotron-Nano 9B (Mamba-hybrid dense) reasoning + tool-use model with FP8 / NVFP4 / Japanese variants  # 模型描述
+  model_id: nvidia/NVIDIA-Nemotron-Nano-9B-v2-Base  # HuggingFace 模型 ID
+  architecture: dense  # 模型架构（dense/moe）
+  parameter_count: 9B  # 总参数量
+  active_parameters: 9B  # 激活参数量（MoE 模型）
+  context_length: 131072  # 最大上下文长度
+  vram_minimum_gb: 22  # 最低显存需求(GB)
+  tasks: [text]  # 支持的任务类型
+  min_engine_version: "0.10.1"  # 最低引擎版本要求
+  date_updated: 2026-04-28  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)nemotron[-.]?nano[-.]?9b[-.]?v2"
+  variant_name: NVIDIA-Nemotron-Nano-9B-v2-base
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 2144
+  multi_node: false
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: "Custom Nemotron tool-call parser plugin (download: nemotron_toolcall_parser_no_streaming.py)"
+    args: [--enable-auto-tool-choice, --tool-call-parser-plugin, nemotron_toolcall_parser_no_streaming.py, --tool-call-parser, nemotron_json]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_nemotron-nano-9b-v2#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: nvidia/NVIDIA-Nemotron-Nano-9B-v2-Base
+          trust_remote_code: true
+          tensor_parallel_size: 1
+        env: {}
+  multi_node:
+    source_ref: "vllm_recipe_nemotron-nano-9b-v2#multi_node_tp"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        head:  # Head Node 节点配置
+          engine_config:
+            model: nvidia/NVIDIA-Nemotron-Nano-9B-v2-Base
+            trust_remote_code: true
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: nvidia/NVIDIA-Nemotron-Nano-9B-v2-Base
+            trust_remote_code: true
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+      multi_node_tp_pp:
+        display_name: Multi-Node TP + Pipeline Parallel
+        head:  # Head Node 节点配置
+          engine_config:
+            model: nvidia/NVIDIA-Nemotron-Nano-9B-v2-Base
+            trust_remote_code: true
+            tensor_parallel_size: 8
+            pipeline_parallel_size: 2
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: nvidia/NVIDIA-Nemotron-Nano-9B-v2-Base
+            trust_remote_code: true
+            tensor_parallel_size: 8
+            pipeline_parallel_size: 2
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME

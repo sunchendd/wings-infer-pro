@@ -1,0 +1,105 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_glm-ga
+    kind: official_recipe
+    repo: recipes
+    file: models/zai-org/GLM-GA.yaml
+    url: "https://recipes.vllm.ai/zai-org/GLM-GA"
+    date_updated: 2026-05-27
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: GLM-GA  # 模型名称
+  slug: glm-ga  # 模型标识
+  provider: GLM (Z-AI)  # 提供者/厂商
+  description: "GLM-GA dense vision-language model (~10B) — image and video understanding with 128K context and dedicated Glmga video processor (fps=2, up to 640 frames)"  # 模型描述
+  model_id: zai-org/GLM-GA  # HuggingFace 模型 ID
+  architecture: dense  # 模型架构（dense/moe）
+  parameter_count: 10B  # 总参数量
+  active_parameters: ""  # 激活参数量（MoE 模型）
+  context_length: 131072  # 最大上下文长度
+  vram_minimum_gb: 29  # 最低显存需求(GB)
+  tasks: [multimodal]  # 支持的任务类型
+  min_engine_version: "0.21.0"  # 最低引擎版本要求
+  date_updated: 2026-05-27  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)glm[-.]?ga"
+  variant_name: GLM-GA-bf16
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 640
+  multi_node: false
+
+# 可选功能列表
+features:
+  text_only:
+    description: Skip loading the vision encoder for text-only workloads — frees VRAM for KV cache.
+    args: [--language-model-only]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_glm-ga#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: zai-org/GLM-GA
+          trust_remote_code: true
+          allowed_local_media_path: /
+          mm_processor_cache_type: shm
+          reasoning_parser: glm45
+          tensor_parallel_size: 1
+        env:
+          VLLM_VIDEO_LOADER_BACKEND: glm4_6v
+  multi_node:
+    source_ref: "vllm_recipe_glm-ga#multi_node_tp"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        head:  # Head Node 节点配置
+          engine_config:
+            model: zai-org/GLM-GA
+            trust_remote_code: true
+            allowed_local_media_path: /
+            mm_processor_cache_type: shm
+            reasoning_parser: glm45
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            VLLM_VIDEO_LOADER_BACKEND: glm4_6v
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: zai-org/GLM-GA
+            trust_remote_code: true
+            allowed_local_media_path: /
+            mm_processor_cache_type: shm
+            reasoning_parser: glm45
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            VLLM_VIDEO_LOADER_BACKEND: glm4_6v
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME

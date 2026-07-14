@@ -1,0 +1,14 @@
+# 硬件 + 引擎公共默认值
+# 该文件由 wings-config update yaml --engine recipes 自动生成
+
+hardware:
+  gpu_count: 8  # 单节点 GPU 数量
+  vram_gb: 256  # 单节点总显存(GB)
+  multi_node: false  # 是否支持多节点
+  restricted: true  # 受限硬件(需 recipe 显式声明)
+  description: Google Cloud TPU v6e Trillium · 32 GB HBM/chip · served via vLLM TPU  # 描述
+
+engine:
+  name: vllm  # 推理引擎
+  version: v0.19.0  # 引擎版本
+

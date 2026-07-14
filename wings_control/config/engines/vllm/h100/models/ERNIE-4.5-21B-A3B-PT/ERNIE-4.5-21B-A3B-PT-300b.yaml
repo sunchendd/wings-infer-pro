@@ -1,0 +1,160 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_ernie-4.5
+    kind: official_recipe
+    repo: recipes
+    file: models/baidu/ERNIE-4.5-21B-A3B-PT.yaml
+    url: "https://recipes.vllm.ai/baidu/ERNIE-4.5-21B-A3B-PT"
+    date_updated: 2026-04-17
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: ERNIE-4.5  # 模型名称
+  slug: ernie-4.5  # 模型标识
+  provider: Ernie (Baidu)  # 提供者/厂商
+  description: "Baidu ERNIE 4.5 MoE text models (21B-A3B, 300B-A47B) with BF16 and FP8 support plus ERNIE-MTP speculative decoding"  # 模型描述
+  model_id: baidu/ERNIE-4.5-300B-A47B-PT  # HuggingFace 模型 ID
+  architecture: moe  # 模型架构（dense/moe）
+  parameter_count: 21B  # 总参数量
+  active_parameters: 3B  # 激活参数量（MoE 模型）
+  context_length: 131072  # 最大上下文长度
+  vram_minimum_gb: 640  # 最低显存需求(GB)
+  tasks: [text]  # 支持的任务类型
+  min_engine_version: "0.10.1"  # 最低引擎版本要求
+  date_updated: 2026-04-17  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)ernie[-.]?4.5"
+  variant_name: ERNIE-4.5-21B-A3B-PT-300b
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 640
+  multi_node: false
+
+# 可选功能列表
+features:
+  spec_decoding:
+    description: ERNIE-MTP (multi-token prediction) speculative decoding
+    args: [--speculative-config, "{\"method\":\"ernie_mtp\",\"model\":\"baidu/ERNIE-4.5-21B-A3B-PT\",\"num_speculative_tokens\":1}"]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_ernie-4.5#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: baidu/ERNIE-4.5-300B-A47B-PT
+          gpu_memory_utilization: 0.95
+          quantization: fp8
+          tensor_parallel_size: 8
+        env: {}
+  multi_node:
+    source_ref: "vllm_recipe_ernie-4.5#multi_node_dep"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dep:
+        display_name: Multi-Node Data + Expert Parallel
+        orientation: throughput
+        head:  # Head Node 节点配置
+          engine_config:
+            model: baidu/ERNIE-4.5-300B-A47B-PT
+            tensor_parallel_size: 8
+            gpu_memory_utilization: 0.95
+            quantization: fp8
+            enable_expert_parallel: true
+            data_parallel_hybrid_lb: true
+            data_parallel_size: 16
+            data_parallel_size_local: 8
+            data_parallel_address: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: baidu/ERNIE-4.5-300B-A47B-PT
+            tensor_parallel_size: 8
+            gpu_memory_utilization: 0.95
+            quantization: fp8
+            enable_expert_parallel: true
+            data_parallel_hybrid_lb: true
+            data_parallel_size: 16
+            data_parallel_size_local: 8
+            data_parallel_address: $HEAD_IP
+            data_parallel_start_rank: 8
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+      multi_node_tep:
+        display_name: Multi-Node Tensor + Expert Parallel
+        orientation: balanced
+        head:  # Head Node 节点配置
+          engine_config:
+            model: baidu/ERNIE-4.5-300B-A47B-PT
+            gpu_memory_utilization: 0.95
+            quantization: fp8
+            enable_expert_parallel: true
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: baidu/ERNIE-4.5-300B-A47B-PT
+            gpu_memory_utilization: 0.95
+            quantization: fp8
+            enable_expert_parallel: true
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        head:  # Head Node 节点配置
+          engine_config:
+            model: baidu/ERNIE-4.5-300B-A47B-PT
+            gpu_memory_utilization: 0.95
+            quantization: fp8
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: baidu/ERNIE-4.5-300B-A47B-PT
+            gpu_memory_utilization: 0.95
+            quantization: fp8
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME

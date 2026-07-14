@@ -1,0 +1,320 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_ascend_deepseek-v3.1
+    kind: official_doc
+    repo: vllm-ascend
+    file: docs/source/tutorials/models/DeepSeek-V3.1.md
+    url: "https://github.com/vllm-project/vllm-ascend/blob/releases/v0.21.0rc/docs/source/tutorials/models/DeepSeek-V3.1.md"
+    note: vLLM Ascend 官方教程文档。自动生成。
+
+# 模型基本信息
+model:
+  name: DeepSeek-V3.1  # 模型名称
+  provider: deepseek-ai  # 提供者/厂商
+  model_id: deepseek-ai/DeepSeek-V3.1  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.21.0rc  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)deepseek[-.]?v3.1"
+  variant_name: DeepSeek-V3.1-w8a8-mtp-QuaRot  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 16  # 单节点 GPU/NPU 数量
+  vram_gb: 1024  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 可选功能列表
+features:
+  spec_decoding:
+    description: Speculative decoding (MTP draft) to accelerate generation.
+    args: [--speculative-config, "{\"num_speculative_tokens\":3,\"method\":\"mtp\"}"]
+    strategy_overrides:  # 该特性默认用上面的 args；此处仅列出 spec 参数与默认不一致、需按部署场景覆盖的项
+      pd_disaggregation.pd_cluster:
+        args: [--speculative-config, "{\"num_speculative_tokens\":1,\"method\":\"mtp\"}"]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_ascend_deepseek-v3.1#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: /weights/DeepSeek-V3.1-w8a8-mtp-QuaRot
+          host: "0.0.0.0"
+          port: 8015
+          data_parallel_size: 4
+          tensor_parallel_size: 4
+          quantization: ascend
+          seed: 1024
+          served_model_name: deepseek_v3
+          enable_expert_parallel: true
+          max_num_seqs: 16
+          max_model_len: 16384
+          max_num_batched_tokens: 4096
+          trust_remote_code: true
+          enable_prefix_caching: false
+          gpu_memory_utilization: 0.92
+          compilation_config:
+            cudagraph_capture_sizes: [4, 16, 32, 48, 64]
+            cudagraph_mode: FULL_DECODE_ONLY
+        env:
+          HCCL_OP_EXPANSION_MODE: AIV
+          HCCL_IF_IP: $local_ip
+          GLOO_SOCKET_IFNAME: $nic_name
+          TP_SOCKET_IFNAME: $nic_name
+          HCCL_SOCKET_IFNAME: $nic_name
+          VLLM_ASCEND_BALANCE_SCHEDULING: 1
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+        system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+          commands: ["nic_name=\"xxxx\"", "local_ip=\"xxxx\""]
+  pd_disaggregation:
+    source_ref: "vllm_ascend_deepseek-v3.1#pd_cluster"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        default_strategy: true
+        nodes:
+          - role: prefill  # Prefill Node 0
+            index: 0
+            engine_config:
+              model: /weights/DeepSeek-V3.1-w8a8-mtp-QuaRot
+              host: "0.0.0.0"
+              port: $2
+              data_parallel_size: $3
+              data_parallel_rank: $4
+              data_parallel_address: $5
+              data_parallel_rpc_port: $6
+              tensor_parallel_size: $7
+              enable_expert_parallel: true
+              seed: 1024
+              served_model_name: deepseek_v3
+              max_model_len: 65536
+              max_num_batched_tokens: 16384
+              max_num_seqs: 8
+              enforce_eager: true
+              trust_remote_code: true
+              gpu_memory_utilization: 0.9
+              quantization: ascend
+              enable_prefix_caching: false
+              additional_config:
+                recompute_scheduler_enable: true
+              kv_transfer_config:
+                kv_connector: MooncakeConnectorV1
+                kv_role: kv_producer
+                kv_port: 30000
+                kv_connector_extra_config:
+                  prefill:
+                    dp_size: 2
+                    tp_size: 8
+                  decode:
+                    dp_size: 32
+                    tp_size: 1
+            env:
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              TP_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+              VLLM_RPC_TIMEOUT: 3600000
+              VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: 30000
+              HCCL_EXEC_TIMEOUT: 204
+              HCCL_CONNECT_TIMEOUT: 120
+              OMP_PROC_BIND: "false"
+              OMP_NUM_THREADS: 10
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              HCCL_BUFFSIZE: 256
+              TASK_QUEUE_ENABLE: 1
+              HCCL_OP_EXPANSION_MODE: AIV
+              VLLM_USE_V1: 1
+              ASCEND_RT_VISIBLE_DEVICES: $1
+              ASCEND_BUFFER_POOL: "4:8"
+              LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:$LD_LIBRARY_PATH"
+              VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
+            system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+              commands: ["nic_name=\"xxx\"", "local_ip=\"141.xx.xx.1\"", "node0_ip=\"xxxx\""]
+          - role: prefill  # Prefill Node 1
+            index: 1
+            engine_config:
+              model: /weights/DeepSeek-V3.1-w8a8-mtp-QuaRot
+              host: "0.0.0.0"
+              port: $2
+              data_parallel_size: $3
+              data_parallel_rank: $4
+              data_parallel_address: $5
+              data_parallel_rpc_port: $6
+              tensor_parallel_size: $7
+              enable_expert_parallel: true
+              seed: 1024
+              served_model_name: deepseek_v3
+              max_model_len: 65536
+              max_num_batched_tokens: 16384
+              max_num_seqs: 8
+              enforce_eager: true
+              trust_remote_code: true
+              gpu_memory_utilization: 0.9
+              quantization: ascend
+              enable_prefix_caching: false
+              additional_config:
+                recompute_scheduler_enable: true
+              kv_transfer_config:
+                kv_connector: MooncakeConnectorV1
+                kv_role: kv_producer
+                kv_port: 30100
+                kv_connector_extra_config:
+                  prefill:
+                    dp_size: 2
+                    tp_size: 8
+                  decode:
+                    dp_size: 32
+                    tp_size: 1
+            env:
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              TP_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+              VLLM_RPC_TIMEOUT: 3600000
+              VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: 30000
+              HCCL_EXEC_TIMEOUT: 204
+              HCCL_CONNECT_TIMEOUT: 120
+              OMP_PROC_BIND: "false"
+              OMP_NUM_THREADS: 10
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              HCCL_BUFFSIZE: 256
+              TASK_QUEUE_ENABLE: 1
+              HCCL_OP_EXPANSION_MODE: AIV
+              VLLM_USE_V1: 1
+              ASCEND_RT_VISIBLE_DEVICES: $1
+              ASCEND_BUFFER_POOL: "4:8"
+              LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:$LD_LIBRARY_PATH"
+              VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
+            system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+              commands: ["nic_name=\"xxx\"", "local_ip=\"141.xx.xx.2\"", "node0_ip=\"xxxx\""]
+          - role: decode  # Decode Node 0
+            index: 0
+            engine_config:
+              model: /weights/DeepSeek-V3.1-w8a8-mtp-QuaRot
+              host: "0.0.0.0"
+              port: $2
+              data_parallel_size: $3
+              data_parallel_rank: $4
+              data_parallel_address: $5
+              data_parallel_rpc_port: $6
+              tensor_parallel_size: $7
+              enable_expert_parallel: true
+              seed: 1024
+              served_model_name: deepseek_v3
+              max_model_len: 65536
+              max_num_batched_tokens: 256
+              max_num_seqs: 28
+              trust_remote_code: true
+              gpu_memory_utilization: 0.92
+              quantization: ascend
+              enable_prefix_caching: false
+              compilation_config:
+                cudagraph_mode: FULL_DECODE_ONLY
+                cudagraph_capture_sizes: [2, 4, 8, 16, 24, 32, 48, 56]
+              additional_config:
+                recompute_scheduler_enable: true
+                multistream_overlap_shared_expert: true
+                finegrained_tp_config:
+                  lmhead_tensor_parallel_size: 16
+              kv_transfer_config:
+                kv_connector: MooncakeConnectorV1
+                kv_role: kv_consumer
+                kv_port: 30200
+                kv_connector_extra_config:
+                  prefill:
+                    dp_size: 2
+                    tp_size: 8
+                  decode:
+                    dp_size: 32
+                    tp_size: 1
+            env:
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              TP_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+              VLLM_RPC_TIMEOUT: 3600000
+              VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: 30000
+              HCCL_EXEC_TIMEOUT: 204
+              HCCL_CONNECT_TIMEOUT: 120
+              OMP_PROC_BIND: "false"
+              OMP_NUM_THREADS: 10
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              HCCL_BUFFSIZE: 1100
+              TASK_QUEUE_ENABLE: 1
+              HCCL_OP_EXPANSION_MODE: AIV
+              VLLM_USE_V1: 1
+              ASCEND_RT_VISIBLE_DEVICES: $1
+              ASCEND_BUFFER_POOL: "4:8"
+              LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:$LD_LIBRARY_PATH"
+            system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+              commands: ["nic_name=\"xxx\"", "local_ip=\"141.xx.xx.3\"", "node0_ip=\"xxxx\""]
+          - role: decode  # Decode Node 1
+            index: 1
+            engine_config:
+              model: /weights/DeepSeek-V3.1-w8a8-mtp-QuaRot
+              host: "0.0.0.0"
+              port: $2
+              data_parallel_size: $3
+              data_parallel_rank: $4
+              data_parallel_address: $5
+              data_parallel_rpc_port: $6
+              tensor_parallel_size: $7
+              enable_expert_parallel: true
+              seed: 1024
+              served_model_name: deepseek_v3
+              max_model_len: 65536
+              max_num_batched_tokens: 256
+              max_num_seqs: 28
+              trust_remote_code: true
+              gpu_memory_utilization: 0.92
+              quantization: ascend
+              enable_prefix_caching: false
+              compilation_config:
+                cudagraph_mode: FULL_DECODE_ONLY
+                cudagraph_capture_sizes: [2, 4, 8, 16, 24, 32, 48, 56]
+              additional_config:
+                recompute_scheduler_enable: true
+                multistream_overlap_shared_expert: true
+                finegrained_tp_config:
+                  lmhead_tensor_parallel_size: 16
+              kv_transfer_config:
+                kv_connector: MooncakeConnectorV1
+                kv_role: kv_consumer
+                kv_port: 30200
+                kv_connector_extra_config:
+                  prefill:
+                    dp_size: 2
+                    tp_size: 8
+                  decode:
+                    dp_size: 32
+                    tp_size: 1
+            env:
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              TP_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+              VLLM_RPC_TIMEOUT: 3600000
+              VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: 30000
+              HCCL_EXEC_TIMEOUT: 204
+              HCCL_CONNECT_TIMEOUT: 120
+              OMP_PROC_BIND: "false"
+              OMP_NUM_THREADS: 10
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              HCCL_BUFFSIZE: 1100
+              TASK_QUEUE_ENABLE: 1
+              HCCL_OP_EXPANSION_MODE: AIV
+              VLLM_USE_V1: 1
+              ASCEND_RT_VISIBLE_DEVICES: $1
+              ASCEND_BUFFER_POOL: "4:8"
+              LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:$LD_LIBRARY_PATH"
+            system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+              commands: ["nic_name=\"xxx\"", "local_ip=\"141.xx.xx.4\"", "node0_ip=\"xxxx\""]

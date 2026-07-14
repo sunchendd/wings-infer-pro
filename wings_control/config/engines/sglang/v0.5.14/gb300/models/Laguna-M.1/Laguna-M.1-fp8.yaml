@@ -1,0 +1,61 @@
+# 来源追溯
+upstream_sources:
+  - id: sglang_laguna-m.1
+    kind: cookbook
+    repo: sglang
+    file: docs_new/cookbook/autoregressive/Poolside/Laguna-M.1.mdx
+    url: "https://github.com/sgl-project/sglang/blob/main/docs_new/cookbook/autoregressive/Poolside/Laguna-M.1.mdx"
+    note: SGLang 官方 Cookbook 文档。自动生成。
+  - id: sglang_laguna-m-1_config
+    kind: official_config
+    repo: sglang
+    file: docs_new/src/snippets/configs/poolside/laguna-m1.jsx
+    url: "https://github.com/sgl-project/sglang/blob/main/docs_new/src/snippets/configs/poolside/laguna-m1.jsx"
+    note: SGLang 官网 Deployment 面板配置矩阵。自动生成。
+
+# 模型基本信息
+model:
+  name: Laguna-M.1  # 模型名称
+  provider: poolside  # 提供者/厂商
+  model_id: poolside/Laguna-M.1-FP8  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.5.14  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)laguna[-.]?m.1"
+  variant_name: Laguna-M.1-fp8  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8  # 单节点 GPU/NPU 数量
+  vram_gb: 640  # 单节点总显存(GB)
+  multi_node: false  # 是否支持多节点
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: Enable tool/function calling via SGLang parser flags.
+    args: [--tool-call-parser, poolside_v1]
+  reasoning:
+    description: Enable model reasoning parser.
+    args: [--reasoning-parser, poolside_v1]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "sglang_laguna-m.1#single_node_balanced"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_balanced:
+        display_name: Balanced
+        orientation: balanced
+        engine_config:
+          model: poolside/Laguna-M.1-FP8
+          model_path: poolside/Laguna-M.1-FP8
+          trust_remote_code: true
+          tp: 4
+          fp8_gemm_backend: triton
+          host: $HOST_IP
+          port: $PORT
+        env: {}
+        default_strategy: true

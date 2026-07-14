@@ -1,0 +1,80 @@
+# 来源追溯
+upstream_sources:
+  - id: qwen_agentworld_35b_a3b_bf16_manual
+    kind: manual
+    repo: null
+    file: null
+    url: null
+    date_updated: 2026-07-14
+    note: 手工录入
+
+# 模型基本信息
+model:
+  name: Qwen-AgentWorld-35B-A3B  # 模型名称
+  slug: qwen-agentworld-35b-a3b  # 模型标识
+  provider: Qwen  # 提供者/厂商
+  description: "Qwen-AgentWorld-35B-A3B 模型（本地权重），bf16 版本，支持推理、投机解码与 LMCache 分布式 KV 缓存加速。"  # 模型描述
+  model_id: Qwen/Qwen-AgentWorld-35B-A3B  # 按模型名派生的 HF ID
+  architecture: null  # 待补充（模型名疑似 MoE）
+  parameter_count: null  # 待补充（模型名显示 35B）
+  active_parameters: null  # 待补充（模型名显示 A3B）
+  context_length: 262144  # 最大上下文长度
+  vram_minimum_gb: 384  # 最低显存需求(GB)
+  tasks: [text]  # 支持的任务类型
+  min_engine_version: "0.23.0"  # 最低引擎版本要求（实测 vLLM 0.23.0）
+  date_updated: 2026-07-14  # 录入日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)qwen[-.]?agentworld[-.]?35b[-.]?a3b"
+  variant_name: Qwen-AgentWorld-35B-A3B-bf16  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8  # 单节点 GPU 数量
+  vram_gb: 576  # 单节点总显存(GB)（8 × 72GB）
+  multi_node: false  # 仅支持单节点
+
+# 可选功能列表（不进 engine_config）
+features:
+  reasoning:
+    description: Enable reasoning/thinking mode with Qwen3 reasoning parser.
+    args: [--reasoning-parser, qwen3]
+  spec_decoding:
+    description: Suffix-based speculative decoding.
+    args: [--speculative-config, "{\"method\": \"suffix\", \"num_speculative_tokens\": 32}"]
+  lmcache:
+    description: LMCache KV cache acceleration.
+    lmcache_server:
+      description: Start LMCache server for distributed KV cache.
+      args: [lmcache, server, --l1-size-gb, "60", --eviction-policy, LRU, --max-workers, "4", --port, "5555", --chunk-size, "528"]
+    kv_transfer:
+      description: KV transfer configuration for LMCache.
+      args: [--kv-transfer-config, "{\"kv_connector\": \"LMCacheMPConnector\", \"kv_role\": \"kv_both\"}"]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "qwen_agentworld_35b_a3b_bf16_manual#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: Qwen/Qwen-AgentWorld-35B-A3B
+          host: 0.0.0.0
+          port: 16000
+          max_num_batched_tokens: 1024
+          tensor_parallel_size: 4
+          max_model_len: 262144
+          language_model_only: true
+          enable_prefix_caching: true
+          model_loader_extra_config:
+            enable_multithread_load: "true"
+            num_threads: 128
+          trust_remote_code: true
+        env:
+          VLLM_USE_V1: "1"
+          PYTHONHASHSEED: "0"

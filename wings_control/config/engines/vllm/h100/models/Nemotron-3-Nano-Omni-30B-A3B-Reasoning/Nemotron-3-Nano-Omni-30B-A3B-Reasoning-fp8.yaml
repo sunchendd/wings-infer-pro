@@ -1,0 +1,117 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_nemotron-3-nano-omni-30b-a3b-reasoning
+    kind: official_recipe
+    repo: recipes
+    file: models/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16.yaml
+    url: "https://recipes.vllm.ai/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"
+    date_updated: 2026-04-29
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: Nemotron-3-Nano-Omni-30B-A3B-Reasoning  # 模型名称
+  slug: nemotron-3-nano-omni-30b-a3b-reasoning  # 模型标识
+  provider: NVIDIA  # 提供者/厂商
+  description: "Mamba2-Transformer hybrid MoE omnimodal model (31B total / 3B active) with unified video, audio, image, and text understanding; reasoning + tool calling; BF16, FP8, and NVFP4 variants"  # 模型描述
+  model_id: nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8  # HuggingFace 模型 ID
+  architecture: moe  # 模型架构（dense/moe）
+  parameter_count: 31B  # 总参数量
+  active_parameters: 3B  # 激活参数量（MoE 模型）
+  context_length: 262144  # 最大上下文长度
+  vram_minimum_gb: 38  # 最低显存需求(GB)
+  tasks: [multimodal, text]  # 支持的任务类型
+  min_engine_version: "0.20.0"  # 最低引擎版本要求
+  date_updated: 2026-04-29  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)nemotron[-.]?3[-.]?nano[-.]?omni[-.]?30b[-.]?a3b[-.]?reasoning"
+  variant_name: Nemotron-3-Nano-Omni-30B-A3B-Reasoning-fp8
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 640
+  multi_node: false
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: Qwen3 Coder tool-call parser with automatic tool choice
+    args: [--enable-auto-tool-choice, --tool-call-parser, qwen3_coder]
+  reasoning:
+    description: "Nemotron v3 reasoning parser (chain-of-thought with <think> tags)"
+    args: [--reasoning-parser, nemotron_v3]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_nemotron-3-nano-omni-30b-a3b-reasoning#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8
+          trust_remote_code: true
+          max_model_len: 131072
+          media_io_kwargs:
+            video:
+              num_frames: 512
+              fps: 1
+          video_pruning_rate: 0.5
+          kv_cache_dtype: fp8
+          tensor_parallel_size: 1
+        env: {}
+  multi_node:
+    source_ref: "vllm_recipe_nemotron-3-nano-omni-30b-a3b-reasoning#multi_node_tp"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        head:  # Head Node 节点配置
+          engine_config:
+            model: nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8
+            trust_remote_code: true
+            max_model_len: 131072
+            media_io_kwargs:
+              video:
+                num_frames: 512
+                fps: 1
+            video_pruning_rate: 0.5
+            kv_cache_dtype: fp8
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8
+            trust_remote_code: true
+            max_model_len: 131072
+            media_io_kwargs:
+              video:
+                num_frames: 512
+                fps: 1
+            video_pruning_rate: 0.5
+            kv_cache_dtype: fp8
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME

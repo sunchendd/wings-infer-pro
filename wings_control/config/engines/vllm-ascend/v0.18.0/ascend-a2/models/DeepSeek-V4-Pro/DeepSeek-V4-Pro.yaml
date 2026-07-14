@@ -1,0 +1,320 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_ascend_deepseek-v4-pro
+    kind: official_doc
+    repo: vllm-ascend
+    file: docs/source/tutorials/models/DeepSeek-V4-Pro.md
+    url: "https://github.com/vllm-project/vllm-ascend/blob/releases/v0.18.0/docs/source/tutorials/models/DeepSeek-V4-Pro.md"
+    note: vLLM Ascend 官方教程文档。自动生成。
+
+# 模型基本信息
+model:
+  name: DeepSeek-V4-Pro  # 模型名称
+  provider: Eco-Tech  # 提供者/厂商
+  model_id: Eco-Tech/DeepSeek-V4-Pro-w4a8-mtp  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.18.0  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)deepseek[-.]?v4[-.]?pro"
+  variant_name: DeepSeek-V4-Pro-w4a8-mtp  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8  # 单节点 GPU/NPU 数量
+  vram_gb: 512  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: Enable automatic tool/function calling via the model's tool-call parser.
+    args: [--enable-auto-tool-choice, --tool-call-parser, deepseek_v4, --tokenizer-mode, deepseek_v4]
+  reasoning:
+    description: Enable the model's reasoning-content parser.
+    args: [--reasoning-parser, deepseek_v4]
+  spec_decoding:
+    description: Speculative decoding (MTP draft) to accelerate generation.
+    args: [--speculative-config, "{\"num_speculative_tokens\":1,\"method\":\"mtp\"}"]
+    strategy_overrides:  # 该特性默认用上面的 args；此处仅列出 spec 参数与默认不一致、需按部署场景覆盖的项
+      pd_disaggregation.pd_cluster:
+        args: [--speculative-config, "{\"num_speculative_tokens\":1,\"method\":\"deepseek_mtp\"}"]
+
+# 部署场景
+scenarios:
+  multi_node:
+    source_ref: "vllm_ascend_deepseek-v4-pro#multi_node"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        display_name: Multi-Node
+        default_strategy: true
+        nodes:
+          - role: head
+            engine_config:
+              model: /root/.cache/modelscope/hub/models/vllm-ascend/DeepSeek-V4-Pro-w4a8-mtp
+              host: "0.0.0.0"
+              port: 10010
+              max_model_len: 133072
+              max_num_batched_tokens: 4096
+              served_model_name: dsv4
+              gpu_memory_utilization: 0.9
+              max_num_seqs: 4
+              data_parallel_size: 4
+              tensor_parallel_size: 8
+              data_parallel_size_local: 1
+              data_parallel_start_rank: 0
+              data_parallel_address: $node0_ip
+              enable_expert_parallel: true
+              quantization: ascend
+              enable_chunked_prefill: true
+              enable_prefix_caching: true
+              async_scheduling: true
+              safetensors_load_strategy: prefetch
+              profiler_config:
+                profiler: torch
+                torch_profiler_dir: /path
+                torch_profiler_with_stack: false
+              additional_config:
+                ascend_compilation_config:
+                  enable_npugraph_ex: true
+                  enable_static_kernel: false
+                enable_cpu_binding: "True"
+              compilation_config:
+                cudagraph_mode: FULL_DECODE_ONLY
+            env:
+              HCCL_IF_IP: $local_ip
+              IFNAME: xxx
+              GLOO_SOCKET_IFNAME: $IFNAME
+              TP_SOCKET_IFNAME: $IFNAME
+              HCCL_SOCKET_IFNAME: $IFNAME
+              HCCL_BUFFSIZE: 512
+              ASCEND_RT_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
+              OMP_PROC_BIND: "false"
+              OMP_NUM_THREADS: 10
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              ACL_OP_INIT_MODE: 1
+              VLLM_ENGINE_READY_TIMEOUT_S: 3600
+              HCCL_OP_EXPANSION_MODE: AIV
+              USE_MULTI_BLOCK_POOL: 1
+              USE_MULTI_GROUPS_KV_CACHE: 1
+              TASK_QUEUE_ENABLE: 1
+              VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
+              LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+            system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+              sysctls:
+                vm.swappiness: 0
+                kernel.numa_balancing: 0
+                kernel.sched_migration_cost_ns: 50000
+              sysfs_writes:
+                - path: "/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
+                  value: performance
+              commands: ["local_ip=\"xxx\"", "node0_ip=\"xxxx\""]
+          - role: worker
+            engine_config:
+              model: /root/.cache/modelscope/hub/models/vllm-ascend/DeepSeek-V4-Pro-w4a8-mtp
+              host: "0.0.0.0"
+              port: 10010
+              headless: true
+              max_model_len: 133072
+              max_num_batched_tokens: 4096
+              served_model_name: dsv4
+              gpu_memory_utilization: 0.9
+              max_num_seqs: 4
+              data_parallel_size: 4
+              tensor_parallel_size: 8
+              data_parallel_size_local: 1
+              data_parallel_start_rank: $data_parallel_start_rank
+              data_parallel_address: $node0_ip
+              enable_expert_parallel: true
+              quantization: ascend
+              enable_chunked_prefill: true
+              enable_prefix_caching: true
+              async_scheduling: true
+              safetensors_load_strategy: prefetch
+              profiler_config:
+                profiler: torch
+                torch_profiler_dir: /path
+                torch_profiler_with_stack: false
+              additional_config:
+                ascend_compilation_config:
+                  enable_npugraph_ex: true
+                  enable_static_kernel: false
+                enable_cpu_binding: "True"
+              compilation_config:
+                cudagraph_mode: FULL_DECODE_ONLY
+            env:
+              HCCL_IF_IP: $local_ip
+              IFNAME: xxx
+              GLOO_SOCKET_IFNAME: $IFNAME
+              TP_SOCKET_IFNAME: $IFNAME
+              HCCL_SOCKET_IFNAME: $IFNAME
+              HCCL_BUFFSIZE: 512
+              ASCEND_RT_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
+              OMP_PROC_BIND: "false"
+              OMP_NUM_THREADS: 10
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              ACL_OP_INIT_MODE: 1
+              VLLM_ENGINE_READY_TIMEOUT_S: 3600
+              HCCL_OP_EXPANSION_MODE: AIV
+              USE_MULTI_BLOCK_POOL: 1
+              USE_MULTI_GROUPS_KV_CACHE: 1
+              TASK_QUEUE_ENABLE: 1
+              VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
+              LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+            system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+              sysctls:
+                vm.swappiness: 0
+                kernel.numa_balancing: 0
+                kernel.sched_migration_cost_ns: 50000
+              sysfs_writes:
+                - path: "/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
+                  value: performance
+              commands: ["local_ip=\"xxx\"", "node0_ip=\"xxxx\"", data_parallel_start_rank=xxx]
+  pd_disaggregation:
+    source_ref: "vllm_ascend_deepseek-v4-pro#pd_cluster"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        default_strategy: true
+        nodes:
+          - role: prefill  # Prefill Node 0
+            index: 0
+            engine_config:
+              model: /root/.cache/modelscope/hub/models/vllm-ascend/DeepSeek-V4-Pro-w4a8-mtp
+              host: "0.0.0.0"
+              port: $2
+              data_parallel_size: $3
+              data_parallel_rank: $4
+              data_parallel_address: $5
+              data_parallel_rpc_port: $6
+              tensor_parallel_size: $7
+              enable_expert_parallel: true
+              seed: 1024
+              served_model_name: dsv4
+              max_model_len: 133072
+              max_num_batched_tokens: 8192
+              max_num_seqs: 16
+              disable_hybrid_kv_cache_manager: false
+              trust_remote_code: true
+              gpu_memory_utilization: 0.9
+              quantization: ascend
+              safetensors_load_strategy: prefetch
+              enforce_eager: true
+              enable_prefix_caching: true
+              additional_config:
+                enable_cpu_binding: "True"
+              kv_transfer_config:
+                kv_connector: MooncakeHybridConnector
+                kv_role: kv_producer
+                kv_port: 30000
+                engine_id: 0
+                kv_connector_module_path: vllm_ascend.distributed.mooncake_connector
+                kv_connector_extra_config:
+                  prefill:
+                    dp_size: 4
+                    tp_size: 8
+                  decode:
+                    dp_size: 8
+                    tp_size: 4
+            env:
+              LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+              HCCL_OP_EXPANSION_MODE: AIV
+              TASK_QUEUE_ENABLE: 1
+              VLLM_RPC_TIMEOUT: 3600000
+              VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: 30000
+              HCCL_EXEC_TIMEOUT: 204
+              HCCL_CONNECT_TIMEOUT: 1200
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              TP_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+              OMP_PROC_BIND: "false"
+              OMP_NUM_THREADS: 10
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              HCCL_BUFFSIZE: 1024
+              USE_MULTI_GROUPS_KV_CACHE: 1
+              USE_MULTI_BLOCK_POOL: 1
+              VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
+              ASCEND_RT_VISIBLE_DEVICES: $1
+            system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+              sysctls:
+                vm.swappiness: 0
+                kernel.numa_balancing: 0
+                kernel.sched_migration_cost_ns: 50000
+              commands: ["nic_name=\"xxxx\" # change to your own nic name", "local_ip=`hostname -I|awk -F \" \" '{print$1}'`"]
+          - role: decode  # Decode Node 0
+            index: 0
+            engine_config:
+              model: /root/.cache/modelscope/hub/models/vllm-ascend/DeepSeek-V4-Pro-w4a8-mtp
+              host: "0.0.0.0"
+              port: $2
+              data_parallel_size: $3
+              data_parallel_rank: $4
+              data_parallel_address: $5
+              data_parallel_rpc_port: $6
+              tensor_parallel_size: $7
+              enable_expert_parallel: true
+              seed: 1024
+              served_model_name: dsv4
+              max_model_len: 133072
+              max_num_batched_tokens: 120
+              max_num_seqs: 60
+              async_scheduling: true
+              disable_hybrid_kv_cache_manager: false
+              trust_remote_code: true
+              gpu_memory_utilization: 0.9
+              quantization: ascend
+              safetensors_load_strategy: prefetch
+              enable_prefix_caching: false
+              compilation_config:
+                cudagraph_mode: FULL_DECODE_ONLY
+              kv_transfer_config:
+                kv_connector: MooncakeHybridConnector
+                kv_role: kv_consumer
+                kv_port: 30100
+                engine_id: 1
+                kv_connector_module_path: vllm_ascend.distributed.mooncake_connector
+                kv_connector_extra_config:
+                  prefill:
+                    dp_size: 4
+                    tp_size: 8
+                  decode:
+                    dp_size: 8
+                    tp_size: 4
+              additional_config:
+                ascend_compilation_config:
+                  enable_npugraph_ex: true
+                  enable_static_kernel: false
+                enable_cpu_binding: true
+                multistream_overlap_shared_expert: false
+                multistream_dsa_preprocess: false
+                recompute_scheduler_enable: true
+            env:
+              LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+              HCCL_OP_EXPANSION_MODE: AIV
+              TASK_QUEUE_ENABLE: 1
+              VLLM_RPC_TIMEOUT: 3600000
+              VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: 30000
+              HCCL_EXEC_TIMEOUT: 204
+              HCCL_CONNECT_TIMEOUT: 1200
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              TP_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+              OMP_PROC_BIND: "false"
+              OMP_NUM_THREADS: 10
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              HCCL_BUFFSIZE: 1024
+              USE_MULTI_GROUPS_KV_CACHE: 1
+              USE_MULTI_BLOCK_POOL: 1
+              ASCEND_RT_VISIBLE_DEVICES: $1
+            system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+              sysctls:
+                vm.swappiness: 0
+                kernel.numa_balancing: 0
+                kernel.sched_migration_cost_ns: 50000
+              commands: ["nic_name=\"xxxx\" # change to your own nic name", "local_ip=`hostname -I|awk -F \" \" '{print$1}'`"]

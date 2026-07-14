@@ -1,0 +1,106 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_nemotron-3-ultra-550b-a55b
+    kind: official_recipe
+    repo: recipes
+    file: models/nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16.yaml
+    url: "https://recipes.vllm.ai/nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16"
+    date_updated: 2026-06-03
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: NVIDIA Nemotron-3-Ultra-550B-A55B  # 模型名称
+  slug: nemotron-3-ultra-550b-a55b  # 模型标识
+  provider: NVIDIA  # 提供者/厂商
+  description: "NVIDIA Nemotron 3 Ultra hybrid Transformer-Mamba MoE model for long-context agentic reasoning, coding, and tool use."  # 模型描述
+  model_id: nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16  # HuggingFace 模型 ID
+  architecture: moe  # 模型架构（dense/moe）
+  parameter_count: 550B  # 总参数量
+  active_parameters: 55B  # 激活参数量（MoE 模型）
+  context_length: 262144  # 最大上下文长度
+  vram_minimum_gb: 1320  # 最低显存需求(GB)
+  tasks: [text]  # 支持的任务类型
+  min_engine_version: "0.22.0"  # 最低引擎版本要求
+  date_updated: 2026-06-03  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)nemotron[-.]?3[-.]?ultra[-.]?550b[-.]?a55b"
+  variant_name: NVIDIA-Nemotron-3-Ultra-550B-A55B-bf16
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 4
+  vram_gb: 768
+  multi_node: false
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: Qwen3 Coder tool-call parser with automatic tool choice
+    args: [--enable-auto-tool-choice, --tool-call-parser, qwen3_coder]
+  reasoning:
+    description: Nemotron v3 reasoning parser
+    args: [--reasoning-parser, nemotron_v3]
+  spec_decoding:
+    description: Multi-Token Prediction with 5 speculative tokens
+    args: [--speculative-config, "{\"method\":\"mtp\",\"num_speculative_tokens\":5}"]
+
+# 部署场景
+scenarios:
+  multi_node:
+    source_ref: "vllm_recipe_nemotron-3-ultra-550b-a55b#multi_node_tp"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        head:  # Head Node 节点配置
+          engine_config:
+            model: nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16
+            served_model_name: nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B
+            trust_remote_code: true
+            kv_cache_dtype: fp8
+            max_num_seqs: 16
+            max_model_len: 262144
+            gpu_memory_utilization: 0.9
+            max_num_batched_tokens: 32768
+            enable_flashinfer_autotune: true
+            async_scheduling: true
+            mamba_backend: triton
+            mamba_ssm_cache_dtype: float32
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 8
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS: 1
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16
+            served_model_name: nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B
+            trust_remote_code: true
+            kv_cache_dtype: fp8
+            max_num_seqs: 16
+            max_model_len: 262144
+            gpu_memory_utilization: 0.9
+            max_num_batched_tokens: 32768
+            enable_flashinfer_autotune: true
+            async_scheduling: true
+            mamba_backend: triton
+            mamba_ssm_cache_dtype: float32
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 8
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS: 1
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME

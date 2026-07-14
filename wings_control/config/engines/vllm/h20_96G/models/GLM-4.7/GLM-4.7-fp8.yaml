@@ -1,0 +1,67 @@
+# 来源追溯
+upstream_sources:
+  - id: glm_4.7_fp8_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://recipes.vllm.ai/zai-org/GLM-4.7"
+    date_updated: 2026-07-13
+    note: 手工录入
+
+# 模型基本信息
+model:
+  name: GLM-4.7
+  slug: glm-4.7
+  provider: GLM (Z-AI)
+  description: "GLM-4.7 MoE language model (~358B total parameters) with MTP speculative decoding, updated tool call parser, and reasoning support, native FP8 checkpoint"
+  model_id: zai-org/GLM-4.7-FP8
+  architecture: moe
+  parameter_count: 358B
+  active_parameters: 32B
+  context_length: 202752
+  vram_minimum_gb: 430
+  tasks: [text]
+  min_engine_version: "0.23.0"
+  date_updated: 2026-07-13
+  match:
+    - name_pattern: "(?i)glm[-.]?4.7"
+  variant_name: GLM-4.7-fp8
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 768
+  multi_node: false
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: GLM-4.7 tool call parser with automatic tool choice
+    args: [--tool-call-parser, glm47, --enable-auto-tool-choice]
+  reasoning:
+    description: GLM-4.5 reasoning parser for chain-of-thought extraction
+    args: [--reasoning-parser, glm45]
+  kv_offloading:
+    description: KV cache native offloading to reduce GPU memory usage
+    args: [--kv-offloading-backend, native, --kv-offloading-size, 200]
+  spec_decoding:
+    description: Multi-Token Prediction speculative decoding using the model's built-in MTP layers
+    args: [--speculative-config.method, mtp, --speculative-config.num_speculative_tokens, 1]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "glm_4.7_fp8_manual#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: zai-org/GLM-4.7-FP8
+          trust_remote_code: true
+          tensor_parallel_size: 8
+        env: {}

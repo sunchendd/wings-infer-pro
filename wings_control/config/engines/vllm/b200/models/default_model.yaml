@@ -1,0 +1,13 @@
+# 硬件 + 引擎公共默认值
+# 该文件由 wings-config update yaml --engine recipes 自动生成
+
+hardware:
+  gpu_count: 8  # 单节点 GPU 数量
+  vram_gb: 1440  # 单节点总显存(GB)
+  multi_node: false  # 是否支持多节点
+  description: NVIDIA B200 SXM 180 GB HBM3e · 8-GPU HGX B200 node  # 描述
+
+engine:
+  name: vllm  # 推理引擎
+  version: v0.19.0  # 引擎版本
+
