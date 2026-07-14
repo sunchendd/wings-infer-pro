@@ -1,0 +1,32 @@
+# SmartAccel 三特性加速配置
+# 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
+model:
+  name: DeepSeek-V4-Flash
+  variant_name: "DeepSeek-V4-Flash-fp8"
+  match:
+    - name_pattern: "(?i)deepseek[-.]?v4[-.]?flash"
+smart_accel:
+  decoding:
+    - name: mtp
+      priority: 2
+      cli_params:
+        speculative_config:
+          method: mtp
+          num_speculative_tokens: 2
+      envs: {}
+  # SmartSparse:hf_overrides(dict -> --hf-overrides '<json>');kv_cache_dtype(scalar -> --kv-cache-dtype fp8)
+  sparse:
+    - name: performance_first
+      cli_params:
+        hf_overrides:
+          use_index_cache: true
+          index_topk_freq: 4
+        kv_cache_dtype: fp8
+      envs: {}
+    - name: accuracy_first
+      cli_params:
+        hf_overrides:
+          use_index_cache: true
+          index_topk_freq: 8
+        kv_cache_dtype: fp8
+      envs: {}

@@ -1,0 +1,226 @@
+"""
+数据契约层 — SmartAccel 全部输入输出数据结构。
+
+定义模块的输入输出边界:
+- SmartAccelInput: 总输入,聚合系统/模型/引擎/部署模式 + 三个 smart 配置 + smart_accel 模板块
+- SmartAccelOutput: 总输出,选中 scheme + 合并后的 EngineParams + 降级诊断
+- EngineParams: 单个特性的产出形态(结构化引擎参数 + 环境变量)
+- _FeatureOutput: expander 内部返回形态(scheme 名 + EngineParams + 降级标记),不对外导出
+
+重要关键点:
+- 该文件只定义数据契约,不包含选择/渲染逻辑。
+- SmartAccelInput 是 func_smart_accel 唯一输入;SmartAccelOutput 是对 wings-control 的增量输出。
+- EngineParams 承载已填充占位符的 env + engine_config,不是预渲染 argv。
+- diagnostics 只承载 wings-control 推不出的降级信息;未降级特性不出现。
+- _FeatureOutput 仅供包内 expander/conflict/core 传递 scheme 与降级信息。
+
+设计要点:
+- 所有可空字段使用 Optional,避免构造时传 None 报错
+- 可变默认值使用 field(default_factory=...) 防止跨实例污染
+- 与 wings_ctl 的 trace 体系解耦,诊断信息以扁平 dict 承载
+- 渲染落点:各 expander 用 render.render_engine_config 把 YAML cli_params 转成
+  engine_config 字典,由 wings-control 负责最终 argv 渲染。
+
+字段注释里的「MaaS 来源」标注每个字段对应的产品侧(MaaS)入参:
+  - `--xxx`  = 用户 CLI 参数(auto 选填类 CLI 不下发即 False)
+  - `XXX`    = 环境变量/特性开关(未下发的 bool 开关由 wings-control 按 False 处理)
+  - 「非 MaaS 参数」= 来自 model.yaml / 路径定位,不由 MaaS 用户填写
+"""
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
+
+
+@dataclass
+class SystemConfig:
+    """系统配置 — 承载硬件族(定位 smart-accel yaml)+ 卡数 + pod 可用内存。
+
+    yaml 定位键之一:engine + version + hardware_family + model_name。
+    目录: wings_accel/smart-accel/{engine}/v{version}/{hardware_family}/models/{model}/*.yaml
+
+    MaaS 对齐:
+      - `--device-count`:必填,int,卡数。
+      - `AVAILABLE_POD_MEM_SIZE`:必填,int,pod 可用内存大小,单位 GB;当前消费方为 KV 卸载,
+        后续也可被其他特性消费。
+    """
+
+    gpu_type: str = "A100" # 硬件族(= hardware_family,如 rtx_pro_5000_72G / h200);yaml 定位键,非 MaaS 直接入参
+    gpu_count: int = 1 # 卡数;MaaS 必填 `--device-count`(int;不参与 yaml 定位)
+    pod_available_memory_gb: int = 0 # pod 可用内存(GB);MaaS 必填 `AVAILABLE_POD_MEM_SIZE`(int)
+
+
+@dataclass
+class ModelConfig:
+    """主模型元数据 — 模型名称(定位 yaml)+ 架构族(decoder 选草稿)+ 权重路径。
+
+    model_name 是 yaml 定位键之一(与 engine / hardware_family 组合)。
+    注意与 SmartDecodingConfig.model_path 区分:这里是【主模型】路径,
+    SmartDecodingConfig.model_path 是投机解码的【草稿模型】路径。
+    """
+
+    model_path: str # 主模型权重路径(HF repo id / 本地);MaaS 来源 `--model-path`
+    model_name: Optional[str] = None # 模型名称;yaml 定位键之一;MaaS 来源 `--model`/`-m`(name_pattern 匹配)
+    model_arch: Optional[str] = None # 模型架构族(llama / glm / eagle3 ...);来源 model.yaml `architecture`(decoders 据此选草稿方法)
+
+
+@dataclass
+class EngineParams:
+    """单个特性的产出形态 — 结构化引擎参数 + 环境变量。
+
+    decoding / kv_cache / sparse / custom_features 各产出一个,是 func_smart_accel
+    与 wings-control 之间的增量交付单元:engine_config 由 wings-control 渲染为 argv,
+    env 注入容器。本类为【产出】,无 MaaS 来源。
+    """
+
+    env: Dict[str, str] = field(default_factory=dict) # 要注入容器的环境变量(K=V);产出侧
+    engine_config: Dict[str, Any] = field(default_factory=dict) # 结构化引擎参数(如 {"speculative_config": {...}});产出
+
+
+@dataclass
+class EngineConfig:
+    """引擎标识 — 名称 + 版本,用于版本解析与能力分流。"""
+
+    name: str = "vllm" # 引擎类型;MaaS 必填 `--engine`(str,使用连接符,如 vllm-ascend)
+    version: str = "0.22.0" # 引擎版本字符串;MaaS 必填 `ENGINE_VERSION`(str)
+
+
+@dataclass
+class SmartDecodingConfig:
+    """智能投机解码配置 — speculative decoding 的开关与草稿来源。
+
+    MaaS 对齐:
+      - `ENABLE_SPECULATIVE_DECODE`:必填,bool,投机推理开关(smart 一级),取值 true/false;
+        AI perf 未传时 wings-control 按 False 处理。
+      - `SPECULATIVE_DECODE_MODEL_PATH`:条件必填,str;当 ENABLE_SPECULATIVE_DECODE=true 时必填
+        (具体路径或 none),false 时不下发。
+    """
+
+    enabled: bool = False # 投机推理开关;MaaS 必填 `ENABLE_SPECULATIVE_DECODE`(bool true/false;缺省按 False)
+    model_path: str = "" # 草稿模型路径;MaaS 条件必填 `SPECULATIVE_DECODE_MODEL_PATH`(spec=true 时路径或 none)
+
+
+@dataclass
+class SmartKVCacheConfig:
+    """智能 KV cache 卸载配置 — CPU/磁盘两级卸载容量 + QAT 硬件压缩。
+
+    offload.py 据此选择介质、由 render.py 填占位符;capacity 类字段在
+    memory_offload_size_mode="auto" 时由 memory_estimator 估算后回填。
+
+    memory_offload_size_mode:
+      - "" / false:不显式下发 CPU 内存卸载
+      - "auto"    :从 SystemConfig.pod_available_memory_gb + TP/DP 估算可用 CPU 内存,不足阈值则关闭 memory_offload
+      - 数值字符串:按 GB 固定配置
+
+    MaaS 对齐:
+      - `ENABLE_KV_OFFLOAD`:必填,bool,KV 卸载开关(smart 一级),取值 true/false;AI perf 未传时
+        wings-control 按 False 处理。它控制二级开关 `ENABLE_KV_MEM_OFFLOAD` 和 `ENABLE_KV_DISK_OFFLOAD`。
+      - `ENABLE_KV_MEM_OFFLOAD`:条件必填,bool;ENABLE_KV_OFFLOAD=true 时必填,false 时不下发。
+      - `KV_MEM_OFFLOAD_SIZE`:条件必填,str;ENABLE_KV_MEM_OFFLOAD=true 时必填,false 时不下发;
+        取值为字符串 "auto" 或数值字符串 "xx"(单位 GB),"auto" 表示智能推荐。
+      - `ENABLE_KV_DISK_OFFLOAD`:条件必填,bool;ENABLE_KV_OFFLOAD=true 时必填,false 时不下发;
+        同时控制三级开关 `ENABLE_KV_QAT`。
+      - `KV_DISK_OFFLOAD_PATH`:条件必填,str;ENABLE_KV_DISK_OFFLOAD=true 时必填,false 时不下发。
+      - `KV_DISK_OFFLOAD_SIZE`:条件必填,int;ENABLE_KV_DISK_OFFLOAD=true 时必填,false 时不下发;
+        数值单位 GB。
+      - `ENABLE_KV_QAT`:条件必填,bool;ENABLE_KV_DISK_OFFLOAD=true 时必填,false 时不下发。
+      - `KV_QAT_COMPRESS_LEVEL`:条件必填,int;ENABLE_KV_QAT=true 时必填,false 时不下发。
+      - `KV_QAT_INSTANCE_NUM`:条件必填,int;ENABLE_KV_QAT=true 时必填,false 时不下发。
+    """
+
+    enabled: bool = False # KV 卸载一级开关;MaaS 必填 `ENABLE_KV_OFFLOAD`(bool true/false;缺省按 False)
+    memory_offload_enabled: bool = False # KV 内存卸载二级开关;MaaS 条件必填 `ENABLE_KV_MEM_OFFLOAD`(kv=true 时必填)
+    memory_offload_size_mode: str = "" # KV 卸载内存大小;MaaS 条件必填 `KV_MEM_OFFLOAD_SIZE`("auto" 或数值字符串,GB)
+    disk_offload_enabled: bool = False # 磁盘卸载二级开关;MaaS 条件必填 `ENABLE_KV_DISK_OFFLOAD`(kv=true 时必填)
+    disk_capacity_gb: int = 0 # KV 卸载磁盘大小;MaaS 条件必填 `KV_DISK_OFFLOAD_SIZE`(int,GB)
+    disk_path: str = "" # 磁盘路径;MaaS 条件必填 `KV_DISK_OFFLOAD_PATH`(disk=true 时必填)
+    qat_enabled: bool = False # QAT 三级开关;MaaS 条件必填 `ENABLE_KV_QAT`(disk=true 时必填)
+    qat_device_count: int = 0 # QAT 设备数量;MaaS 条件必填 `KV_QAT_INSTANCE_NUM`(qat=true 时必填)
+    qat_compression_level: int = 0 # QAT 压缩等级;MaaS 条件必填 `KV_QAT_COMPRESS_LEVEL`(qat=true 时必填)
+
+
+@dataclass
+class SmartKVSparseConfig:
+    """KV cache 稀疏化配置 — 按策略裁剪/跳过 KV 以省显存。
+
+    MaaS 对齐:
+      - `ENABLE_SPARSE`:必填,bool,KV 稀疏开关(smart 一级),取值 true/false;
+        AI perf 未传时 wings-control 按 False 处理。
+      - `SPARSE_LEVEL`:条件必填,enum;ENABLE_SPARSE=true 时必填,false 时不下发;
+        枚举值 accuracy_first / performance_first。
+    """
+
+    enabled: bool = False # KV 稀疏开关;MaaS 必填 `ENABLE_SPARSE`(bool true/false;缺省按 False)
+    mode: str = "performance_first" # 稀疏模式;MaaS 条件必填 `SPARSE_LEVEL`(accuracy_first/performance_first)
+
+
+@dataclass
+class DeploymentMode:
+    """部署模式 — PD 分离(prefill/decode 解耦部署)角色。
+
+    MaaS 对齐:
+      - `--distributed`:auto 选填,bool;下发表示 true,不下发表示 false。
+      - `MASTER_IP` / `RANK_IP` / `NODE_IPS`:条件必填,str;--distributed 下发时必填,
+        不下发时不下发。上述分布式字段由 wings-control 拓扑层消费,不进入本 dataclass。
+      - `PD_ROLE`:必填,enum,取值 P / D / none。
+      - `--enable-rag-acc` / `--enable-smartqos` / `--enable-otlp-traces`:auto 选填,bool;
+        下发表示 true,不下发表示 false。`OTLP_TRACES_ENDPOINT` 在 --enable-otlp-traces 下发时条件必填。
+    """
+
+    pd_role: Optional[str] = None # PD 角色;MaaS 必填 `PD_ROLE`(enum:P/D/none;none 表示非 PD 分离)
+
+
+@dataclass
+class SmartAccelInput:
+    """总输入 — 聚合系统/模型/引擎/部署模式 + 三个 smart 子配置 + smart_accel 模板块。
+
+    由 yaml_loader.load_smart_accel_from_yaml 从 model.yaml 构造,func_smart_accel 消费。
+    smart_accel 模板块(decoding methods / kv_offload schemes / sparse schemes / custom_features)
+    精确读取自 model.yaml,由各 expander 展开。各字段来源见对应子配置类。
+    """
+
+    hardware_config: SystemConfig # 系统配置(硬件族定位 yaml + pod 内存)
+    model_config: ModelConfig # 主模型元数据(model_name 定位 yaml / model_arch 选草稿)
+    engine_config: EngineConfig # 引擎标识(定位 yaml;sglang → 全 None)
+    deployment_mode: DeploymentMode # 部署模式(PD 角色)
+    smart_decoding_config: SmartDecodingConfig # 投机解码配置(开关 + 草稿路径)
+    smart_kv_cache_config: SmartKVCacheConfig # KV 卸载 + QAT 配置(开关 + 容量模式)
+    smart_kv_sparse_config: SmartKVSparseConfig # KV 稀疏化配置(开关 + 模式)
+    # smart_accel 模板块(decoding/kv_offload/sparse/custom_features),来自 model.yaml
+    smart_accel: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class _FeatureOutput:
+    """expander 内部返回形态 — 选中的 scheme 名 + 已渲染 EngineParams + 降级标记。
+
+    不对外导出。scheme 名供 core 写入 SmartAccelOutput 选中字段;
+    engine_params 最终合并到 SmartAccelOutput.engine_params;packages 汇总到
+    SmartAccelOutput.packages(供 install 段拼 ``--config`` 的依赖列表)。
+    """
+
+    scheme: str # 选中的 scheme 名(如 "eagle3" / "cpu" / "performance_first")
+    engine_params: EngineParams # 已填充占位符的 env + engine_config
+    degraded: bool = False # 是否发生降级
+    degrade_reason: str = "" # 降级原因
+    packages: List[str] = field(default_factory=list) # 选中 scheme 声明的 pip 依赖(name:version 字符串)
+
+
+@dataclass
+class SmartAccelOutput:
+    """总输出 — 选中方案名 + 合并后的 EngineParams + 降级诊断。
+
+    func_smart_accel 产出,wings-control 据此把 engine_params.env 注入容器,
+    把 engine_params.engine_config 渲染为 argv。scheme 字段只表达各 smart 特性最终选中了什么;未产出则为 None。
+
+    diagnostics 只放 wings-control 推不出的降级信息,形如
+    {"decoding": {"degraded": True, "degrade_reason": "..."}};未降级特性不出现。
+
+    特殊:engine 为 sglang 时 scheme 全部为 None,engine_params 为空。
+    custom_features 仅在 decoding/kv_cache/sparse 至少一项产出时合入 engine_params。
+    """
+
+    smart_decoding_scheme: Optional[str] = None # 投机解码选中方案,如 mtp/eagle3/suffix;未产出 → None
+    smart_kv_sparse_scheme: Optional[str] = None # KV 稀疏化选中方案,如 indexcache;未产出 → None
+    smart_kv_cache_scheme: Optional[str] = None # KV 卸载选中方案,如 cpu/disk/cpu_disk;未产出 → None
+    engine_params: EngineParams = field(default_factory=EngineParams) # 合并后的 env + engine_config;产出侧,无 MaaS 来源
+    diagnostics: Dict[str, Dict[str, Any]] = field(default_factory=dict) # 降级诊断;只写 degraded 特性,原样落 audit
+    packages: List[str] = field(default_factory=list) # 各选中 scheme 声明的 pip 依赖汇总(name:version);供 install 段 --config

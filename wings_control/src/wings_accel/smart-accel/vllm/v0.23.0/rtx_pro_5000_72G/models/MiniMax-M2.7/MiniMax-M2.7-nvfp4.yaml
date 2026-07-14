@@ -1,0 +1,8 @@
+# SmartAccel 加速配置(MiniMax-M2.7 不支持 KV 卸载;暂无 smart-accel 特性)
+# 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
+model:
+  name: MiniMax-M2.7
+  variant_name: "MiniMax-M2.7-nvfp4"
+  match:
+    - name_pattern: "(?i)minimax[-.]?m2[-.]?7"
+smart_accel: {}
