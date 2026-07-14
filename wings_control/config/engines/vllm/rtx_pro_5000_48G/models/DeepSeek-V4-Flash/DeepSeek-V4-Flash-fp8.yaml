@@ -1,0 +1,81 @@
+# 来源追溯
+upstream_sources:
+  - id: deepseek-v4-flash_fp8_manual
+    kind: manual
+    repo: null
+    file: null
+    url: https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash
+    date_updated: 2026-07-13
+    note: 手工录入
+# 模型基本信息
+model:
+  name: DeepSeek-V4-Flash  # 模型名称
+  slug: deepseek-v4-flash  # 模型标识
+  provider: DeepSeek  # 提供者/厂商
+  description: "DeepSeek V4 MoE model with hybrid CSA+HCA attention, manifold-constrained hyper-connections, and three-tier reasoning (Non-think / Think High / Think Max)."  # 模型描述
+  model_id: deepseek-ai/DeepSeek-V4-Flash  # HuggingFace 模型 ID
+  architecture: moe  # 模型架构（dense/moe）
+  parameter_count: 284B  # 总参数量
+  active_parameters: 13B  # 激活参数量（MoE 模型）
+  context_length: 1048576  # 最大上下文长度
+  vram_minimum_gb: 384  # 最低显存需求(GB)（8 × 48GB）
+  tasks: [text]  # 支持的任务类型
+  min_engine_version: "0.22.0"  # 最低引擎版本要求（实测 vLLM 0.22.0）
+  date_updated: 2026-07-13  # 录入日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)deepseek[-.]?v4[-.]?flash"
+  variant_name: DeepSeek-V4-Flash-fp8  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8  # 单节点 GPU 数量（TP=4）
+  vram_gb: 384  # 单节点总显存(GB)（8 × 48GB）
+  multi_node: false  # 仅支持单节点
+
+# 可选功能列表（不进 engine_config）
+features:
+  tool_calling:
+    description: Enable tool calling with the DeepSeek V4 chat-template tool parser.
+    args: [--tokenizer-mode, deepseek_v4, --tool-call-parser, deepseek_v4, --enable-auto-tool-choice]
+  reasoning:
+    description: Enable reasoning/thinking mode via the DeepSeek V4 reasoning parser.
+    args: [--reasoning-parser, deepseek_v4]
+  spec_decoding:
+    description: Multi-Token Prediction speculative decoding with 2 speculative tokens.
+    args: [--speculative_config, "{\"method\":\"mtp\",\"num_speculative_tokens\":2}"]
+  sparse_index:
+    description: Sparse attention index cache configuration via HF overrides.
+    args: [--hf-overrides, "{\"use_index_cache\":true, \"index_topk_freq\":4}"]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "deepseek-v4-flash_fp8_manual#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: deepseek-ai/DeepSeek-V4-Flash
+          host: 0.0.0.0
+          port: 5685
+          attention_backend: FLASHMLA_SPARSE_DSV4
+          kv_cache_dtype: fp8
+          block_size: 256
+          max_model_len: 140000
+          max_num_batched_tokens: 16384
+          enable_prefix_caching: true
+          no_enable_flashinfer_autotune: true
+          tensor_parallel_size: 4
+          gpu_memory_utilization: 0.9
+          compilation_config:
+            mode: 0
+            cudagraph_mode: FULL_AND_PIECEWISE
+            max_cudagraph_capture_size: 768
+          async_scheduling: true
+          load_format: auto
+        env: {}

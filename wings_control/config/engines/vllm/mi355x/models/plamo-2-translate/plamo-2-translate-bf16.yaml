@@ -1,0 +1,119 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_plamo-2-translate
+    kind: official_recipe
+    repo: recipes
+    file: models/pfnet/plamo-2-translate.yaml
+    url: "https://recipes.vllm.ai/pfnet/plamo-2-translate"
+    date_updated: 2026-06-02
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: PLaMo 2 Translate  # 模型名称
+  slug: plamo-2-translate  # 模型标识
+  provider: Preferred Networks  # 提供者/厂商
+  description: Post-trained PLaMo 2 translation model specialized for English/Japanese translation tasks.  # 模型描述
+  model_id: pfnet/plamo-2-translate  # HuggingFace 模型 ID
+  architecture: dense  # 模型架构（dense/moe）
+  parameter_count: 9.5B  # 总参数量
+  active_parameters: 9.5B  # 激活参数量（MoE 模型）
+  context_length: 8192  # 最大上下文长度
+  vram_minimum_gb: 23  # 最低显存需求(GB)
+  tasks: [text]  # 支持的任务类型
+  min_engine_version: "0.8.5"  # 最低引擎版本要求
+  date_updated: 2026-06-02  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)plamo[-.]?2[-.]?translate"
+  variant_name: plamo-2-translate-bf16
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 2304
+  multi_node: false
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_plamo-2-translate#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: pfnet/plamo-2-translate
+          trust_remote_code: true
+          max_model_len: 8192
+          tensor_parallel_size: 1
+        env: {}
+  multi_node:
+    source_ref: "vllm_recipe_plamo-2-translate#multi_node_tp"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        head:  # Head Node 节点配置
+          engine_config:
+            model: pfnet/plamo-2-translate
+            trust_remote_code: true
+            max_model_len: 8192
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: pfnet/plamo-2-translate
+            trust_remote_code: true
+            max_model_len: 8192
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+      multi_node_tp_pp:
+        display_name: Multi-Node TP + Pipeline Parallel
+        head:  # Head Node 节点配置
+          engine_config:
+            model: pfnet/plamo-2-translate
+            trust_remote_code: true
+            max_model_len: 8192
+            tensor_parallel_size: 8
+            pipeline_parallel_size: 2
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: pfnet/plamo-2-translate
+            trust_remote_code: true
+            max_model_len: 8192
+            tensor_parallel_size: 8
+            pipeline_parallel_size: 2
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME

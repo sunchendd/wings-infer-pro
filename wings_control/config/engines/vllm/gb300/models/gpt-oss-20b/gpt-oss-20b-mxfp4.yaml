@@ -1,0 +1,58 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_gpt-oss-20b
+    kind: official_recipe
+    repo: recipes
+    file: models/openai/gpt-oss-20b.yaml
+    url: "https://recipes.vllm.ai/openai/gpt-oss-20b"
+    date_updated: 2026-05-08
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: GPT-OSS 20B  # 模型名称
+  slug: gpt-oss-20b  # 模型标识
+  provider: OpenAI  # 提供者/厂商
+  description: OpenAI's gpt-oss-20b — 21B-total / 3.6B-active MoE reasoning model with native MXFP4 quant; fits in 16GB VRAM  # 模型描述
+  model_id: openai/gpt-oss-20b  # HuggingFace 模型 ID
+  architecture: moe  # 模型架构（dense/moe）
+  parameter_count: 21B  # 总参数量
+  active_parameters: 3.6B  # 激活参数量（MoE 模型）
+  context_length: 131072  # 最大上下文长度
+  vram_minimum_gb: 16  # 最低显存需求(GB)
+  tasks: [text]  # 支持的任务类型
+  min_engine_version: "0.10.0"  # 最低引擎版本要求
+  date_updated: 2026-05-08  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)gpt[-.]?oss[-.]?20b"
+  variant_name: gpt-oss-20b-mxfp4
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 4
+  vram_gb: 1152
+  multi_node: false
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: OpenAI harmony tool-call parser with automatic tool choice
+    args: [--tool-call-parser, openai, --enable-auto-tool-choice]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_gpt-oss-20b#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: openai/gpt-oss-20b
+          tensor_parallel_size: 1
+        env:
+          VLLM_USE_FLASHINFER_MOE_MXFP4_MXFP8: 1

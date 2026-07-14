@@ -1,0 +1,72 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_deepseek-v4-flash
+    kind: official_recipe
+    repo: recipes
+    file: models/deepseek-ai/DeepSeek-V4-Flash.yaml
+    url: "https://recipes.vllm.ai/deepseek-ai/DeepSeek-V4-Flash"
+    date_updated: 2026-05-28
+    note: 手工录入
+# 模型基本信息
+model:
+  name: DeepSeek-V4-Flash  # 模型名称
+  slug: deepseek-v4-flash  # 模型标识
+  provider: DeepSeek  # 提供者/厂商
+  description: "DeepSeek V4 MoE model with hybrid CSA+HCA attention, manifold-constrained hyper-connections, and three-tier reasoning (Non-think / Think High / Think Max)."  # 模型描述
+  model_id: deepseek-ai/DeepSeek-V4-Flash  # HuggingFace 模型 ID
+  architecture: moe  # 模型架构（dense/moe）
+  parameter_count: 284B  # 总参数量
+  active_parameters: 13B  # 激活参数量（MoE 模型）
+  context_length: 1048576  # 最大上下文长度
+  vram_minimum_gb: 384  # 最低显存需求(GB)
+  tasks: [text]  # 支持的任务类型
+  min_engine_version: "0.22.1"  # 最低引擎版本要求
+  date_updated: 2026-05-28  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)deepseek[-.]?v4[-.]?flash"
+  variant_name: DeepSeek-V4-Flash-fp8  # 模型量化版本精确名称
+  
+# 硬件信息
+hardware_profile:
+  gpu_count: 8  # 单节点 GPU 数量
+  vram_gb: 1128  # 单节点总显存(GB)（8 × 141GB）
+  multi_node: false  # 仅支持单节点
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: Enable tool calling with DeepSeek V4 chat template support.
+    args: [--tokenizer-mode, deepseek_v4, --tool-call-parser, deepseek_v4, --enable-auto-tool-choice]
+  reasoning:
+    description: Enable reasoning/thinking mode with the DeepSeek V4 reasoning parser.
+    args: [--reasoning-parser, deepseek_v4]
+  kv_offloading:
+    description: KV cache native offloading to reduce GPU memory usage.
+    args: [--kv-offloading-backend, native, --kv-offloading-size, 200]
+  sparse_index:
+    description: Sparse attention index cache configuration via HF overrides.
+    args: [--hf-overrides, "{\"use_index_cache\": true, \"index_topk_freq\": 4}"]
+  spec_decoding:
+    description: Multi-Token Prediction speculative decoding with 1 speculative token.
+    args: [--speculative-config, "{\"method\":\"mtp\",\"num_speculative_tokens\":1}"]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_deepseek-v4-flash#single_node_tep"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tep:
+        display_name: Tensor + Expert Parallel
+        orientation: balanced
+        default_strategy: true
+        engine_config:
+          model: deepseek-ai/DeepSeek-V4-Flash
+          trust_remote_code: true
+          kv_cache_dtype: fp8
+          block_size: 256
+          enable_expert_parallel: true
+          tensor_parallel_size: 8
+        env: {}

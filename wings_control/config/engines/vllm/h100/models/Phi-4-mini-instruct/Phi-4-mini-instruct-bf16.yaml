@@ -1,0 +1,93 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_phi-4
+    kind: official_recipe
+    repo: recipes
+    file: models/microsoft/Phi-4-mini-instruct.yaml
+    url: "https://recipes.vllm.ai/microsoft/Phi-4-mini-instruct"
+    date_updated: 2026-04-17
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: Phi-4  # 模型名称
+  slug: phi-4  # 模型标识
+  provider: Microsoft  # 提供者/厂商
+  description: "Microsoft's Phi-4 family of lightweight dense models (mini-instruct, reasoning, multimodal) with 128K context"  # 模型描述
+  model_id: microsoft/Phi-4-mini-instruct  # HuggingFace 模型 ID
+  architecture: dense  # 模型架构（dense/moe）
+  parameter_count: 4B  # 总参数量
+  active_parameters: 4B  # 激活参数量（MoE 模型）
+  context_length: 131072  # 最大上下文长度
+  vram_minimum_gb: 10  # 最低显存需求(GB)
+  tasks: [text, multimodal]  # 支持的任务类型
+  min_engine_version: "0.7.0"  # 最低引擎版本要求
+  date_updated: 2026-04-17  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)phi[-.]?4"
+  variant_name: Phi-4-mini-instruct-bf16
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 640
+  multi_node: false
+
+# 可选功能列表
+features:
+  text_only:
+    description: Skip loading the vision encoder for text-only workloads — frees VRAM for KV cache. Mutually exclusive with encoder_parallel.
+    args: [--language-model-only]
+  encoder_parallel:
+    description: Run the vision encoder in data-parallel mode — avoids TP comm overhead on the small encoder. Mutually exclusive with text_only.
+    args: [--mm-encoder-tp-mode, data]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_phi-4#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: microsoft/Phi-4-mini-instruct
+          tensor_parallel_size: 1
+        env: {}
+  multi_node:
+    source_ref: "vllm_recipe_phi-4#multi_node_tp"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        head:  # Head Node 节点配置
+          engine_config:
+            model: microsoft/Phi-4-mini-instruct
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: microsoft/Phi-4-mini-instruct
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME

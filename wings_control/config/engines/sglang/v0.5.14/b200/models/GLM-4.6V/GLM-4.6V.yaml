@@ -1,0 +1,54 @@
+# 来源追溯
+upstream_sources:
+  - id: sglang_glm-4.6v
+    kind: cookbook
+    repo: sglang
+    file: docs_new/cookbook/autoregressive/GLM/GLM-4.6V.mdx
+    url: "https://github.com/sgl-project/sglang/blob/main/docs_new/cookbook/autoregressive/GLM/GLM-4.6V.mdx"
+    note: SGLang 官方 Cookbook 文档。自动生成。
+
+# 模型基本信息
+model:
+  name: GLM-4.6V  # 模型名称
+  provider: zai-org  # 提供者/厂商
+  model_id: zai-org/GLM-4.6V  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.5.14  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)glm[-.]?4.6v"
+  variant_name: GLM-4.6V  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8  # 单节点 GPU/NPU 数量
+  vram_gb: 1440  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "sglang_glm-4.6v#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Single Node
+        engine_config:
+          model: zai-org/GLM-4.6V
+          model_path: zai-org/GLM-4.6V
+          host: "0.0.0.0"
+          port: 30000
+          trust_remote_code: true
+          tp_size: 8
+          enable_cache_report: true
+          log_level: info
+          max_running_requests: 64
+          mem_fraction_static: 0.65
+          chunked_prefill_size: 8192
+          attention_backend: fa3
+          mm_attention_backend: fa3
+          mm_enable_dp_encoder: true
+          enable_metrics: true
+        env:
+          SGLANG_VLM_CACHE_SIZE_MB: 0
+        default_strategy: true

@@ -1,0 +1,58 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_lfm2.5-1.2b-jp-202606
+    kind: official_recipe
+    repo: recipes
+    file: models/LiquidAI/LFM2.5-1.2B-JP-202606.yaml
+    url: "https://recipes.vllm.ai/LiquidAI/LFM2.5-1.2B-JP-202606"
+    date_updated: 2026-06-24
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: LFM2.5 1.2B JP (202606)  # 模型名称
+  slug: lfm2.5-1.2b-jp-202606  # 模型标识
+  provider: LiquidAI  # 提供者/厂商
+  description: "Liquid AI's updated (2026-06) 1.2B Japanese chat model on the LFM2 hybrid conv+attention backbone — adds tool calling, with a 32K context window."  # 模型描述
+  model_id: LiquidAI/LFM2.5-1.2B-JP-202606  # HuggingFace 模型 ID
+  architecture: dense  # 模型架构（dense/moe）
+  parameter_count: 1.2B  # 总参数量
+  active_parameters: 1.2B  # 激活参数量（MoE 模型）
+  context_length: 32768  # 最大上下文长度
+  vram_minimum_gb: 3  # 最低显存需求(GB)
+  tasks: [text]  # 支持的任务类型
+  min_engine_version: "0.23.0"  # 最低引擎版本要求
+  date_updated: 2026-06-24  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)lfm2.5[-.]?1.2b[-.]?jp[-.]?202606"
+  variant_name: LFM2.5-1.2B-JP-202606-bf16
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 1440
+  multi_node: false
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: "Surface LFM2.5's Pythonic tool calls (wrapped in <|tool_call_start|>…<|tool_call_end|>) as OpenAI tool_calls via vLLM's native lfm2 parser"
+    args: [--enable-auto-tool-choice, --tool-call-parser, lfm2]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_lfm2.5-1.2b-jp-202606#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: LiquidAI/LFM2.5-1.2B-JP-202606
+          tensor_parallel_size: 1
+        env:
+          VLLM_USE_OINK_OPS: 1

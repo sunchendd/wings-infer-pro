@@ -1,0 +1,43 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_ascend_qwen3-coder-30b-a3b
+    kind: official_doc
+    repo: vllm-ascend
+    file: docs/source/tutorials/models/Qwen3-Coder-30B-A3B.md
+    url: "https://github.com/vllm-project/vllm-ascend/blob/releases/v0.18.0/docs/source/tutorials/models/Qwen3-Coder-30B-A3B.md"
+    note: vLLM Ascend 官方教程文档。自动生成。
+
+# 模型基本信息
+model:
+  name: Qwen3-Coder-30B-A3B  # 模型名称
+  provider: Qwen  # 提供者/厂商
+  model_id: Qwen/Qwen3-Coder-30B-A3B-Instruct  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.18.0  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)qwen3[-.]?coder[-.]?30b[-.]?a3b"
+  variant_name: Qwen3-Coder-30B-A3B-Instruct  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 16  # 单节点 GPU/NPU 数量
+  vram_gb: 1024  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_ascend_qwen3-coder-30b-a3b#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: Qwen/Qwen3-Coder-30B-A3B-Instruct
+          served_model_name: qwen3-coder
+          tensor_parallel_size: 4
+          enable_expert_parallel: true
+        env:
+          VLLM_USE_MODELSCOPE: "True"

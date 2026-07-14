@@ -1,0 +1,84 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_glm-asr-nano-2512
+    kind: official_recipe
+    repo: recipes
+    file: models/zai-org/GLM-ASR-Nano-2512.yaml
+    url: "https://recipes.vllm.ai/zai-org/GLM-ASR-Nano-2512"
+    date_updated: 2026-04-17
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: GLM-ASR-Nano-2512  # 模型名称
+  slug: glm-asr-nano-2512  # 模型标识
+  provider: GLM (Z-AI)  # 提供者/厂商
+  description: Open-source speech recognition model (~2B) with strong dialect support (Cantonese and others) and robust low-volume speech transcription  # 模型描述
+  model_id: zai-org/GLM-ASR-Nano-2512  # HuggingFace 模型 ID
+  architecture: dense  # 模型架构（dense/moe）
+  parameter_count: 2.3B  # 总参数量
+  active_parameters: 1.5B  # 激活参数量（MoE 模型）
+  context_length: 8192  # 最大上下文长度
+  vram_minimum_gb: 11  # 最低显存需求(GB)
+  tasks: [multimodal]  # 支持的任务类型
+  min_engine_version: "0.14.1"  # 最低引擎版本要求
+  date_updated: 2026-04-17  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)glm[-.]?asr[-.]?nano[-.]?2512"
+  variant_name: GLM-ASR-Nano-2512-bf16
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 2144
+  multi_node: false
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_glm-asr-nano-2512#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: zai-org/GLM-ASR-Nano-2512
+          tensor_parallel_size: 1
+        env: {}
+  multi_node:
+    source_ref: "vllm_recipe_glm-asr-nano-2512#multi_node_tp"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        head:  # Head Node 节点配置
+          engine_config:
+            model: zai-org/GLM-ASR-Nano-2512
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: zai-org/GLM-ASR-Nano-2512
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME

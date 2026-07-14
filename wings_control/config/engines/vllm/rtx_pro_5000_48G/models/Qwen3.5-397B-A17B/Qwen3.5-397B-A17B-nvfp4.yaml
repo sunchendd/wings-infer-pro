@@ -1,0 +1,75 @@
+# 来源追溯
+upstream_sources:
+  - id: qwen3.5-397b_nvfp4_manual
+    kind: manual
+    repo: null
+    file: null
+    url: https://huggingface.co/nvidia/Qwen3.5-397B-A17B-NVFP4
+    date_updated: 2026-07-14
+    note: 手工录入
+# 模型基本信息
+model:
+  name: Qwen3.5-397B  # 模型名称
+  slug: qwen3.5-397b  # 模型标识
+  provider: Qwen  # 提供者/厂商
+  description: "Multimodal MoE model with gated delta networks architecture, 397B total / 17B active parameters, up to 262K context（NVFP4 量化）"  # 模型描述
+  model_id: nvidia/Qwen3.5-397B-A17B-NVFP4  # HuggingFace 模型 ID（NVFP4 量化）
+  architecture: moe  # 模型架构（dense/moe）
+  parameter_count: 397B  # 总参数量
+  active_parameters: 17B  # 激活参数量（MoE 模型）
+  context_length: 262144  # 最大上下文长度
+  vram_minimum_gb: 384  # 最低显存需求(GB)（8 × 48GB，rtx_pro_5000_48G 节点总显存）
+  tasks: [multimodal, text]  # 支持的任务类型
+  min_engine_version: "0.22.0"  # 最低引擎版本要求（实测 vLLM 0.22.0）
+  date_updated: 2026-07-14  # 录入日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)qwen3.5[-.]?397b"
+  variant_name: Qwen3.5-397B-A17B-nvfp4  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8  # 单节点 GPU 数量（TP=8）
+  vram_gb: 384  # 单节点总显存(GB)（8 × 48GB）
+  multi_node: false  # 仅支持单节点
+
+# 可选功能列表（不进 engine_config）
+features:
+  tool_calling:
+    description: Enable tool calling with the Qwen3 chat-template tool parser.
+    args: [--tool-call-parser, qwen3_coder, --enable-auto-tool-choice]
+  reasoning:
+    description: Enable reasoning/thinking mode with the Qwen3 reasoning parser.
+    args: [--reasoning-parser, qwen3]
+  kv_offloading:
+    description: KV cache native offloading to reduce GPU memory usage.
+    args: [--kv_offloading_backend, native, --kv_offloading_size, 200]
+  spec_decoding:
+    description: Multi-Token Prediction speculative decoding with 3 speculative tokens.
+    args: [--speculative-config, "{\"method\":\"mtp\", \"num_speculative_tokens\":3}"]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "qwen3.5-397b_nvfp4_manual#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: nvidia/Qwen3.5-397B-A17B-NVFP4
+          host: 0.0.0.0
+          port: 5684
+          trust_remote_code: true
+          kv_cache_dtype: fp8
+          tensor_parallel_size: 8
+          mm_encoder_tp_mode: data
+          enable_prefix_caching: true
+        env:
+          VLLM_DEEP_GEMM_WARMUP: skip
+          VLLM_USE_DEEP_GEMM: 0
+          VLLM_FLASHINFER_MOE_BACKEND: latency
+          VLLM_USE_FLASHINFER_MOE_FP4: 1

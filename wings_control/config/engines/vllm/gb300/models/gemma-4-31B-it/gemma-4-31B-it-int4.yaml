@@ -1,0 +1,99 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_gemma-4-31b-it
+    kind: official_recipe
+    repo: recipes
+    file: models/Google/gemma-4-31B-it.yaml
+    url: "https://recipes.vllm.ai/Google/gemma-4-31B-it"
+    date_updated: 2026-05-11
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: Gemma 4 31B IT  # 模型名称
+  slug: gemma-4-31b-it  # 模型标识
+  provider: Google  # 提供者/厂商
+  description: "Google's unified multimodal Gemma 4 dense model (31B) with native text, image, and audio, plus thinking mode and tool-use protocol."  # 模型描述
+  model_id: google/gemma-4-31B-it-qat-w4a16-ct  # HuggingFace 模型 ID
+  architecture: dense  # 模型架构（dense/moe）
+  parameter_count: 31B  # 总参数量
+  active_parameters: 31B  # 激活参数量（MoE 模型）
+  context_length: 262144  # 最大上下文长度
+  vram_minimum_gb: 20  # 最低显存需求(GB)
+  tasks: [multimodal, text]  # 支持的任务类型
+  min_engine_version: "0.19.1"  # 最低引擎版本要求
+  date_updated: 2026-05-11  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)gemma[-.]?4[-.]?31b[-.]?it"
+  variant_name: gemma-4-31B-it-int4
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 4
+  vram_gb: 1152
+  multi_node: false
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: Enable automatic tool choice with Gemma 4 parser and chat template
+    args: [--enable-auto-tool-choice, --tool-call-parser, gemma4, --chat-template, examples/tool_chat_template_gemma4.jinja]
+  reasoning:
+    description: Enable structured thinking/reasoning output
+    args: [--reasoning-parser, gemma4]
+  text_only:
+    description: Skip loading the vision encoder for text-only workloads — frees VRAM for KV cache. Mutually exclusive with encoder_parallel.
+    args: [--language-model-only]
+  spec_decoding:
+    description: MTP speculative decoding for accelerated inference
+    args: [--speculative-config, "{\"model\":\"google/gemma-4-31B-it-assistant\",\"num_speculative_tokens\":4}"]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_gemma-4-31b-it#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: google/gemma-4-31B-it-qat-w4a16-ct
+          tensor_parallel_size: 1
+        env: {}
+  multi_node:
+    source_ref: "vllm_recipe_gemma-4-31b-it#multi_node_tp"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        head:  # Head Node 节点配置
+          engine_config:
+            model: google/gemma-4-31B-it-qat-w4a16-ct
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 8
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: google/gemma-4-31B-it-qat-w4a16-ct
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 8
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME

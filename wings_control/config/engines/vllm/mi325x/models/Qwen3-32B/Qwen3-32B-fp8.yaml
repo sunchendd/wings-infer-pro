@@ -1,0 +1,93 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_qwen3-32b
+    kind: official_recipe
+    repo: recipes
+    file: models/Qwen/Qwen3-32B.yaml
+    url: "https://recipes.vllm.ai/Qwen/Qwen3-32B"
+    date_updated: 2026-06-04
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: Qwen3-32B  # 模型名称
+  slug: qwen3-32b  # 模型标识
+  provider: Qwen  # 提供者/厂商
+  description: Qwen3 32B dense model with hybrid thinking/non-thinking modes — verified on TPU v6e (Trillium).  # 模型描述
+  model_id: Qwen/Qwen3-32B-FP8  # HuggingFace 模型 ID
+  architecture: dense  # 模型架构（dense/moe）
+  parameter_count: 32B  # 总参数量
+  active_parameters: 32B  # 激活参数量（MoE 模型）
+  context_length: 40960  # 最大上下文长度
+  vram_minimum_gb: 39  # 最低显存需求(GB)
+  tasks: [text]  # 支持的任务类型
+  min_engine_version: "0.8.5"  # 最低引擎版本要求
+  date_updated: 2026-06-04  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)qwen3[-.]?32b"
+  variant_name: Qwen3-32B-fp8
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 2048
+  multi_node: false
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: Enable automatic tool choice with the Hermes parser
+    args: [--enable-auto-tool-choice, --tool-call-parser, hermes]
+  reasoning:
+    description: Enable Qwen3 thinking mode (chain-of-thought) with the Qwen3 reasoning parser
+    args: [--reasoning-parser, qwen3]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_qwen3-32b#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: Qwen/Qwen3-32B-FP8
+          tensor_parallel_size: 1
+        env: {}
+  multi_node:
+    source_ref: "vllm_recipe_qwen3-32b#multi_node_tp"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        head:  # Head Node 节点配置
+          engine_config:
+            model: Qwen/Qwen3-32B-FP8
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: Qwen/Qwen3-32B-FP8
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME

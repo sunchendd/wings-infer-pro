@@ -1,0 +1,12 @@
+# 硬件 + 引擎公共默认值
+# 该文件由 wings-config update yaml --engine vllm_ascend 自动生成
+
+hardware:
+  gpu_count: 8  # 单节点 NPU 数量
+  vram_gb: 512  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+engine:
+  name: vllm-ascend  # 推理引擎
+  version: v0.21.0rc  # 引擎版本
+

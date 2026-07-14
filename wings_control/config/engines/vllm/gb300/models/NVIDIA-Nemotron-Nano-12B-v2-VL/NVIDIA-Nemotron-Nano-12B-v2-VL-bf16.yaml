@@ -1,0 +1,131 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_nemotron-nano-12b-v2-vl
+    kind: official_recipe
+    repo: recipes
+    file: models/nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16.yaml
+    url: "https://recipes.vllm.ai/nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16"
+    date_updated: 2026-04-17
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: NVIDIA Nemotron-Nano-12B-v2-VL  # 模型名称
+  slug: nemotron-nano-12b-v2-vl  # 模型标识
+  provider: NVIDIA  # 提供者/厂商
+  description: NVIDIA Nemotron-Nano 12B vision-language model with video support and Efficient Video Sampling (EVS)  # 模型描述
+  model_id: nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16  # HuggingFace 模型 ID
+  architecture: dense  # 模型架构（dense/moe）
+  parameter_count: 12B  # 总参数量
+  active_parameters: 12B  # 激活参数量（MoE 模型）
+  context_length: 131072  # 最大上下文长度
+  vram_minimum_gb: 29  # 最低显存需求(GB)
+  tasks: [multimodal]  # 支持的任务类型
+  min_engine_version: "0.11.1"  # 最低引擎版本要求
+  date_updated: 2026-04-17  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)nemotron[-.]?nano[-.]?12b[-.]?v2[-.]?vl"
+  variant_name: NVIDIA-Nemotron-Nano-12B-v2-VL-bf16
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 4
+  vram_gb: 1152
+  multi_node: false
+
+# 可选功能列表
+features:
+  video_compression:
+    description: Efficient Video Sampling (EVS) prunes video tokens; 0.75 means 75% pruning
+    args: [--video-pruning-rate, "0.75"]
+  text_only:
+    description: Skip loading the vision encoder for text-only workloads — frees VRAM for KV cache. Mutually exclusive with encoder_parallel.
+    args: [--language-model-only]
+  encoder_parallel:
+    description: Run the vision encoder in data-parallel mode — avoids TP comm overhead on the small encoder. Mutually exclusive with text_only.
+    args: [--mm-encoder-tp-mode, data]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_nemotron-nano-12b-v2-vl#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16
+          trust_remote_code: true
+          tensor_parallel_size: 1
+        env:
+          VLLM_VIDEO_LOADER_BACKEND: opencv
+  multi_node:
+    source_ref: "vllm_recipe_nemotron-nano-12b-v2-vl#multi_node_tp"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        head:  # Head Node 节点配置
+          engine_config:
+            model: nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16
+            trust_remote_code: true
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 8
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            VLLM_VIDEO_LOADER_BACKEND: opencv
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16
+            trust_remote_code: true
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 8
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            VLLM_VIDEO_LOADER_BACKEND: opencv
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+      multi_node_tp_pp:
+        display_name: Multi-Node TP + Pipeline Parallel
+        head:  # Head Node 节点配置
+          engine_config:
+            model: nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16
+            trust_remote_code: true
+            tensor_parallel_size: 4
+            pipeline_parallel_size: 2
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            VLLM_VIDEO_LOADER_BACKEND: opencv
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16
+            trust_remote_code: true
+            tensor_parallel_size: 4
+            pipeline_parallel_size: 2
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            VLLM_VIDEO_LOADER_BACKEND: opencv
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME

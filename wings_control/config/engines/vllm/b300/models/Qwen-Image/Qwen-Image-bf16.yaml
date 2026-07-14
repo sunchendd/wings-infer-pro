@@ -1,0 +1,51 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_qwen-image
+    kind: official_recipe
+    repo: recipes
+    file: models/Qwen/Qwen-Image.yaml
+    url: "https://recipes.vllm.ai/Qwen/Qwen-Image"
+    date_updated: 2026-04-17
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: Qwen-Image  # 模型名称
+  slug: qwen-image  # 模型标识
+  provider: Qwen  # 提供者/厂商
+  description: "Text-to-image diffusion model (20B parameters) from the Qwen-Image family, served via vLLM-Omni."  # 模型描述
+  model_id: Qwen/Qwen-Image  # HuggingFace 模型 ID
+  architecture: dense  # 模型架构（dense/moe）
+  parameter_count: 20B  # 总参数量
+  active_parameters: 20B  # 激活参数量（MoE 模型）
+  context_length: 0  # 最大上下文长度
+  vram_minimum_gb: 48  # 最低显存需求(GB)
+  tasks: [omni]  # 支持的任务类型
+  min_engine_version: "0.18.0"  # 最低引擎版本要求
+  date_updated: 2026-04-17  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)qwen[-.]?image"
+  variant_name: Qwen-Image-bf16
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 2144
+  multi_node: false
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_qwen-image#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: Qwen/Qwen-Image
+          tensor_parallel_size: 1
+        env: {}

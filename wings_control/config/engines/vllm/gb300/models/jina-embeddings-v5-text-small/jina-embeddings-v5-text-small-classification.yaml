@@ -1,0 +1,53 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_jina-embeddings-v5-text-small
+    kind: official_recipe
+    repo: recipes
+    file: models/jinaai/jina-embeddings-v5-text-small.yaml
+    url: "https://recipes.vllm.ai/jinaai/jina-embeddings-v5-text-small"
+    date_updated: 2026-05-09
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: Jina Embeddings v5 Text Small  # 模型名称
+  slug: jina-embeddings-v5-text-small  # 模型标识
+  provider: Jina AI  # 提供者/厂商
+  description: "Jina AI's fifth-gen multilingual text embedding model (677M, Qwen3-0.6B-Base) with task-specific LoRA adapters for retrieval, text-matching, classification, and clustering."  # 模型描述
+  model_id: jinaai/jina-embeddings-v5-text-small-classification  # HuggingFace 模型 ID
+  architecture: dense  # 模型架构（dense/moe）
+  parameter_count: 0.7B  # 总参数量
+  active_parameters: 0.7B  # 激活参数量（MoE 模型）
+  context_length: 32768  # 最大上下文长度
+  vram_minimum_gb: 2  # 最低显存需求(GB)
+  tasks: [embedding]  # 支持的任务类型
+  min_engine_version: "0.20.0"  # 最低引擎版本要求
+  date_updated: 2026-05-09  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)jina[-.]?embeddings[-.]?v5[-.]?text[-.]?small"
+  variant_name: jina-embeddings-v5-text-small-classification
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 4
+  vram_gb: 1152
+  multi_node: false
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_jina-embeddings-v5-text-small#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: jinaai/jina-embeddings-v5-text-small-classification
+          trust_remote_code: true
+          runner: pooling
+          tensor_parallel_size: 1
+        env: {}

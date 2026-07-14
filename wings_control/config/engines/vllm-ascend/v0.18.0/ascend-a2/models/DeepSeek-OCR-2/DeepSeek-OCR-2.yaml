@@ -1,0 +1,59 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_ascend_deepseek-ocr-2
+    kind: official_doc
+    repo: vllm-ascend
+    file: docs/source/tutorials/models/DeepSeekOCR2.md
+    url: "https://github.com/vllm-project/vllm-ascend/blob/releases/v0.18.0/docs/source/tutorials/models/DeepSeekOCR2.md"
+    note: vLLM Ascend 官方教程文档。自动生成。
+
+# 模型基本信息
+model:
+  name: DeepSeek-OCR-2  # 模型名称
+  provider: deepseek-ai  # 提供者/厂商
+  model_id: deepseek-ai/DeepSeek-OCR-2  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.18.0  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)deepseek[-.]?ocr[-.]?2"
+  variant_name: DeepSeek-OCR-2  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8  # 单节点 GPU/NPU 数量
+  vram_gb: 512  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_ascend_deepseek-ocr-2#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: /root/.cache/DeepSeek-OCR-2
+          served_model_name: deepseekocr2
+          trust_remote_code: true
+          tensor_parallel_size: 1
+          port: 1055
+          max_model_len: 8192
+          enable_prefix_caching: false
+          gpu_memory_utilization: 0.8
+          allowed_local_media_path: /
+          async_scheduling: true
+          additional_config:
+            enable_cpu_binding: true
+            multistream_overlap_shared_expert: true
+            ascend_compilation_config:
+              fuse_qknorm_rope: false
+          mm_processor_cache_gb: 0
+        env:
+          VLLM_USE_V1: 1
+          VLLM_ASCEND_ENABLE_NZ: 0
+          TOKENIZERS_PARALLELISM: "false"
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          TASK_QUEUE_ENABLE: 1

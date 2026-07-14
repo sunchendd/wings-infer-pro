@@ -1,0 +1,353 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_ascend_kimi-k2.5
+    kind: official_doc
+    repo: vllm-ascend
+    file: docs/source/tutorials/models/Kimi-K2.5.md
+    url: "https://github.com/vllm-project/vllm-ascend/blob/releases/v0.18.0/docs/source/tutorials/models/Kimi-K2.5.md"
+    note: vLLM Ascend 官方教程文档。自动生成。
+
+# 模型基本信息
+model:
+  name: Kimi-K2.5  # 模型名称
+  provider: Eco-Tech  # 提供者/厂商
+  model_id: Eco-Tech/Kimi-K2.5-W4A8  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.18.0  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)kimi[-.]?k2.5"
+  variant_name: Kimi-K2.5-W4A8  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 16  # 单节点 GPU/NPU 数量
+  vram_gb: 1024  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 可选功能列表
+features:
+  encoder_parallel:
+    description: Run the vision encoder in data-parallel mode — avoids TP comm overhead on the small encoder. Mutually exclusive with text_only.
+    args: [--mm-encoder-tp-mode, data]
+  spec_decoding:
+    description: Speculative decoding (MTP draft) to accelerate generation.
+    args: [--speculative-config, "{\"method\":\"eagle3\",\"model\":\"lightseekorg/kimi-k2.5-eagle3\",\"num_speculative_tokens\":3}"]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_ascend_kimi-k2.5#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: Eco-Tech/Kimi-K2.5-W4A8
+          host: "0.0.0.0"
+          port: 8088
+          quantization: ascend
+          served_model_name: kimi_k25
+          allowed_local_media_path: /
+          trust_remote_code: true
+          enable_prefix_caching: false
+          seed: 1024
+          tensor_parallel_size: 4
+          data_parallel_size: 4
+          enable_expert_parallel: true
+          async_scheduling: true
+          max_num_seqs: 64
+          max_model_len: 32768
+          max_num_batched_tokens: 16384
+          gpu_memory_utilization: 0.9
+          compilation_config:
+            cudagraph_capture_sizes: [4, 8, 16, 32, 64, 128, 256]
+            cudagraph_mode: FULL_DECODE_ONLY
+        env:
+          LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+          HCCL_OP_EXPANSION_MODE: AIV
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          OMP_PROC_BIND: "false"
+          OMP_NUM_THREADS: 1
+          TASK_QUEUE_ENABLE: 1
+          HCCL_BUFFSIZE: 800
+          VLLM_ASCEND_ENABLE_MLAPO: 1
+          VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
+          VLLM_ASCEND_BALANCE_SCHEDULING: 1
+        system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+          sysctls:
+            vm.swappiness: 0
+            kernel.numa_balancing: 0
+            kernel.sched_migration_cost_ns: 50000
+          sysfs_writes:
+            - path: "/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
+              value: performance
+  pd_disaggregation:
+    source_ref: "vllm_ascend_kimi-k2.5#pd_cluster"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        default_strategy: true
+        nodes:
+          - role: prefill  # Prefill Node 0
+            index: 0
+            engine_config:
+              model: Eco-Tech/Kimi-K2.5-W4A8
+              host: "0.0.0.0"
+              port: $2
+              data_parallel_size: $3
+              data_parallel_rank: $4
+              data_parallel_address: $5
+              data_parallel_rpc_port: $6
+              tensor_parallel_size: $7
+              enable_expert_parallel: true
+              seed: 1024
+              quantization: ascend
+              served_model_name: kimi_k25
+              trust_remote_code: true
+              max_num_seqs: 8
+              max_model_len: 32768
+              max_num_batched_tokens: 16384
+              enable_prefix_caching: false
+              gpu_memory_utilization: 0.8
+              enforce_eager: true
+              additional_config:
+                recompute_scheduler_enable: true
+              kv_transfer_config:
+                kv_connector: MooncakeConnectorV1
+                kv_role: kv_producer
+                kv_port: 30000
+                engine_id: 0
+                kv_connector_extra_config:
+                  prefill:
+                    dp_size: 2
+                    tp_size: 8
+                  decode:
+                    dp_size: 32
+                    tp_size: 1
+            env:
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              TP_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+              LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+              VLLM_RPC_TIMEOUT: 3600000
+              VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: 30000
+              HCCL_OP_EXPANSION_MODE: AIV
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              OMP_PROC_BIND: "false"
+              OMP_NUM_THREADS: 1
+              TASK_QUEUE_ENABLE: 1
+              ASCEND_BUFFER_POOL: "4:8"
+              LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:$LD_LIBRARY_PATH"
+              HCCL_BUFFSIZE: 256
+              VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
+              ASCEND_RT_VISIBLE_DEVICES: $1
+            system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+              sysctls:
+                vm.swappiness: 0
+                kernel.numa_balancing: 0
+                kernel.sched_migration_cost_ns: 50000
+              sysfs_writes:
+                - path: "/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
+                  value: performance
+              commands: ["nic_name=\"xxx\"", "local_ip=\"141.xx.xx.1\"", "node0_ip=\"xxxx\""]
+          - role: prefill  # Prefill Node 1
+            index: 1
+            engine_config:
+              model: Eco-Tech/Kimi-K2.5-W4A8
+              host: "0.0.0.0"
+              port: $2
+              data_parallel_size: $3
+              data_parallel_rank: $4
+              data_parallel_address: $5
+              data_parallel_rpc_port: $6
+              tensor_parallel_size: $7
+              enable_expert_parallel: true
+              seed: 1024
+              quantization: ascend
+              served_model_name: kimi_k25
+              trust_remote_code: true
+              max_num_seqs: 8
+              max_model_len: 32768
+              max_num_batched_tokens: 16384
+              enable_prefix_caching: false
+              gpu_memory_utilization: 0.8
+              enforce_eager: true
+              additional_config:
+                recompute_scheduler_enable: true
+              kv_transfer_config:
+                kv_connector: MooncakeConnectorV1
+                kv_role: kv_producer
+                kv_port: 30100
+                engine_id: 1
+                kv_connector_extra_config:
+                  prefill:
+                    dp_size: 2
+                    tp_size: 8
+                  decode:
+                    dp_size: 32
+                    tp_size: 1
+            env:
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              TP_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+              LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+              VLLM_RPC_TIMEOUT: 3600000
+              VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: 30000
+              HCCL_OP_EXPANSION_MODE: AIV
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              OMP_PROC_BIND: "false"
+              OMP_NUM_THREADS: 1
+              TASK_QUEUE_ENABLE: 1
+              ASCEND_BUFFER_POOL: "4:8"
+              LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:$LD_LIBRARY_PATH"
+              HCCL_BUFFSIZE: 256
+              VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
+              ASCEND_RT_VISIBLE_DEVICES: $1
+            system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+              sysctls:
+                vm.swappiness: 0
+                kernel.numa_balancing: 0
+                kernel.sched_migration_cost_ns: 50000
+              sysfs_writes:
+                - path: "/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
+                  value: performance
+              commands: ["nic_name=\"xxx\"", "local_ip=\"141.xx.xx.2\"", "node0_ip=\"xxxx\""]
+          - role: decode  # Decode Node 0
+            index: 0
+            engine_config:
+              model: Eco-Tech/Kimi-K2.5-W4A8
+              host: "0.0.0.0"
+              port: $2
+              data_parallel_size: $3
+              data_parallel_rank: $4
+              data_parallel_address: $5
+              data_parallel_rpc_port: $6
+              tensor_parallel_size: $7
+              enable_expert_parallel: true
+              seed: 1024
+              quantization: ascend
+              served_model_name: kimi_k25
+              trust_remote_code: true
+              max_num_seqs: 48
+              max_model_len: 32768
+              max_num_batched_tokens: 256
+              enable_prefix_caching: false
+              gpu_memory_utilization: 0.95
+              compilation_config:
+                cudagraph_mode: FULL_DECODE_ONLY
+                cudagraph_capture_sizes: [4, 8, 16, 32, 48, 64, 80, 96, 112, 128, 144, 160]
+              additional_config:
+                recompute_scheduler_enable: true
+                multistream_overlap_shared_expert: false
+              kv_transfer_config:
+                kv_connector: MooncakeConnectorV1
+                kv_role: kv_consumer
+                kv_port: 30200
+                engine_id: 2
+                kv_connector_extra_config:
+                  prefill:
+                    dp_size: 2
+                    tp_size: 8
+                  decode:
+                    dp_size: 32
+                    tp_size: 1
+            env:
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              TP_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+              LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+              VLLM_RPC_TIMEOUT: 3600000
+              VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: 30000
+              HCCL_OP_EXPANSION_MODE: AIV
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              OMP_PROC_BIND: "false"
+              OMP_NUM_THREADS: 1
+              TASK_QUEUE_ENABLE: 1
+              ASCEND_BUFFER_POOL: "4:8"
+              LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:$LD_LIBRARY_PATH"
+              HCCL_BUFFSIZE: 1100
+              VLLM_ASCEND_ENABLE_MLAPO: 1
+              ASCEND_RT_VISIBLE_DEVICES: $1
+            system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+              sysctls:
+                vm.swappiness: 0
+                kernel.numa_balancing: 0
+                kernel.sched_migration_cost_ns: 50000
+              sysfs_writes:
+                - path: "/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
+                  value: performance
+              commands: ["nic_name=\"xxx\"", "local_ip=\"141.xx.xx.3\"", "node0_ip=\"xxxx\""]
+          - role: decode  # Decode Node 1
+            index: 1
+            engine_config:
+              model: Eco-Tech/Kimi-K2.5-W4A8
+              host: "0.0.0.0"
+              port: $2
+              data_parallel_size: $3
+              data_parallel_rank: $4
+              data_parallel_address: $5
+              data_parallel_rpc_port: $6
+              tensor_parallel_size: $7
+              enable_expert_parallel: true
+              seed: 1024
+              quantization: ascend
+              served_model_name: kimi_k25
+              trust_remote_code: true
+              max_num_seqs: 48
+              max_model_len: 32768
+              max_num_batched_tokens: 256
+              enable_prefix_caching: false
+              gpu_memory_utilization: 0.95
+              compilation_config:
+                cudagraph_mode: FULL_DECODE_ONLY
+                cudagraph_capture_sizes: [4, 8, 16, 32, 48, 64, 80, 96, 112, 128, 144, 160]
+              additional_config:
+                recompute_scheduler_enable: true
+                multistream_overlap_shared_expert: false
+              kv_transfer_config:
+                kv_connector: MooncakeConnectorV1
+                kv_role: kv_consumer
+                kv_port: 30200
+                engine_id: 2
+                kv_connector_extra_config:
+                  prefill:
+                    dp_size: 2
+                    tp_size: 8
+                  decode:
+                    dp_size: 32
+                    tp_size: 1
+            env:
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              TP_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+              LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+              VLLM_RPC_TIMEOUT: 3600000
+              VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: 30000
+              HCCL_OP_EXPANSION_MODE: AIV
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              OMP_PROC_BIND: "false"
+              OMP_NUM_THREADS: 1
+              TASK_QUEUE_ENABLE: 1
+              ASCEND_BUFFER_POOL: "4:8"
+              LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:$LD_LIBRARY_PATH"
+              HCCL_BUFFSIZE: 1100
+              VLLM_ASCEND_ENABLE_MLAPO: 1
+              ASCEND_RT_VISIBLE_DEVICES: $1
+            system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+              sysctls:
+                vm.swappiness: 0
+                kernel.numa_balancing: 0
+                kernel.sched_migration_cost_ns: 50000
+              sysfs_writes:
+                - path: "/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
+                  value: performance
+              commands: ["nic_name=\"xxx\"", "local_ip=\"141.xx.xx.4\"", "node0_ip=\"xxxx\""]

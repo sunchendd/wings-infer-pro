@@ -1,0 +1,975 @@
+# 来源追溯
+upstream_sources:
+  - id: sglang_glm-5.1
+    kind: official_doc
+    repo: sglang
+    file: docs_new/docs/hardware-platforms/ascend-npus/best_practice/glm5_1.mdx
+    url: "https://github.com/sgl-project/sglang/blob/main/docs_new/docs/hardware-platforms/ascend-npus/best_practice/glm5_1.mdx"
+    note: SGLang 官方 Cookbook 文档。自动生成。
+
+# 模型基本信息
+model:
+  name: GLM-5.1  # 模型名称
+  provider: ""  # 提供者/厂商
+  model_id: GLM-5.1  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.5.14  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)glm[-.]?5.1"
+  variant_name: GLM-5.1-w4a8  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 16  # 单节点 GPU/NPU 数量
+  vram_gb: 1024  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 可选功能列表
+features:
+  spec_decoding:
+    description: Enable speculative decoding.
+    args: [--speculative-draft-model-quantization, unquant, --speculative-algorithm, NEXTN, --speculative-num-steps, 3, --speculative-eagle-topk, 1, --speculative-num-draft-tokens, 4]
+    strategy_overrides:  # 该特性默认用上面的 args；此处仅列出 spec 参数与默认不一致、需按部署场景覆盖的项
+      pd_disaggregation.pd_cluster_glm-5-1-w4a8-1p1d-32p-in128k-out1k-20ms:
+        args: [--speculative-draft-model-quantization, unquant]
+      pd_disaggregation.pd_cluster_glm-5-1-w4a8-1p1d-32p-in64k-out1k-20ms:
+        args: [--speculative-draft-model-quantization, unquant]
+      pd_disaggregation.pd_cluster_glm-5-1-w4a8-1p1d-32p-in64k-out1k-50ms:
+        args: [--speculative-draft-model-quantization, unquant]
+      pd_disaggregation.pd_cluster_glm-5-1-w4a8-2p1d-48p-in128k-out1k-prefix90-50ms.prefill0:
+        args: [--speculative-draft-model-quantization, unquant]
+      pd_disaggregation.pd_cluster_glm-5-1-w4a8-4p1d-48p-in64k-out1k-prefix90-50ms.prefill0:
+        args: [--speculative-draft-model-quantization, unquant]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "sglang_glm-5.1#single_node_pd-mixed"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_pd-mixed:
+        display_name: GLM-5.1 W4A8 16P IN3K5 OUT1K5 50ms
+        orientation: throughput
+        nodes:
+          - role: mixed
+            index: 0
+            engine_config:
+              model: $MODEL_PATH
+              model_path: $MODEL_PATH
+              host: "${NODE_IPS[$i]}"
+              port: 6688
+              nnodes: 2
+              dist_init_addr: "${NODE_IPS[0]}:5000"
+              node_rank: $i
+              attention_backend: ascend
+              device: npu
+              tp_size: 32
+              dp_size: 16
+              enable_dp_attention: true
+              chunked_prefill_size: 65536
+              max_prefill_tokens: 280000
+              trust_remote_code: true
+              mem_fraction_static: 0.65
+              served_model_name: glm-5
+              cuda_graph_max_bs: 16
+              max_running_requests: 256
+              quantization: modelslim
+              moe_a2a_backend: deepep
+              deepep_mode: auto
+              load_balance_method: round_robin
+            env:
+              DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+              GLOO_SOCKET_IFNAME: "<network-interface>"
+              HCCL_BUFFSIZE: 2500
+              HCCL_SOCKET_IFNAME: "<network-interface>"
+              SGLANG_DEEPEP_NUM_MAX_DISPATCH_TOKENS_PER_RANK: 32
+              SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT: 600
+              SGLANG_ENABLE_OVERLAP_PLAN_STREAM: 1
+              SGLANG_ENABLE_SPEC_V2: 1
+              SGLANG_SET_CPU_AFFINITY: 1
+              STREAMS_PER_DEVICE: 32
+            system_setup:
+              sysctls:
+                vm.swappiness: 0
+                kernel.numa_balancing: 0
+                kernel.sched_migration_cost_ns: 50000
+              sysfs_writes:
+                - path: "/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
+                  value: performance
+              commands: [MODEL_PATH=/path/to/model-weights, "NODE_IPS=('<your node1 ip>' '<your node2 ip>')", unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh]
+        default_strategy: true
+  pd_disaggregation:
+    source_ref: "sglang_glm-5.1#pd_cluster_glm-5-1-w4a8-1p1d-32p-in128k-out1k-20ms"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster_glm-5-1-w4a8-1p1d-32p-in128k-out1k-20ms:
+        display_name: GLM-5.1 W4A8 1P1D 32P IN128K OUT1K 20ms
+        orientation: latency
+        nodes:
+          - role: prefill
+            index: 0
+            engine_config:
+              model: "${MODEL_PATH}"
+              model_path: $MODEL_PATH
+              disaggregation_mode: prefill
+              host: "${P_IP[$i]}"
+              port: 8000
+              dist_init_addr: "${P_IP[0]}:5000"
+              disaggregation_bootstrap_port: 8998
+              node_rank: $i
+              tp_size: 4
+              nnodes: 2
+              mem_fraction_static: 0.72
+              attention_backend: ascend
+              device: npu
+              quantization: modelslim
+              disaggregation_transfer_backend: ascend
+              max_running_requests: 16
+              served_model_name: glm-5
+              chunked_prefill_size: 16384
+              max_prefill_tokens: 180000
+              moe_a2a_backend: deepep
+              deepep_mode: normal
+              disable_shared_experts_fusion: true
+              disable_cuda_graph: true
+              dtype: bfloat16
+              enable_nsa_prefill_context_parallel: true
+              nsa_prefill_cp_mode: in-seq-split
+              attn_cp_size: 4
+              enable_dp_lm_head: true
+              moe_dense_tp: 1
+              pp_size: 8
+              trust_remote_code: true
+            env:
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT: 1200
+              SGLANG_DISAGGREGATION_WAITING_TIMEOUT: 1200
+              SGLANG_SET_CPU_AFFINITY: 1
+              STREAMS_PER_DEVICE: 32
+              ASCEND_MF_STORE_URL: "tcp://<your prefill ip1>:24670"
+              DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ: 1
+              DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS: 1024
+              DEEPEP_NORMAL_LONG_SEQ_ROUND: 72
+              DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+              ENABLE_PROFILING: 0
+              GLOO_SOCKET_IFNAME: "<network-interface>"
+              HCCL_BUFFSIZE: 1200
+              HCCL_SOCKET_IFNAME: "<network-interface>"
+              TASK_QUEUE_ENABLE: 2
+            system_setup:
+              commands: [unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh, "P_IP=('<your prefill ip1>' '<your prefill ip2>')", "D_IP=('<your decode ip1>' '<your decode ip2>')", MODEL_PATH=/path/to/model-weights]
+          - role: decode
+            index: 1
+            engine_config:
+              model: "${MODEL_PATH}"
+              model_path: $MODEL_PATH
+              disaggregation_mode: decode
+              host: "${D_IP[$i]}"
+              port: 8001
+              dist_init_addr: "${D_IP[0]}:5000"
+              node_rank: $i
+              tp_size: 32
+              nnodes: 2
+              dp_size: 32
+              ep_size: 32
+              enable_dp_attention: true
+              mem_fraction_static: 0.85
+              max_running_requests: 32
+              attention_backend: ascend
+              device: npu
+              quantization: modelslim
+              served_model_name: glm-5
+              moe_a2a_backend: deepep
+              deepep_mode: low_latency
+              cuda_graph_bs: 1
+              disaggregation_transfer_backend: ascend
+              watchdog_timeout: 9000
+              context_length: 180000
+              tokenizer_worker_num: 16
+              prefill_round_robin_balance: true
+              disable_shared_experts_fusion: true
+              dtype: bfloat16
+              load_balance_method: round_robin
+              trust_remote_code: true
+            env:
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT: 1200
+              SGLANG_DISAGGREGATION_WAITING_TIMEOUT: 1200
+              SGLANG_SET_CPU_AFFINITY: 1
+              STREAMS_PER_DEVICE: 32
+              ASCEND_MF_STORE_URL: "tcp://<your prefill ip1>:24670"
+              DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ: 1
+              DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS: 1024
+              DEEPEP_NORMAL_LONG_SEQ_ROUND: 72
+              DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+              ENABLE_PROFILING: 0
+              GLOO_SOCKET_IFNAME: "<network-interface>"
+              HCCL_BUFFSIZE: 200
+              HCCL_SOCKET_IFNAME: "<network-interface>"
+              TASK_QUEUE_ENABLE: 0
+              SGLANG_DEEPEP_NUM_MAX_DISPATCH_TOKENS_PER_RANK: 16
+              SGLANG_ENABLE_OVERLAP_PLAN_STREAM: 1
+              SGLANG_ENABLE_SPEC_V2: 1
+              SGLANG_SPEC_ENABLE_OVERLAP_REFLOW: 1
+            system_setup:
+              commands: [unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh, "P_IP=('<your prefill ip1>' '<your prefill ip2>')", "D_IP=('<your decode ip1>' '<your decode ip2>')", MODEL_PATH=/path/to/model-weights]
+        default_strategy: true
+      pd_cluster_glm-5-1-w4a8-1p1d-32p-in16k-out1k-50ms:
+        display_name: GLM-5.1 W4A8 1P1D 32P IN16K OUT1K 50ms
+        orientation: throughput
+        nodes:
+          - role: prefill
+            index: 0
+            engine_config:
+              model: "${MODEL_PATH}"
+              model_path: $MODEL_PATH
+              disaggregation_mode: prefill
+              host: "${P_IP[$i]}"
+              port: 8000
+              dist_init_addr: "${P_IP[0]}:5000"
+              disaggregation_bootstrap_port: 8998
+              node_rank: $i
+              tp_size: 32
+              nnodes: 2
+              mem_fraction_static: 0.75
+              attention_backend: ascend
+              device: npu
+              quantization: modelslim
+              disaggregation_transfer_backend: ascend
+              max_running_requests: 64
+              served_model_name: glm-5
+              chunked_prefill_size: 524288
+              max_prefill_tokens: 180000
+              moe_a2a_backend: deepep
+              deepep_mode: normal
+              disable_shared_experts_fusion: true
+              disable_cuda_graph: true
+              dtype: bfloat16
+              dp_size: 4
+              enable_dp_attention: true
+              load_balance_method: round_robin
+              enable_nsa_prefill_context_parallel: true
+              nsa_prefill_cp_mode: in-seq-split
+              attn_cp_size: 8
+              enable_dp_lm_head: true
+              moe_dense_tp: 1
+              trust_remote_code: true
+            env:
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT: 600
+              SGLANG_SET_CPU_AFFINITY: 1
+              STREAMS_PER_DEVICE: 32
+              ASCEND_MF_STORE_URL: "tcp://<your prefill ip1>:24670"
+              DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ: 1
+              DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+              ENABLE_PROFILING: 0
+              GLOO_SOCKET_IFNAME: "<network-interface>"
+              HCCL_BUFFSIZE: 1200
+              HCCL_SOCKET_IFNAME: "<network-interface>"
+              TASK_QUEUE_ENABLE: 2
+            system_setup:
+              commands: [unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh, "P_IP=('<your prefill ip1>' '<your prefill ip2>')", "D_IP=('<your decode ip1>' '<your decode ip2>')", MODEL_PATH=/path/to/model-weights]
+          - role: decode
+            index: 1
+            engine_config:
+              model: "${MODEL_PATH}"
+              model_path: $MODEL_PATH
+              disaggregation_mode: decode
+              host: "${D_IP[$i]}"
+              port: 8001
+              dist_init_addr: "${D_IP[0]}:5000"
+              node_rank: $i
+              tp_size: 32
+              nnodes: 2
+              dp_size: 32
+              ep_size: 32
+              enable_dp_attention: true
+              mem_fraction_static: 0.87
+              max_running_requests: 96
+              attention_backend: ascend
+              device: npu
+              quantization: modelslim
+              served_model_name: glm-5
+              moe_a2a_backend: deepep
+              deepep_mode: low_latency
+              cuda_graph_bs: 1
+              disaggregation_transfer_backend: ascend
+              watchdog_timeout: 9000
+              context_length: 180000
+              tokenizer_worker_num: 4
+              prefill_round_robin_balance: true
+              disable_shared_experts_fusion: true
+              dtype: bfloat16
+              load_balance_method: round_robin
+              trust_remote_code: true
+            env:
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT: 600
+              SGLANG_SET_CPU_AFFINITY: 1
+              STREAMS_PER_DEVICE: 32
+              ASCEND_MF_STORE_URL: "tcp://<your prefill ip1>:24670"
+              DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ: 1
+              DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+              ENABLE_PROFILING: 0
+              GLOO_SOCKET_IFNAME: "<network-interface>"
+              HCCL_BUFFSIZE: 650
+              HCCL_SOCKET_IFNAME: "<network-interface>"
+              TASK_QUEUE_ENABLE: 0
+              SGLANG_DEEPEP_NUM_MAX_DISPATCH_TOKENS_PER_RANK: 64
+              SGLANG_ENABLE_OVERLAP_PLAN_STREAM: 1
+              SGLANG_ENABLE_SPEC_V2: 1
+              SGLANG_SPEC_ENABLE_OVERLAP_REFLOW: 1
+            system_setup:
+              commands: [unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh, "P_IP=('<your prefill ip1>' '<your prefill ip2>')", "D_IP=('<your decode ip1>' '<your decode ip2>')", MODEL_PATH=/path/to/model-weights]
+      pd_cluster_glm-5-1-w4a8-1p1d-32p-in64k-out1k-20ms:
+        display_name: GLM-5.1 W4A8 1P1D 32P IN64K OUT1K 20ms
+        orientation: latency
+        nodes:
+          - role: prefill
+            index: 0
+            engine_config:
+              model: "${MODEL_PATH}"
+              model_path: $MODEL_PATH
+              disaggregation_mode: prefill
+              host: "${P_IP[$i]}"
+              port: 8000
+              dist_init_addr: "${P_IP[0]}:5000"
+              disaggregation_bootstrap_port: 8998
+              node_rank: $i
+              tp_size: 4
+              nnodes: 2
+              mem_fraction_static: 0.72
+              attention_backend: ascend
+              device: npu
+              quantization: modelslim
+              disaggregation_transfer_backend: ascend
+              max_running_requests: 16
+              served_model_name: glm-5
+              chunked_prefill_size: 16384
+              max_prefill_tokens: 180000
+              moe_a2a_backend: deepep
+              deepep_mode: normal
+              disable_shared_experts_fusion: true
+              disable_cuda_graph: true
+              dtype: bfloat16
+              enable_nsa_prefill_context_parallel: true
+              nsa_prefill_cp_mode: in-seq-split
+              attn_cp_size: 4
+              enable_dp_lm_head: true
+              moe_dense_tp: 1
+              pp_size: 8
+              trust_remote_code: true
+            env:
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT: 1200
+              SGLANG_DISAGGREGATION_WAITING_TIMEOUT: 1200
+              SGLANG_SET_CPU_AFFINITY: 1
+              STREAMS_PER_DEVICE: 32
+              ASCEND_MF_STORE_URL: "tcp://<your prefill ip1>:24670"
+              DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ: 1
+              DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS: 1024
+              DEEPEP_NORMAL_LONG_SEQ_ROUND: 72
+              DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+              ENABLE_PROFILING: 0
+              GLOO_SOCKET_IFNAME: "<network-interface>"
+              HCCL_BUFFSIZE: 1200
+              HCCL_SOCKET_IFNAME: "<network-interface>"
+              TASK_QUEUE_ENABLE: 2
+            system_setup:
+              commands: [unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh, "P_IP=('<your prefill ip1>' '<your prefill ip2>')", "D_IP=('<your decode ip1>' '<your decode ip2>')", MODEL_PATH=/path/to/model-weights]
+          - role: decode
+            index: 1
+            engine_config:
+              model: "${MODEL_PATH}"
+              model_path: $MODEL_PATH
+              disaggregation_mode: decode
+              host: "${D_IP[$i]}"
+              port: 8001
+              dist_init_addr: "${D_IP[0]}:5000"
+              node_rank: $i
+              tp_size: 32
+              nnodes: 2
+              dp_size: 32
+              enable_dp_attention: true
+              ep_size: 32
+              mem_fraction_static: 0.85
+              max_running_requests: 32
+              attention_backend: ascend
+              device: npu
+              quantization: modelslim
+              served_model_name: glm-5
+              moe_a2a_backend: deepep
+              deepep_mode: low_latency
+              cuda_graph_bs: 1
+              disaggregation_transfer_backend: ascend
+              watchdog_timeout: 9000
+              context_length: 180000
+              tokenizer_worker_num: 16
+              prefill_round_robin_balance: true
+              disable_shared_experts_fusion: true
+              dtype: bfloat16
+              load_balance_method: round_robin
+              trust_remote_code: true
+            env:
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT: 1200
+              SGLANG_DISAGGREGATION_WAITING_TIMEOUT: 1200
+              SGLANG_SET_CPU_AFFINITY: 1
+              STREAMS_PER_DEVICE: 32
+              ASCEND_MF_STORE_URL: "tcp://<your prefill ip1>:24670"
+              DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ: 1
+              DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS: 1024
+              DEEPEP_NORMAL_LONG_SEQ_ROUND: 72
+              DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+              ENABLE_PROFILING: 0
+              GLOO_SOCKET_IFNAME: "<network-interface>"
+              HCCL_BUFFSIZE: 200
+              HCCL_SOCKET_IFNAME: "<network-interface>"
+              TASK_QUEUE_ENABLE: 0
+              SGLANG_DEEPEP_NUM_MAX_DISPATCH_TOKENS_PER_RANK: 16
+              SGLANG_ENABLE_OVERLAP_PLAN_STREAM: 1
+              SGLANG_ENABLE_SPEC_V2: 1
+              SGLANG_SPEC_ENABLE_OVERLAP_REFLOW: 1
+            system_setup:
+              commands: [unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh, "P_IP=('<your prefill ip1>' '<your prefill ip2>')", "D_IP=('<your decode ip1>' '<your decode ip2>')", MODEL_PATH=/path/to/model-weights]
+      pd_cluster_glm-5-1-w4a8-1p1d-32p-in64k-out1k-50ms:
+        display_name: GLM-5.1 W4A8 1P1D 32P IN64K OUT1K 50ms
+        orientation: throughput
+        nodes:
+          - role: prefill
+            index: 0
+            engine_config:
+              model: "${MODEL_PATH}"
+              model_path: $MODEL_PATH
+              disaggregation_mode: prefill
+              host: "${P_IP[$i]}"
+              port: 8000
+              dist_init_addr: "${P_IP[0]}:5000"
+              disaggregation_bootstrap_port: 8998
+              node_rank: $i
+              tp_size: 4
+              nnodes: 2
+              mem_fraction_static: 0.72
+              attention_backend: ascend
+              device: npu
+              quantization: modelslim
+              disaggregation_transfer_backend: ascend
+              max_running_requests: 16
+              served_model_name: glm-5
+              chunked_prefill_size: 16384
+              max_prefill_tokens: 180000
+              moe_a2a_backend: deepep
+              deepep_mode: normal
+              disable_shared_experts_fusion: true
+              disable_cuda_graph: true
+              dtype: bfloat16
+              enable_nsa_prefill_context_parallel: true
+              nsa_prefill_cp_mode: in-seq-split
+              attn_cp_size: 4
+              enable_dp_lm_head: true
+              moe_dense_tp: 1
+              pp_size: 8
+              trust_remote_code: true
+            env:
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT: 1200
+              SGLANG_DISAGGREGATION_WAITING_TIMEOUT: 1200
+              SGLANG_SET_CPU_AFFINITY: 1
+              STREAMS_PER_DEVICE: 32
+              ASCEND_MF_STORE_URL: "tcp://<your prefill ip1>:24670"
+              DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ: 1
+              DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS: 1024
+              DEEPEP_NORMAL_LONG_SEQ_ROUND: 72
+              DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+              ENABLE_PROFILING: 0
+              GLOO_SOCKET_IFNAME: "<network-interface>"
+              HCCL_BUFFSIZE: 1200
+              HCCL_SOCKET_IFNAME: "<network-interface>"
+              TASK_QUEUE_ENABLE: 2
+            system_setup:
+              commands: [unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh, "P_IP=('<your prefill ip1>' '<your prefill ip2>')", "D_IP=('<your decode ip1>' '<your decode ip2>')", MODEL_PATH=/path/to/model-weights]
+          - role: decode
+            index: 1
+            engine_config:
+              model: "${MODEL_PATH}"
+              model_path: $MODEL_PATH
+              disaggregation_mode: decode
+              host: "${D_IP[$i]}"
+              port: 8001
+              dist_init_addr: "${D_IP[0]}:5000"
+              node_rank: $i
+              tp_size: 32
+              nnodes: 2
+              dp_size: 32
+              enable_dp_attention: true
+              ep_size: 32
+              mem_fraction_static: 0.85
+              max_running_requests: 32
+              attention_backend: ascend
+              device: npu
+              quantization: modelslim
+              served_model_name: glm-5
+              moe_a2a_backend: deepep
+              deepep_mode: low_latency
+              cuda_graph_bs: 1
+              disaggregation_transfer_backend: ascend
+              watchdog_timeout: 9000
+              context_length: 180000
+              tokenizer_worker_num: 16
+              prefill_round_robin_balance: true
+              disable_shared_experts_fusion: true
+              dtype: bfloat16
+              load_balance_method: round_robin
+              trust_remote_code: true
+            env:
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT: 1200
+              SGLANG_DISAGGREGATION_WAITING_TIMEOUT: 1200
+              SGLANG_SET_CPU_AFFINITY: 1
+              STREAMS_PER_DEVICE: 32
+              ASCEND_MF_STORE_URL: "tcp://<your prefill ip1>:24670"
+              DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ: 1
+              DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS: 1024
+              DEEPEP_NORMAL_LONG_SEQ_ROUND: 72
+              DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+              ENABLE_PROFILING: 0
+              GLOO_SOCKET_IFNAME: "<network-interface>"
+              HCCL_BUFFSIZE: 200
+              HCCL_SOCKET_IFNAME: "<network-interface>"
+              TASK_QUEUE_ENABLE: 0
+              SGLANG_DEEPEP_NUM_MAX_DISPATCH_TOKENS_PER_RANK: 16
+              SGLANG_ENABLE_OVERLAP_PLAN_STREAM: 1
+              SGLANG_ENABLE_SPEC_V2: 1
+              SGLANG_SPEC_ENABLE_OVERLAP_REFLOW: 1
+            system_setup:
+              commands: [unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh, "P_IP=('<your prefill ip1>' '<your prefill ip2>')", "D_IP=('<your decode ip1>' '<your decode ip2>')", MODEL_PATH=/path/to/model-weights]
+      pd_cluster_glm-5-1-w4a8-1p1d-32p-in65k-out1k5-prefix90-25ms:
+        display_name: GLM-5.1 W4A8 1P1D 32P IN65K OUT1K5 PREFIX90 25ms
+        orientation: latency
+        nodes:
+          - role: prefill
+            index: 0
+            engine_config:
+              model: "${MODEL_PATH}"
+              model_path: $MODEL_PATH
+              disaggregation_mode: prefill
+              host: "${P_IP[$i]}"
+              port: 8000
+              dist_init_addr: "${P_IP[0]}:5000"
+              disaggregation_bootstrap_port: 8998
+              node_rank: $i
+              tp_size: 32
+              nnodes: 2
+              mem_fraction_static: 0.75
+              attention_backend: ascend
+              device: npu
+              quantization: modelslim
+              disaggregation_transfer_backend: ascend
+              max_running_requests: 64
+              served_model_name: glm-5
+              chunked_prefill_size: 524288
+              max_prefill_tokens: 180000
+              moe_a2a_backend: deepep
+              deepep_mode: normal
+              disable_shared_experts_fusion: true
+              disable_cuda_graph: true
+              dtype: bfloat16
+              dp_size: 4
+              enable_dp_attention: true
+              load_balance_method: round_robin
+              enable_nsa_prefill_context_parallel: true
+              nsa_prefill_cp_mode: in-seq-split
+              attn_cp_size: 8
+              enable_dp_lm_head: true
+              moe_dense_tp: 1
+              trust_remote_code: true
+            env:
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT: 600
+              SGLANG_SET_CPU_AFFINITY: 1
+              STREAMS_PER_DEVICE: 32
+              ASCEND_MF_STORE_URL: "tcp://<your prefill ip1>:24670"
+              DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ: 1
+              DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+              ENABLE_PROFILING: 0
+              GLOO_SOCKET_IFNAME: "<network-interface>"
+              HCCL_BUFFSIZE: 1200
+              HCCL_SOCKET_IFNAME: "<network-interface>"
+              TASK_QUEUE_ENABLE: 2
+            system_setup:
+              commands: [unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh, "P_IP=('<your prefill ip1>' '<your prefill ip2>')", "D_IP=('<your decode ip1>' '<your decode ip2>')", MODEL_PATH=/path/to/model-weights]
+          - role: decode
+            index: 1
+            engine_config:
+              model: "${MODEL_PATH}"
+              model_path: $MODEL_PATH
+              disaggregation_mode: decode
+              host: "${D_IP[$i]}"
+              port: 8001
+              dist_init_addr: "${D_IP[0]}:5000"
+              node_rank: $i
+              tp_size: 32
+              nnodes: 2
+              dp_size: 32
+              ep_size: 32
+              enable_dp_attention: true
+              mem_fraction_static: 0.87
+              max_running_requests: 96
+              attention_backend: ascend
+              device: npu
+              quantization: modelslim
+              served_model_name: glm-5
+              moe_a2a_backend: deepep
+              deepep_mode: low_latency
+              cuda_graph_bs: 1
+              disaggregation_transfer_backend: ascend
+              watchdog_timeout: 9000
+              context_length: 180000
+              tokenizer_worker_num: 4
+              prefill_round_robin_balance: true
+              disable_shared_experts_fusion: true
+              dtype: bfloat16
+              load_balance_method: round_robin
+              trust_remote_code: true
+            env:
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT: 600
+              SGLANG_SET_CPU_AFFINITY: 1
+              STREAMS_PER_DEVICE: 32
+              ASCEND_MF_STORE_URL: "tcp://<your prefill ip1>:24670"
+              DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ: 1
+              DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+              ENABLE_PROFILING: 0
+              GLOO_SOCKET_IFNAME: "<network-interface>"
+              HCCL_BUFFSIZE: 650
+              HCCL_SOCKET_IFNAME: "<network-interface>"
+              TASK_QUEUE_ENABLE: 0
+              SGLANG_DEEPEP_NUM_MAX_DISPATCH_TOKENS_PER_RANK: 64
+              SGLANG_ENABLE_OVERLAP_PLAN_STREAM: 1
+              SGLANG_ENABLE_SPEC_V2: 1
+              SGLANG_SPEC_ENABLE_OVERLAP_REFLOW: 1
+            system_setup:
+              commands: [unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh, "P_IP=('<your prefill ip1>' '<your prefill ip2>')", "D_IP=('<your decode ip1>' '<your decode ip2>')", MODEL_PATH=/path/to/model-weights]
+      pd_cluster_glm-5-1-w4a8-1p1d-48p-in65k-out1k5-prefix100-33ms:
+        display_name: GLM-5.1 W4A8 1P1D 48P IN65K OUT1K5 PREFIX100 33ms
+        orientation: latency
+        nodes:
+          - role: prefill
+            index: 0
+            engine_config:
+              model: "${MODEL_PATH}"
+              model_path: $MODEL_PATH
+              disaggregation_mode: prefill
+              host: "${P_IP[$i]}"
+              port: 8000
+              dist_init_addr: "${P_IP[0]}:5000"
+              disaggregation_bootstrap_port: 8998
+              node_rank: $i
+              tp_size: 32
+              nnodes: 2
+              mem_fraction_static: 0.72
+              attention_backend: ascend
+              device: npu
+              quantization: modelslim
+              disaggregation_transfer_backend: ascend
+              max_running_requests: 192
+              served_model_name: glm-5
+              chunked_prefill_size: 16384
+              moe_a2a_backend: deepep
+              deepep_mode: normal
+              disable_shared_experts_fusion: true
+              disable_cuda_graph: true
+              dtype: bfloat16
+              trust_remote_code: true
+            env:
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT: 600
+              SGLANG_SET_CPU_AFFINITY: 1
+              STREAMS_PER_DEVICE: 32
+              ASCEND_MF_STORE_URL: "tcp://<your prefill ip1>:24670"
+              DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ: 1
+              DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+              GLOO_SOCKET_IFNAME: "<network-interface>"
+              HCCL_BUFFSIZE: 1200
+              HCCL_SOCKET_IFNAME: "<network-interface>"
+              TASK_QUEUE_ENABLE: 2
+            system_setup:
+              commands: [unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh, "P_IP=('<your prefill ip1>' '<your prefill ip2>')", "D_IP=('<your decode ip1>' '<your decode ip2>' '<your decode ip3>' '<your decode ip4>')", MODEL_PATH=/path/to/model-weights]
+          - role: decode
+            index: 1
+            engine_config:
+              model: "${MODEL_PATH}"
+              model_path: $MODEL_PATH
+              disaggregation_mode: decode
+              host: "${D_IP[$i]}"
+              port: 8001
+              dist_init_addr: "${D_IP[0]}:5000"
+              node_rank: $i
+              tp_size: 64
+              nnodes: 4
+              dp_size: 64
+              ep_size: 64
+              enable_dp_attention: true
+              mem_fraction_static: 0.84
+              max_running_requests: 192
+              attention_backend: ascend
+              device: npu
+              quantization: modelslim
+              served_model_name: glm-5
+              moe_a2a_backend: deepep
+              deepep_mode: low_latency
+              enable_dp_lm_head: true
+              moe_dense_tp: 1
+              cuda_graph_bs: 1
+              disaggregation_transfer_backend: ascend
+              watchdog_timeout: 9000
+              context_length: 180000
+              tokenizer_worker_num: 4
+              prefill_round_robin_balance: true
+              disable_shared_experts_fusion: true
+              dtype: bfloat16
+              load_balance_method: round_robin
+              trust_remote_code: true
+            env:
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT: 600
+              SGLANG_SET_CPU_AFFINITY: 1
+              STREAMS_PER_DEVICE: 32
+              ASCEND_MF_STORE_URL: "tcp://<your prefill ip1>:24670"
+              DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ: 1
+              DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+              GLOO_SOCKET_IFNAME: "<network-interface>"
+              HCCL_BUFFSIZE: 650
+              HCCL_SOCKET_IFNAME: "<network-interface>"
+              TASK_QUEUE_ENABLE: 0
+              SGLANG_DEEPEP_NUM_MAX_DISPATCH_TOKENS_PER_RANK: 48
+              SGLANG_ENABLE_OVERLAP_PLAN_STREAM: 1
+              SGLANG_ENABLE_SPEC_V2: 1
+              SGLANG_SCHEDULER_SKIP_ALL_GATHER: 1
+              SGLANG_SPEC_ENABLE_OVERLAP_REFLOW: 1
+            system_setup:
+              commands: [unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh, "P_IP=('<your prefill ip1>' '<your prefill ip2>')", "D_IP=('<your decode ip1>' '<your decode ip2>' '<your decode ip3>' '<your decode ip4>')", MODEL_PATH=/path/to/model-weights]
+      pd_cluster_glm-5-1-w4a8-2p1d-48p-in128k-out1k-prefix90-50ms:
+        display_name: GLM-5.1 W4A8 2P1D 48P IN128K OUT1K PREFIX90 50ms
+        orientation: throughput
+        nodes:
+          - role: prefill
+            index: 0
+            engine_config:
+              model: "${MODEL_PATH}"
+              model_path: $MODEL_PATH
+              disaggregation_mode: prefill
+              host: "${P_IP[$i]}"
+              port: 8000
+              dist_init_addr: "${P_IP[$(("
+              disaggregation_bootstrap_port: $((8998
+              node_rank: $((
+              tp_size: 4
+              nnodes: 2
+              mem_fraction_static: 0.72
+              attention_backend: ascend
+              device: npu
+              quantization: modelslim
+              disaggregation_transfer_backend: ascend
+              max_running_requests: 32
+              served_model_name: glm-5
+              chunked_prefill_size: 16384
+              max_prefill_tokens: 180000
+              moe_a2a_backend: deepep
+              deepep_mode: normal
+              disable_shared_experts_fusion: true
+              disable_cuda_graph: true
+              dtype: bfloat16
+              enable_nsa_prefill_context_parallel: true
+              nsa_prefill_cp_mode: in-seq-split
+              attn_cp_size: 4
+              enable_dp_lm_head: true
+              moe_dense_tp: 1
+              pp_size: 8
+              trust_remote_code: true
+            env:
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT: 1200
+              SGLANG_DISAGGREGATION_WAITING_TIMEOUT: 1200
+              SGLANG_SET_CPU_AFFINITY: 1
+              STREAMS_PER_DEVICE: 32
+              ASCEND_MF_STORE_URL: "tcp://<your prefill ip1>:24670"
+              DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ: 1
+              DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS: 1024
+              DEEPEP_NORMAL_LONG_SEQ_ROUND: 72
+              DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+              ENABLE_PROFILING: 0
+              GLOO_SOCKET_IFNAME: "<network-interface>"
+              HCCL_BUFFSIZE: 1200
+              HCCL_SOCKET_IFNAME: "<network-interface>"
+              TASK_QUEUE_ENABLE: 2
+            system_setup:
+              commands: [unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh, "P_IP=('<your prefill ip1>' '<your prefill ip2>' '<your prefill ip3>' '<your prefill ip4>')", "D_IP=('<your decode ip1>' '<your decode ip2>')", MODEL_PATH=/path/to/model-weights]
+          - role: decode
+            index: 1
+            engine_config:
+              model: "${MODEL_PATH}"
+              model_path: $MODEL_PATH
+              disaggregation_mode: decode
+              host: "${D_IP[$i]}"
+              port: 8001
+              dist_init_addr: "${D_IP[0]}:5000"
+              node_rank: $i
+              tp_size: 32
+              nnodes: 2
+              dp_size: 32
+              ep_size: 32
+              enable_dp_attention: true
+              mem_fraction_static: 0.865
+              max_running_requests: 96
+              attention_backend: ascend
+              device: npu
+              quantization: modelslim
+              served_model_name: glm-5
+              moe_a2a_backend: deepep
+              deepep_mode: low_latency
+              cuda_graph_bs: 1
+              disaggregation_transfer_backend: ascend
+              watchdog_timeout: 9000
+              context_length: 180000
+              tokenizer_worker_num: 32
+              prefill_round_robin_balance: true
+              disable_shared_experts_fusion: true
+              dtype: bfloat16
+              load_balance_method: round_robin
+              trust_remote_code: true
+            env:
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT: 1200
+              SGLANG_DISAGGREGATION_WAITING_TIMEOUT: 1200
+              SGLANG_SET_CPU_AFFINITY: 1
+              STREAMS_PER_DEVICE: 32
+              ASCEND_MF_STORE_URL: "tcp://<your prefill ip1>:24670"
+              DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ: 1
+              DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS: 1024
+              DEEPEP_NORMAL_LONG_SEQ_ROUND: 72
+              DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+              ENABLE_PROFILING: 0
+              GLOO_SOCKET_IFNAME: "<network-interface>"
+              HCCL_BUFFSIZE: 200
+              HCCL_SOCKET_IFNAME: "<network-interface>"
+              TASK_QUEUE_ENABLE: 0
+              SGLANG_DEEPEP_NUM_MAX_DISPATCH_TOKENS_PER_RANK: 24
+              SGLANG_ENABLE_OVERLAP_PLAN_STREAM: 1
+              SGLANG_ENABLE_SPEC_V2: 1
+              SGLANG_SPEC_ENABLE_OVERLAP_REFLOW: 1
+            system_setup:
+              commands: [unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh, "P_IP=('<your prefill ip1>' '<your prefill ip2>' '<your prefill ip3>' '<your prefill ip4>')", "D_IP=('<your decode ip1>' '<your decode ip2>')", MODEL_PATH=/path/to/model-weights]
+      pd_cluster_glm-5-1-w4a8-4p1d-48p-in64k-out1k-prefix90-50ms:
+        display_name: GLM-5.1 W4A8 4P1D 48P IN64K OUT1K PREFIX90 50ms
+        orientation: throughput
+        nodes:
+          - role: prefill
+            index: 0
+            engine_config:
+              model: "${MODEL_PATH}"
+              model_path: $MODEL_PATH
+              disaggregation_mode: prefill
+              host: "${P_IP[$i]}"
+              port: 8000
+              disaggregation_bootstrap_port: $((8998
+              node_rank: 0
+              tp_size: 4
+              nnodes: 1
+              mem_fraction_static: 0.72
+              attention_backend: ascend
+              device: npu
+              quantization: modelslim
+              disaggregation_transfer_backend: ascend
+              max_running_requests: 16
+              served_model_name: glm-5
+              chunked_prefill_size: 16384
+              max_prefill_tokens: 180000
+              moe_a2a_backend: deepep
+              deepep_mode: normal
+              disable_shared_experts_fusion: true
+              disable_cuda_graph: true
+              dtype: bfloat16
+              enable_nsa_prefill_context_parallel: true
+              nsa_prefill_cp_mode: in-seq-split
+              attn_cp_size: 4
+              enable_dp_lm_head: true
+              moe_dense_tp: 1
+              pp_size: 4
+              trust_remote_code: true
+            env:
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT: 1200
+              SGLANG_DISAGGREGATION_WAITING_TIMEOUT: 1200
+              SGLANG_SET_CPU_AFFINITY: 1
+              STREAMS_PER_DEVICE: 32
+              ASCEND_MF_STORE_URL: "tcp://<your prefill ip1>:24670"
+              DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ: 1
+              DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS: 1024
+              DEEPEP_NORMAL_LONG_SEQ_ROUND: 72
+              DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+              ENABLE_PROFILING: 0
+              GLOO_SOCKET_IFNAME: "<network-interface>"
+              HCCL_BUFFSIZE: 1200
+              HCCL_SOCKET_IFNAME: "<network-interface>"
+              TASK_QUEUE_ENABLE: 2
+            system_setup:
+              commands: [unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh, "P_IP=('<your prefill ip1>' '<your prefill ip2>' '<your prefill ip3>' '<your prefill ip4>')", "D_IP=('<your decode ip1>' '<your decode ip2>')", MODEL_PATH=/path/to/model-weights]
+          - role: decode
+            index: 1
+            engine_config:
+              model: "${MODEL_PATH}"
+              model_path: $MODEL_PATH
+              disaggregation_mode: decode
+              host: "${D_IP[$i]}"
+              port: 8001
+              dist_init_addr: "${D_IP[0]}:5000"
+              node_rank: $i
+              tp_size: 32
+              nnodes: 2
+              dp_size: 32
+              ep_size: 32
+              enable_dp_attention: true
+              mem_fraction_static: 0.85
+              max_running_requests: 320
+              attention_backend: ascend
+              device: npu
+              quantization: modelslim
+              served_model_name: glm-5
+              moe_a2a_backend: deepep
+              deepep_mode: low_latency
+              cuda_graph_bs: 1
+              disaggregation_transfer_backend: ascend
+              watchdog_timeout: 9000
+              context_length: 180000
+              tokenizer_worker_num: 4
+              prefill_round_robin_balance: true
+              disable_shared_experts_fusion: true
+              dtype: bfloat16
+              load_balance_method: round_robin
+              trust_remote_code: true
+            env:
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT: 1200
+              SGLANG_DISAGGREGATION_WAITING_TIMEOUT: 1200
+              SGLANG_SET_CPU_AFFINITY: 1
+              STREAMS_PER_DEVICE: 32
+              ASCEND_MF_STORE_URL: "tcp://<your prefill ip1>:24670"
+              DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ: 1
+              DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS: 1024
+              DEEPEP_NORMAL_LONG_SEQ_ROUND: 72
+              DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+              ENABLE_PROFILING: 0
+              GLOO_SOCKET_IFNAME: "<network-interface>"
+              HCCL_BUFFSIZE: 300
+              HCCL_SOCKET_IFNAME: "<network-interface>"
+              TASK_QUEUE_ENABLE: 0
+              SGLANG_DEEPEP_NUM_MAX_DISPATCH_TOKENS_PER_RANK: 40
+              SGLANG_ENABLE_OVERLAP_PLAN_STREAM: 1
+              SGLANG_ENABLE_SPEC_V2: 1
+              SGLANG_SPEC_ENABLE_OVERLAP_REFLOW: 1
+            system_setup:
+              commands: [unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh, "P_IP=('<your prefill ip1>' '<your prefill ip2>' '<your prefill ip3>' '<your prefill ip4>')", "D_IP=('<your decode ip1>' '<your decode ip2>')", MODEL_PATH=/path/to/model-weights]

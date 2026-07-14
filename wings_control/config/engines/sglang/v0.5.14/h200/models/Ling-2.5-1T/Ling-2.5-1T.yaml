@@ -1,0 +1,59 @@
+# 来源追溯
+upstream_sources:
+  - id: sglang_ling-2.5-1t
+    kind: cookbook
+    repo: sglang
+    file: docs_new/cookbook/autoregressive/InclusionAI/Ling-2.5-1T.mdx
+    url: "https://github.com/sgl-project/sglang/blob/main/docs_new/cookbook/autoregressive/InclusionAI/Ling-2.5-1T.mdx"
+    note: SGLang 官方 Cookbook 文档。自动生成。
+
+# 模型基本信息
+model:
+  name: Ling-2.5-1T  # 模型名称
+  provider: inclusionAI  # 提供者/厂商
+  model_id: inclusionAI/Ling-2.5-1T  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.5.14  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)ling[-.]?2.5[-.]?1t"
+  variant_name: Ling-2.5-1T  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8  # 单节点 GPU/NPU 数量
+  vram_gb: 1128  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: Enable tool/function calling via SGLang parser flags.
+    args: [--tool-call-parser, qwen]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "sglang_ling-2.5-1t#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Single Node
+        engine_config:
+          model: inclusionAI/Ling-2.5-1T
+          model_path: inclusionAI/Ling-2.5-1T
+          trust_remote_code: true
+          tp_size: 8
+          pp_size: 2
+          nnodes: 2
+          node_rank: 1
+          dist_init_addr: "${MASTER_IP}:${DIST_PORT}"
+          model_loader_extra_config:
+            enable_multithread_load: "true"
+            num_threads: 64
+          mem_frac: 0.95
+        env:
+          MASTER_IP: "10.10.0.1 # The IP of Node 0"
+          PORT: 30000
+          DIST_PORT: 50000
+        default_strategy: true

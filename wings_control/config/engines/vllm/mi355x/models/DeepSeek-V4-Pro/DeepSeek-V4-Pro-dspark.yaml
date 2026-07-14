@@ -1,0 +1,377 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_deepseek-v4-pro
+    kind: official_recipe
+    repo: recipes
+    file: models/deepseek-ai/DeepSeek-V4-Pro.yaml
+    url: "https://recipes.vllm.ai/deepseek-ai/DeepSeek-V4-Pro"
+    date_updated: 2026-06-09
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: DeepSeek-V4-Pro  # 模型名称
+  slug: deepseek-v4-pro  # 模型标识
+  provider: DeepSeek  # 提供者/厂商
+  description: "DeepSeek V4 flagship MoE (1.6T total / 49B active) with hybrid CSA+HCA attention, manifold-constrained hyper-connections, Muon-trained on 32T+ tokens, and three-tier reasoning."  # 模型描述
+  model_id: deepseek-ai/DeepSeek-V4-Pro-DSpark  # HuggingFace 模型 ID
+  architecture: moe  # 模型架构（dense/moe）
+  parameter_count: 1600B  # 总参数量
+  active_parameters: 49B  # 激活参数量（MoE 模型）
+  context_length: 1048576  # 最大上下文长度
+  vram_minimum_gb: 960  # 最低显存需求(GB)
+  tasks: [text]  # 支持的任务类型
+  min_engine_version: "0.25.0"  # 最低引擎版本要求
+  date_updated: 2026-06-09  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)deepseek[-.]?v4[-.]?pro"
+  variant_name: DeepSeek-V4-Pro-dspark
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 2304
+  multi_node: false
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: Enable tool calling with DeepSeek V4 chat template support.
+    args: [--tokenizer-mode, deepseek_v4, --tool-call-parser, deepseek_v4, --enable-auto-tool-choice]
+  reasoning:
+    description: Enable reasoning/thinking mode with the DeepSeek V4 reasoning parser.
+    args: [--reasoning-parser, deepseek_v4]
+  spec_decoding:
+    description: "DSpark drafting, 7 draft tokens, greedy. Requires the DSpark checkpoint (Variant row)."
+    args: [--speculative-config, "{\"method\":\"dspark\",\"num_speculative_tokens\":7,\"draft_sample_method\":\"greedy\"}"]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_deepseek-v4-pro#single_node_dep"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_dep:
+        display_name: Data + Expert Parallel
+        orientation: throughput
+        engine_config:
+          model: deepseek-ai/DeepSeek-V4-Pro-DSpark
+          trust_remote_code: true
+          kv_cache_dtype: fp8
+          block_size: 256
+          enable_expert_parallel: true
+          data_parallel_size: 8
+          distributed_executor_backend: mp
+          gpu_memory_utilization: 0.9
+          max_num_seqs: 512
+          max_num_batched_tokens: 8192
+          compilation_config:
+            mode: 3
+            cudagraph_mode: FULL_DECODE_ONLY
+        env:
+          VLLM_ROCM_USE_AITER: 1
+      single_node_tep:
+        display_name: Tensor + Expert Parallel
+        orientation: balanced
+        default_strategy: true
+        engine_config:
+          model: deepseek-ai/DeepSeek-V4-Pro-DSpark
+          trust_remote_code: true
+          kv_cache_dtype: fp8
+          block_size: 256
+          enable_expert_parallel: true
+          tensor_parallel_size: 8
+          distributed_executor_backend: mp
+          gpu_memory_utilization: 0.9
+          max_num_seqs: 512
+          max_num_batched_tokens: 8192
+          compilation_config:
+            mode: 3
+            cudagraph_mode: FULL_DECODE_ONLY
+        env:
+          VLLM_ROCM_USE_AITER: 1
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        engine_config:
+          model: deepseek-ai/DeepSeek-V4-Pro-DSpark
+          trust_remote_code: true
+          kv_cache_dtype: fp8
+          block_size: 256
+          tensor_parallel_size: 8
+          distributed_executor_backend: mp
+          gpu_memory_utilization: 0.9
+          max_num_seqs: 512
+          max_num_batched_tokens: 8192
+          compilation_config:
+            mode: 3
+            cudagraph_mode: FULL_DECODE_ONLY
+        env:
+          VLLM_ROCM_USE_AITER: 1
+  multi_node:
+    source_ref: "vllm_recipe_deepseek-v4-pro#multi_node_dep"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dep:
+        display_name: Multi-Node Data + Expert Parallel
+        orientation: throughput
+        head:  # Head Node 节点配置
+          engine_config:
+            model: deepseek-ai/DeepSeek-V4-Pro-DSpark
+            trust_remote_code: true
+            kv_cache_dtype: fp8
+            block_size: 256
+            enable_expert_parallel: true
+            data_parallel_hybrid_lb: true
+            data_parallel_size: 16
+            data_parallel_size_local: 8
+            data_parallel_address: $HEAD_IP
+            distributed_executor_backend: mp
+            gpu_memory_utilization: 0.9
+            max_num_seqs: 512
+            max_num_batched_tokens: 8192
+            compilation_config:
+              mode: 3
+              cudagraph_mode: FULL_DECODE_ONLY
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+            VLLM_ROCM_USE_AITER: 1
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: deepseek-ai/DeepSeek-V4-Pro-DSpark
+            trust_remote_code: true
+            kv_cache_dtype: fp8
+            block_size: 256
+            enable_expert_parallel: true
+            data_parallel_hybrid_lb: true
+            data_parallel_size: 16
+            data_parallel_size_local: 8
+            data_parallel_address: $HEAD_IP
+            data_parallel_start_rank: 8
+            distributed_executor_backend: mp
+            gpu_memory_utilization: 0.9
+            max_num_seqs: 512
+            max_num_batched_tokens: 8192
+            compilation_config:
+              mode: 3
+              cudagraph_mode: FULL_DECODE_ONLY
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+            VLLM_ROCM_USE_AITER: 1
+      multi_node_tep:
+        display_name: Multi-Node Tensor + Expert Parallel
+        orientation: balanced
+        default_strategy: true
+        head:  # Head Node 节点配置
+          engine_config:
+            model: deepseek-ai/DeepSeek-V4-Pro-DSpark
+            trust_remote_code: true
+            kv_cache_dtype: fp8
+            block_size: 256
+            enable_expert_parallel: true
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+            distributed_executor_backend: mp
+            gpu_memory_utilization: 0.9
+            max_num_seqs: 512
+            max_num_batched_tokens: 8192
+            compilation_config:
+              mode: 3
+              cudagraph_mode: FULL_DECODE_ONLY
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+            VLLM_ROCM_USE_AITER: 1
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: deepseek-ai/DeepSeek-V4-Pro-DSpark
+            trust_remote_code: true
+            kv_cache_dtype: fp8
+            block_size: 256
+            enable_expert_parallel: true
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+            distributed_executor_backend: mp
+            gpu_memory_utilization: 0.9
+            max_num_seqs: 512
+            max_num_batched_tokens: 8192
+            compilation_config:
+              mode: 3
+              cudagraph_mode: FULL_DECODE_ONLY
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+            VLLM_ROCM_USE_AITER: 1
+  pd_disaggregation:
+    source_ref: "vllm_recipe_deepseek-v4-pro#pd_cluster"
+    match:
+      distributed: true
+      pd_role: null
+    # PD分离：2P×2D  # 根据官网默认配置
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        orientation: production
+        default_strategy: true
+        nodes:
+          - role: prefill  # P1 节点配置
+            index: 1
+            parallelism: dep
+            engine_config:
+              model: deepseek-ai/DeepSeek-V4-Pro-DSpark
+              trust_remote_code: true
+              kv_cache_dtype: fp8
+              block_size: 256
+              port: 8001
+              kv_transfer_config:
+                kv_connector: NixlConnector
+                kv_role: kv_producer
+                kv_load_failure_policy: fail
+              data_parallel_size: 16
+              data_parallel_size_local: 8
+              data_parallel_start_rank: 0
+              data_parallel_address: $PREFILL_NODE_1
+              data_parallel_rpc_port: $PREFILL_DP_RPC_PORT
+              data_parallel_hybrid_lb: true
+              enable_expert_parallel: true
+              enforce_eager: true
+              no_disable_hybrid_kv_cache_manager: true
+              enable_sleep_mode: true
+              distributed_executor_backend: mp
+              gpu_memory_utilization: 0.9
+              max_num_seqs: 512
+              max_num_batched_tokens: 8192
+              compilation_config:
+                mode: 3
+                cudagraph_mode: FULL_DECODE_ONLY
+            env:
+              VLLM_NIXL_SIDE_CHANNEL_PORT: 5557
+              VLLM_NIXL_SIDE_CHANNEL_HOST: $PREFILL_NODE_1
+              CUDA_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
+              GLOO_SOCKET_IFNAME: $IFACE_NAME
+              NCCL_SOCKET_IFNAME: $IFACE_NAME
+              VLLM_ROCM_USE_AITER: 1
+          - role: prefill  # P2 节点配置
+            index: 2
+            parallelism: dep
+            engine_config:
+              model: deepseek-ai/DeepSeek-V4-Pro-DSpark
+              trust_remote_code: true
+              kv_cache_dtype: fp8
+              block_size: 256
+              port: 8001
+              kv_transfer_config:
+                kv_connector: NixlConnector
+                kv_role: kv_producer
+                kv_load_failure_policy: fail
+              data_parallel_size: 16
+              data_parallel_size_local: 8
+              data_parallel_start_rank: 8
+              data_parallel_address: $PREFILL_NODE_1
+              data_parallel_rpc_port: $PREFILL_DP_RPC_PORT
+              data_parallel_hybrid_lb: true
+              enable_expert_parallel: true
+              enforce_eager: true
+              no_disable_hybrid_kv_cache_manager: true
+              enable_sleep_mode: true
+              distributed_executor_backend: mp
+              gpu_memory_utilization: 0.9
+              max_num_seqs: 512
+              max_num_batched_tokens: 8192
+              compilation_config:
+                mode: 3
+                cudagraph_mode: FULL_DECODE_ONLY
+            env:
+              VLLM_NIXL_SIDE_CHANNEL_PORT: 5557
+              VLLM_NIXL_SIDE_CHANNEL_HOST: $PREFILL_NODE_2
+              CUDA_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
+              GLOO_SOCKET_IFNAME: $IFACE_NAME
+              NCCL_SOCKET_IFNAME: $IFACE_NAME
+              VLLM_ROCM_USE_AITER: 1
+          - role: decode  # D1 节点配置
+            index: 1
+            parallelism: dep
+            engine_config:
+              model: deepseek-ai/DeepSeek-V4-Pro-DSpark
+              trust_remote_code: true
+              kv_cache_dtype: fp8
+              block_size: 256
+              port: 8002
+              kv_transfer_config:
+                kv_connector: NixlConnector
+                kv_role: kv_consumer
+                kv_load_failure_policy: fail
+              data_parallel_size: 16
+              data_parallel_size_local: 8
+              data_parallel_start_rank: 0
+              data_parallel_address: $DECODE_NODE_1
+              data_parallel_rpc_port: $DECODE_DP_RPC_PORT
+              data_parallel_hybrid_lb: true
+              enable_expert_parallel: true
+              max_cudagraph_capture_size: 1024
+              no_disable_hybrid_kv_cache_manager: true
+              enable_sleep_mode: true
+              distributed_executor_backend: mp
+              gpu_memory_utilization: 0.9
+              max_num_seqs: 512
+              max_num_batched_tokens: 8192
+              compilation_config:
+                mode: 3
+                cudagraph_mode: FULL_DECODE_ONLY
+            env:
+              VLLM_NIXL_SIDE_CHANNEL_PORT: 5558
+              VLLM_NIXL_SIDE_CHANNEL_HOST: $DECODE_NODE_1
+              CUDA_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
+              GLOO_SOCKET_IFNAME: $IFACE_NAME
+              NCCL_SOCKET_IFNAME: $IFACE_NAME
+              VLLM_ROCM_USE_AITER: 1
+          - role: decode  # D2 节点配置
+            index: 2
+            parallelism: dep
+            engine_config:
+              model: deepseek-ai/DeepSeek-V4-Pro-DSpark
+              trust_remote_code: true
+              kv_cache_dtype: fp8
+              block_size: 256
+              port: 8002
+              kv_transfer_config:
+                kv_connector: NixlConnector
+                kv_role: kv_consumer
+                kv_load_failure_policy: fail
+              data_parallel_size: 16
+              data_parallel_size_local: 8
+              data_parallel_start_rank: 8
+              data_parallel_address: $DECODE_NODE_1
+              data_parallel_rpc_port: $DECODE_DP_RPC_PORT
+              data_parallel_hybrid_lb: true
+              enable_expert_parallel: true
+              max_cudagraph_capture_size: 1024
+              no_disable_hybrid_kv_cache_manager: true
+              enable_sleep_mode: true
+              distributed_executor_backend: mp
+              gpu_memory_utilization: 0.9
+              max_num_seqs: 512
+              max_num_batched_tokens: 8192
+              compilation_config:
+                mode: 3
+                cudagraph_mode: FULL_DECODE_ONLY
+            env:
+              VLLM_NIXL_SIDE_CHANNEL_PORT: 5558
+              VLLM_NIXL_SIDE_CHANNEL_HOST: $DECODE_NODE_2
+              CUDA_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
+              GLOO_SOCKET_IFNAME: $IFACE_NAME
+              NCCL_SOCKET_IFNAME: $IFACE_NAME
+              VLLM_ROCM_USE_AITER: 1

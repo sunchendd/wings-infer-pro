@@ -1,0 +1,264 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_qwen3-vl-235b-a22b-instruct
+    kind: official_recipe
+    repo: recipes
+    file: models/Qwen/Qwen3-VL-235B-A22B-Instruct.yaml
+    url: "https://recipes.vllm.ai/Qwen/Qwen3-VL-235B-A22B-Instruct"
+    date_updated: 2026-04-17
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: Qwen3-VL-235B-A22B-Instruct  # 模型名称
+  slug: qwen3-vl-235b-a22b-instruct  # 模型标识
+  provider: Qwen  # 提供者/厂商
+  description: "Qwen3-VL flagship MoE vision-language model with 235B total / 22B active parameters, supporting images, video, and long context."  # 模型描述
+  model_id: Qwen/Qwen3-VL-235B-A22B-Instruct-FP8  # HuggingFace 模型 ID
+  architecture: moe  # 模型架构（dense/moe）
+  parameter_count: 235B  # 总参数量
+  active_parameters: 22B  # 激活参数量（MoE 模型）
+  context_length: 262144  # 最大上下文长度
+  vram_minimum_gb: 282  # 最低显存需求(GB)
+  tasks: [multimodal, text]  # 支持的任务类型
+  min_engine_version: "0.11.0"  # 最低引擎版本要求
+  date_updated: 2026-04-17  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)qwen3[-.]?vl[-.]?235b[-.]?a22b[-.]?instruct"
+  variant_name: Qwen3-VL-235B-A22B-Instruct-fp8
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 4
+  vram_gb: 768
+  multi_node: false
+
+# 可选功能列表
+features:
+  text_only:
+    description: Skip loading the vision encoder for text-only workloads — frees VRAM for KV cache. Mutually exclusive with encoder_parallel.
+    args: [--language-model-only]
+  encoder_parallel:
+    description: Run the vision encoder in data-parallel mode — avoids TP comm overhead on the small encoder. Mutually exclusive with text_only.
+    args: [--mm-encoder-tp-mode, data]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_qwen3-vl-235b-a22b-instruct#single_node_dep"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_dep:
+        display_name: Data + Expert Parallel
+        orientation: throughput
+        engine_config:
+          model: Qwen/Qwen3-VL-235B-A22B-Instruct-FP8
+          enable_expert_parallel: true
+          data_parallel_size: 4
+          mm_encoder_tp_mode: data
+          async_scheduling: true
+        env: {}
+      single_node_tep:
+        display_name: Tensor + Expert Parallel
+        orientation: balanced
+        engine_config:
+          model: Qwen/Qwen3-VL-235B-A22B-Instruct-FP8
+          enable_expert_parallel: true
+          tensor_parallel_size: 4
+          mm_encoder_tp_mode: data
+          async_scheduling: true
+        env: {}
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: Qwen/Qwen3-VL-235B-A22B-Instruct-FP8
+          tensor_parallel_size: 4
+          mm_encoder_tp_mode: data
+          async_scheduling: true
+        env: {}
+  multi_node:
+    source_ref: "vllm_recipe_qwen3-vl-235b-a22b-instruct#multi_node_dep"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dep:
+        display_name: Multi-Node Data + Expert Parallel
+        orientation: throughput
+        head:  # Head Node 节点配置
+          engine_config:
+            model: Qwen/Qwen3-VL-235B-A22B-Instruct-FP8
+            enable_expert_parallel: true
+            data_parallel_hybrid_lb: true
+            data_parallel_size: 8
+            data_parallel_size_local: 4
+            data_parallel_address: $HEAD_IP
+            mm_encoder_tp_mode: data
+            async_scheduling: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: Qwen/Qwen3-VL-235B-A22B-Instruct-FP8
+            enable_expert_parallel: true
+            data_parallel_hybrid_lb: true
+            data_parallel_size: 8
+            data_parallel_size_local: 4
+            data_parallel_address: $HEAD_IP
+            data_parallel_start_rank: 4
+            mm_encoder_tp_mode: data
+            async_scheduling: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+      multi_node_tep:
+        display_name: Multi-Node Tensor + Expert Parallel
+        orientation: balanced
+        head:  # Head Node 节点配置
+          engine_config:
+            model: Qwen/Qwen3-VL-235B-A22B-Instruct-FP8
+            enable_expert_parallel: true
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 8
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+            mm_encoder_tp_mode: data
+            async_scheduling: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: Qwen/Qwen3-VL-235B-A22B-Instruct-FP8
+            enable_expert_parallel: true
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 8
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+            mm_encoder_tp_mode: data
+            async_scheduling: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        head:  # Head Node 节点配置
+          engine_config:
+            model: Qwen/Qwen3-VL-235B-A22B-Instruct-FP8
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 8
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+            mm_encoder_tp_mode: data
+            async_scheduling: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: Qwen/Qwen3-VL-235B-A22B-Instruct-FP8
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 8
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+            mm_encoder_tp_mode: data
+            async_scheduling: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+      multi_node_tp_pp:
+        display_name: Multi-Node TP + Pipeline Parallel
+        head:  # Head Node 节点配置
+          engine_config:
+            model: Qwen/Qwen3-VL-235B-A22B-Instruct-FP8
+            tensor_parallel_size: 4
+            pipeline_parallel_size: 2
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+            mm_encoder_tp_mode: data
+            async_scheduling: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:  # Node 1 节点配置
+          engine_config:
+            model: Qwen/Qwen3-VL-235B-A22B-Instruct-FP8
+            tensor_parallel_size: 4
+            pipeline_parallel_size: 2
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+            mm_encoder_tp_mode: data
+            async_scheduling: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+  pd_disaggregation:
+    source_ref: "vllm_recipe_qwen3-vl-235b-a22b-instruct#pd_cluster"
+    match:
+      distributed: true
+      pd_role: null
+    # PD分离：1P×1D  # 根据官网默认配置
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        orientation: production
+        default_strategy: true
+        nodes:
+          - role: prefill  # P1 节点配置
+            index: 1
+            parallelism: tp
+            engine_config:
+              model: Qwen/Qwen3-VL-235B-A22B-Instruct-FP8
+              port: 8001
+              kv_transfer_config:
+                kv_connector: NixlConnector
+                kv_role: kv_producer
+                kv_load_failure_policy: fail
+              enforce_eager: true
+              tensor_parallel_size: 4
+              mm_encoder_tp_mode: data
+              async_scheduling: true
+            env:
+              VLLM_USE_NCCL_SYMM_MEM: 1
+              NCCL_CUMEM_ENABLE: 1
+              NCCL_MNNVL_ENABLE: 1
+              NCCL_NVLS_ENABLE: 1
+              UCX_NET_DEVICES: all
+              VLLM_NIXL_SIDE_CHANNEL_PORT: 5557
+              VLLM_NIXL_SIDE_CHANNEL_HOST: $PREFILL_NODE_1
+              CUDA_VISIBLE_DEVICES: "0,1,2,3"
+          - role: decode  # D1 节点配置
+            index: 1
+            parallelism: tp
+            engine_config:
+              model: Qwen/Qwen3-VL-235B-A22B-Instruct-FP8
+              port: 8002
+              kv_transfer_config:
+                kv_connector: NixlConnector
+                kv_role: kv_consumer
+                kv_load_failure_policy: fail
+              compilation_config:
+                cudagraph_mode: FULL_DECODE_ONLY
+              tensor_parallel_size: 4
+              mm_encoder_tp_mode: data
+              async_scheduling: true
+            env:
+              VLLM_NIXL_SIDE_CHANNEL_PORT: 5558
+              VLLM_NIXL_SIDE_CHANNEL_HOST: $DECODE_NODE_1
+              CUDA_VISIBLE_DEVICES: "0,1,2,3"

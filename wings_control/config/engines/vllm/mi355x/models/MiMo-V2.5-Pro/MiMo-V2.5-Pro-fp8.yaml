@@ -1,0 +1,128 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_mimo-v2-5-pro
+    kind: official_recipe
+    repo: recipes
+    file: models/XiaomiMiMo/MiMo-V2.5-Pro.yaml
+    url: "https://recipes.vllm.ai/XiaomiMiMo/MiMo-V2.5-Pro"
+    date_updated: 2026-04-27
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: MiMo-V2.5-Pro  # 模型名称
+  slug: mimo-v2-5-pro  # 模型标识
+  provider: MiMo (Xiaomi)  # 提供者/厂商
+  description: "Xiaomi's flagship MoE reasoning model (1.02T total / 42B active) with hybrid attention, native FP8 weights, and Multi-Token Prediction"  # 模型描述
+  model_id: XiaomiMiMo/MiMo-V2.5-Pro  # HuggingFace 模型 ID
+  architecture: moe  # 模型架构（dense/moe）
+  parameter_count: 1T  # 总参数量
+  active_parameters: 42B  # 激活参数量（MoE 模型）
+  context_length: 1048576  # 最大上下文长度
+  vram_minimum_gb: 1224  # 最低显存需求(GB)
+  tasks: [text]  # 支持的任务类型
+  min_engine_version: "0.21.0"  # 最低引擎版本要求
+  date_updated: 2026-04-27  # recipe 最后更新日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)mimo[-.]?v2[-.]?5[-.]?pro"
+  variant_name: MiMo-V2.5-Pro-fp8
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 2304
+  multi_node: false
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: MiMo tool-call parser
+    args: [--tool-call-parser, mimo, --enable-auto-tool-choice]
+  reasoning:
+    description: MiMo reasoning parser
+    args: [--reasoning-parser, mimo]
+  spec_decoding:
+    description: Multi-Token Prediction
+    args: [--speculative-config, "{\"method\":\"mtp\",\"num_speculative_tokens\":1}"]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_mimo-v2-5-pro#single_node_tep"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tep:
+        display_name: Tensor + Expert Parallel
+        orientation: balanced
+        engine_config:
+          model: XiaomiMiMo/MiMo-V2.5-Pro
+          trust_remote_code: true
+          max_model_len auto: true
+          generation_config: vllm
+          enable_expert_parallel: true
+          tensor_parallel_size: 8
+        env: {}
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: XiaomiMiMo/MiMo-V2.5-Pro
+          trust_remote_code: true
+          max_model_len auto: true
+          generation_config: vllm
+          tensor_parallel_size: 8
+        env: {}
+  pd_disaggregation:
+    source_ref: "vllm_recipe_mimo-v2-5-pro#pd_cluster"
+    match:
+      distributed: true
+      pd_role: null
+    # PD分离：1P×1D  # 根据官网默认配置
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        orientation: production
+        default_strategy: true
+        nodes:
+          - role: prefill  # P1 节点配置
+            index: 1
+            parallelism: tp
+            engine_config:
+              model: XiaomiMiMo/MiMo-V2.5-Pro
+              trust_remote_code: true
+              max_model_len auto: true
+              generation_config: vllm
+              port: 8001
+              kv_transfer_config:
+                kv_connector: NixlConnector
+                kv_role: kv_producer
+                kv_load_failure_policy: fail
+              enforce_eager: true
+              tensor_parallel_size: 8
+            env:
+              VLLM_NIXL_SIDE_CHANNEL_PORT: 5557
+              VLLM_NIXL_SIDE_CHANNEL_HOST: $PREFILL_NODE_1
+              CUDA_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
+          - role: decode  # D1 节点配置
+            index: 1
+            parallelism: tp
+            engine_config:
+              model: XiaomiMiMo/MiMo-V2.5-Pro
+              trust_remote_code: true
+              max_model_len auto: true
+              generation_config: vllm
+              port: 8002
+              kv_transfer_config:
+                kv_connector: NixlConnector
+                kv_role: kv_consumer
+                kv_load_failure_policy: fail
+              compilation_config:
+                cudagraph_mode: FULL_DECODE_ONLY
+              tensor_parallel_size: 8
+            env:
+              VLLM_NIXL_SIDE_CHANNEL_PORT: 5558
+              VLLM_NIXL_SIDE_CHANNEL_HOST: $DECODE_NODE_1
+              CUDA_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"

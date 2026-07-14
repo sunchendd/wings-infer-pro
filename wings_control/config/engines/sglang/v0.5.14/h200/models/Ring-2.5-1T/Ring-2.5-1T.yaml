@@ -1,0 +1,42 @@
+# 来源追溯
+upstream_sources:
+  - id: sglang_ring-2.5-1t
+    kind: cookbook
+    repo: sglang
+    file: docs_new/cookbook/autoregressive/InclusionAI/Ring-2.5-1T.mdx
+    url: "https://github.com/sgl-project/sglang/blob/main/docs_new/cookbook/autoregressive/InclusionAI/Ring-2.5-1T.mdx"
+    note: SGLang 官方 Cookbook 文档。自动生成。
+
+# 模型基本信息
+model:
+  name: Ring-2.5-1T  # 模型名称
+  provider: inclusionAI  # 提供者/厂商
+  model_id: inclusionAI/Ring-2.5-1T  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.5.14  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)ring[-.]?2.5[-.]?1t"
+  variant_name: Ring-2.5-1T  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8  # 单节点 GPU/NPU 数量
+  vram_gb: 1128  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "sglang_ring-2.5-1t#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Single Node
+        engine_config:
+          model: inclusionAI/Ring-2.5-1T
+          model_path: inclusionAI/Ring-2.5-1T
+          tp_size: 8
+          trust_remote_code: true
+        env: {}
+        default_strategy: true

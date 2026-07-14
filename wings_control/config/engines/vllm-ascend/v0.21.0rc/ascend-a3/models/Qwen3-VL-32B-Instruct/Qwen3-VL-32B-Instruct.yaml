@@ -1,0 +1,53 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_ascend_qwen3-vl-32b-instruct
+    kind: official_doc
+    repo: vllm-ascend
+    file: docs/source/tutorials/models/Qwen-VL-Dense.md
+    url: "https://github.com/vllm-project/vllm-ascend/blob/releases/v0.21.0rc/docs/source/tutorials/models/Qwen-VL-Dense.md"
+    note: vLLM Ascend 官方教程文档。自动生成。
+
+# 模型基本信息
+model:
+  name: Qwen3-VL-32B-Instruct  # 模型名称
+  provider: Qwen  # 提供者/厂商
+  model_id: Qwen/Qwen3-VL-32B-Instruct  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.21.0rc  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)qwen3[-.]?vl[-.]?32b[-.]?instruct"
+  variant_name: Qwen3-VL-32B-Instruct  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 16  # 单节点 GPU/NPU 数量
+  vram_gb: 1024  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_ascend_qwen3-vl-32b-instruct#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: Qwen/Qwen3-VL-32B-Instruct
+          host: "0.0.0.0"
+          port: 8000
+          tensor_parallel_size: 2
+          max_model_len: 30000
+          max_num_batched_tokens: 50000
+          max_num_seqs: 30
+          enable_prefix_caching: false
+          trust_remote_code: true
+          dtype: bfloat16
+        env:
+          LD_PRELOAD: "/usr/lib64/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+          HCCL_OP_EXPANSION_MODE: AIV
+          VLLM_USE_V1: 1
+        system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+          commands: [apt update, apt install libjemalloc2, yum update, yum install jemalloc, "if [ -f /usr/lib/aarch64-linux-gnu/libjemalloc.so.2 ]; then", "elif [ -f /usr/lib64/libjemalloc.so.2 ]; then", fi]
