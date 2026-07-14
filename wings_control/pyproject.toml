@@ -1,0 +1,74 @@
+[project]
+name = "wings-ctl"
+version = "0.1.0"
+description = "Trace-first config resolver for vLLM engine startup"
+requires-python = ">=3.9"
+dependencies = [
+  "pyyaml>=6.0",
+  "fastapi>=0.115.0,<1.0",
+  "httpx>=0.27.0,<1.0",
+  "uvicorn[standard]>=0.32.0,<1.0",
+  "orjson>=3.9.0",
+  "pydantic-settings>=2.0",  # common/settings.py 用(proxy 子系统);显式声明,避免未声明依赖
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "ruff>=0.6", "pytest-cov>=5.0"]
+
+[project.scripts]
+wings-ctl = "wings_ctl.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wings_ctl", "src/wings_accel"]
+artifacts = ["src/wings_accel/smart-accel/**/*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+# ── coverage:只量"新流水线"(圈内),圈外移植 legacy/proxy 子系统不计门槛 ──
+# 门槛:圈内 line ≥ 90% / branch ≥ 80%。运行:
+#   pytest --cov --cov-branch --cov-report=term-missing --ignore=tests/integration/test_wings_start_sh.py
+[tool.coverage.run]
+source = ["wings_ctl"]
+branch = true
+omit = [
+  "*/wings_ctl/rag_acc/*",
+  "*/wings_ctl/common/*",
+  "*/wings_ctl/proxy/*",
+  "*/wings_ctl/utils/*",
+  "*/wings_ctl/wings_control.py",
+  "*/wings_ctl/core/port_plan.py",
+  "*/wings_ctl/core/version_util.py",
+  "*/wings_ctl/__main__.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+
+# ── ruff:lint + format(see scripts/check.sh)──────────────────────────────
+# 起步取保守集(只抓真问题、零风格 churn):E9 语法 / F pyflakes(未用 import·变量·未定义名)/ W 空白。
+# 暂不开 E501(行长,CJK 注释多)、I(import 排序)、UP(语法现代化)—— 它们需一次性 `ruff format`+整改,
+# 留作后续单独"一次性整形"提交后再收紧。
+# 排除移植进来的 proxy 子系统(rag_acc/common/proxy/wings_control.py,先不动)与本地 scratch。
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+extend-exclude = [
+  "src/wings_ctl/rag_acc",
+  "src/wings_ctl/common",
+  "src/wings_ctl/proxy",
+  "src/wings_ctl/wings_control.py",
+  # wings-accel 模块(独立包 src/wings_accel + tests):整合前不 gate,同 proxy 子系统;收口时清
+  "src/wings_accel",
+  "tests/wings_accel",
+  "scratch",
+]
+
+[tool.ruff.lint]
+select = ["E9", "F", "W"]
