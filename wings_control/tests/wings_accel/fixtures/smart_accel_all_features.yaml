@@ -1,0 +1,252 @@
+# SmartAccel 三特性全覆盖测试模型 (基于 production YAML 真实配置)
+# 演示 cli_params 渲染的 4 种值类型:bool(--flag) / scalar(--k v) / dict(--k '<json>') / envs
+upstream_sources:
+  - id: smart_accel_all_features_test
+    kind: manual
+    date_updated: 2026-06-23
+    note: "Production-derived test fixture. Covers all 6 speculative decoding methods + CPU/Disk KV offloading + custom features."
+
+model:
+  name: SmartAccel-Demo-AllFeatures
+  slug: smart-accel-demo-all
+  provider: SmartAccel
+  description: "Demonstrates all 6 speculative decoding methods + sparse + CPU/Disk KV offloading + custom features."
+  model_id: ""
+  architecture: dense
+  parameter_count: 0B
+  active_parameters: 0B
+  context_length: 8192
+  vram_minimum_gb: 0
+  tasks: [text]
+  min_engine_version: "0.22.0"
+  date_updated: 2026-06-23
+  # docs/48:variant_name 精确优先(= MaaS 下发的完整 --model-name),name_pattern 家族兜底。
+  # 解析时 --model-name 与 variant_name 精确相等即命中(确定性),零命中再回退 name_pattern。
+  variant_name: "SmartAccel-Demo-AllFeatures"
+  match:
+    - name_pattern: "(?i)smart[-.]?accel[-.]?demo"
+
+hardware_profile:
+  gpu_count: 2
+  vram_gb: 48
+  multi_node: false
+
+scenarios:
+  standalone:
+    source_ref: "smart_accel_all_features_test#standalone"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: All-Features Demo
+        orientation: throughput
+        default_strategy: true
+        engine_config:
+          model: dummy-model-for-testing
+          tensor_parallel_size: 2
+          gpu_memory_utilization: 0.85
+          trust_remote_code: true
+        env:
+          DEMO_ENV: "smart_accel_all"
+
+smart_accel:
+  # ────────────────────────────────────────────
+  # SmartDecoding: 6 种投机解码方案
+  #   model_based(requires_model_path):draft_model/eagle3/eagle/dflash
+  #   no_model(架构无关 fallback):mtp/suffix
+  # 草稿路径以 $path 令牌声明,由 PlaceholderContext 注入(不再硬编码注入键)。
+  # ────────────────────────────────────────────
+  decoding:
+      # [model_based] draft_model — Gemma 4 系列
+      - name: draft_model
+        requires_model_path: true
+        cli_params:
+          speculative_config:
+            model: $path
+            num_speculative_tokens: 4
+        envs: {}
+      # [model_based] eagle3 — Kimi K2.x 系列;附带顶层 --enforce-eager(bool 裸 flag)
+      - name: eagle3
+        requires_model_path: true
+        cli_params:
+          speculative_config:
+            method: eagle3
+            model: $path
+            num_speculative_tokens: 3
+          enforce_eager: true            # bool true -> --enforce-eager(顶层 flag,不进 speculative JSON)
+        envs:
+          EARS_TOLERANCE: "0.3"
+      # [no_model] MTP — DeepSeek/Qwen/Step 系列
+      - name: mtp
+        priority: 4
+        cli_params:
+          speculative_config:
+            method: mtp
+            num_speculative_tokens: 2
+        envs:
+          EARS_TOLERANCE: "0.3"
+      # [model_based] eagle — Mistral 系列
+      - name: eagle
+        requires_model_path: true
+        cli_params:
+          speculative_config:
+            model: $path
+            method: eagle
+            num_speculative_tokens: 3
+            max_model_len: "65536"
+        envs: {}
+      # [model_based] dflash — Poolside Laguna 系列
+      - name: dflash
+        requires_model_path: true
+        cli_params:
+          speculative_config:
+            model: $path
+            method: dflash
+            num_speculative_tokens: 7
+        envs: {}
+      # [no_model] suffix — 通用 fallback
+      - name: suffix
+        priority: 1
+        cli_params:
+          speculative_config:
+            method: suffix
+            num_speculative_tokens: 16
+            suffix_lookup_max_len: 3
+        envs: {}
+
+  # ────────────────────────────────────────────
+  # SmartSparse:performance_first / accuracy_first
+  # hf_overrides(dict -> --hf-overrides '<json>');kv_cache_dtype(scalar -> --kv-cache-dtype fp8)
+  # ────────────────────────────────────────────
+  sparse:
+    - name: performance_first
+      cli_params:
+        hf_overrides:
+          use_index_cache: true
+          index_topk_freq: 4
+        kv_cache_dtype: fp8
+      envs: {}
+    - name: accuracy_first
+      cli_params:
+        hf_overrides:
+          use_index_cache: true
+          index_topk_freq: 8
+        kv_cache_dtype: fp8
+      envs: {}
+
+  # ────────────────────────────────────────────
+  # KVOffload:cpu / disk 介质;容量占位符 {mem_gb_to_blocks} / {memory_capacity_gb} /
+  # {disk_capacity_gb} / {disk_path} 由 PlaceholderContext 解析。
+  # cpu+disk 同时启用 → 深合并 kv_transfer_config 后渲染一次 --kv-transfer-config。
+  #
+  # CPU 卸载 key 随后端分叉(见 /root/kv-offload-config-guide.md):
+  #   - NPU(vllm-ascend):num_cpu_blocks(块数),占位符 {mem_gb_to_blocks}(GiB→块,÷16 KiB);
+  #     另需 spec_name: NPUOffloadingSpec + spec_module_path: vllm_ascend.kv_offload.npu。
+  #   - 原生 vLLM(CUDA)≥v0.14:cpu_bytes_to_use(字节,全 TP 合计),占位符 {mem_gb_to_bytes}
+  #     (GiB→字节);原生侧静默忽略 num_cpu_blocks,故 CUDA 配置必须用 cpu_bytes_to_use。
+  #   生产 CUDA 资产见 smart-accel/vllm/v0.23.0/rtx_pro_5000_*/Qwen3.5-397B-A17B/*.yaml。
+  # ────────────────────────────────────────────
+  kv_offload:
+    # ─ cpu:纯 CPU 卸载,vllm 原生 OffloadingConnector。不需要 lmcache 包 / 不生成 lmcache_config.yaml。
+    #   下式为 NPU(vllm-ascend)形态:num_cpu_blocks(块数)。CUDA 形态见本块下方注释样例。
+    - name: cpu
+      cli_params:
+        kv_transfer_config:
+          kv_connector: OffloadingConnector
+          kv_role: kv_both
+          kv_connector_extra_config:
+            num_cpu_blocks: "{mem_gb_to_blocks}"
+      envs:
+        KV_OFFLOAD_CPU_ONLY: "1"
+    # ─ CUDA 注释样例(原生 vLLM ≥v0.14):同一 cpu scheme,把 num_cpu_blocks 换成 cpu_bytes_to_use
+    #   (字节)。原生 vLLM 只读 cpu_bytes_to_use、静默忽略 num_cpu_blocks;故 NVIDIA/CUDA 部署
+    #   必须用下式(生产资产 Qwen3.5 即此形态)。复制时取消注释、覆盖上面的 cpu scheme 即可。
+    #   - name: cpu
+    #     cli_params:
+    #       kv_transfer_config:
+    #         kv_connector: OffloadingConnector
+    #         kv_role: kv_both
+    #         kv_connector_extra_config:
+    #           cpu_bytes_to_use: "{mem_gb_to_bytes}"   # GiB → 字节(如 40 GiB → 42949672960)
+    #     envs:
+    #       KV_OFFLOAD_CPU_ONLY: "1"
+
+    # ─ disk:纯磁盘卸载,lmcache(LMCacheConnectorV1),仅 disk tier。
+    #   需 lmcache 包 + lmcache_config.yaml(yaml 为容量真相源;env/cli 为补充)。
+    #   配置文件经通用 files: 块落盘;指向文件的 env(LMCACHE_CONFIG_FILE)在 envs: 字面量声明。
+    - name: disk
+      packages:
+        lmcache: v0.3.15
+      cli_params:
+        kv_transfer_config:
+          kv_connector: LMCacheConnectorV1
+          kv_role: kv_both
+          kv_connector_extra_config:
+            local_disk: "{disk_path}"
+            max_local_disk_size: "{disk_capacity_gb}"
+      envs:
+        LMCACHE_CONFIG_FILE: /shared-volume/lmcache_config.yaml   # 指向 files 写出的文件(字面量)
+        LMCACHE_LOCAL_DISK: "{disk_path}"
+        LMCACHE_MAX_LOCAL_DISK_SIZE: "{disk_capacity_gb}"
+      files:                              # 通用写文件:写至 SHARED_VOLUME_PATH/<name>(任意文本 + 占位符)
+        - name: lmcache_config.yaml
+          content: |
+            chunk_size: 256               # yaml 暴露配置,默认 256(MaaS 不传)
+            local_disk: {disk_path}
+            max_local_disk_size: {disk_capacity_gb}
+            extra_config:
+              wings:
+                qat:                      # disk 命中即给;enabled 随 qat 开关
+                  enabled: {qat_enabled}
+                  module_name: kv_agent
+                  instance_num: {qat_device_count}
+                  loss_level: {qat_compression_level}
+                  log_enabled: 1
+
+    # ─ cpu_disk:CPU+磁盘卸载,lmcache 同时管 cpu tier(local_cpu)+ disk tier。
+    #   与 disk 的差异:开 local_cpu + 给内存大小(max_local_cpu_size)。
+    - name: cpu_disk
+      packages:
+        lmcache: v0.3.15
+      cli_params:
+        kv_transfer_config:
+          kv_connector: LMCacheConnectorV1
+          kv_role: kv_both
+          kv_connector_extra_config:
+            local_cpu: true
+            max_local_cpu_size: "{memory_capacity_gb}"
+            local_disk: "{disk_path}"
+            max_local_disk_size: "{disk_capacity_gb}"
+      envs:
+        LMCACHE_CONFIG_FILE: /shared-volume/lmcache_config.yaml
+        LMCACHE_LOCAL_CPU: "true"
+        LMCACHE_MAX_LOCAL_CPU_SIZE: "{memory_capacity_gb}"
+        LMCACHE_LOCAL_DISK: "{disk_path}"
+        LMCACHE_MAX_LOCAL_DISK_SIZE: "{disk_capacity_gb}"
+      files:
+        - name: lmcache_config.yaml
+          content: |
+            chunk_size: 256
+            local_cpu: true
+            max_local_cpu_size: {memory_capacity_gb}
+            local_disk: {disk_path}
+            max_local_disk_size: {disk_capacity_gb}
+            extra_config:
+              wings:
+                qat:
+                  enabled: {qat_enabled}
+                  module_name: kv_agent
+                  instance_num: {qat_device_count}
+                  loss_level: {qat_compression_level}
+                  log_enabled: 1
+
+  # ────────────────────────────────────────────
+  # CustomFeatures:与三大特性正交的自由启动参数;仅在 decoding/kv/sparse 至少一项产出时启用。
+  # mamba_cache(bool true -> --mamba-cache)。
+  # ────────────────────────────────────────────
+  custom_features:
+    - name: Mamba prefix caching
+      cli_params:
+        mamba_cache: true
+      envs: {}
