@@ -75,4 +75,3 @@ scenarios:
         env:
           VLLM_USE_V1: "1"
           PYTHONHASHSEED: "0"
-          CUDA_VISIBLE_DEVICES: "2,3"

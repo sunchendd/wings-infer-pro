@@ -202,7 +202,6 @@ scenarios:
             env:
               VLLM_NIXL_SIDE_CHANNEL_PORT: 5557
               VLLM_NIXL_SIDE_CHANNEL_HOST: $PREFILL_NODE_1
-              CUDA_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
               GLOO_SOCKET_IFNAME: $IFACE_NAME
               NCCL_SOCKET_IFNAME: $IFACE_NAME
               VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS: 0
@@ -240,7 +239,6 @@ scenarios:
             env:
               VLLM_NIXL_SIDE_CHANNEL_PORT: 5557
               VLLM_NIXL_SIDE_CHANNEL_HOST: $PREFILL_NODE_2
-              CUDA_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
               GLOO_SOCKET_IFNAME: $IFACE_NAME
               NCCL_SOCKET_IFNAME: $IFACE_NAME
               VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS: 0
@@ -278,7 +276,6 @@ scenarios:
             env:
               VLLM_NIXL_SIDE_CHANNEL_PORT: 5558
               VLLM_NIXL_SIDE_CHANNEL_HOST: $DECODE_NODE_1
-              CUDA_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
               GLOO_SOCKET_IFNAME: $IFACE_NAME
               NCCL_SOCKET_IFNAME: $IFACE_NAME
               VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS: 0
@@ -316,7 +313,6 @@ scenarios:
             env:
               VLLM_NIXL_SIDE_CHANNEL_PORT: 5558
               VLLM_NIXL_SIDE_CHANNEL_HOST: $DECODE_NODE_2
-              CUDA_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
               GLOO_SOCKET_IFNAME: $IFACE_NAME
               NCCL_SOCKET_IFNAME: $IFACE_NAME
               VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS: 0
