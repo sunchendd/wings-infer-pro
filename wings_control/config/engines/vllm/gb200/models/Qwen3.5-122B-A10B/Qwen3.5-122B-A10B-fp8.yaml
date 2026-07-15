@@ -212,7 +212,6 @@ scenarios:
               UCX_NET_DEVICES: all
               VLLM_NIXL_SIDE_CHANNEL_PORT: 5557
               VLLM_NIXL_SIDE_CHANNEL_HOST: $PREFILL_NODE_1
-              CUDA_VISIBLE_DEVICES: "0,1,2,3"
               VLLM_SSM_CONV_STATE_LAYOUT: DS
           - role: decode  # D1 节点配置
             index: 1
@@ -231,5 +230,4 @@ scenarios:
             env:
               VLLM_NIXL_SIDE_CHANNEL_PORT: 5558
               VLLM_NIXL_SIDE_CHANNEL_HOST: $DECODE_NODE_1
-              CUDA_VISIBLE_DEVICES: "0,1,2,3"
               VLLM_SSM_CONV_STATE_LAYOUT: DS

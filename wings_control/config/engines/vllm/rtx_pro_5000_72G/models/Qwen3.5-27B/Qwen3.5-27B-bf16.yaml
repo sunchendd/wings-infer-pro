@@ -66,4 +66,3 @@ scenarios:
           enable_prefix_caching: true
         env:
           VLLM_USE_V1: "1"
-          CUDA_VISIBLE_DEVICES: "4,5"

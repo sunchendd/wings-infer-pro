@@ -239,7 +239,6 @@ scenarios:
               UCX_NET_DEVICES: all
               VLLM_NIXL_SIDE_CHANNEL_PORT: 5557
               VLLM_NIXL_SIDE_CHANNEL_HOST: $PREFILL_NODE_1
-              CUDA_VISIBLE_DEVICES: "0,1,2,3"
           - role: decode  # D1 节点配置
             index: 1
             parallelism: tp
@@ -258,4 +257,3 @@ scenarios:
               VLLM_USE_FLASHINFER_MOE_FP4: 1
               VLLM_NIXL_SIDE_CHANNEL_PORT: 5558
               VLLM_NIXL_SIDE_CHANNEL_HOST: $DECODE_NODE_1
-              CUDA_VISIBLE_DEVICES: "0,1,2,3"

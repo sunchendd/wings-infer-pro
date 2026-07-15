@@ -365,7 +365,6 @@ scenarios:
             env:
               VLLM_NIXL_SIDE_CHANNEL_PORT: 5557
               VLLM_NIXL_SIDE_CHANNEL_HOST: $PREFILL_NODE_1
-              CUDA_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
               PYTHONNOUSERSITE: 1
               VLLM_USE_DEEP_GEMM: 0
               VLLM_BLOCKSCALE_FP8_GEMM_FLASHINFER: 0
@@ -393,7 +392,6 @@ scenarios:
             env:
               VLLM_NIXL_SIDE_CHANNEL_PORT: 5558
               VLLM_NIXL_SIDE_CHANNEL_HOST: $DECODE_NODE_1
-              CUDA_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
               PYTHONNOUSERSITE: 1
               VLLM_USE_DEEP_GEMM: 0
               VLLM_BLOCKSCALE_FP8_GEMM_FLASHINFER: 0

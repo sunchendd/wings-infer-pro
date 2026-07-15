@@ -233,7 +233,6 @@ scenarios:
             env:
               VLLM_NIXL_SIDE_CHANNEL_PORT: 5557
               VLLM_NIXL_SIDE_CHANNEL_HOST: $PREFILL_NODE_1
-              CUDA_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
               GLOO_SOCKET_IFNAME: $IFACE_NAME
               NCCL_SOCKET_IFNAME: $IFACE_NAME
           - role: prefill  # P2 节点配置
@@ -266,7 +265,6 @@ scenarios:
             env:
               VLLM_NIXL_SIDE_CHANNEL_PORT: 5557
               VLLM_NIXL_SIDE_CHANNEL_HOST: $PREFILL_NODE_2
-              CUDA_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
               GLOO_SOCKET_IFNAME: $IFACE_NAME
               NCCL_SOCKET_IFNAME: $IFACE_NAME
           - role: decode  # D1 节点配置
@@ -301,7 +299,6 @@ scenarios:
             env:
               VLLM_NIXL_SIDE_CHANNEL_PORT: 5558
               VLLM_NIXL_SIDE_CHANNEL_HOST: $DECODE_NODE_1
-              CUDA_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
               GLOO_SOCKET_IFNAME: $IFACE_NAME
               NCCL_SOCKET_IFNAME: $IFACE_NAME
           - role: decode  # D2 节点配置
@@ -336,6 +333,5 @@ scenarios:
             env:
               VLLM_NIXL_SIDE_CHANNEL_PORT: 5558
               VLLM_NIXL_SIDE_CHANNEL_HOST: $DECODE_NODE_2
-              CUDA_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
               GLOO_SOCKET_IFNAME: $IFACE_NAME
               NCCL_SOCKET_IFNAME: $IFACE_NAME
