@@ -4,7 +4,7 @@ upstream_sources:
     kind: official_doc
     repo: sglang
     file: docs/platforms/ascend/ascend_npu_qwen3_examples.md
-    url: "https://github.com/sgl-project/sglang/blob/main/docs/platforms/ascend/ascend_npu_qwen3_examples.md"
+    url: "https://github.com/sgl-project/sglang/blob/v0.5.14/docs/platforms/ascend/ascend_npu_qwen3_examples.md"
     note: SGLang 官方 Cookbook 文档。自动生成。
 
 # 模型基本信息
