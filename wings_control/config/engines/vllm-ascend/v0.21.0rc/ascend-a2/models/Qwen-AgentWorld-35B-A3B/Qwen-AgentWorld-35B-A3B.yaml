@@ -1,0 +1,70 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_ascend_qwen-agentworld-35b-a3b_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://huggingface.co/Qwen/Qwen-AgentWorld-35B-A3B"
+    note: 用户提供 vLLM Ascend 启动命令，手工录入。
+
+# 模型基本信息
+model:
+  name: Qwen-AgentWorld-35B-A3B  # 模型名称
+  provider: Qwen  # 提供者/厂商
+  model_id: Qwen/Qwen-AgentWorld-35B-A3B  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.21.0rc  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)qwen[-.]?agentworld[-.]?35b[-.]?a3b"
+  variant_name: Qwen-AgentWorld-35B-A3B  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8  # 单节点 GPU/NPU 数量
+  vram_gb: 512  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 可选功能列表
+features:
+  text_only:
+    description: Skip loading the vision encoder for text-only workloads; frees VRAM for KV cache.
+    args: [--language-model-only]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_ascend_qwen-agentworld-35b-a3b_manual#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: Qwen/Qwen-AgentWorld-35B-A3B
+          host: "0.0.0.0"
+          port: 12000
+          data_parallel_size: 1
+          tensor_parallel_size: 2
+          seed: 1024
+          served_model_name: qwen3
+          max_model_len: 133000
+          max_num_batched_tokens: 8096
+          trust_remote_code: true
+          gpu_memory_utilization: 0.9
+          additional_config:
+            enable_cpu_binding: true
+            ascend_compilation_config:
+              enable_npugraph_ex: true
+          compilation_config:
+            cudagraph_mode: FULL_DECODE_ONLY
+          enable_prefix_caching: false
+          async_scheduling: true
+        env:
+          VLLM_USE_MODELSCOPE: "True"
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          HCCL_BUFFSIZE: 512
+          OMP_PROC_BIND: "false"
+          OMP_NUM_THREADS: 1
+          TASK_QUEUE_ENABLE: 1
+          ASCEND_RT_VISIBLE_DEVICES: "0,1"
