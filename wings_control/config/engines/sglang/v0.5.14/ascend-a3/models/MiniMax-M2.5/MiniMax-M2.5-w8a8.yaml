@@ -4,7 +4,7 @@ upstream_sources:
     kind: official_doc
     repo: sglang
     file: docs_new/docs/hardware-platforms/ascend-npus/best_practice/minimax_m2_5.mdx
-    url: "https://github.com/sgl-project/sglang/blob/main/docs_new/docs/hardware-platforms/ascend-npus/best_practice/minimax_m2_5.mdx"
+    url: "https://github.com/sgl-project/sglang/blob/v0.5.14/docs_new/docs/hardware-platforms/ascend-npus/best_practice/minimax_m2_5.mdx"
     note: SGLang 官方 Cookbook 文档。自动生成。
 
 # 模型基本信息
@@ -25,6 +25,12 @@ hardware_profile:
 
 # 可选功能列表
 features:
+  tool_calling:
+    description: Enable tool/function calling via SGLang parser flags.
+    args: [--tool-call-parser, minimax-m2]
+  reasoning:
+    description: Enable model reasoning parser.
+    args: [--reasoning-parser, minimax-append-think]
   spec_decoding:
     description: Enable speculative decoding.
     args: [--speculative-algorithm, EAGLE3, --speculative-draft-model-path, $DRAFT_MODEL_PATH, --speculative-num-steps, 3, --speculative-eagle-topk, 1, --speculative-num-draft-tokens, 4, --speculative-draft-model-quantization, unquant]
@@ -32,65 +38,110 @@ features:
 # 部署场景
 scenarios:
   standalone:
-    source_ref: "sglang_minimax-m2.5#single_node_pd-mixed"
+    source_ref: "sglang_minimax-m2.5#single_node_pd-mixed_high_throughput"
     match:
       distributed: false
       pd_role: null
     strategies:
-      single_node_pd-mixed:
+      single_node_pd-mixed_high_throughput:
         display_name: MiniMax-M2.5 W8A8 4P IN32K OUT1K 50ms
         orientation: throughput
-        nodes:
-          - role: mixed
-            index: 0
-            engine_config:
-              model: $MODEL_PATH
-              model_path: $MODEL_PATH
-              host: "127.0.0.1"
-              port: 6688
-              tp_size: 8
-              disable_radix_cache: true
-              mem_fraction_static: 0.74
-              max_running_requests: 18
-              chunked_prefill_size: -1
-              max_prefill_tokens: 32768
-              cuda_graph_bs: 2
-              moe_a2a_backend: deepep
-              deepep_mode: auto
-              quantization: modelslim
-              dtype: bfloat16
-              trust_remote_code: true
-              tokenizer_worker_num: 4
-            env:
-              PYTHONPATH: "${DRAFT_MODEL_PATH}:$PYTHONPATH"
-              ASCEND_USE_FIA: 1
-              DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ: 1
-              DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS: 2048
-              DEEPEP_NORMAL_LONG_SEQ_ROUND: 64
-              DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
-              GLOO_SOCKET_IFNAME: "<network-interface>"
-              HCCL_BUFFSIZE: 128
-              HCCL_SOCKET_IFNAME: "<network-interface>"
-              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
-              SGLANG_DEEPEP_NUM_MAX_DISPATCH_TOKENS_PER_RANK: 640
-              SGLANG_ENABLE_OVERLAP_PLAN_STREAM: 1
-              SGLANG_ENABLE_SPEC_V2: 1
-              SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK: 0
-              SGLANG_EXTERNAL_MODEL_PACKAGE: custom_eagle3
-              SGLANG_SET_CPU_AFFINITY: 1
-              SGLANG_ZBAL_LOCAL_MEM_SIZE: 60184
-              STREAMS_PER_DEVICE: 32
-              TASK_QUEUE_ENABLE: 1
-              ZBAL_ENABLE_GRAPH: 1
-              ZBAL_HCCL_OP: "allreduce,_allgather_base,allgather,broadcast,scatter,reduce_scatter,_reduce_scatter_base,alltoall_base"
-              ZBAL_NPU_ALLOC_CONF: "use_vmm_for_static_memory:True"
-            system_setup:
-              sysctls:
-                vm.swappiness: 0
-                kernel.numa_balancing: 0
-                kernel.sched_migration_cost_ns: 50000
-              sysfs_writes:
-                - path: "/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
-                  value: performance
-              commands: [MODEL_PATH=/path/to/model-weights, DRAFT_MODEL_PATH=/path/to/draft-model-weights, unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh]
+        engine_config:
+          model: $MODEL_PATH
+          model_path: $MODEL_PATH
+          host: "127.0.0.1"
+          port: 6688
+          tp_size: 8
+          disable_radix_cache: true
+          mem_fraction_static: 0.74
+          max_running_requests: 18
+          chunked_prefill_size: -1
+          max_prefill_tokens: 32768
+          cuda_graph_bs: 2
+          moe_a2a_backend: deepep
+          deepep_mode: auto
+          quantization: modelslim
+          dtype: bfloat16
+          trust_remote_code: true
+          tokenizer_worker_num: 4
+        env:
+          PYTHONPATH: "${DRAFT_MODEL_PATH}:$PYTHONPATH"
+          ASCEND_USE_FIA: 1
+          DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ: 1
+          DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS: 2048
+          DEEPEP_NORMAL_LONG_SEQ_ROUND: 64
+          DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+          GLOO_SOCKET_IFNAME: "<network-interface>"
+          HCCL_BUFFSIZE: 128
+          HCCL_SOCKET_IFNAME: "<network-interface>"
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          SGLANG_DEEPEP_NUM_MAX_DISPATCH_TOKENS_PER_RANK: 640
+          SGLANG_ENABLE_OVERLAP_PLAN_STREAM: 1
+          SGLANG_ENABLE_SPEC_V2: 1
+          SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK: 0
+          SGLANG_EXTERNAL_MODEL_PACKAGE: custom_eagle3
+          SGLANG_SET_CPU_AFFINITY: 1
+          SGLANG_ZBAL_LOCAL_MEM_SIZE: 60184
+          STREAMS_PER_DEVICE: 32
+          TASK_QUEUE_ENABLE: 1
+          ZBAL_ENABLE_GRAPH: 1
+          ZBAL_HCCL_OP: "allreduce,_allgather_base,allgather,broadcast,scatter,reduce_scatter,_reduce_scatter_base,alltoall_base"
+          ZBAL_NPU_ALLOC_CONF: "use_vmm_for_static_memory:True"
+        system_setup:
+          sysctls:
+            vm.swappiness: 0
+            kernel.numa_balancing: 0
+            kernel.sched_migration_cost_ns: 50000
+          sysfs_writes:
+            - path: "/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
+              value: performance
+          commands: [MODEL_PATH=/path/to/model-weights, DRAFT_MODEL_PATH=/path/to/draft-model-weights, unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh]
+      single_node_pd-mixed_low_latency:
+        display_name: MiniMax-M2.5 W8A8 8P IN128K OUT1K PREFIX90 24.44ms
+        orientation: latency
         default_strategy: true
+        engine_config:
+          model: $MODEL_PATH
+          model_path: $MODEL_PATH
+          host: "127.0.0.1"
+          port: 6688
+          tp_size: 16
+          dp_size: 2
+          enable_dp_attention: true
+          mem_fraction_static: 0.65
+          max_running_requests: 4
+          enable_prefill_delayer: true
+          prefill_max_requests: 4
+          chunked_prefill_size: 160000
+          max_prefill_token: 80000
+          cuda_graph_bs: 2
+          moe_a2a_backend: ascend_fuseep
+          deepep_mode: auto
+          quantization: modelslim
+          tokenizer_worker_num: 4
+          dtype: bfloat16
+        env:
+          PYTHONPATH: "${DRAFT_MODEL_PATH}:$PYTHONPATH"
+          ASCEND_USE_FIA: 1
+          DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+          GLOO_SOCKET_IFNAME: "<network-interface>"
+          HCCL_BUFFSIZE: 1024
+          HCCL_SOCKET_IFNAME: "<network-interface>"
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          SGLANG_DEEPEP_NUM_MAX_DISPATCH_TOKENS_PER_RANK: 160000
+          SGLANG_ENABLE_OVERLAP_PLAN_STREAM: 1
+          SGLANG_ENABLE_SPEC_V2: 1
+          SGLANG_EXTERNAL_MODEL_PACKAGE: custom_eagle3
+          SGLANG_NPU_FUSED_MOE_MODE: 2
+          SGLANG_SET_CPU_AFFINITY: 1
+          STREAMS_PER_DEVICE: 32
+          TASK_QUEUE_ENABLE: 1
+        system_setup:
+          sysctls:
+            vm.swappiness: 0
+            kernel.numa_balancing: 0
+            kernel.sched_migration_cost_ns: 50000
+          sysfs_writes:
+            - path: "/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
+              value: performance
+          commands: [MODEL_PATH=/path/to/model-weights, DRAFT_MODEL_PATH=/path/to/draft-model-weights, unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh]

@@ -1,0 +1,80 @@
+# 来源追溯
+upstream_sources:
+  - id: sglang_qwen3-32b
+    kind: official_doc
+    repo: sglang
+    file: docs_new/docs/hardware-platforms/ascend-npus/best_practice/qwen3_32b.mdx
+    url: "https://github.com/sgl-project/sglang/blob/v0.5.14/docs_new/docs/hardware-platforms/ascend-npus/best_practice/qwen3_32b.mdx"
+    note: SGLang 官方 Cookbook 文档。自动生成。
+
+# 模型基本信息
+model:
+  name: Qwen3-32B  # 模型名称
+  provider: ""  # 提供者/厂商
+  model_id: Qwen3-32B  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.5.14  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)qwen3[-.]?32b"
+  variant_name: Qwen3-32B-bf16  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 16  # 单节点 GPU/NPU 数量
+  vram_gb: 1024  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 可选功能列表
+features:
+  spec_decoding:
+    description: Enable speculative decoding.
+    args: [--speculative-draft-model-quantization, unquant, --speculative-algorithm, EAGLE3, --speculative-draft-model-path, $DRAFT_MODEL_PATH, --speculative-num-steps, 4, --speculative-eagle-topk, 1, --speculative-num-draft-tokens, 5]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "sglang_qwen3-32b#single_node_pd-mixed_low_latency"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_pd-mixed_low_latency:
+        display_name: Qwen3-32B BF16 8P IN18K OUT4K 6ms
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: $MODEL_PATH
+          model_path: $MODEL_PATH
+          host: "127.0.0.1"
+          port: 6688
+          trust_remote_code: true
+          nnodes: 1
+          node_rank: 0
+          attention_backend: ascend
+          device: npu
+          max_running_requests: 1
+          disable_radix_cache: true
+          chunked_prefill_size: -1
+          max_prefill_tokens: 65536
+          tp_size: 16
+          mem_fraction_static: 0.72
+          cuda_graph_bs: 1
+          dtype: bfloat16
+        env:
+          GLOO_SOCKET_IFNAME: "<network-interface>"
+          HCCL_OP_EXPANSION_MODE: AIV
+          HCCL_SOCKET_IFNAME: "<network-interface>"
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT: 600
+          SGLANG_ENABLE_OVERLAP_PLAN_STREAM: 1
+          SGLANG_ENABLE_SPEC_V2: 1
+          SGLANG_PREFILL_DELAYER_MAX_DELAY_PASSES: 200
+          SGLANG_SCHEDULER_DECREASE_PREFILL_IDLE: 1
+        system_setup:
+          sysctls:
+            vm.swappiness: 0
+            kernel.numa_balancing: 0
+            kernel.sched_migration_cost_ns: 50000
+          sysfs_writes:
+            - path: "/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
+              value: performance
+          commands: [MODEL_PATH=/path/to/model-weights, DRAFT_MODEL_PATH=/path/to/draft-model-weights, unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh]

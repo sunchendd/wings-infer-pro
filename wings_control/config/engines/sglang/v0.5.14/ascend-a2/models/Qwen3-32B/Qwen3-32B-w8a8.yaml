@@ -4,7 +4,7 @@ upstream_sources:
     kind: official_doc
     repo: sglang
     file: docs_new/docs/hardware-platforms/ascend-npus/best_practice/qwen3_32b.mdx
-    url: "https://github.com/sgl-project/sglang/blob/main/docs_new/docs/hardware-platforms/ascend-npus/best_practice/qwen3_32b.mdx"
+    url: "https://github.com/sgl-project/sglang/blob/v0.5.14/docs_new/docs/hardware-platforms/ascend-npus/best_practice/qwen3_32b.mdx"
     note: SGLang 官方 Cookbook 文档。自动生成。
 
 # 模型基本信息
@@ -32,54 +32,51 @@ features:
 # 部署场景
 scenarios:
   standalone:
-    source_ref: "sglang_qwen3-32b#single_node_pd-mixed"
+    source_ref: "sglang_qwen3-32b#single_node_pd-mixed_high_throughput"
     match:
       distributed: false
       pd_role: null
     strategies:
-      single_node_pd-mixed:
+      single_node_pd-mixed_high_throughput:
         display_name: Qwen3-32B W8A8 2P IN3K5 OUT1K5 50ms A2
         orientation: throughput
-        nodes:
-          - role: mixed
-            index: 0
-            engine_config:
-              model: $MODEL_PATH
-              model_path: $MODEL_PATH
-              host: "127.0.0.1"
-              port: 6688
-              trust_remote_code: true
-              nnodes: 1
-              node_rank: 0
-              attention_backend: ascend
-              device: npu
-              quantization: modelslim
-              max_running_requests: 101
-              disable_radix_cache: true
-              chunked_prefill_size: -1
-              max_prefill_tokens: 35000
-              tp_size: 4
-              mem_fraction_static: 0.845
-              cuda_graph_bs: 16
-              dtype: bfloat16
-            env:
-              GLOO_SOCKET_IFNAME: "<network-interface>"
-              HCCL_OP_EXPANSION_MODE: AIV
-              HCCL_SOCKET_IFNAME: "<network-interface>"
-              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
-              SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT: 600
-              SGLANG_ENABLE_OVERLAP_PLAN_STREAM: 1
-              SGLANG_ENABLE_SPEC_V2: 1
-              SGLANG_NPU_USE_DEEPGEMM: 1
-              SGLANG_PREFILL_DELAYER_MAX_DELAY_PASSES: 100
-              SGLANG_SCHEDULER_DECREASE_PREFILL_IDLE: 1
-            system_setup:
-              sysctls:
-                vm.swappiness: 0
-                kernel.numa_balancing: 0
-                kernel.sched_migration_cost_ns: 50000
-              sysfs_writes:
-                - path: "/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
-                  value: performance
-              commands: [MODEL_PATH=/path/to/model-weights, DRAFT_MODEL_PATH=/path/to/draft-model-weights, unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh]
+        engine_config:
+          model: $MODEL_PATH
+          model_path: $MODEL_PATH
+          host: "127.0.0.1"
+          port: 6688
+          trust_remote_code: true
+          nnodes: 1
+          node_rank: 0
+          attention_backend: ascend
+          device: npu
+          quantization: modelslim
+          max_running_requests: 101
+          disable_radix_cache: true
+          chunked_prefill_size: -1
+          max_prefill_tokens: 35000
+          tp_size: 4
+          mem_fraction_static: 0.845
+          cuda_graph_bs: 16
+          dtype: bfloat16
+        env:
+          GLOO_SOCKET_IFNAME: "<network-interface>"
+          HCCL_OP_EXPANSION_MODE: AIV
+          HCCL_SOCKET_IFNAME: "<network-interface>"
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT: 600
+          SGLANG_ENABLE_OVERLAP_PLAN_STREAM: 1
+          SGLANG_ENABLE_SPEC_V2: 1
+          SGLANG_NPU_USE_DEEPGEMM: 1
+          SGLANG_PREFILL_DELAYER_MAX_DELAY_PASSES: 100
+          SGLANG_SCHEDULER_DECREASE_PREFILL_IDLE: 1
+        system_setup:
+          sysctls:
+            vm.swappiness: 0
+            kernel.numa_balancing: 0
+            kernel.sched_migration_cost_ns: 50000
+          sysfs_writes:
+            - path: "/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
+              value: performance
+          commands: [MODEL_PATH=/path/to/model-weights, DRAFT_MODEL_PATH=/path/to/draft-model-weights, unset https_proxy, unset http_proxy, unset HTTPS_PROXY, unset HTTP_PROXY, unset ASCEND_LAUNCH_BLOCKING, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh]
         default_strategy: true
