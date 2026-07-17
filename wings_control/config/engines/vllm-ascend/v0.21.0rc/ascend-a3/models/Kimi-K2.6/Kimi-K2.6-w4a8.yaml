@@ -1,0 +1,81 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_ascend_kimi-k2.6_w4a8_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://modelscope.cn/models/Eco-Tech/Kimi-K2.6-W4A8"
+    note: 用户提供 vLLM Ascend 启动命令，手工录入。
+
+# 模型基本信息
+model:
+  name: Kimi-K2.6  # 模型名称
+  provider: Eco-Tech  # 提供者/厂商
+  model_id: Eco-Tech/Kimi-K2.6-W4A8  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.21.0rc  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)kimi[-.]?k2.6"
+  variant_name: Kimi-K2.6-w4a8  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 16  # 单节点 GPU/NPU 数量
+  vram_gb: 1024  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 可选功能列表
+features:
+  encoder_parallel:
+    description: Run the vision encoder in data-parallel mode; avoids TP communication overhead on the small encoder.
+    args: [--mm-encoder-tp-mode, data]
+  spec_decoding:
+    description: Speculative decoding (DFlash draft) to accelerate generation.
+    args: [--speculative-config, "{\"method\":\"dflash\",\"model\":\"z-lab/Kimi-K2.6-DFlash\",\"num_speculative_tokens\":15}"]
+  memcache_offloading:
+    description: Enable MemCache-backed KV transfer/offloading for prefill/decode cache sharing.
+    args: [--kv-transfer-config, "{\"kv_connector\":\"AscendStoreConnector\",\"kv_role\":\"kv_both\",\"kv_load_failure_policy\":\"recompute\",\"kv_connector_extra_config\":{\"lookup_rpc_port\":\"0\",\"backend\":\"memcache\"}}"]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_ascend_kimi-k2.6_w4a8_manual#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: Eco-Tech/Kimi-K2.6-W4A8
+          quantization: ascend
+          served_model_name: kimi_k26
+          allowed_local_media_path: /
+          trust_remote_code: true
+          tensor_parallel_size: 4
+          data_parallel_size: 4
+          enable_prefix_caching: false
+          enable_expert_parallel: true
+          port: 8088
+          max_num_seqs: 4
+          max_model_len: 32768
+          max_num_batched_tokens: 16384
+          gpu_memory_utilization: 0.9
+          seed: 42
+          compilation_config:
+            cudagraph_mode: FULL_DECODE_ONLY
+          mm_processor_cache_gb: 0
+        env:
+          MMC_LOCAL_CONFIG_PATH: "/model/xxx/t16-mmc/mmc_local.conf"
+          ACL_OP_INIT_MODE: 1
+          PYTHONHASHSEED: 0
+          HCCL_BUFFSIZE: 1024
+          OMP_PROC_BIND: "false"
+          OMP_NUM_THREADS: 10
+          VLLM_USE_V1: 1
+          HCCL_OP_EXPANSION_MODE: AIV
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          VLLM_ASCEND_BALANCE_SCHEDULING: 1
+          VLLM_ASCEND_ENABLE_MLAPO: 1
+          VLLM_VERSION: 0.21.0
+          LOG_PREFIX_CACHE_STATS_PER_REQUEST: 1

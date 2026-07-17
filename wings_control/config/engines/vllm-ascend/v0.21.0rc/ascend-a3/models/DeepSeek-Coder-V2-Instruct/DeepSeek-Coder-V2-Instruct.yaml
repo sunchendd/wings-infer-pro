@@ -1,0 +1,60 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_ascend_deepseek-coder-v2-instruct_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://huggingface.co/deepseek-ai/DeepSeek-Coder-V2-Instruct"
+    note: 用户提供 vLLM Ascend 启动命令，手工录入。
+
+# 模型基本信息
+model:
+  name: DeepSeek-Coder-V2-Instruct  # 模型名称
+  provider: deepseek-ai  # 提供者/厂商
+  model_id: deepseek-ai/DeepSeek-Coder-V2-Instruct  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.21.0rc  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)deepseek[-.]?coder[-.]?v2[-.]?instruct"
+  variant_name: DeepSeek-Coder-V2-Instruct  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 16  # 单节点 GPU/NPU 数量
+  vram_gb: 1024  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 可选功能列表
+features:
+  spec_decoding:
+    description: Speculative decoding (MTP draft) to accelerate generation.
+    args: [--speculative-config, "{\"num_speculative_tokens\":3,\"method\":\"mtp\"}"]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_ascend_deepseek-coder-v2-instruct_manual#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: deepseek-ai/DeepSeek-Coder-V2-Instruct
+          trust_remote_code: true
+          max_model_len: 4096
+          enable_expert_parallel: true
+          host: "0.0.0.0"
+          port: 18000
+          served_model_name: DeepSeek-Coder-V2-Instruct
+          tensor_parallel_size: 16
+        env:
+          LD_LIBRARY_PATH: "/usr/local/Ascend/driver/lib64/driver:/usr/local/Ascend/driver/lib64/common:${LD_LIBRARY_PATH:-}"
+          HCCL_BUFFSIZE: 1024
+          OMP_PROC_BIND: "false"
+          OMP_NUM_THREADS: 1
+          TASK_QUEUE_ENABLE: 1
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          HCCL_OP_EXPANSION_MODE: AIV
+          PYTHONUNBUFFERED: 1

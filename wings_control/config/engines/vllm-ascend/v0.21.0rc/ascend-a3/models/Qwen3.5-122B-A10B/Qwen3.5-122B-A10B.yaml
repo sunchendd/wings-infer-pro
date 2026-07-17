@@ -1,0 +1,85 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_ascend_qwen3.5-122b-a10b_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://huggingface.co/Qwen/Qwen3.5-122B-A10B"
+    note: 用户提供 vLLM Ascend 启动命令，手工录入。
+
+# 模型基本信息
+model:
+  name: Qwen3.5-122B-A10B  # 模型名称
+  provider: Qwen  # 提供者/厂商
+  model_id: Qwen/Qwen3.5-122B-A10B  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.21.0rc  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)qwen3.5[-.]?122b[-.]?a10b"
+  variant_name: Qwen3.5-122B-A10B  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 16  # 单节点 GPU/NPU 数量
+  vram_gb: 1024  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 可选功能列表
+features:
+  text_only:
+    description: Skip loading the vision encoder for text-only workloads; frees VRAM for KV cache.
+    args: [--language-model-only]
+  spec_decoding:
+    description: Speculative decoding (MTP draft) to accelerate generation.
+    args: [--speculative-config, "{\"method\":\"qwen3_5_mtp\",\"num_speculative_tokens\":1,\"enforce_eager\":true}"]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_ascend_qwen3.5-122b-a10b_manual#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: Qwen/Qwen3.5-122B-A10B
+          host: "0.0.0.0"
+          port: 6901
+          served_model_name: qwen35
+          tensor_parallel_size: 8
+          data_parallel_size: 1
+          enable_expert_parallel: true
+          max_num_seqs: 8
+          max_model_len: 131072
+          max_num_batched_tokens: 16384
+          gpu_memory_utilization: 0.9
+          seed: 1024
+          trust_remote_code: true
+          additional_config:
+            enable_cpu_binding: false
+            ascend_compilation_config:
+              enable_npugraph_ex: true
+              enable_static_kernel: false
+            multistream_overlap_shared_expert: false
+          compilation_config:
+            cudagraph_mode: FULL_DECODE_ONLY
+          async_scheduling: true
+        env:
+          ASCEND_RT_VISIBLE_DEVICES: "6,7,10,11,12,13,14,15"
+          HCCL_IF_IP: "127.0.0.1"
+          GLOO_SOCKET_IFNAME: lo
+          TP_SOCKET_IFNAME: lo
+          HCCL_SOCKET_IFNAME: lo
+          PYTHONHASHSEED: 0
+          HCCL_BUFFSIZE: 512
+          OMP_PROC_BIND: "false"
+          OMP_NUM_THREADS: 1
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          VLLM_USE_V1: 1
+          LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+          TASK_QUEUE_ENABLE: 1
+          HCCL_OP_EXPANSION_MODE: AIV
+        system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+          commands: [unset ASCEND_RT_VISIBLE_DEVICES]

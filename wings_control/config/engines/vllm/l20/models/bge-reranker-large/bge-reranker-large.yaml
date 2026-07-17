@@ -1,0 +1,54 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_bge-reranker-large_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://huggingface.co/BAAI/bge-reranker-large"
+    date_updated: 2026-07-17
+    note: 用户提供 vLLM 启动命令，手工录入。
+
+# 模型基本信息
+model:
+  name: bge-reranker-large  # 模型名称
+  slug: bge-reranker-large  # 模型标识
+  provider: BAAI  # 提供者/厂商
+  description: "BAAI BGE large reranker model for ranking text pairs."  # 模型描述
+  model_id: BAAI/bge-reranker-large  # HuggingFace 模型 ID
+  architecture: dense  # 模型架构（dense/moe）
+  parameter_count: null  # 待补充：总参数量
+  active_parameters: null  # 待补充：激活参数量
+  context_length: 512  # 最大上下文长度
+  vram_minimum_gb: null  # 待补充：最低显存需求(GB)
+  tasks: [rerank]  # 支持的任务类型
+  min_engine_version: "0.23.0"  # 最低引擎版本要求
+  date_updated: 2026-07-17  # 录入日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)bge[-.]?reranker[-.]?large"
+  variant_name: bge-reranker-large  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 1  # 单节点 GPU 数量
+  vram_gb: 48  # 单节点总显存(GB)
+  multi_node: false  # 仅支持单节点
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_bge-reranker-large_manual#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: BAAI/bge-reranker-large
+          trust_remote_code: true
+          port: 18000
+          gpu_memory_utilization: 0.9
+          tensor_parallel_size: 1
+        env: {}

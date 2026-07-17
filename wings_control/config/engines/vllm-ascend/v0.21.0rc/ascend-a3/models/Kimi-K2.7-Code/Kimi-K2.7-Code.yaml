@@ -1,0 +1,74 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_ascend_kimi-k2.7-code_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://huggingface.co/moonshotai/Kimi-K2.7-Code"
+    note: 用户提供 vLLM Ascend 启动命令，手工录入。
+
+# 模型基本信息
+model:
+  name: Kimi-K2.7-Code  # 模型名称
+  provider: moonshotai  # 提供者/厂商
+  model_id: moonshotai/Kimi-K2.7-Code  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.21.0rc  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)kimi[-.]?k2.7[-.]?code"
+  variant_name: Kimi-K2.7-Code  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 16  # 单节点 GPU/NPU 数量
+  vram_gb: 1024  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 可选功能列表
+features:
+  memcache_offloading:
+    description: Enable MemCache-backed KV transfer/offloading for prefill/decode cache sharing.
+    args: [--kv-transfer-config, "{\"kv_connector\":\"AscendStoreConnector\",\"kv_role\":\"kv_both\",\"kv_load_failure_policy\":\"recompute\",\"kv_connector_extra_config\":{\"lookup_rpc_port\":\"0\",\"backend\":\"memcache\"}}"]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_ascend_kimi-k2.7-code_manual#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: moonshotai/Kimi-K2.7-Code
+          served_model_name: kimi_k27
+          quantization: ascend
+          port: 8088
+          trust_remote_code: true
+          tensor_parallel_size: 16
+          max_num_seqs: 48
+          max_model_len: 81920
+          max_num_batched_tokens: 4096
+          gpu_memory_utilization: 0.9
+          async_scheduling: true
+          additional_config:
+            enable_npugraph_ex: true
+            fuse_muls_add: true
+            multistream_overlap_shared_expert: true
+          compilation_config:
+            cudagraph_mode: FULL_DECODE_ONLY
+        env:
+          MMC_LOCAL_CONFIG_PATH: "/model/xxx/t16-mmc/mmc_local.conf"
+          ACL_OP_INIT_MODE: 1
+          PYTHONHASHSEED: 0
+          HCCL_BUFFSIZE: 1024
+          OMP_PROC_BIND: "false"
+          OMP_NUM_THREADS: 10
+          VLLM_USE_V1: 1
+          HCCL_OP_EXPANSION_MODE: AIV
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          VLLM_ASCEND_BALANCE_SCHEDULING: 1
+          VLLM_ASCEND_ENABLE_MLAPO: 1
+          VLLM_VERSION: 0.21.0
+          LOG_PREFIX_CACHE_STATS_PER_REQUEST: 1
