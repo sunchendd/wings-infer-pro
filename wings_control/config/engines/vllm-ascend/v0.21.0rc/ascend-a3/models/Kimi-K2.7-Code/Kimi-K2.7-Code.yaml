@@ -43,7 +43,6 @@ scenarios:
         engine_config:
           model: moonshotai/Kimi-K2.7-Code
           served_model_name: kimi_k27
-          quantization: ascend
           port: 8088
           trust_remote_code: true
           tensor_parallel_size: 16
