@@ -54,7 +54,7 @@ from wings_ctl.strategy.topology_inject import (
 logger = logging.getLogger(__name__)
 
 # 内置最小默认值(最低优先级层):模板/用户都没给时由 wings-control 兜底。
-# 引擎无关数据常量,绝不 if-engine。模板有→覆盖;用户传→最高优先级覆盖。
+# 引擎无关数据常量。模板有→覆盖;用户传→最高优先级覆盖。
 # 注意：这里使用backend_port=17000，因为start_command.sh中的engine应该监听backend端口
 # DEFAULT_ENGINE_PORT 单点定义在 core.constants(port_plan 复用同一常量,消除双写);
 # 顶部已 import 并 re-export,保持既有 `from ...config_resolver import DEFAULT_ENGINE_PORT` 不变。
@@ -189,15 +189,24 @@ def _make_node_spec(node: Any, *, role: str, index: int | None, node_prefix: str
 
 def _from_nodes_list(nodes_raw: List[Any], strategy_prefix: str) -> List[NodeSpec]:
     """``nodes[]`` 形态 → ``NodeSpec`` 列表(逐项枚举映射)。"""
-    return [
-        _make_node_spec(
-            node,
-            role=(node.get("role", f"node{i}") if isinstance(node, dict) else f"node{i}"),
-            index=(node.get("index") if isinstance(node, dict) else None),
-            node_prefix=f"{strategy_prefix}.nodes[{i}]",
+    specs: List[NodeSpec] = []
+    for i, node in enumerate(nodes_raw):
+        if isinstance(node, dict):
+            role = node.get("role", f"node{i}")
+            index = node.get("index")
+        else:
+            role = f"node{i}"
+            index = None
+        node_prefix = f"{strategy_prefix}.nodes[{i}]"
+        specs.append(
+            _make_node_spec(
+                node,
+                role=role,
+                index=index,
+                node_prefix=node_prefix,
+            )
         )
-        for i, node in enumerate(nodes_raw)
-    ]
+    return specs
 
 
 def _from_head_worker(
@@ -251,8 +260,8 @@ def normalize_nodes(
 ) -> List[NodeSpec] | None:
     """multi_node 形态归一的**唯一入口**:任意形态 → ``list[NodeSpec]``。
 
-    **形态分发一处 if/elif,看数据结构不看引擎名**(红线:绝不 if-engine)。加新引擎/写法
-    (如 sglang)= 在此加一个 ``elif`` + 一个 ``_from_xxx``,主干不改。
+    这里按 strategy 的数据形态集中分发,不把节点形态判断散落到调用方。新增
+    recipe 写法时,在此增加一个形态分支和对应的 ``_from_xxx`` 归一函数,主干不改。
 
     Args:
         strategy: 选定策略 dict。
@@ -297,7 +306,7 @@ def _select_scenario(
     - strategies.{name} 按 default_strategy 三段式选定后,交 `normalize_nodes` 归一:
       · 含 `nodes[]`(ascend)/ `head`·`worker`(nvidia)→ `list[NodeSpec]`
       · 返回 None(非多段形态)→ 单段 engine_config
-    - **数据驱动按形态分发,不 if-engine**。pod_count 供 head/worker 展开。
+    - 节点形态只由 strategy 的数据结构决定;pod_count 供 head/worker 展开。
     """
     scenarios = model_data.get("scenarios", {})
     scenario_key = topology.value  # "standalone", "multi_node", etc.
@@ -355,7 +364,7 @@ def _select_scenario(
         strategy = strategies[strategy_name]
         strategy_prefix = f"scenarios.{scenario_key}.strategies.{strategy_name}"
 
-        # 多机形态归一:唯一入口 normalize_nodes(按结构数据驱动分发,不 if-engine)。
+        # 多机形态归一:唯一入口 normalize_nodes,按 strategy 的数据结构判断 nodes[] 或 head/worker。
         # 返回 None = 非多段形态 → 落到下方单段 engine_config。
         node_specs = normalize_nodes(strategy, strategy_prefix, pod_count)
         if node_specs is not None:
@@ -641,22 +650,27 @@ def _resolve_multi_node(
         return ec_traces, env_traces, system_setup, None, notes
 
     # 占位路径:无运行时上下文时产全集群占位视图,不注入。
-    resolved_nodes: List[ResolvedNode] = [
-        ResolvedNode(
-            role=spec.role,
-            index=spec.index,
-            engine_config_traces=_ec_traces(spec, extra_layers=[
-                MergeLayer("strategy_feature", feature_overrides, "<strategy:feature>", "strategy.feature"),
-                MergeLayer("strategy_accel", accel_overrides, "<wings-accel>", "strategy.accel"),
-            ]),
-            env_traces=_env_traces(spec),
-            system_setup=_build_system_setup(
-                spec.system_setup, model_path_str, spec.system_setup_source_prefix,
-            ),
-            source_prefix=spec.source_prefix,
+    resolved_nodes: List[ResolvedNode] = []
+    for spec in node_specs:
+        extra_layers = [
+            MergeLayer("strategy_feature", feature_overrides, "<strategy:feature>", "strategy.feature"),
+            MergeLayer("strategy_accel", accel_overrides, "<wings-accel>", "strategy.accel"),
+        ]
+        engine_config_traces = _ec_traces(spec, extra_layers=extra_layers)
+        env_traces = _env_traces(spec)
+        system_setup = _build_system_setup(
+            spec.system_setup, model_path_str, spec.system_setup_source_prefix,
         )
-        for spec in node_specs
-    ]
+        resolved_nodes.append(
+            ResolvedNode(
+                role=spec.role,
+                index=spec.index,
+                engine_config_traces=engine_config_traces,
+                env_traces=env_traces,
+                system_setup=system_setup,
+                source_prefix=spec.source_prefix,
+            )
+        )
     notes = {
         "multi_node_node_count": str(len(resolved_nodes)),
         "multi_node_roles": ",".join(n.role for n in resolved_nodes),

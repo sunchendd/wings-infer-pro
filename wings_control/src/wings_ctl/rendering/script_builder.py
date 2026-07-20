@@ -181,11 +181,12 @@ def _render_start_command_sh(
         engine: 引擎名称,传给 wings-accel install.py。
         engine_version: 引擎版本,传给 wings-accel install.py。
         packages: 选中 scheme 声明的 pip 依赖(name:version),传给 install.py ``--config``。
-        execute_commands: multi_node(3.1-c)为 True → commands **inline 执行**且置于 env 之前
-            (使 ``$local_ip`` 等先定义);standalone 为 False → 全部注释(维持现状)。
-        accel_env: wings-accel 注入的 env(docs/40 §5.2),并入 env 段;None/空 → 不变。
+        execute_commands: multi_node 已完成运行时注入时为 True;runtime commands 需要
+            在 env export 之前执行,使 ``$local_ip`` 等变量先定义。standalone 为 False,
+            系统设置命令只作为注释渲染。
+        accel_env: wings-accel 注入的环境变量,并入 env export 段;None/空 → 不变。
         accel_enabled: wings-accel 是否真启用(``AccelResult.enabled``)。仅 True 时渲染
-            install preamble(v6.3.3 §4.6"若启用");False(未开/模块缺席)→ 不加,非 accel 路径零影响。
+            runtime patch 安装段;False(未开/模块缺席)→ 不加,非 accel 路径零影响。
     """
     lines = [
         "#!/usr/bin/env bash",

@@ -164,7 +164,7 @@ def _canonicalize_engine(name: str) -> str:
 
     MaaS/部署可能下发下划线形式(如 ``vllm_ascend``,对齐 wings-accel schema 命名),
     而 wings-control 配置目录用连字符(``config/engines/vllm-ascend``)。统一把 ``_`` 归一为
-    ``-``,使两种写法都能定位到同一资产(数据归一,非 if-engine——对所有引擎一致处理)。
+    ``-``,使两种写法都能定位到同一资产。该归一规则对所有引擎一致生效。
 
     Args:
         name: 原始引擎名(可能含下划线 / 首尾空白)。

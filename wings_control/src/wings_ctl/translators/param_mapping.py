@@ -1,4 +1,4 @@
-"""用户具名参数 → 引擎 native 参数。数据硬编码,控制流绝不 if-engine。"""
+"""用户具名参数 → 引擎 native 参数。引擎差异通过映射表表达。"""
 
 from __future__ import annotations
 
@@ -93,7 +93,7 @@ _DROP_REASONS = {
 
 
 def translate(key: str, engine: str) -> str | None:
-    """改名 / 缺省同名直通 / 空串丢弃。一套查表,绝不 if-engine。"""
+    """按映射表执行改名 / 缺省同名直通 / 空串丢弃。"""
     mapped = _PARAM_MAPPING.get(engine, {}).get(key, key)  # 缺省同名直通
     return None if mapped == _DROP else mapped  # 空串=丢弃→None
 
