@@ -31,6 +31,9 @@ features:
   memcache_offloading:
     description: Enable MemCache-backed KV transfer/offloading for prefill/decode cache sharing.
     args: [--kv-transfer-config, "{\"kv_connector\":\"AscendStoreConnector\",\"kv_role\":\"kv_both\",\"kv_load_failure_policy\":\"recompute\",\"kv_connector_extra_config\":{\"lookup_rpc_port\":\"0\",\"backend\":\"memcache\"}}"]
+  mooncake_offloading:
+    description: Enable Mooncake-backed KV transfer/offloading for prefill/decode cache sharing.
+    args: [--kv-transfer-config, "{\"kv_connector\":\"AscendStoreConnector\",\"kv_role\":\"kv_both\",\"kv_load_failure_policy\":\"recompute\",\"kv_connector_extra_config\":{\"lookup_rpc_port\":\"1\",\"backend\":\"mooncake\"}}"]
 
 # 部署场景
 scenarios:
@@ -76,3 +79,119 @@ scenarios:
           VLLM_ASCEND_ENABLE_MLAPO: 1
           VLLM_VERSION: 0.21.0
           LOG_PREFIX_CACHE_STATS_PER_REQUEST: 1
+  multi_node:
+    source_ref: "vllm_ascend_glm-5.2_w8a8_manual#multi_node_dp"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dp:
+        display_name: Multi-Node Data Parallel
+        orientation: throughput
+        default_strategy: true
+        head:  # Head Node 节点配置
+          engine_config:
+            model: Eco-Tech/GLM-5.2-w8a8
+            host: "0.0.0.0"
+            port: 8077
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_address: $node0_ip
+            data_parallel_rpc_port: 12980
+            tensor_parallel_size: 16
+            seed: 1024
+            served_model_name: glm-52
+            max_num_seqs: 16
+            max_model_len: 200000
+            max_num_batched_tokens: 8192
+            trust_remote_code: true
+            gpu_memory_utilization: 0.9
+            quantization: ascend
+            enable_prefix_caching: true
+            async_scheduling: true
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+            additional_config:
+              enable_npugraph_ex: true
+              fuse_muls_add: true
+              multistream_overlap_shared_expert: true
+            block_size: 128
+          env:
+            LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages:${LD_LIBRARY_PATH}:/usr/local/lib"
+            PYTHONPATH: "$PYTHONPATH:/vllm-workspace/vllm"
+            MOONCAKE_CONFIG_PATH: "/home/tjl/glm52/d2t16-moon/mooncake.json"
+            PYTHONHASHSEED: 0
+            ACL_OP_INIT_MODE: 1
+            HCCL_INTER_HCCS_DISABLE: "true"
+            HCCL_IF_BASE_PORT: 60000
+            VLLM_VERSION: 0.21.0
+            HCCL_OP_EXPANSION_MODE: AIV
+            VLLM_ASCEND_BALANCE_SCHEDULING: 0
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: enp196
+            OMP_PROC_BIND: "false"
+            OMP_NUM_THREADS: 1
+            HCCL_BUFFSIZE: 1024
+            PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+            VLLM_ASCEND_ENABLE_MLAPO: 1
+            ASCEND_LAUNCH_BLOCKING: 0
+          system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+            sysctls:
+              net.ipv4.ip_local_reserved_ports: "60000-60031"
+            commands: ["nic_name=\"enp196s0f0\"", "local_ip=\"7.6.28.252\"", "node0_ip=\"7.6.28.252\"", "pkill -f -9 \"VLLM|multi\"", "rm -rf /root/ascend/log/debug/plog"]
+        worker:  # Worker Node 节点配置
+          engine_config:
+            model: Eco-Tech/GLM-5.2-w8a8
+            host: "0.0.0.0"
+            port: 8077
+            headless: true
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 1
+            data_parallel_rpc_port: 12980
+            data_parallel_address: $node0_ip
+            tensor_parallel_size: 16
+            seed: 1024
+            served_model_name: glm-52
+            max_num_seqs: 16
+            max_model_len: 200000
+            max_num_batched_tokens: 8192
+            trust_remote_code: true
+            gpu_memory_utilization: 0.9
+            quantization: ascend
+            enable_prefix_caching: true
+            async_scheduling: true
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+            additional_config:
+              enable_npugraph_ex: true
+              fuse_muls_add: true
+              multistream_overlap_shared_expert: true
+            block_size: 128
+          env:
+            LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages:${LD_LIBRARY_PATH}:/usr/local/lib"
+            PYTHONPATH: "$PYTHONPATH:/vllm-workspace/vllm"
+            MOONCAKE_CONFIG_PATH: "/home/tjl/glm52/d2t16-moon/mooncake.json"
+            PYTHONHASHSEED: 0
+            ACL_OP_INIT_MODE: 1
+            HCCL_INTER_HCCS_DISABLE: "true"
+            HCCL_IF_BASE_PORT: 60000
+            VLLM_VERSION: 0.21.0
+            HCCL_OP_EXPANSION_MODE: AIV
+            VLLM_ASCEND_BALANCE_SCHEDULING: 0
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: enp196
+            OMP_PROC_BIND: "false"
+            OMP_NUM_THREADS: 1
+            HCCL_BUFFSIZE: 1024
+            PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+            VLLM_ASCEND_ENABLE_MLAPO: 1
+            ASCEND_LAUNCH_BLOCKING: 0
+          system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+            sysctls:
+              net.ipv4.ip_local_reserved_ports: "60000-60031"
+            commands: ["nic_name=\"enp196s0f1\"", "local_ip=\"7.6.28.253\"", "node0_ip=\"7.6.28.252\""]
