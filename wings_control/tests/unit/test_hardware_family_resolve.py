@@ -66,9 +66,10 @@ def test_resolve_family_dir_casefold_variant(config_root_real):
 
 
 def test_resolve_family_dir_unknown_card_fail_fast(config_root_real):
-    """无对应资产的卡(L20)→ fail-fast，不静默兜底。"""
+    """无对应资产的卡(虚构卡型)→ fail-fast，不静默兜底。
+    """
     with pytest.raises(FileNotFoundError, match="无配置资产"):
-        resolve_family_dir(config_root_real, "vllm", "L20_48G", "", False)
+        resolve_family_dir(config_root_real, "vllm", "NonExistentCard_99G", "", False)
 
 
 def test_resolve_family_dir_variant_wrong_mem_fail_fast(config_root_real):
