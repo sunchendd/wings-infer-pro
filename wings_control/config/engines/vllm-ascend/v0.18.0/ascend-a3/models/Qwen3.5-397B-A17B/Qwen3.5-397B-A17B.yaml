@@ -94,7 +94,7 @@ scenarios:
               model: Eco-Tech/Qwen3.5-397B-A17B-w8a8-mtp
               host: $IP_ADDRESS
               port: 30060
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               enable_expert_parallel: true
               data_parallel_size: 8
               data_parallel_size_local: 8
@@ -153,7 +153,7 @@ scenarios:
               model: Eco-Tech/Qwen3.5-397B-A17B-w8a8-mtp
               host: $IP_ADDRESS
               port: 30050
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               enable_expert_parallel: true
               data_parallel_size: 16
               data_parallel_size_local: 8
@@ -218,7 +218,7 @@ scenarios:
               host: $IP_ADDRESS
               port: 30050
               headless: true
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               enable_expert_parallel: true
               data_parallel_size: 16
               data_parallel_size_local: 8

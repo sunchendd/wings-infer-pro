@@ -57,7 +57,7 @@ scenarios:
           tensor_parallel_size: 8
           enable_expert_parallel: true
           safetensors_load_strategy: prefetch
-          enable_prefix_caching: false
+          no_enable_prefix_caching: true
           model_loader_extra_config:
             enable_multithread_load: "true"
             num_threads: 128
@@ -113,7 +113,7 @@ scenarios:
               async_scheduling: true
               block_size: 128
               disable_hybrid_kv_cache_manager: false
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               trust_remote_code: true
               gpu_memory_utilization: 0.9
               quantization: ascend

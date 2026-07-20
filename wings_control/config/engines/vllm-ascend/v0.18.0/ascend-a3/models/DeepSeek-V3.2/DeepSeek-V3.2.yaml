@@ -57,7 +57,7 @@ scenarios:
           max_model_len: 8192
           max_num_batched_tokens: 4096
           trust_remote_code: true
-          enable_prefix_caching: false
+          no_enable_prefix_caching: true
           gpu_memory_utilization: 0.92
           compilation_config:
             cudagraph_mode: FULL_DECODE_ONLY
@@ -105,7 +105,7 @@ scenarios:
               gpu_memory_utilization: 0.82
               quantization: ascend
               enforce_eager: true
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               additional_config:
                 layer_sharding: [q_b_proj, o_proj]
               kv_transfer_config:
@@ -165,7 +165,7 @@ scenarios:
               gpu_memory_utilization: 0.82
               quantization: ascend
               enforce_eager: true
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               additional_config:
                 layer_sharding: [q_b_proj, o_proj]
               kv_transfer_config:
@@ -226,7 +226,7 @@ scenarios:
               trust_remote_code: true
               max_num_seqs: 4
               gpu_memory_utilization: 0.95
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               async_scheduling: true
               quantization: ascend
               kv_transfer_config:
@@ -290,7 +290,7 @@ scenarios:
               async_scheduling: true
               max_num_seqs: 4
               gpu_memory_utilization: 0.95
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               quantization: ascend
               kv_transfer_config:
                 kv_connector: MooncakeLayerwiseConnector

@@ -54,7 +54,7 @@ scenarios:
           max_num_batched_tokens: 8096
           trust_remote_code: true
           gpu_memory_utilization: 0.9
-          enable_prefix_caching: false
+          no_enable_prefix_caching: true
           compilation_config:
             cudagraph_mode: FULL_DECODE_ONLY
           additional_config:

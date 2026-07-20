@@ -51,7 +51,7 @@ scenarios:
           served_model_name: kimi_k25
           allowed_local_media_path: /
           trust_remote_code: true
-          enable_prefix_caching: false
+          no_enable_prefix_caching: true
           seed: 1024
           tensor_parallel_size: 4
           data_parallel_size: 4
@@ -111,7 +111,7 @@ scenarios:
               max_num_seqs: 8
               max_model_len: 32768
               max_num_batched_tokens: 16384
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               gpu_memory_utilization: 0.8
               enforce_eager: true
               additional_config:
@@ -173,7 +173,7 @@ scenarios:
               max_num_seqs: 8
               max_model_len: 32768
               max_num_batched_tokens: 16384
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               gpu_memory_utilization: 0.8
               enforce_eager: true
               additional_config:
@@ -235,7 +235,7 @@ scenarios:
               max_num_seqs: 48
               max_model_len: 32768
               max_num_batched_tokens: 256
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               gpu_memory_utilization: 0.95
               compilation_config:
                 cudagraph_mode: FULL_DECODE_ONLY
@@ -300,7 +300,7 @@ scenarios:
               max_num_seqs: 48
               max_model_len: 32768
               max_num_batched_tokens: 256
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               gpu_memory_utilization: 0.95
               compilation_config:
                 cudagraph_mode: FULL_DECODE_ONLY

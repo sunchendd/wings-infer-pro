@@ -290,7 +290,7 @@ scenarios:
               max_num_seqs: 60
               async_scheduling: true
               block_size: 128
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               disable_hybrid_kv_cache_manager: false
               safetensors_load_strategy: prefetch
               model_loader_extra_config:

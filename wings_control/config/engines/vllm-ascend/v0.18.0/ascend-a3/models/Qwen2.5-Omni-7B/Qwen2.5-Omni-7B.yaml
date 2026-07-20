@@ -43,7 +43,7 @@ scenarios:
           trust_remote_code: true
           compilation_config:
             cudagraph_mode: FULL_DECODE_ONLY
-          enable_prefix_caching: false
+          no_enable_prefix_caching: true
         env:
           VLLM_USE_MODELSCOPE: "True"
           MODEL_PATH: Qwen/Qwen2.5-Omni-7B
@@ -66,7 +66,7 @@ scenarios:
           compilation_config:
             cudagraph_mode: FULL_DECODE_ONLY
           data_parallel_size: $DP_SIZE
-          enable_prefix_caching: false
+          no_enable_prefix_caching: true
         env:
           VLLM_USE_MODELSCOPE: "True"
           MODEL_PATH: Qwen/Qwen2.5-Omni-7B

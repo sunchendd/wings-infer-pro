@@ -305,7 +305,7 @@ scenarios:
               async_scheduling: true
               block_size: 128
               disable_hybrid_kv_cache_manager: false
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               safetensors_load_strategy: prefetch
               trust_remote_code: true
               gpu_memory_utilization: 0.9
