@@ -269,7 +269,7 @@ scenarios:
               gpu_memory_utilization: 0.9
               quantization: ascend
               safetensors_load_strategy: prefetch
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               compilation_config:
                 cudagraph_mode: FULL_DECODE_ONLY
               kv_transfer_config:

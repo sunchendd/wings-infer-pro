@@ -56,9 +56,8 @@ scenarios:
           port: 8800
           trust_remote_code: true
           enforce_eager: true
-          enable_prefix_caching: false
+          no_enable_prefix_caching: true
           quantization: ascend
-          load_format: dummy
           async_scheduling: true
           additional_config:
             enable_cpu_binding: true
@@ -74,7 +73,6 @@ scenarios:
           gpu_memory_utilization: 0.9
           kv_cache_memory_bytes: 4G
         env:
-          VLLM_LOG_LEVEL: DEBUG
           HCCL_OP_EXPANSION_MODE: AIV
           HCCL_BUFFSIZE: 1024
           PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"

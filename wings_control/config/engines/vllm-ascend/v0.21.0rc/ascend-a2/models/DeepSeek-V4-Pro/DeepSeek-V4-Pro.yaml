@@ -64,7 +64,7 @@ scenarios:
               data_parallel_address: $node0_ip
               enable_expert_parallel: true
               quantization: ascend
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               async_scheduling: true
               safetensors_load_strategy: prefetch
               block_size: 128
@@ -120,7 +120,7 @@ scenarios:
               data_parallel_address: $node0_ip
               enable_expert_parallel: true
               quantization: ascend
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               async_scheduling: true
               safetensors_load_strategy: prefetch
               block_size: 128
@@ -196,7 +196,7 @@ scenarios:
                 enable_multithread_load: "true"
                 num_threads: 128
               enforce_eager: true
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               additional_config:
                 enable_cpu_binding: true
                 enable_shared_expert_dp: true
@@ -264,7 +264,7 @@ scenarios:
               model_loader_extra_config:
                 enable_multithread_load: "true"
                 num_threads: 128
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               compilation_config:
                 cudagraph_mode: FULL_DECODE_ONLY
               kv_transfer_config:

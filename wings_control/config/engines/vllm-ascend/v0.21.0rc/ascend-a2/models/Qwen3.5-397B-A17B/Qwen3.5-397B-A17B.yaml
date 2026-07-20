@@ -60,7 +60,7 @@ scenarios:
               max_num_batched_tokens: 4096
               trust_remote_code: true
               gpu_memory_utilization: 0.9
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               quantization: ascend
               compilation_config:
                 cudagraph_mode: FULL_DECODE_ONLY
@@ -100,7 +100,7 @@ scenarios:
               enable_expert_parallel: true
               trust_remote_code: true
               gpu_memory_utilization: 0.9
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               quantization: ascend
               compilation_config:
                 cudagraph_mode: FULL_DECODE_ONLY

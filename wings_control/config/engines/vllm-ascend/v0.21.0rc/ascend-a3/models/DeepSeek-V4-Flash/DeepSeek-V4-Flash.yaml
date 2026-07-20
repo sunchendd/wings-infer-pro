@@ -113,7 +113,7 @@ scenarios:
               model_loader_extra_config:
                 enable_multithread_load: "true"
                 num_threads: 128
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               safetensors_load_strategy: prefetch
               trust_remote_code: true
               block_size: 128
@@ -176,7 +176,7 @@ scenarios:
               async_scheduling: true
               block_size: 128
               disable_hybrid_kv_cache_manager: false
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               safetensors_load_strategy: prefetch
               trust_remote_code: true
               model_loader_extra_config:

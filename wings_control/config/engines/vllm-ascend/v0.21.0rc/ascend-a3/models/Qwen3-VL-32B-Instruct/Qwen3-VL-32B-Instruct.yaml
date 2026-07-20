@@ -42,7 +42,7 @@ scenarios:
           max_model_len: 30000
           max_num_batched_tokens: 50000
           max_num_seqs: 30
-          enable_prefix_caching: false
+          no_enable_prefix_caching: true
           trust_remote_code: true
           dtype: bfloat16
         env:

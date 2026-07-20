@@ -58,7 +58,7 @@ scenarios:
               enable_npugraph_ex: true
           compilation_config:
             cudagraph_mode: FULL_DECODE_ONLY
-          enable_prefix_caching: false
+          no_enable_prefix_caching: true
           async_scheduling: true
           language_model_only: true # 需要添加该参数，否则无法启动，添加后模型只有文本处理能力
         env:

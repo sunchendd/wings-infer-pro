@@ -39,7 +39,7 @@ scenarios:
           max_num_batched_tokens: 16384
           served_model_name: PaddleOCR-VL-0.9B
           trust_remote_code: true
-          enable_prefix_caching: false
+          no_enable_prefix_caching: true
           mm_processor_cache_gb: 0
           compilation_config:
             cudagraph_mode: FULL_DECODE_ONLY

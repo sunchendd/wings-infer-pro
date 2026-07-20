@@ -111,7 +111,7 @@ scenarios:
               max_num_batched_tokens: 8192
               max_num_seqs: 4
               disable_hybrid_kv_cache_manager: false
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               safetensors_load_strategy: prefetch
               trust_remote_code: true
               gpu_memory_utilization: 0.85
@@ -174,7 +174,7 @@ scenarios:
               max_num_batched_tokens: 8192
               max_num_seqs: 4
               disable_hybrid_kv_cache_manager: false
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               safetensors_load_strategy: prefetch
               trust_remote_code: true
               gpu_memory_utilization: 0.85
@@ -234,7 +234,7 @@ scenarios:
               max_num_seqs: 60
               async_scheduling: true
               disable_hybrid_kv_cache_manager: false
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               safetensors_load_strategy: prefetch
               trust_remote_code: true
               gpu_memory_utilization: 0.88

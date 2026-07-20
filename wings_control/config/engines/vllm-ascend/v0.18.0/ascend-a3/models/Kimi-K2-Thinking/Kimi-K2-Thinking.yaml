@@ -44,7 +44,7 @@ scenarios:
           gpu_memory_utilization: 0.9
           trust_remote_code: true
           enable_expert_parallel: true
-          enable_prefix_caching: false
+          no_enable_prefix_caching: true
         env:
           VLLM_USE_MODELSCOPE: "True"
           HCCL_BUFFSIZE: 1024

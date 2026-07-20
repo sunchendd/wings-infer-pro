@@ -41,7 +41,7 @@ scenarios:
           tensor_parallel_size: 1
           port: 1055
           max_model_len: 8192
-          enable_prefix_caching: false
+          no_enable_prefix_caching: true
           gpu_memory_utilization: 0.8
           allowed_local_media_path: /
           additional_config:

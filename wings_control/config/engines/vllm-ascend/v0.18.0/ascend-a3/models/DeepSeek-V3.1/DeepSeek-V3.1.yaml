@@ -58,7 +58,7 @@ scenarios:
           max_model_len: 16384
           max_num_batched_tokens: 4096
           trust_remote_code: true
-          enable_prefix_caching: false
+          no_enable_prefix_caching: true
           gpu_memory_utilization: 0.92
           compilation_config:
             cudagraph_capture_sizes: [4, 16, 32, 48, 64]
@@ -104,7 +104,7 @@ scenarios:
               trust_remote_code: true
               gpu_memory_utilization: 0.9
               quantization: ascend
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               additional_config:
                 recompute_scheduler_enable: true
               kv_transfer_config:
@@ -162,7 +162,7 @@ scenarios:
               trust_remote_code: true
               gpu_memory_utilization: 0.9
               quantization: ascend
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               additional_config:
                 recompute_scheduler_enable: true
               kv_transfer_config:
@@ -219,7 +219,7 @@ scenarios:
               trust_remote_code: true
               gpu_memory_utilization: 0.92
               quantization: ascend
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               async_scheduling: true
               compilation_config:
                 cudagraph_mode: FULL_DECODE_ONLY
@@ -282,7 +282,7 @@ scenarios:
               trust_remote_code: true
               gpu_memory_utilization: 0.92
               quantization: ascend
-              enable_prefix_caching: false
+              no_enable_prefix_caching: true
               async_scheduling: true
               compilation_config:
                 cudagraph_mode: FULL_DECODE_ONLY
