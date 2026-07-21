@@ -33,7 +33,7 @@ class EngineCmd(NamedTuple):
     model_arg: Optional[str]
 
 
-# 引擎 → 命令规格(查表,绝不 if-engine;加引擎=加一行)。
+# 引擎 → 命令规格。新增引擎时优先在表中补充命令前缀和 model 参数形态。
 _ENGINE_CMD: Dict[str, EngineCmd] = {
     "vllm": EngineCmd(["vllm", "serve"], None),                # 位置:vllm serve <model>
     "vllm-ascend": EngineCmd(["vllm", "serve"], None),          # 同 vllm CLI 入口

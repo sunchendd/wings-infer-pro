@@ -327,6 +327,14 @@ def runtime_var_commands(*value_dicts: dict) -> list[str]:
     runtime_tokens = [tok for tok, (_src, kind) in _PLACEHOLDERS.items() if kind == "runtime"]
     cmds: list[str] = []
     for tok in runtime_tokens:
-        if any(isinstance(v, str) and tok in v for d in value_dicts for v in d.values()):
+        found = False
+        for value_dict in value_dicts:
+            for _key, value in value_dict.items():
+                if isinstance(value, str) and tok in value:
+                    found = True
+                    break
+            if found:
+                break
+        if found:
             cmds.append(f"{tok[1:]}={NIC_DETECT_CMD}")  # tok[1:] = 去掉前导 $
     return cmds
