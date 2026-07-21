@@ -335,11 +335,12 @@ def _select_scenario(
     # 新格式: scenarios.{topology}.strategies.{name}.*
     strategies = scenario.get("strategies") if isinstance(scenario, dict) else None
     if isinstance(strategies, dict) and len(strategies) > 0:
-        default_strategy_names = [
-            name
-            for name, strategy in strategies.items()
-            if isinstance(strategy, dict) and strategy.get("default_strategy") is True
-        ]
+        default_strategy_names = []
+        for name, strategy in strategies.items():
+            if not isinstance(strategy, dict):
+                continue
+            if strategy.get("default_strategy") is True:
+                default_strategy_names.append(name)
         if len(default_strategy_names) == 1:
             strategy_name = default_strategy_names[0]
             selection_source = "default_strategy"

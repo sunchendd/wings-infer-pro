@@ -358,9 +358,14 @@ def _render_multi_node_placeholder(resolved: ResolvedConfig) -> str:
         env_lines = _render_env_section(node.env_traces)
         if env_lines:
             lines.append("#   env (未注入):")
-            lines.extend(f"#     {line}" for line in env_lines)
+            for env_line in env_lines:
+                lines.append(f"#     {env_line}")
         setup_lines = _render_system_setup_comments(node.system_setup)
-        lines.extend(f"# {line}" if line else "#" for line in setup_lines)
+        for setup_line in setup_lines:
+            if setup_line:
+                lines.append(f"# {setup_line}")
+            else:
+                lines.append("#")
         argv = build_argv(node.engine_config_traces, engine=resolved.engine)
         lines.append("#   argv (未注入,$占位符为字面值):")
         lines.append(f"#     {shlex.join(argv)}")
