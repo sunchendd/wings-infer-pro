@@ -240,13 +240,16 @@ def _derive_max_model_len(input_length: int | None, output_length: int | None) -
     if input_length <= 0 or output_length <= 0:
         logger.warning(
             "input_length=%s / output_length=%s 含非正值,跳过 max_model_len 派生",
-            input_length, output_length,
+            input_length,
+            output_length,
         )
         return None
     mml = input_length + output_length
     logger.info(
         "派生 max_model_len = input_length(%d) + output_length(%d) = %d(覆盖 recipe)",
-        input_length, output_length, mml,
+        input_length,
+        output_length,
+        mml,
     )
     return mml
 
@@ -355,9 +358,7 @@ def _resolve_model_name(model_name: str | None, model_path: str | None) -> str:
         name = Path(model_path).name  # basename;应匹配 recipe 的 name_pattern
         logger.info("未传 --model-name,从 --model-path 推导配方标识: %s", name)
         return name
-    raise ValueError(
-        "需要 --model-name 或 --model-path 以确定配方(MaaS 下发 --model-name 模型名称)"
-    )
+    raise ValueError("需要 --model-name 或 --model-path 以确定配方(MaaS 下发 --model-name 模型名称)")
 
 
 def _parse_runtime_context_from_env() -> tuple[str | None, str | None, list[str] | None]:
@@ -401,8 +402,7 @@ def _print_multi_node_summary(engine: str, nodes: List[Any]) -> None:
         None。
     """
     print(
-        f"multi_node: {len(nodes)} 节点(占位,未注入;"
-        "start_command.sh 为占位脚本,部署时各 Pod 携 RANK_IP/NODE_IPS 重跑)"
+        f"multi_node: {len(nodes)} 节点(占位,未注入;start_command.sh 为占位脚本,部署时各 Pod 携 RANK_IP/NODE_IPS 重跑)"
     )
     for node in nodes:
         node_argv = build_argv(node.engine_config_traces, engine=engine)
@@ -452,11 +452,163 @@ def _validate_unknown_args(parser: argparse.ArgumentParser, unknown_args: List[s
         SystemExit: 参数不合法时通过 ``parser.error`` 退出。
     """
     if _contains_removed_engine_param(unknown_args):
-        parser.error(
-            "`--engine-param` 已移除; 需要裸透传请使用 direct_vllm_serve 逃生通道。"
-        )
+        parser.error("`--engine-param` 已移除; 需要裸透传请使用 direct_vllm_serve 逃生通道。")
     if unknown_args:
         parser.error(f"unrecognized arguments: {' '.join(unknown_args)}")
+
+
+def _warn_if_trust_remote_code_absent(args: argparse.Namespace) -> None:
+    """用户未显式开启 trust_remote_code 时输出 warn-only 提示。
+
+    Args:
+        args: argparse 解析后的命名空间。
+
+    Returns:
+        None。
+    """
+    if args.trust_remote_code:
+        return
+    logger.warning(
+        "未传 --trust-remote-code:引擎将不信任远程代码;若模型依赖 HuggingFace 自定义代码,请显式传 --trust-remote-code。"
+    )
+
+
+def _build_user_input(args: argparse.Namespace, engine: str) -> UserInput:
+    """构造传入 pipeline 的用户输入对象。
+
+    Args:
+        args: argparse 解析后的命名空间。
+        engine: 用于 CLI 参数翻译的引擎名。
+
+    Returns:
+        ``UserInput``。其中 ``cli_overrides`` 已经过 MaaS allowlist 和引擎参数名翻译;
+        ``feature_switches`` 仅包含已开启且由 feature_overlay 消费的开关。
+
+    Raises:
+        ValueError: 端口等输入值无法转换时抛出,由 CLI 层转成 parser.error。
+    """
+    override_input = _build_user_cli_override_input(args)
+    raw_user_cli_overrides = _build_raw_user_cli_overrides(override_input)
+    user_cli_overrides, user_cli_dropped = CLITranslator.translate_overrides(raw_user_cli_overrides, engine)
+    # 特性开关本身不直接渲染进 argv。这里只提取 ON 的开关,后续由
+    # feature_overlay 按 model.yaml features 生成实际参数。
+    feature_switches = {
+        key: raw_user_cli_overrides[key]
+        for key in ("enable_auto_tool_choice", "enable_auto_think_choice")
+        if raw_user_cli_overrides.get(key)
+    }
+    return UserInput(
+        cli_overrides=user_cli_overrides,
+        cli_dropped=user_cli_dropped,
+        feature_switches=feature_switches,
+    )
+
+
+def _build_target(args: argparse.Namespace, engine: str) -> Target:
+    """根据 CLI/env 推导 pipeline 解析目标。
+
+    Args:
+        args: argparse 解析后的命名空间。
+        engine: ``--engine`` / ``ENGINE`` 归一后的初始引擎名。
+
+    Returns:
+        ``Target``:包含模型名、拓扑和最终引擎名。
+
+    Raises:
+        ValueError: 分布式输入不完整或模型名无法推导。
+        NotImplementedError: PD 等未实现拓扑被选择。
+    """
+    # 大策略层:从 --distributed(CLI)+ PD_ROLE/NODE_IPS/MASTER_IP(env)推导 topology。
+    # 不读 yaml;resolve_config 只消费推导后的 topology。
+    resolved_engine, topology = pre_template_strategy(
+        engine,
+        distributed=args.distributed,
+        pd_role=os.environ.get("PD_ROLE"),
+        master_ip=os.environ.get("MASTER_IP"),
+    )
+    model_name = _resolve_model_name(args.model_name, args.model_path)
+    return Target(model_name=model_name, topology=topology, engine=resolved_engine)
+
+
+def _build_cluster_placement_from_env() -> ClusterPlacement | None:
+    """从运行时环境变量构造分布式集群寻址信息。
+
+    Returns:
+        ``ClusterPlacement`` 或 ``None``。三类 IP 全空时返回 None,表示单机或无运行时上下文。
+    """
+    rank_ip, master_ip, node_ips = _parse_runtime_context_from_env()
+    if not rank_ip and not node_ips and not master_ip:
+        return None
+    return ClusterPlacement(rank_ip=rank_ip, node_ips=node_ips, master_ip=master_ip)
+
+
+def _build_pipeline_request(args: argparse.Namespace) -> PipelineRequest:
+    """把 CLI/env 输入收拢成一次 pipeline 请求。
+
+    Args:
+        args: argparse 解析后的命名空间。
+
+    Returns:
+        ``PipelineRequest``。
+
+    Raises:
+        ValueError: 输入值非法或模型名无法推导。
+        NotImplementedError: 选择了当前未实现的拓扑。
+    """
+    engine = _resolve_engine(args.engine)
+    hardware_info_path = _resolve_hardware_info_path(args.hardware_info)
+    device_count = _resolve_device_count(args.device_count)
+    # --port 写入 PORT 给 proxy 对外监听;engine/backend 监听端口由 ENGINE_PORT/DEFAULT_ENGINE_PORT 决定。
+    _export_proxy_port(args.port)
+    user_input = _build_user_input(args, engine)
+    target = _build_target(args, engine)
+    placement = _build_cluster_placement_from_env()
+    return PipelineRequest(
+        target=target,
+        hardware_info_path=hardware_info_path,
+        config_root=args.config_root,
+        user_input=user_input,
+        device_count=device_count,
+        placement=placement,
+    )
+
+
+def _run_normal_mode(
+    parser: argparse.ArgumentParser,
+    request: PipelineRequest,
+    output_dir: Path | None,
+) -> None:
+    """执行正式运行分支:生成产物并打印摘要。
+
+    Args:
+        parser: CLI parser,用于把业务异常转成友好 CLI 错误。
+        request: pipeline 请求。
+        output_dir: ``--output-dir`` 传入值;None 时按默认输出目录规则解析。
+
+    Returns:
+        None。
+
+    Raises:
+        SystemExit: 通过 ``parser.error`` 触发。
+    """
+    try:
+        resolved, start_path, repro_path, audit_path = run_pipeline(request, output_dir=_resolve_output_dir(output_dir))
+    except (ValueError, FileNotFoundError, NotImplementedError) as exc:
+        # 配置缺失(硬件/engine 无资产)/ 未支持的 topology / 强校验失败 → 友好报错,不抛 traceback
+        parser.error(str(exc))
+        return
+
+    engine = request.target.engine
+    if resolved.nodes:
+        # multi_node 占位(无运行时上下文):顶层无扁平 argv,逐节点打印。
+        _print_multi_node_summary(engine, resolved.nodes)
+    else:
+        # accel 已并入 traces,不再 append。shlex.join 与 exec 行同款。
+        argv = build_argv(resolved.engine_config_traces, engine=engine)
+        print(f"argv: {shlex.join(argv)}")
+    print(f"start_command: {start_path}")
+    print(f"repro:         {repro_path}")
+    print(f"audit:         {audit_path}")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -477,7 +629,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Config assets root (default: auto-detect)",
     )
     parser.add_argument(
-        "--output-dir", "-o",
+        "--output-dir",
+        "-o",
         type=Path,
         default=None,
         help="Output directory for scripts and audit (default: /shared-volume if present, else cwd)",
@@ -550,106 +703,24 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-
 def main() -> None:
     """CLI 入口函数。"""
     parser = _build_parser()
     args, unknown_args = parser.parse_known_args()
     _validate_unknown_args(parser, unknown_args)
-
-    # --trust-remote-code 未显式开启时给出告警,但不阻断启动。
-    if not args.trust_remote_code:
-        logger.warning(
-            "未传 --trust-remote-code:引擎将不信任远程代码;若模型依赖 HuggingFace 自定义代码,"
-            "请显式传 --trust-remote-code。"
-        )
+    _warn_if_trust_remote_code_absent(args)
 
     try:
-        engine = _resolve_engine(args.engine)
-        hardware_info_path = _resolve_hardware_info_path(args.hardware_info)
-        device_count = _resolve_device_count(args.device_count)
-        # --port 写入 PORT 给 proxy 对外监听;engine/backend 监听端口由 ENGINE_PORT/DEFAULT_ENGINE_PORT 决定。
-        _export_proxy_port(args.port)
-        override_input = _build_user_cli_override_input(args)
-        raw_user_cli_overrides = _build_raw_user_cli_overrides(override_input)
-        user_cli_overrides, user_cli_dropped = CLITranslator.translate_overrides(
-            raw_user_cli_overrides, engine
-        )
-        # 特性开关本身不直接渲染进 argv。
-        # 这里只提取为 ON 的开关,后续由 feature_overlay 按 model.yaml features 生成实际参数。
-        feature_switches = {
-            k: raw_user_cli_overrides[k]
-            for k in ("enable_auto_tool_choice", "enable_auto_think_choice")
-            if raw_user_cli_overrides.get(k)
-        }
-    except ValueError as exc:
-        parser.error(str(exc))
-        return
-
-    # 大策略层:从 --distributed(CLI)+ PD_ROLE/NODE_IPS/MASTER_IP(env)推导 topology。
-    # 不读 yaml;resolve_config 只消费推导后的 topology。
-    try:
-        engine, topology = pre_template_strategy(
-            engine,
-            distributed=args.distributed,
-            pd_role=os.environ.get("PD_ROLE"),
-            master_ip=os.environ.get("MASTER_IP"),
-        )
+        request = _build_pipeline_request(args)
     except (ValueError, NotImplementedError) as exc:
-        # 缺 MASTER_IP / PD 预留(未实现)等 → 友好报错,不抛 traceback
         parser.error(str(exc))
         return
-
-    # 配方标识:--model-name(模型名称)或从 --model-path basename 推导。
-    try:
-        model_name = _resolve_model_name(args.model_name, args.model_path)
-    except ValueError as exc:
-        parser.error(str(exc))
-        return
-
-    # 运行时上下文:multi_node 选本 Pod 节点 + 注入用。缺省时走占位视图。
-    rank_ip, master_ip, node_ips = _parse_runtime_context_from_env()
-
-    # 分布式集群寻址:三 IP 全空(单机 / 无运行时上下文)→ placement=None,单机路径一眼知无关分布式。
-    placement = None
-    if rank_ip or node_ips or master_ip:
-        placement = ClusterPlacement(rank_ip=rank_ip, node_ips=node_ips, master_ip=master_ip)
-    request = PipelineRequest(
-        target=Target(model_name=model_name, topology=topology, engine=engine),
-        hardware_info_path=hardware_info_path,
-        config_root=args.config_root,
-        user_input=UserInput(
-            cli_overrides=user_cli_overrides,
-            cli_dropped=user_cli_dropped,
-            feature_switches=feature_switches,
-        ),
-        device_count=device_count,
-        placement=placement,
-    )
 
     if args.dry_run:
         _run_dry_mode(parser, request)
         return
 
-    try:
-        resolved, start_path, repro_path, audit_path = run_pipeline(
-            request, output_dir=_resolve_output_dir(args.output_dir)
-        )
-    except (ValueError, FileNotFoundError, NotImplementedError) as exc:
-        # 配置缺失(硬件/engine 无资产)/ 未支持的 topology / 强校验失败 → 友好报错,不抛 traceback
-        parser.error(str(exc))
-        return
-
-    if resolved.nodes:
-        # multi_node 占位(无运行时上下文):顶层无扁平 argv,逐节点打印。
-        _print_multi_node_summary(engine, resolved.nodes)
-    else:
-        # accel 已并入 traces,不再 append。shlex.join 与 exec 行同款。
-        argv = build_argv(resolved.engine_config_traces, engine=engine)
-        print(f"argv: {shlex.join(argv)}")
-    print(f"start_command: {start_path}")
-    print(f"repro:         {repro_path}")
-    print(f"audit:         {audit_path}")
+    _run_normal_mode(parser, request, args.output_dir)
 
 
 if __name__ == "__main__":
