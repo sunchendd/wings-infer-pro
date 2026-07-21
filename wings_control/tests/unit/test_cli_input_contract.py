@@ -37,21 +37,21 @@ def test_named_flags_collected_to_user_cli_raw_dict():
 
 
 def test_sugar_host_port_model_path_collected(monkeypatch):
-    """proxy 迁移:用户 --port 是 proxy 端口 → engine override 取 backend 端口(ENGINE_PORT/17000)。
+    """用户 --port 给 proxy 对外监听;engine override 使用 backend 监听端口(ENGINE_PORT/17000)。
 
-    G2:`_collect_user_cli_overrides` 现在**只读不写 env**(proxy 端口写 env 见下方 _export_proxy_port 测试)。
+    `_collect_user_cli_overrides` 只读 ENGINE_PORT、不写 PORT;proxy 端口写 env 见 _export_proxy_port 测试。
     """
     monkeypatch.delenv("ENGINE_PORT", raising=False)
     out = cli._collect_user_cli_overrides(
         host="0.0.0.0",
-        port=18000,          # 用户传的是 proxy 端口
+        port=18000,          # proxy 对外监听端口
         model_path="/weights",
     )
     assert out == {"host": "0.0.0.0", "port": 17000, "model_path": "/weights"}  # engine 监听 backend 17000
 
 
 def test_export_proxy_port_sets_env(monkeypatch):
-    """G2:--port(对外/代理端口)由 _export_proxy_port 显式写入 env PORT(供 proxy 读)。"""
+    """--port 由 _export_proxy_port 写入 env PORT,供 proxy 作为对外监听端口读取。"""
     monkeypatch.delenv("PORT", raising=False)
     cli._export_proxy_port(18000)
     import os
@@ -59,7 +59,7 @@ def test_export_proxy_port_sets_env(monkeypatch):
 
 
 def test_export_proxy_port_none_no_write(monkeypatch):
-    """G2:--port 未传(None)→ 不写 env(保持原样)。"""
+    """--port 未传(None)时不写 env,保持 PORT 原样。"""
     monkeypatch.delenv("PORT", raising=False)
     cli._export_proxy_port(None)
     import os

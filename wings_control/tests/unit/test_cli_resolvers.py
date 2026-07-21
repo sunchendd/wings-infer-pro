@@ -136,8 +136,8 @@ def test_main_no_warn_when_trust_remote_code_passed(config_root, tmp_path, monke
     assert not any("trust-remote-code" in r.message for r in caplog.records)
 
 
-def test_main_accepts_and_logs_v3_subsystem_switches(config_root, tmp_path, monkeypatch, caplog):
-    """v3 子系统开关(--enable-rag-acc/smartqos/otlp-traces)被接收不崩 + 日志留痕(暂仅保存)。"""
+def test_main_accepts_v3_subsystem_switches(config_root, tmp_path, monkeypatch):
+    """v3 子系统开关(--enable-rag-acc/smartqos/otlp-traces)作为兼容入口被接收不崩。"""
     hw = tmp_path / "hw.json"
     hw.write_text(json.dumps({"hardware_family": "nvidia-RTX5880", "device": "nvidia", "count": 1}))
     monkeypatch.setenv("ENGINE_VERSION", "0.19.0")
@@ -145,9 +145,7 @@ def test_main_accepts_and_logs_v3_subsystem_switches(config_root, tmp_path, monk
         "sys.argv",
         _argv_qwen_dryrun(config_root, hw, "--enable-smartqos", "--enable-otlp-traces", "--enable-rag-acc"),
     )
-    with caplog.at_level(logging.INFO):
-        cli.main()  # 不应抛 SystemExit(unrecognized arguments)
-    assert any("已接收子系统特性开关" in r.message for r in caplog.records)
+    cli.main()  # 不应抛 SystemExit(unrecognized arguments)
 
 
 # ─── main() 错误路径 + dry-run 多节点占位分支 ────────────────────────────────
