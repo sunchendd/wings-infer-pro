@@ -86,17 +86,16 @@ def _collect_user_cli_overrides(
         overrides dict, key 为 engine_config 的 canonical 参数名.
         传给 resolve_config(..., user_cli_overrides=overrides) 作为最高优先级合并层.
 
-    端口转换:用户传的 --port 是 proxy 对外端口;引擎应监听 backend 端口(ENGINE_PORT/默认 17000)。
-    本函数**只读 env、不写 env**;proxy 端口写 env 的副作用在 main 中显式调用。
+    端口分流:用户传入的 --port 是 proxy 对外监听端口,写入 PORT 后由 proxy 使用;
+    engine argv 中的 port 是 engine/backend 容器内监听端口,来自 ENGINE_PORT 或默认 17000。
+    本函数只生成 engine_config 覆盖层,因此只读 ENGINE_PORT,不写 PORT。
     """
     overrides: Dict[str, Any] = {}
     if host is not None:
         overrides["host"] = host
     if port is not None:
-        # --port 有**两个去向**(别当 bug):用户 --port 是 **proxy 对外端口**,不是引擎端口。
-        #   ① 这里:engine 的 `port` 覆盖成 **backend 端口**(ENGINE_PORT / 默认 17000),它才进 argv。
-        #   ② 另一处:**proxy 对外端口**由 _export_proxy_port() 写入 env PORT(见该函数)。
-        # 所以用户传的端口值本身不进 argv,进 argv 的是 backend 端口。
+        # 用户 --port 给 proxy 对外监听;engine argv 里的 port 给 engine/backend 监听。
+        # 两者不能混用:engine/backend 端口由 ENGINE_PORT 指定,未指定时使用 DEFAULT_ENGINE_PORT。
         backend_port = int(os.environ.get("ENGINE_PORT", str(DEFAULT_ENGINE_PORT)))
         overrides["port"] = backend_port
     if model_path is not None:
@@ -147,10 +146,9 @@ def _collect_user_cli_overrides(
 
 
 def _export_proxy_port(port: int | None) -> None:
-    """把用户 ``--port``(对外/代理端口)写入 ``os.environ["PORT"]``,供 proxy 子系统读取。
+    """把用户 ``--port`` 写入 ``os.environ["PORT"]``,供 proxy 作为对外监听端口读取。
 
-    ⚠️ **有意的全局副作用**(sidecar 接缝:cli → env → proxy):独立成函数、由 main 显式调用。
-    引擎 backend 端口**不走这里**(见 ``_collect_user_cli_overrides`` / ENGINE_PORT)。
+    engine/backend 容器内监听端口不走这里,由 ``ENGINE_PORT`` 或 ``DEFAULT_ENGINE_PORT`` 决定。
 
     Args:
         port: ``--port`` 值;None 时不写(保持 env 原样)。
@@ -311,23 +309,6 @@ def _resolve_model_name(model_name: str | None, model_path: str | None) -> str:
     raise ValueError(
         "需要 --model-name 或 --model-path 以确定配方(MaaS 下发 --model-name 模型名称)"
     )
-
-
-def _collect_subsystem_switches(args: argparse.Namespace) -> List[str]:
-    """提取已开启的子系统开关(仅记录,不进入引擎 argv)。
-
-    Args:
-        args: argparse 解析结果。
-
-    Returns:
-        已开启开关名列表(为空表示未开启)。
-    """
-    switches = (
-        ("enable_rag_acc", args.enable_rag_acc),
-        ("enable_smartqos", args.enable_smartqos),
-        ("enable_otlp_traces", args.enable_otlp_traces),
-    )
-    return [name for name, enabled in switches if enabled]
 
 
 def _parse_runtime_context_from_env() -> tuple[str | None, str | None, list[str] | None]:
@@ -501,8 +482,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--enable-chunked-prefill", action="store_true", default=None)
     parser.add_argument("--enable-prefix-caching", action="store_true", default=None)
     parser.add_argument("--enable-expert-parallel", action="store_true", default=None)
-    # 子系统特性开关(rag / 优先级调度 / OTLP 追踪):当前仅接收留痕,业务逻辑由下游消费。
-    # 这些不是引擎参数,不进 vllm argv。
+    # 子系统开关保留为 CLI 兼容入口:允许 MaaS 下发,但当前 wings-control 主流程不消费。
+    # 它们不是 engine_config 参数,不进入引擎 argv。
     parser.add_argument("--enable-rag-acc", action="store_true", default=None)
     parser.add_argument("--enable-smartqos", action="store_true", default=None)
     parser.add_argument("--enable-otlp-traces", action="store_true", default=None)
@@ -527,11 +508,6 @@ def main() -> None:
     args, unknown_args = parser.parse_known_args()
     _validate_unknown_args(parser, unknown_args)
 
-    # 子系统特性开关当前仅接收留痕,不进入引擎 argv。
-    _received_subsys_switches = _collect_subsystem_switches(args)
-    if _received_subsys_switches:
-        logger.info("已接收子系统特性开关(当前仅保存):%s", _received_subsys_switches)
-
     # --trust-remote-code 未显式开启时给出告警,但不阻断启动。
     if not args.trust_remote_code:
         logger.warning(
@@ -543,7 +519,7 @@ def main() -> None:
         engine = _resolve_engine(args.engine)
         hardware_info_path = _resolve_hardware_info_path(args.hardware_info)
         device_count = _resolve_device_count(args.device_count)
-        # 显式副作用:把 --port(对外/代理端口)写入 env PORT,供 proxy 子系统读取(独立成步,不藏在参数收集里)。
+        # --port 写入 PORT 给 proxy 对外监听;engine/backend 监听端口由 ENGINE_PORT/DEFAULT_ENGINE_PORT 决定。
         _export_proxy_port(args.port)
         raw_user_cli_overrides = _collect_user_cli_overrides(
             host=args.host,
