@@ -10,6 +10,18 @@ import pytest
 from wings_ctl import cli
 
 
+def _collect_overrides(**kwargs):
+    """测试辅助:用 dataclass 输入调用 user_cli 覆盖参数收集函数。
+
+    Args:
+        **kwargs: 传给 _UserCliOverrideInput 的字段值。
+
+    Returns:
+        user_cli raw overrides dict。
+    """
+    return cli._build_raw_user_cli_overrides(cli._UserCliOverrideInput(**kwargs))
+
+
 # ─── _resolve_model_name(配方标识推导)──────────────────────────────────────
 
 def test_resolve_model_name_explicit():
@@ -99,7 +111,7 @@ def test_derive_max_model_len_nonpositive_returns_none():
 
 def test_collect_overrides_injects_max_model_len():
     """收集层:给 input/output → overrides 注入 max_model_len(供 user_cli 覆盖 recipe)。"""
-    ov = cli._collect_user_cli_overrides(
+    ov = _collect_overrides(
         host=None, port=None, model_path=None, input_length=4096, output_length=4096
     )
     assert ov["max_model_len"] == 8192

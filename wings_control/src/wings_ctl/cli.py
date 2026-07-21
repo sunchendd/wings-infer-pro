@@ -29,6 +29,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import logging
 import os
 import shlex
@@ -56,91 +57,139 @@ def _contains_removed_engine_param(unknown_args: List[str]) -> bool:
     return False
 
 
-def _collect_user_cli_overrides(
-    host: str | None,
-    port: int | None,
-    model_path: str | None,
-    model_name: str | None = None,
-    max_num_seqs: int | None = None,
-    max_num_batched_tokens: int | None = None,
-    input_length: int | None = None,
-    output_length: int | None = None,
-    trust_remote_code: bool | None = None,
-    enable_auto_think_choice: bool | None = None,
-    enable_auto_tool_choice: bool | None = None,
-    dtype: str | None = None,
-    kv_cache_dtype: str | None = None,
-    quantization: str | None = None,
-    quantization_param_path: str | None = None,
-    gpu_memory_utilization: float | None = None,
-    block_size: int | None = None,
-    seed: int | None = None,
-    enable_chunked_prefill: bool | None = None,
-    enable_prefix_caching: bool | None = None,
-    enable_expert_parallel: bool | None = None,
-) -> Dict[str, Any]:
+@dataclass
+class _UserCliOverrideInput:
+    """保存可进入 user_cli 覆盖层的 CLI 参数快照。
+
+    这个对象只表达 CLI 收集层的输入形态,不做参数翻译、allowlist 过滤或 trace 合并。
+    字段名与 argparse dest 保持一致,便于新增 CLI 参数时集中维护。
+    """
+
+    host: str | None = None
+    port: int | None = None
+    model_path: str | None = None
+    model_name: str | None = None
+    max_num_seqs: int | None = None
+    max_num_batched_tokens: int | None = None
+    input_length: int | None = None
+    output_length: int | None = None
+    trust_remote_code: bool | None = None
+    enable_auto_think_choice: bool | None = None
+    enable_auto_tool_choice: bool | None = None
+    dtype: str | None = None
+    kv_cache_dtype: str | None = None
+    quantization: str | None = None
+    quantization_param_path: str | None = None
+    gpu_memory_utilization: float | None = None
+    block_size: int | None = None
+    seed: int | None = None
+    enable_chunked_prefill: bool | None = None
+    enable_prefix_caching: bool | None = None
+    enable_expert_parallel: bool | None = None
+
+
+def _build_user_cli_override_input(args: argparse.Namespace) -> _UserCliOverrideInput:
+    """从 argparse 结果构造 user_cli 覆盖参数输入对象。
+
+    Args:
+        args: argparse 解析后的命名空间。
+
+    Returns:
+        _UserCliOverrideInput 实例。只包含可能进入 user_cli 覆盖层的字段;
+        子系统兼容开关、定位参数和输出参数不放入该对象。
+    """
+    return _UserCliOverrideInput(
+        host=args.host,
+        port=args.port,
+        model_path=args.model_path,
+        model_name=args.model_name,
+        max_num_seqs=args.max_num_seqs,
+        max_num_batched_tokens=args.max_num_batched_tokens,
+        input_length=args.input_length,
+        output_length=args.output_length,
+        trust_remote_code=args.trust_remote_code,
+        enable_auto_think_choice=args.enable_auto_think_choice,
+        enable_auto_tool_choice=args.enable_auto_tool_choice,
+        dtype=args.dtype,
+        kv_cache_dtype=args.kv_cache_dtype,
+        quantization=args.quantization,
+        quantization_param_path=args.quantization_param_path,
+        gpu_memory_utilization=args.gpu_memory_utilization,
+        block_size=args.block_size,
+        seed=args.seed,
+        enable_chunked_prefill=args.enable_chunked_prefill,
+        enable_prefix_caching=args.enable_prefix_caching,
+        enable_expert_parallel=args.enable_expert_parallel,
+    )
+
+
+def _build_raw_user_cli_overrides(inputs: _UserCliOverrideInput) -> Dict[str, Any]:
     """收集用户 CLI 覆盖层 dict。
 
-    来源: 具名参数/语法糖.
+    来源: 具名参数/语法糖。
+
+    Args:
+        inputs: 从 argparse 结果提取出的 user_cli 覆盖参数快照。
+
     Returns:
-        overrides dict, key 为 engine_config 的 canonical 参数名.
-        传给 resolve_config(..., user_cli_overrides=overrides) 作为最高优先级合并层.
+        overrides dict,key 为 engine_config 的 canonical 参数名。
+        传给 resolve_config(..., user_cli_overrides=overrides) 作为最高优先级合并层。
 
     端口分流:用户传入的 --port 是 proxy 对外监听端口,写入 PORT 后由 proxy 使用;
     engine argv 中的 port 是 engine/backend 容器内监听端口,来自 ENGINE_PORT 或默认 17000。
     本函数只生成 engine_config 覆盖层,因此只读 ENGINE_PORT,不写 PORT。
     """
     overrides: Dict[str, Any] = {}
-    if host is not None:
-        overrides["host"] = host
-    if port is not None:
+    if inputs.host is not None:
+        overrides["host"] = inputs.host
+    if inputs.port is not None:
         # 用户 --port 给 proxy 对外监听;engine argv 里的 port 给 engine/backend 监听。
         # 两者不能混用:engine/backend 端口由 ENGINE_PORT 指定,未指定时使用 DEFAULT_ENGINE_PORT。
         backend_port = int(os.environ.get("ENGINE_PORT", str(DEFAULT_ENGINE_PORT)))
         overrides["port"] = backend_port
-    if model_path is not None:
-        overrides["model_path"] = model_path
-    if model_name is not None:
-        overrides["model_name"] = model_name
-    if max_num_seqs is not None:
-        overrides["max_num_seqs"] = max_num_seqs
-    if max_num_batched_tokens is not None:
+    if inputs.model_path is not None:
+        overrides["model_path"] = inputs.model_path
+    if inputs.model_name is not None:
+        overrides["model_name"] = inputs.model_name
+    if inputs.max_num_seqs is not None:
+        overrides["max_num_seqs"] = inputs.max_num_seqs
+    if inputs.max_num_batched_tokens is not None:
         # 同名直通,由 user_cli 层覆盖 recipe。
-        overrides["max_num_batched_tokens"] = max_num_batched_tokens
-    if input_length is not None:
-        overrides["input_length"] = input_length
-    if output_length is not None:
-        overrides["output_length"] = output_length
+        overrides["max_num_batched_tokens"] = inputs.max_num_batched_tokens
+    if inputs.input_length is not None:
+        overrides["input_length"] = inputs.input_length
+    if inputs.output_length is not None:
+        overrides["output_length"] = inputs.output_length
     # 显式派生 max_model_len = input + output;input/output 原值不直接进 argv。
-    derived_mml = _derive_max_model_len(input_length, output_length)
+    derived_mml = _derive_max_model_len(inputs.input_length, inputs.output_length)
     if derived_mml is not None:
         overrides["max_model_len"] = derived_mml
-    if trust_remote_code is not None:
-        overrides["trust_remote_code"] = trust_remote_code
-    if enable_auto_think_choice is not None:
-        overrides["enable_auto_think_choice"] = enable_auto_think_choice
-    if enable_auto_tool_choice is not None:
-        overrides["enable_auto_tool_choice"] = enable_auto_tool_choice
-    if dtype is not None:
-        overrides["dtype"] = dtype
-    if kv_cache_dtype is not None:
-        overrides["kv_cache_dtype"] = kv_cache_dtype
-    if quantization is not None:
-        overrides["quantization"] = quantization
-    if quantization_param_path is not None:
-        overrides["quantization_param_path"] = quantization_param_path
-    if gpu_memory_utilization is not None:
-        overrides["gpu_memory_utilization"] = gpu_memory_utilization
-    if block_size is not None:
-        overrides["block_size"] = block_size
-    if seed is not None:
-        overrides["seed"] = seed
-    if enable_chunked_prefill is not None:
-        overrides["enable_chunked_prefill"] = enable_chunked_prefill
-    if enable_prefix_caching is not None:
-        overrides["enable_prefix_caching"] = enable_prefix_caching
-    if enable_expert_parallel is not None:
-        overrides["enable_expert_parallel"] = enable_expert_parallel
+    if inputs.trust_remote_code is not None:
+        overrides["trust_remote_code"] = inputs.trust_remote_code
+    if inputs.enable_auto_think_choice is not None:
+        overrides["enable_auto_think_choice"] = inputs.enable_auto_think_choice
+    if inputs.enable_auto_tool_choice is not None:
+        overrides["enable_auto_tool_choice"] = inputs.enable_auto_tool_choice
+    if inputs.dtype is not None:
+        overrides["dtype"] = inputs.dtype
+    if inputs.kv_cache_dtype is not None:
+        overrides["kv_cache_dtype"] = inputs.kv_cache_dtype
+    if inputs.quantization is not None:
+        overrides["quantization"] = inputs.quantization
+    if inputs.quantization_param_path is not None:
+        overrides["quantization_param_path"] = inputs.quantization_param_path
+    if inputs.gpu_memory_utilization is not None:
+        overrides["gpu_memory_utilization"] = inputs.gpu_memory_utilization
+    if inputs.block_size is not None:
+        overrides["block_size"] = inputs.block_size
+    if inputs.seed is not None:
+        overrides["seed"] = inputs.seed
+    if inputs.enable_chunked_prefill is not None:
+        overrides["enable_chunked_prefill"] = inputs.enable_chunked_prefill
+    if inputs.enable_prefix_caching is not None:
+        overrides["enable_prefix_caching"] = inputs.enable_prefix_caching
+    if inputs.enable_expert_parallel is not None:
+        overrides["enable_expert_parallel"] = inputs.enable_expert_parallel
 
     return overrides
 
@@ -521,29 +570,8 @@ def main() -> None:
         device_count = _resolve_device_count(args.device_count)
         # --port 写入 PORT 给 proxy 对外监听;engine/backend 监听端口由 ENGINE_PORT/DEFAULT_ENGINE_PORT 决定。
         _export_proxy_port(args.port)
-        raw_user_cli_overrides = _collect_user_cli_overrides(
-            host=args.host,
-            port=args.port,
-            model_path=args.model_path,
-            model_name=args.model_name,
-            max_num_seqs=args.max_num_seqs,
-            max_num_batched_tokens=args.max_num_batched_tokens,
-            input_length=args.input_length,
-            output_length=args.output_length,
-            trust_remote_code=args.trust_remote_code,
-            enable_auto_think_choice=args.enable_auto_think_choice,
-            enable_auto_tool_choice=args.enable_auto_tool_choice,
-            dtype=args.dtype,
-            kv_cache_dtype=args.kv_cache_dtype,
-            quantization=args.quantization,
-            quantization_param_path=args.quantization_param_path,
-            gpu_memory_utilization=args.gpu_memory_utilization,
-            block_size=args.block_size,
-            seed=args.seed,
-            enable_chunked_prefill=args.enable_chunked_prefill,
-            enable_prefix_caching=args.enable_prefix_caching,
-            enable_expert_parallel=args.enable_expert_parallel,
-        )
+        override_input = _build_user_cli_override_input(args)
+        raw_user_cli_overrides = _build_raw_user_cli_overrides(override_input)
         user_cli_overrides, user_cli_dropped = CLITranslator.translate_overrides(
             raw_user_cli_overrides, engine
         )
