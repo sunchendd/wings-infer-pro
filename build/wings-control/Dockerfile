@@ -54,6 +54,7 @@ RUN pip install --upgrade pip && \
 # 拷贝主要的代码目录
 COPY ./wings_control/src  /opt/wings-control/src
 COPY ./wings_control/config /opt/wings-control/config
+COPY ./wings_control/docs/features /opt/wings-control/docs/features
 COPY ./wings_control/pyproject.toml /opt/wings-control/pyproject.toml
 COPY ./wings_control/wings_start.sh /opt/wings-control/wings_start.sh
 RUN chmod +x /opt/wings-control/wings_start.sh
