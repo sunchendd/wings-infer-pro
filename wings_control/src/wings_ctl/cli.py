@@ -35,6 +35,7 @@ import shlex
 from pathlib import Path
 from typing import Any, Dict, List
 
+from wings_ctl.common.log_config import LOGGER_LAUNCHER, setup_root_logging
 from wings_ctl.core.config_resolver import DEFAULT_ENGINE_PORT
 from wings_ctl.core.models import ClusterPlacement, PipelineRequest, Target, UserInput
 from wings_ctl.engines.vllm_adapter import build_argv
@@ -44,7 +45,7 @@ from wings_ctl.translators.cli_translator import CLITranslator
 from wings_ctl.utils.env_utils import parse_node_ips
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(LOGGER_LAUNCHER)
 
 
 def _contains_removed_engine_param(unknown_args: List[str]) -> bool:
@@ -400,13 +401,14 @@ def _print_multi_node_summary(engine: str, nodes: List[Any]) -> None:
     Returns:
         None。
     """
-    print(
-        f"multi_node: {len(nodes)} 节点(占位,未注入;"
-        "start_command.sh 为占位脚本,部署时各 Pod 携 RANK_IP/NODE_IPS 重跑)"
+    logger.info(
+        "multi_node: %s 节点(占位,未注入;"
+        "start_command.sh 为占位脚本,部署时各 Pod 携 RANK_IP/NODE_IPS 重跑)",
+        len(nodes),
     )
     for node in nodes:
         node_argv = build_argv(node.engine_config_traces, engine=engine)
-        print(f"  [{node.role}] argv: {shlex.join(node_argv)}")
+        logger.info("  [%s] argv: %s", node.role, shlex.join(node_argv))
 
 
 def _run_dry_mode(parser: argparse.ArgumentParser, request: PipelineRequest) -> None:
@@ -571,6 +573,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     """CLI 入口函数。"""
+    # CLI 入口是配置解析流水线的第一个执行点（先于 wings_control.py 导入），
+    # 必须在此初始化统一日志格式，否则 pipeline 沿途模块（如 feature_overlay）
+    # 的日志将使用 Python 默认格式，不符合 WINGS-CONTROL 规范。
+    # 放在 main() 而非模块顶层，避免 import cli 时产生文件日志创建等副作用。
+    setup_root_logging()
     parser = _build_parser()
     args, unknown_args = parser.parse_known_args()
     _validate_unknown_args(parser, unknown_args)
@@ -700,10 +707,10 @@ def main() -> None:
     else:
         # accel 已并入 traces,不再 append。shlex.join 与 exec 行同款。
         argv = build_argv(resolved.engine_config_traces, engine=engine)
-        print(f"argv: {shlex.join(argv)}")
-    print(f"start_command: {start_path}")
-    print(f"repro:         {repro_path}")
-    print(f"audit:         {audit_path}")
+        logger.info("argv: %s", shlex.join(argv))
+    logger.info("start_command: %s", start_path)
+    logger.info("repro:         %s", repro_path)
+    logger.info("audit:         %s", audit_path)
 
 
 if __name__ == "__main__":
