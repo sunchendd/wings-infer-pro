@@ -1,6 +1,6 @@
 # 来源追溯
 upstream_sources:
-  - id: vllm_ascend_qwen3-dense
+  - id: vllm_ascend_qwen3-0.6b
     kind: official_doc
     repo: vllm-ascend
     file: docs/source/tutorials/models/Qwen3-Dense.md
@@ -9,24 +9,24 @@ upstream_sources:
 
 # 模型基本信息
 model:
-  name: Qwen3-Dense(Qwen3-0.6B/8B/32B)  # 模型名称
-  provider: Modelers_Park  # 提供者/厂商
-  model_id: Modelers_Park/Qwen3-0.6B  # HuggingFace/ModelScope 模型 ID
+  name: Qwen3-0.6B  # 模型名称
+  provider: Qwen  # 提供者/厂商
+  model_id: Qwen/Qwen3-0.6B  # HuggingFace/ModelScope 模型 ID
   min_engine_version: v0.21.0rc  # 最低引擎版本要求
   match:  # 模型名匹配规则
-    - name_pattern: "(?i)qwen3[-.]?dense"
-  variant_name: Qwen3-Dense-w8a8  # 模型量化版本精确名称
+    - name_pattern: "(?i)qwen3[-.]?0.6b"
+  variant_name: Qwen3-0.6B  # 模型量化版本精确名称
 
 # 硬件信息
 hardware_profile:
-  gpu_count: 16  # 单节点 GPU/NPU 数量
-  vram_gb: 1024  # 单节点总显存(GB)
+  gpu_count: 8  # 单节点 GPU/NPU 数量
+  vram_gb: 512  # 单节点总显存(GB)
   multi_node: true  # 是否支持多节点
 
 # 部署场景
 scenarios:
   standalone:
-    source_ref: "vllm_ascend_qwen3-dense#single_node"
+    source_ref: "vllm_ascend_qwen3-0.6b#single_node"
     match:
       distributed: false
       pd_role: null
@@ -35,10 +35,9 @@ scenarios:
         display_name: Standalone
         default_strategy: true
         engine_config:
-          model: vllm-ascend/Qwen3-32B-W8A8
+          model: Qwen/Qwen3-0.6B
           served_model_name: qwen3
           trust_remote_code: true
-          quantization: ascend
           distributed_executor_backend: mp
           tensor_parallel_size: 4
           max_model_len: 5500

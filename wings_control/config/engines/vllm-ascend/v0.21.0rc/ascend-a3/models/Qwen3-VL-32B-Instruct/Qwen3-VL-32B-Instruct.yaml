@@ -49,5 +49,3 @@ scenarios:
           LD_PRELOAD: "/usr/lib64/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
           HCCL_OP_EXPANSION_MODE: AIV
           VLLM_USE_V1: 1
-        system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
-          commands: [apt update, apt install libjemalloc2, yum update, yum install jemalloc, "if [ -f /usr/lib/aarch64-linux-gnu/libjemalloc.so.2 ]; then", "elif [ -f /usr/lib64/libjemalloc.so.2 ]; then", fi]
