@@ -1,0 +1,18 @@
+# SmartAccel 加速配置(decoding=ernie_mtp [model_based])
+# 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
+# 由 features.spec_decoding 自动生成;仅 decoding,无 kv_offload/sparse。
+model:
+  name: ERNIE-4.5
+  variant_name: "ERNIE-4.5-21B-A3B-PT-300b"
+  match:
+    - name_pattern: "(?i)ernie[-.]?4.5"
+smart_accel:
+  decoding:
+    - name: ernie_mtp
+      requires_model_path: true
+      cli_params:
+        speculative_config:
+          method: ernie_mtp
+          model: $path
+          num_speculative_tokens: 1
+      envs: {}

@@ -1,0 +1,16 @@
+# SmartAccel 加速配置(decoding=qwen3_next_mtp)
+# 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
+# 由 features.spec_decoding 自动生成;仅 decoding,无 kv_offload/sparse。
+model:
+  name: Qwen3-Next-80B-A3B-Instruct
+  variant_name: "Qwen3-Next-80B-A3B-Instruct-fp8"
+  match:
+    - name_pattern: "(?i)qwen3[-.]?next[-.]?80b[-.]?a3b[-.]?instruct"
+smart_accel:
+  decoding:
+    - name: qwen3_next_mtp
+      cli_params:
+        speculative_config:
+          method: qwen3_next_mtp
+          num_speculative_tokens: 2
+      envs: {}

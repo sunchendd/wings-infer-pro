@@ -1,0 +1,18 @@
+# SmartAccel 加速配置(decoding=dflash [model_based])
+# 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
+# 由 features.spec_decoding 自动生成;仅 decoding,无 kv_offload/sparse。
+model:
+  name: Laguna XS-2.1
+  variant_name: "Laguna-XS-2.1-bf16"
+  match:
+    - name_pattern: "(?i)laguna[-.]?xs[-.]?2.1"
+smart_accel:
+  decoding:
+    - name: dflash
+      requires_model_path: true
+      cli_params:
+        speculative_config:
+          method: dflash
+          model: $path
+          num_speculative_tokens: 15
+      envs: {}

@@ -1,0 +1,18 @@
+# SmartAccel 加速配置(decoding=step3p5_mtp)
+# 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
+# 由 features.spec_decoding 自动生成;仅 decoding,无 kv_offload/sparse。
+model:
+  name: Step-3.5-Flash
+  variant_name: "Step-3.5-Flash-fp8"
+  match:
+    - name_pattern: "(?i)step[-.]?3.5[-.]?flash"
+smart_accel:
+  decoding:
+    - name: step3p5_mtp
+      cli_params:
+        speculative_config:
+          method: step3p5_mtp
+          num_speculative_tokens: 1
+        hf_overrides:
+          num_nextn_predict_layers: 1
+      envs: {}

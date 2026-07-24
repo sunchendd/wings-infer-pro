@@ -1,0 +1,19 @@
+# SmartAccel 加速配置(decoding=eagle [model_based])
+# 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
+# 由 features.spec_decoding 自动生成;仅 decoding,无 kv_offload/sparse。
+model:
+  name: Mistral-Small-4-119B
+  variant_name: "Mistral-Small-4-119B-2603-nvfp4"
+  match:
+    - name_pattern: "(?i)mistral[-.]?small[-.]?4[-.]?119b"
+smart_accel:
+  decoding:
+    - name: eagle
+      requires_model_path: true
+      cli_params:
+        speculative_config:
+          method: eagle
+          model: $path
+          num_speculative_tokens: 3
+          max_model_len: 65536
+      envs: {}

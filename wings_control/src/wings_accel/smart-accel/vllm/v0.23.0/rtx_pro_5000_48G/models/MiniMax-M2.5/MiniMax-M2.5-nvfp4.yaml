@@ -1,0 +1,24 @@
+# SmartAccel 加速配置(decoding=suffix / kv_offload=cpu)
+# 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
+model:
+  name: MiniMax-M2.5
+  variant_name: "MiniMax-M2.5-nvfp4"
+  match:
+    - name_pattern: "(?i)minimax[-.]?m2[-.]?5"
+smart_accel:
+  decoding:
+    - name: suffix
+      cli_params:
+        speculative_config:
+          method: suffix
+          num_speculative_tokens: 10
+      envs: {}
+  kv_offload:
+    - name: cpu
+      cli_params:
+        kv_transfer_config:
+          kv_connector: OffloadingConnector
+          kv_role: kv_both
+          kv_connector_extra_config:
+            cpu_bytes_to_use: "{mem_gb_to_bytes}"
+      envs: {}
