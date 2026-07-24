@@ -9,20 +9,8 @@ from wings_ctl import cli
 from wings_ctl.translators.cli_translator import CLITranslator, filter_maas_contract_overrides
 
 
-def _collect_overrides(**kwargs):
-    """测试辅助:用 dataclass 输入调用 user_cli 覆盖参数收集函数。
-
-    Args:
-        **kwargs: 传给 _UserCliOverrideInput 的字段值。
-
-    Returns:
-        user_cli raw overrides dict。
-    """
-    return cli._build_raw_user_cli_overrides(cli._UserCliOverrideInput(**kwargs))
-
-
 def test_named_flags_collected_to_user_cli_raw_dict():
-    out = _collect_overrides(
+    out = cli._collect_user_cli_overrides(
         host=None,
         port=None,
         model_path="/m",
@@ -49,21 +37,21 @@ def test_named_flags_collected_to_user_cli_raw_dict():
 
 
 def test_sugar_host_port_model_path_collected(monkeypatch):
-    """用户 --port 给 proxy 对外监听;engine override 使用 backend 监听端口(ENGINE_PORT/17000)。
+    """proxy 迁移:用户 --port 是 proxy 端口 → engine override 取 backend 端口(ENGINE_PORT/17000)。
 
-    `_build_raw_user_cli_overrides` 只读 ENGINE_PORT、不写 PORT;proxy 端口写 env 见 _export_proxy_port 测试。
+    G2:`_collect_user_cli_overrides` 现在**只读不写 env**(proxy 端口写 env 见下方 _export_proxy_port 测试)。
     """
     monkeypatch.delenv("ENGINE_PORT", raising=False)
-    out = _collect_overrides(
+    out = cli._collect_user_cli_overrides(
         host="0.0.0.0",
-        port=18000,          # proxy 对外监听端口
+        port=18000,          # 用户传的是 proxy 端口
         model_path="/weights",
     )
     assert out == {"host": "0.0.0.0", "port": 17000, "model_path": "/weights"}  # engine 监听 backend 17000
 
 
 def test_export_proxy_port_sets_env(monkeypatch):
-    """--port 由 _export_proxy_port 写入 env PORT,供 proxy 作为对外监听端口读取。"""
+    """G2:--port(对外/代理端口)由 _export_proxy_port 显式写入 env PORT(供 proxy 读)。"""
     monkeypatch.delenv("PORT", raising=False)
     cli._export_proxy_port(18000)
     import os
@@ -71,7 +59,7 @@ def test_export_proxy_port_sets_env(monkeypatch):
 
 
 def test_export_proxy_port_none_no_write(monkeypatch):
-    """--port 未传(None)时不写 env,保持 PORT 原样。"""
+    """G2:--port 未传(None)→ 不写 env(保持原样)。"""
     monkeypatch.delenv("PORT", raising=False)
     cli._export_proxy_port(None)
     import os
@@ -79,14 +67,14 @@ def test_export_proxy_port_none_no_write(monkeypatch):
 
 
 def test_model_flag_not_part_of_overrides():
-    out = _collect_overrides(host=None, port=None, model_path=None)
+    out = cli._collect_user_cli_overrides(host=None, port=None, model_path=None)
     assert "model_name" not in out
     assert "model" not in out
     assert "model_path" not in out
 
 
 def test_named_flags_translation_to_engine_keys_and_drop():
-    raw = _collect_overrides(
+    raw = cli._collect_user_cli_overrides(
         host="0.0.0.0",
         port=18000,
         model_path="/m",
@@ -114,39 +102,13 @@ def test_named_flags_translation_to_engine_keys_and_drop():
 
 def test_max_num_batched_tokens_passthrough_to_engine_native():
     """验证 --max-num-batched-tokens 收集为 user_cli 并同名直通译为 vllm 原生键(覆盖 recipe)。"""
-    raw = _collect_overrides(
+    raw = cli._collect_user_cli_overrides(
         host=None, port=None, model_path=None, max_num_batched_tokens=4096,
     )
     assert raw["max_num_batched_tokens"] == 4096
     translated, dropped = CLITranslator.translate_overrides(raw, "vllm")
     assert translated["max_num_batched_tokens"] == 4096            # 同名直通,未被丢弃
     assert "max_num_batched_tokens" not in {d["key"] for d in dropped}
-
-
-def test_build_user_cli_override_input_keeps_user_cli_fields_only():
-    """argparse 结果转 dataclass 时,只保留 user_cli 覆盖层字段。"""
-    parser = cli._build_parser()
-    args = parser.parse_args(
-        [
-            "--model-name", "X",
-            "--model-path", "/m",
-            "--port", "18000",
-            "--max-num-seqs", "256",
-            "--enable-auto-tool-choice",
-            "--enable-rag-acc",
-            "--output-dir", "/tmp/out",
-        ]
-    )
-
-    inputs = cli._build_user_cli_override_input(args)
-
-    assert inputs.model_name == "X"
-    assert inputs.model_path == "/m"
-    assert inputs.port == 18000
-    assert inputs.max_num_seqs == 256
-    assert inputs.enable_auto_tool_choice is True
-    assert not hasattr(inputs, "enable_rag_acc")
-    assert not hasattr(inputs, "output_dir")
 
 
 def test_parser_accepts_maas_named_flags():
@@ -191,7 +153,7 @@ def test_store_true_flags_default_none():
 
 
 def test_store_true_none_not_in_overrides():
-    out = _collect_overrides(
+    out = cli._collect_user_cli_overrides(
         host=None,
         port=None,
         model_path=None,
@@ -323,8 +285,8 @@ def test_known_non_contract_cli_params_are_collected_but_dropped_before_merge(
     args = parser.parse_args(["--model-name", "X", *argv_tokens])
     assert getattr(args, canonical_key) is not None
 
-    # 2. _build_raw_user_cli_overrides 收成对应 canonical key(进 raw override dict)
-    raw = _collect_overrides(
+    # 2. _collect_user_cli_overrides 收成对应 canonical key(进 raw override dict)
+    raw = cli._collect_user_cli_overrides(
         host=None, port=None, model_path=None, **collect_kwargs
     )
     assert canonical_key in raw
@@ -349,7 +311,7 @@ def test_env_feature_gates_do_not_leak_into_user_cli_layer(monkeypatch):
     monkeypatch.setenv("LMCACHE_OFFLOAD", "true")
     monkeypatch.setenv("WINGS_ROUTE_ENABLE", "true")
     monkeypatch.setenv("PD_ROLE", "P")
-    out = _collect_overrides(
+    out = cli._collect_user_cli_overrides(
         host="0.0.0.0",
         port=18000,
         model_path="/m",

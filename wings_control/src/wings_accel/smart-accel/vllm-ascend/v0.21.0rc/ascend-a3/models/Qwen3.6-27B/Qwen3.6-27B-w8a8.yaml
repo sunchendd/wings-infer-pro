@@ -16,7 +16,7 @@ smart_accel:
         enforce_eager: true
       envs: {}
   kv_offload:
-    - name: memcache
+    - name: cpu
       cli_params:
         kv_transfer_config:
           kv_connector: AscendStoreConnector

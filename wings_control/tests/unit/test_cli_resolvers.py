@@ -10,18 +10,6 @@ import pytest
 from wings_ctl import cli
 
 
-def _collect_overrides(**kwargs):
-    """测试辅助:用 dataclass 输入调用 user_cli 覆盖参数收集函数。
-
-    Args:
-        **kwargs: 传给 _UserCliOverrideInput 的字段值。
-
-    Returns:
-        user_cli raw overrides dict。
-    """
-    return cli._build_raw_user_cli_overrides(cli._UserCliOverrideInput(**kwargs))
-
-
 # ─── _resolve_model_name(配方标识推导)──────────────────────────────────────
 
 def test_resolve_model_name_explicit():
@@ -111,7 +99,7 @@ def test_derive_max_model_len_nonpositive_returns_none():
 
 def test_collect_overrides_injects_max_model_len():
     """收集层:给 input/output → overrides 注入 max_model_len(供 user_cli 覆盖 recipe)。"""
-    ov = _collect_overrides(
+    ov = cli._collect_user_cli_overrides(
         host=None, port=None, model_path=None, input_length=4096, output_length=4096
     )
     assert ov["max_model_len"] == 8192
@@ -148,8 +136,8 @@ def test_main_no_warn_when_trust_remote_code_passed(config_root, tmp_path, monke
     assert not any("trust-remote-code" in r.message for r in caplog.records)
 
 
-def test_main_accepts_v3_subsystem_switches(config_root, tmp_path, monkeypatch):
-    """v3 子系统开关(--enable-rag-acc/smartqos/otlp-traces)作为兼容入口被接收不崩。"""
+def test_main_accepts_and_logs_v3_subsystem_switches(config_root, tmp_path, monkeypatch, caplog):
+    """v3 子系统开关(--enable-rag-acc/smartqos/otlp-traces)被接收不崩 + 日志留痕(暂仅保存)。"""
     hw = tmp_path / "hw.json"
     hw.write_text(json.dumps({"hardware_family": "nvidia-RTX5880", "device": "nvidia", "count": 1}))
     monkeypatch.setenv("ENGINE_VERSION", "0.19.0")
@@ -157,7 +145,9 @@ def test_main_accepts_v3_subsystem_switches(config_root, tmp_path, monkeypatch):
         "sys.argv",
         _argv_qwen_dryrun(config_root, hw, "--enable-smartqos", "--enable-otlp-traces", "--enable-rag-acc"),
     )
-    cli.main()  # 不应抛 SystemExit(unrecognized arguments)
+    with caplog.at_level(logging.INFO):
+        cli.main()  # 不应抛 SystemExit(unrecognized arguments)
+    assert any("已接收子系统特性开关" in r.message for r in caplog.records)
 
 
 # ─── main() 错误路径 + dry-run 多节点占位分支 ────────────────────────────────

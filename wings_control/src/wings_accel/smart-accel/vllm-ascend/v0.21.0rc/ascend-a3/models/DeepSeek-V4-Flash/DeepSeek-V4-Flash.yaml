@@ -37,10 +37,10 @@ smart_accel:
       envs:
         LMCACHE_TRACK_USAGE: "false"
         LMCACHE_LOCAL_CPU: "True"
-        LMCACHE_MAX_LOCAL_CPU_SIZE: "40"
+        LMCACHE_MAX_LOCAL_CPU_SIZE: "{memory_capacity_gb}"
         LMCACHE_LOG_LEVEL: "INFO"
         LMCACHE_USE_LAYERWISE: "False"
         LMCACHE_NUMA_MODE: "auto"
         LMCACHE_CHUNK_SIZE: "1024"
         LMCACHE_EXTRA_CONFIG: '{"save_only_first_rank": false}'
-        LMCACHE_LOOKUP_SERVER_WORKER_IDS: "0,1,2,3"
+        LMCACHE_LOOKUP_SERVER_WORKER_IDS: "{lookup_server_worker_ids}"

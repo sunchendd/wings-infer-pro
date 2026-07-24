@@ -15,7 +15,7 @@ smart_accel:
           num_speculative_tokens: 3
       envs: {}
   kv_offload:
-    - name: memcache
+    - name: cpu
       cli_params:
         kv_transfer_config:
           kv_connector: AscendStoreConnector

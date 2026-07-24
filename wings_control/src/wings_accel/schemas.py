@@ -135,6 +135,11 @@ class SmartKVCacheConfig:
     qat_enabled: bool = False # QAT 三级开关;MaaS 条件必填 `ENABLE_KV_QAT`(disk=true 时必填)
     qat_device_count: int = 0 # QAT 设备数量;MaaS 条件必填 `KV_QAT_INSTANCE_NUM`(qat=true 时必填)
     qat_compression_level: int = 0 # QAT 压缩等级;MaaS 条件必填 `KV_QAT_COMPRESS_LEVEL`(qat=true 时必填)
+    # ── KV 存储后端(AscendStoreConnector:memcache / mooncake)—— cpu 介质下的内存卸载工具(name=cpu,非第四类介质)──
+    # 选中后产 kv_transfer_config(backend) + 配置文件 + pre-serve daemon(mooncake_master / MetaService);
+    # 作为 cpu 内存方法参与 (memory_on, disk_on) 选择(工具由 connector + kv_connector_extra_config.backend 区分)。
+
+    tp_size: int = 0 # TP SIZE大小。通过recipe解析微调后传递
 
 
 @dataclass
@@ -186,6 +191,9 @@ class SmartAccelInput:
     smart_kv_sparse_config: SmartKVSparseConfig # KV 稀疏化配置(开关 + 模式)
     # smart_accel 模板块(decoding/kv_offload/sparse/custom_features),来自 model.yaml
     smart_accel: Dict[str, Any] = field(default_factory=dict)
+    # smart-accel 根目录(_resolve_smart_accel_root 结果);files 条目 src 解析基准。非 MaaS 参数,
+    # 由 yaml_loader.load_smart_accel_from_config 在构造时填入。
+    config_root: str = ""
 
 
 @dataclass
@@ -202,6 +210,9 @@ class _FeatureOutput:
     degraded: bool = False # 是否发生降级
     degrade_reason: str = "" # 降级原因
     packages: List[str] = field(default_factory=list) # 选中 scheme 声明的 pip 依赖(name:version 字符串)
+    pre_serve: List[str] = field(default_factory=list) # 所有节点在 vllm serve 前运行的 shell 命令(如 heredoc 生成 mooncake.json)
+    pre_serve_master: List[str] = field(default_factory=list) # 仅 master 节点运行的 daemon 启动命令(mooncake_master / MetaService &)
+    pre_serve_client: List[str] = field(default_factory=list) # 仅 client 节点(非 master)运行的命令(如 client-only 配置文件生成)
 
 
 @dataclass
@@ -224,3 +235,6 @@ class SmartAccelOutput:
     engine_params: EngineParams = field(default_factory=EngineParams) # 合并后的 env + engine_config;产出侧,无 MaaS 来源
     diagnostics: Dict[str, Dict[str, Any]] = field(default_factory=dict) # 降级诊断;只写 degraded 特性,原样落 audit
     packages: List[str] = field(default_factory=list) # 各选中 scheme 声明的 pip 依赖汇总(name:version);供 install 段 --config
+    pre_serve: List[str] = field(default_factory=list) # 聚合:所有节点 pre-serve 命令(去重保序);script_builder 在 vllm serve 前渲染
+    pre_serve_master: List[str] = field(default_factory=list) # 聚合:仅 master 的 daemon 启动命令(去重保序);包 RANK_IP==MASTER_IP 条件
+    pre_serve_client: List[str] = field(default_factory=list) # 聚合:仅 client(非 master)pre-serve 命令(去重保序);包 RANK_IP!=MASTER_IP 条件

@@ -1,6 +1,6 @@
 """env_renderer — 安全的 env export 渲染。
 
-本模块会生成 shell export 语句,修改时必须确认变量引用白名单和 quoting 规则。
+⚠️ 安全敏感代码,需人工 review。
 
 规则:
 - 值不含 '$':export KEY=<shlex.quote(str(value))>  (纯字面,安全转义)

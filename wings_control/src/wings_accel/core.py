@@ -94,12 +94,21 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
     # Step 6: assemble output
     engine_params = EngineParams()
     packages: list = []
+    pre_serve: list = []
+    pre_serve_master: list = []
+    pre_serve_client: list = []
     for feature in (decoding, offload, sparse, custom):
         if feature:
             engine_params = merge_engine_params(engine_params, feature.engine_params)
             packages.extend(feature.packages)
-    # 去重保序:同一依赖被多个特性声明时只装一次
+            pre_serve.extend(feature.pre_serve)
+            pre_serve_master.extend(feature.pre_serve_master)
+            pre_serve_client.extend(feature.pre_serve_client)
+    # 去重保序:同一依赖/命令被多个特性声明时只取一次
     packages = list(dict.fromkeys(packages))
+    pre_serve = list(dict.fromkeys(pre_serve))
+    pre_serve_master = list(dict.fromkeys(pre_serve_master))
+    pre_serve_client = list(dict.fromkeys(pre_serve_client))
 
     diagnostics = _collect_diagnostics(
         {"decoding": decoding, "kv_cache": offload, "sparse": sparse},
@@ -112,6 +121,9 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
         engine_params=engine_params,
         diagnostics=diagnostics,
         packages=packages,
+        pre_serve=pre_serve,
+        pre_serve_master=pre_serve_master,
+        pre_serve_client=pre_serve_client,
     )
 
 
@@ -153,6 +165,8 @@ def _memory_capacity_gb(kv) -> int:
 def _build_placeholder_context(smart_input: SmartAccelInput) -> PlaceholderContext:
     """从 SmartAccelInput 各子配置派生占位符上下文。"""
     kv = smart_input.smart_kv_cache_config
+    # 端口与协议由 YAML 资产明文声明(不再代码写死);IP 经 {rank_ip}/{master_ip} → ${VAR}
+    # 由运行时 envsubst 展开。KV 工具选择由 yaml 声明 + offload 按 connector 内容路由。
     return PlaceholderContext(
         memory_capacity_gb=_memory_capacity_gb(kv),
         memory_offload_enabled=kv.memory_offload_enabled,
@@ -163,4 +177,7 @@ def _build_placeholder_context(smart_input: SmartAccelInput) -> PlaceholderConte
         qat_device_count=kv.qat_device_count,
         qat_compression_level=kv.qat_compression_level,
         draft_model_path=smart_input.smart_decoding_config.model_path,
+        gpu_count=smart_input.hardware_config.gpu_count,
+        tp_size=kv.tp_size,
+        config_root=smart_input.config_root,
     )

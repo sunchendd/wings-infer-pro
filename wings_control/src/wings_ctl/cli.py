@@ -29,7 +29,6 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
 import logging
 import os
 import shlex
@@ -57,147 +56,101 @@ def _contains_removed_engine_param(unknown_args: List[str]) -> bool:
     return False
 
 
-@dataclass
-class _UserCliOverrideInput:
-    """保存可进入 user_cli 覆盖层的 CLI 参数快照。
-
-    这个对象只表达 CLI 收集层的输入形态,不做参数翻译、allowlist 过滤或 trace 合并。
-    字段名与 argparse dest 保持一致,便于新增 CLI 参数时集中维护。
-    """
-
-    host: str | None = None
-    port: int | None = None
-    model_path: str | None = None
-    model_name: str | None = None
-    max_num_seqs: int | None = None
-    max_num_batched_tokens: int | None = None
-    input_length: int | None = None
-    output_length: int | None = None
-    trust_remote_code: bool | None = None
-    enable_auto_think_choice: bool | None = None
-    enable_auto_tool_choice: bool | None = None
-    dtype: str | None = None
-    kv_cache_dtype: str | None = None
-    quantization: str | None = None
-    quantization_param_path: str | None = None
-    gpu_memory_utilization: float | None = None
-    block_size: int | None = None
-    seed: int | None = None
-    enable_chunked_prefill: bool | None = None
-    enable_prefix_caching: bool | None = None
-    enable_expert_parallel: bool | None = None
-
-
-def _build_user_cli_override_input(args: argparse.Namespace) -> _UserCliOverrideInput:
-    """从 argparse 结果构造 user_cli 覆盖参数输入对象。
-
-    Args:
-        args: argparse 解析后的命名空间。
-
-    Returns:
-        _UserCliOverrideInput 实例。只包含可能进入 user_cli 覆盖层的字段;
-        子系统兼容开关、定位参数和输出参数不放入该对象。
-    """
-    return _UserCliOverrideInput(
-        host=args.host,
-        port=args.port,
-        model_path=args.model_path,
-        model_name=args.model_name,
-        max_num_seqs=args.max_num_seqs,
-        max_num_batched_tokens=args.max_num_batched_tokens,
-        input_length=args.input_length,
-        output_length=args.output_length,
-        trust_remote_code=args.trust_remote_code,
-        enable_auto_think_choice=args.enable_auto_think_choice,
-        enable_auto_tool_choice=args.enable_auto_tool_choice,
-        dtype=args.dtype,
-        kv_cache_dtype=args.kv_cache_dtype,
-        quantization=args.quantization,
-        quantization_param_path=args.quantization_param_path,
-        gpu_memory_utilization=args.gpu_memory_utilization,
-        block_size=args.block_size,
-        seed=args.seed,
-        enable_chunked_prefill=args.enable_chunked_prefill,
-        enable_prefix_caching=args.enable_prefix_caching,
-        enable_expert_parallel=args.enable_expert_parallel,
-    )
-
-
-def _build_raw_user_cli_overrides(inputs: _UserCliOverrideInput) -> Dict[str, Any]:
+def _collect_user_cli_overrides(
+    host: str | None,
+    port: int | None,
+    model_path: str | None,
+    model_name: str | None = None,
+    max_num_seqs: int | None = None,
+    max_num_batched_tokens: int | None = None,
+    input_length: int | None = None,
+    output_length: int | None = None,
+    trust_remote_code: bool | None = None,
+    enable_auto_think_choice: bool | None = None,
+    enable_auto_tool_choice: bool | None = None,
+    dtype: str | None = None,
+    kv_cache_dtype: str | None = None,
+    quantization: str | None = None,
+    quantization_param_path: str | None = None,
+    gpu_memory_utilization: float | None = None,
+    block_size: int | None = None,
+    seed: int | None = None,
+    enable_chunked_prefill: bool | None = None,
+    enable_prefix_caching: bool | None = None,
+    enable_expert_parallel: bool | None = None,
+) -> Dict[str, Any]:
     """收集用户 CLI 覆盖层 dict。
 
-    来源: 具名参数/语法糖。
-
-    Args:
-        inputs: 从 argparse 结果提取出的 user_cli 覆盖参数快照。
-
+    来源: 具名参数/语法糖.
     Returns:
-        overrides dict,key 为 engine_config 的 canonical 参数名。
-        传给 resolve_config(..., user_cli_overrides=overrides) 作为最高优先级合并层。
+        overrides dict, key 为 engine_config 的 canonical 参数名.
+        传给 resolve_config(..., user_cli_overrides=overrides) 作为最高优先级合并层.
 
-    端口分流:用户传入的 --port 是 proxy 对外监听端口,写入 PORT 后由 proxy 使用;
-    engine argv 中的 port 是 engine/backend 容器内监听端口,来自 ENGINE_PORT 或默认 17000。
-    本函数只生成 engine_config 覆盖层,因此只读 ENGINE_PORT,不写 PORT。
+    端口转换:用户传的 --port 是 proxy 对外端口;引擎应监听 backend 端口(ENGINE_PORT/默认 17000)。
+    本函数**只读 env、不写 env**;proxy 端口写 env 的副作用在 main 中显式调用。
     """
     overrides: Dict[str, Any] = {}
-    if inputs.host is not None:
-        overrides["host"] = inputs.host
-    if inputs.port is not None:
-        # 用户 --port 给 proxy 对外监听;engine argv 里的 port 给 engine/backend 监听。
-        # 两者不能混用:engine/backend 端口由 ENGINE_PORT 指定,未指定时使用 DEFAULT_ENGINE_PORT。
+    if host is not None:
+        overrides["host"] = host
+    if port is not None:
+        # --port 有**两个去向**(别当 bug):用户 --port 是 **proxy 对外端口**,不是引擎端口。
+        #   ① 这里:engine 的 `port` 覆盖成 **backend 端口**(ENGINE_PORT / 默认 17000),它才进 argv。
+        #   ② 另一处:**proxy 对外端口**由 _export_proxy_port() 写入 env PORT(见该函数)。
+        # 所以用户传的端口值本身不进 argv,进 argv 的是 backend 端口。
         backend_port = int(os.environ.get("ENGINE_PORT", str(DEFAULT_ENGINE_PORT)))
         overrides["port"] = backend_port
-    if inputs.model_path is not None:
-        overrides["model_path"] = inputs.model_path
-    if inputs.model_name is not None:
-        overrides["model_name"] = inputs.model_name
-    if inputs.max_num_seqs is not None:
-        overrides["max_num_seqs"] = inputs.max_num_seqs
-    if inputs.max_num_batched_tokens is not None:
+    if model_path is not None:
+        overrides["model_path"] = model_path
+    if model_name is not None:
+        overrides["model_name"] = model_name
+    if max_num_seqs is not None:
+        overrides["max_num_seqs"] = max_num_seqs
+    if max_num_batched_tokens is not None:
         # 同名直通,由 user_cli 层覆盖 recipe。
-        overrides["max_num_batched_tokens"] = inputs.max_num_batched_tokens
-    if inputs.input_length is not None:
-        overrides["input_length"] = inputs.input_length
-    if inputs.output_length is not None:
-        overrides["output_length"] = inputs.output_length
+        overrides["max_num_batched_tokens"] = max_num_batched_tokens
+    if input_length is not None:
+        overrides["input_length"] = input_length
+    if output_length is not None:
+        overrides["output_length"] = output_length
     # 显式派生 max_model_len = input + output;input/output 原值不直接进 argv。
-    derived_mml = _derive_max_model_len(inputs.input_length, inputs.output_length)
+    derived_mml = _derive_max_model_len(input_length, output_length)
     if derived_mml is not None:
         overrides["max_model_len"] = derived_mml
-    if inputs.trust_remote_code is not None:
-        overrides["trust_remote_code"] = inputs.trust_remote_code
-    if inputs.enable_auto_think_choice is not None:
-        overrides["enable_auto_think_choice"] = inputs.enable_auto_think_choice
-    if inputs.enable_auto_tool_choice is not None:
-        overrides["enable_auto_tool_choice"] = inputs.enable_auto_tool_choice
-    if inputs.dtype is not None:
-        overrides["dtype"] = inputs.dtype
-    if inputs.kv_cache_dtype is not None:
-        overrides["kv_cache_dtype"] = inputs.kv_cache_dtype
-    if inputs.quantization is not None:
-        overrides["quantization"] = inputs.quantization
-    if inputs.quantization_param_path is not None:
-        overrides["quantization_param_path"] = inputs.quantization_param_path
-    if inputs.gpu_memory_utilization is not None:
-        overrides["gpu_memory_utilization"] = inputs.gpu_memory_utilization
-    if inputs.block_size is not None:
-        overrides["block_size"] = inputs.block_size
-    if inputs.seed is not None:
-        overrides["seed"] = inputs.seed
-    if inputs.enable_chunked_prefill is not None:
-        overrides["enable_chunked_prefill"] = inputs.enable_chunked_prefill
-    if inputs.enable_prefix_caching is not None:
-        overrides["enable_prefix_caching"] = inputs.enable_prefix_caching
-    if inputs.enable_expert_parallel is not None:
-        overrides["enable_expert_parallel"] = inputs.enable_expert_parallel
+    if trust_remote_code is not None:
+        overrides["trust_remote_code"] = trust_remote_code
+    if enable_auto_think_choice is not None:
+        overrides["enable_auto_think_choice"] = enable_auto_think_choice
+    if enable_auto_tool_choice is not None:
+        overrides["enable_auto_tool_choice"] = enable_auto_tool_choice
+    if dtype is not None:
+        overrides["dtype"] = dtype
+    if kv_cache_dtype is not None:
+        overrides["kv_cache_dtype"] = kv_cache_dtype
+    if quantization is not None:
+        overrides["quantization"] = quantization
+    if quantization_param_path is not None:
+        overrides["quantization_param_path"] = quantization_param_path
+    if gpu_memory_utilization is not None:
+        overrides["gpu_memory_utilization"] = gpu_memory_utilization
+    if block_size is not None:
+        overrides["block_size"] = block_size
+    if seed is not None:
+        overrides["seed"] = seed
+    if enable_chunked_prefill is not None:
+        overrides["enable_chunked_prefill"] = enable_chunked_prefill
+    if enable_prefix_caching is not None:
+        overrides["enable_prefix_caching"] = enable_prefix_caching
+    if enable_expert_parallel is not None:
+        overrides["enable_expert_parallel"] = enable_expert_parallel
 
     return overrides
 
 
 def _export_proxy_port(port: int | None) -> None:
-    """把用户 ``--port`` 写入 ``os.environ["PORT"]``,供 proxy 作为对外监听端口读取。
+    """把用户 ``--port``(对外/代理端口)写入 ``os.environ["PORT"]``,供 proxy 子系统读取。
 
-    engine/backend 容器内监听端口不走这里,由 ``ENGINE_PORT`` 或 ``DEFAULT_ENGINE_PORT`` 决定。
+    ⚠️ **有意的全局副作用**(sidecar 接缝:cli → env → proxy):独立成函数、由 main 显式调用。
+    引擎 backend 端口**不走这里**(见 ``_collect_user_cli_overrides`` / ENGINE_PORT)。
 
     Args:
         port: ``--port`` 值;None 时不写(保持 env 原样)。
@@ -240,16 +193,13 @@ def _derive_max_model_len(input_length: int | None, output_length: int | None) -
     if input_length <= 0 or output_length <= 0:
         logger.warning(
             "input_length=%s / output_length=%s 含非正值,跳过 max_model_len 派生",
-            input_length,
-            output_length,
+            input_length, output_length,
         )
         return None
     mml = input_length + output_length
     logger.info(
         "派生 max_model_len = input_length(%d) + output_length(%d) = %d(覆盖 recipe)",
-        input_length,
-        output_length,
-        mml,
+        input_length, output_length, mml,
     )
     return mml
 
@@ -358,7 +308,26 @@ def _resolve_model_name(model_name: str | None, model_path: str | None) -> str:
         name = Path(model_path).name  # basename;应匹配 recipe 的 name_pattern
         logger.info("未传 --model-name,从 --model-path 推导配方标识: %s", name)
         return name
-    raise ValueError("需要 --model-name 或 --model-path 以确定配方(MaaS 下发 --model-name 模型名称)")
+    raise ValueError(
+        "需要 --model-name 或 --model-path 以确定配方(MaaS 下发 --model-name 模型名称)"
+    )
+
+
+def _collect_subsystem_switches(args: argparse.Namespace) -> List[str]:
+    """提取已开启的子系统开关(仅记录,不进入引擎 argv)。
+
+    Args:
+        args: argparse 解析结果。
+
+    Returns:
+        已开启开关名列表(为空表示未开启)。
+    """
+    switches = (
+        ("enable_rag_acc", args.enable_rag_acc),
+        ("enable_smartqos", args.enable_smartqos),
+        ("enable_otlp_traces", args.enable_otlp_traces),
+    )
+    return [name for name, enabled in switches if enabled]
 
 
 def _parse_runtime_context_from_env() -> tuple[str | None, str | None, list[str] | None]:
@@ -402,7 +371,8 @@ def _print_multi_node_summary(engine: str, nodes: List[Any]) -> None:
         None。
     """
     print(
-        f"multi_node: {len(nodes)} 节点(占位,未注入;start_command.sh 为占位脚本,部署时各 Pod 携 RANK_IP/NODE_IPS 重跑)"
+        f"multi_node: {len(nodes)} 节点(占位,未注入;"
+        "start_command.sh 为占位脚本,部署时各 Pod 携 RANK_IP/NODE_IPS 重跑)"
     )
     for node in nodes:
         node_argv = build_argv(node.engine_config_traces, engine=engine)
@@ -452,163 +422,11 @@ def _validate_unknown_args(parser: argparse.ArgumentParser, unknown_args: List[s
         SystemExit: 参数不合法时通过 ``parser.error`` 退出。
     """
     if _contains_removed_engine_param(unknown_args):
-        parser.error("`--engine-param` 已移除; 需要裸透传请使用 direct_vllm_serve 逃生通道。")
+        parser.error(
+            "`--engine-param` 已移除; 需要裸透传请使用 direct_vllm_serve 逃生通道。"
+        )
     if unknown_args:
         parser.error(f"unrecognized arguments: {' '.join(unknown_args)}")
-
-
-def _warn_if_trust_remote_code_absent(args: argparse.Namespace) -> None:
-    """用户未显式开启 trust_remote_code 时输出 warn-only 提示。
-
-    Args:
-        args: argparse 解析后的命名空间。
-
-    Returns:
-        None。
-    """
-    if args.trust_remote_code:
-        return
-    logger.warning(
-        "未传 --trust-remote-code:引擎将不信任远程代码;若模型依赖 HuggingFace 自定义代码,请显式传 --trust-remote-code。"
-    )
-
-
-def _build_user_input(args: argparse.Namespace, engine: str) -> UserInput:
-    """构造传入 pipeline 的用户输入对象。
-
-    Args:
-        args: argparse 解析后的命名空间。
-        engine: 用于 CLI 参数翻译的引擎名。
-
-    Returns:
-        ``UserInput``。其中 ``cli_overrides`` 已经过 MaaS allowlist 和引擎参数名翻译;
-        ``feature_switches`` 仅包含已开启且由 feature_overlay 消费的开关。
-
-    Raises:
-        ValueError: 端口等输入值无法转换时抛出,由 CLI 层转成 parser.error。
-    """
-    override_input = _build_user_cli_override_input(args)
-    raw_user_cli_overrides = _build_raw_user_cli_overrides(override_input)
-    user_cli_overrides, user_cli_dropped = CLITranslator.translate_overrides(raw_user_cli_overrides, engine)
-    # 特性开关本身不直接渲染进 argv。这里只提取 ON 的开关,后续由
-    # feature_overlay 按 model.yaml features 生成实际参数。
-    feature_switches = {
-        key: raw_user_cli_overrides[key]
-        for key in ("enable_auto_tool_choice", "enable_auto_think_choice")
-        if raw_user_cli_overrides.get(key)
-    }
-    return UserInput(
-        cli_overrides=user_cli_overrides,
-        cli_dropped=user_cli_dropped,
-        feature_switches=feature_switches,
-    )
-
-
-def _build_target(args: argparse.Namespace, engine: str) -> Target:
-    """根据 CLI/env 推导 pipeline 解析目标。
-
-    Args:
-        args: argparse 解析后的命名空间。
-        engine: ``--engine`` / ``ENGINE`` 归一后的初始引擎名。
-
-    Returns:
-        ``Target``:包含模型名、拓扑和最终引擎名。
-
-    Raises:
-        ValueError: 分布式输入不完整或模型名无法推导。
-        NotImplementedError: PD 等未实现拓扑被选择。
-    """
-    # 大策略层:从 --distributed(CLI)+ PD_ROLE/NODE_IPS/MASTER_IP(env)推导 topology。
-    # 不读 yaml;resolve_config 只消费推导后的 topology。
-    resolved_engine, topology = pre_template_strategy(
-        engine,
-        distributed=args.distributed,
-        pd_role=os.environ.get("PD_ROLE"),
-        master_ip=os.environ.get("MASTER_IP"),
-    )
-    model_name = _resolve_model_name(args.model_name, args.model_path)
-    return Target(model_name=model_name, topology=topology, engine=resolved_engine)
-
-
-def _build_cluster_placement_from_env() -> ClusterPlacement | None:
-    """从运行时环境变量构造分布式集群寻址信息。
-
-    Returns:
-        ``ClusterPlacement`` 或 ``None``。三类 IP 全空时返回 None,表示单机或无运行时上下文。
-    """
-    rank_ip, master_ip, node_ips = _parse_runtime_context_from_env()
-    if not rank_ip and not node_ips and not master_ip:
-        return None
-    return ClusterPlacement(rank_ip=rank_ip, node_ips=node_ips, master_ip=master_ip)
-
-
-def _build_pipeline_request(args: argparse.Namespace) -> PipelineRequest:
-    """把 CLI/env 输入收拢成一次 pipeline 请求。
-
-    Args:
-        args: argparse 解析后的命名空间。
-
-    Returns:
-        ``PipelineRequest``。
-
-    Raises:
-        ValueError: 输入值非法或模型名无法推导。
-        NotImplementedError: 选择了当前未实现的拓扑。
-    """
-    engine = _resolve_engine(args.engine)
-    hardware_info_path = _resolve_hardware_info_path(args.hardware_info)
-    device_count = _resolve_device_count(args.device_count)
-    # --port 写入 PORT 给 proxy 对外监听;engine/backend 监听端口由 ENGINE_PORT/DEFAULT_ENGINE_PORT 决定。
-    _export_proxy_port(args.port)
-    user_input = _build_user_input(args, engine)
-    target = _build_target(args, engine)
-    placement = _build_cluster_placement_from_env()
-    return PipelineRequest(
-        target=target,
-        hardware_info_path=hardware_info_path,
-        config_root=args.config_root,
-        user_input=user_input,
-        device_count=device_count,
-        placement=placement,
-    )
-
-
-def _run_normal_mode(
-    parser: argparse.ArgumentParser,
-    request: PipelineRequest,
-    output_dir: Path | None,
-) -> None:
-    """执行正式运行分支:生成产物并打印摘要。
-
-    Args:
-        parser: CLI parser,用于把业务异常转成友好 CLI 错误。
-        request: pipeline 请求。
-        output_dir: ``--output-dir`` 传入值;None 时按默认输出目录规则解析。
-
-    Returns:
-        None。
-
-    Raises:
-        SystemExit: 通过 ``parser.error`` 触发。
-    """
-    try:
-        resolved, start_path, repro_path, audit_path = run_pipeline(request, output_dir=_resolve_output_dir(output_dir))
-    except (ValueError, FileNotFoundError, NotImplementedError) as exc:
-        # 配置缺失(硬件/engine 无资产)/ 未支持的 topology / 强校验失败 → 友好报错,不抛 traceback
-        parser.error(str(exc))
-        return
-
-    engine = request.target.engine
-    if resolved.nodes:
-        # multi_node 占位(无运行时上下文):顶层无扁平 argv,逐节点打印。
-        _print_multi_node_summary(engine, resolved.nodes)
-    else:
-        # accel 已并入 traces,不再 append。shlex.join 与 exec 行同款。
-        argv = build_argv(resolved.engine_config_traces, engine=engine)
-        print(f"argv: {shlex.join(argv)}")
-    print(f"start_command: {start_path}")
-    print(f"repro:         {repro_path}")
-    print(f"audit:         {audit_path}")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -629,8 +447,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Config assets root (default: auto-detect)",
     )
     parser.add_argument(
-        "--output-dir",
-        "-o",
+        "--output-dir", "-o",
         type=Path,
         default=None,
         help="Output directory for scripts and audit (default: /shared-volume if present, else cwd)",
@@ -684,8 +501,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--enable-chunked-prefill", action="store_true", default=None)
     parser.add_argument("--enable-prefix-caching", action="store_true", default=None)
     parser.add_argument("--enable-expert-parallel", action="store_true", default=None)
-    # 子系统开关保留为 CLI 兼容入口:允许 MaaS 下发,但当前 wings-control 主流程不消费。
-    # 它们不是 engine_config 参数,不进入引擎 argv。
+    # 子系统特性开关(rag / 优先级调度 / OTLP 追踪):当前仅接收留痕,业务逻辑由下游消费。
+    # 这些不是引擎参数,不进 vllm argv。
     parser.add_argument("--enable-rag-acc", action="store_true", default=None)
     parser.add_argument("--enable-smartqos", action="store_true", default=None)
     parser.add_argument("--enable-otlp-traces", action="store_true", default=None)
@@ -703,24 +520,132 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+
 def main() -> None:
     """CLI 入口函数。"""
     parser = _build_parser()
     args, unknown_args = parser.parse_known_args()
     _validate_unknown_args(parser, unknown_args)
-    _warn_if_trust_remote_code_absent(args)
+
+    # 子系统特性开关当前仅接收留痕,不进入引擎 argv。
+    _received_subsys_switches = _collect_subsystem_switches(args)
+    if _received_subsys_switches:
+        logger.info("已接收子系统特性开关(当前仅保存):%s", _received_subsys_switches)
+
+    # --trust-remote-code 未显式开启时给出告警,但不阻断启动。
+    if not args.trust_remote_code:
+        logger.warning(
+            "未传 --trust-remote-code:引擎将不信任远程代码;若模型依赖 HuggingFace 自定义代码,"
+            "请显式传 --trust-remote-code。"
+        )
 
     try:
-        request = _build_pipeline_request(args)
-    except (ValueError, NotImplementedError) as exc:
+        engine = _resolve_engine(args.engine)
+        hardware_info_path = _resolve_hardware_info_path(args.hardware_info)
+        device_count = _resolve_device_count(args.device_count)
+        # 显式副作用:把 --port(对外/代理端口)写入 env PORT,供 proxy 子系统读取(独立成步,不藏在参数收集里)。
+        _export_proxy_port(args.port)
+        raw_user_cli_overrides = _collect_user_cli_overrides(
+            host=args.host,
+            port=args.port,
+            model_path=args.model_path,
+            model_name=args.model_name,
+            max_num_seqs=args.max_num_seqs,
+            max_num_batched_tokens=args.max_num_batched_tokens,
+            input_length=args.input_length,
+            output_length=args.output_length,
+            trust_remote_code=args.trust_remote_code,
+            enable_auto_think_choice=args.enable_auto_think_choice,
+            enable_auto_tool_choice=args.enable_auto_tool_choice,
+            dtype=args.dtype,
+            kv_cache_dtype=args.kv_cache_dtype,
+            quantization=args.quantization,
+            quantization_param_path=args.quantization_param_path,
+            gpu_memory_utilization=args.gpu_memory_utilization,
+            block_size=args.block_size,
+            seed=args.seed,
+            enable_chunked_prefill=args.enable_chunked_prefill,
+            enable_prefix_caching=args.enable_prefix_caching,
+            enable_expert_parallel=args.enable_expert_parallel,
+        )
+        user_cli_overrides, user_cli_dropped = CLITranslator.translate_overrides(
+            raw_user_cli_overrides, engine
+        )
+        # 特性开关本身不直接渲染进 argv。
+        # 这里只提取为 ON 的开关,后续由 feature_overlay 按 model.yaml features 生成实际参数。
+        feature_switches = {
+            k: raw_user_cli_overrides[k]
+            for k in ("enable_auto_tool_choice", "enable_auto_think_choice")
+            if raw_user_cli_overrides.get(k)
+        }
+    except ValueError as exc:
         parser.error(str(exc))
         return
+
+    # 大策略层:从 --distributed(CLI)+ PD_ROLE/NODE_IPS/MASTER_IP(env)推导 topology。
+    # 不读 yaml;resolve_config 只消费推导后的 topology。
+    try:
+        engine, topology = pre_template_strategy(
+            engine,
+            distributed=args.distributed,
+            pd_role=os.environ.get("PD_ROLE"),
+            master_ip=os.environ.get("MASTER_IP"),
+        )
+    except (ValueError, NotImplementedError) as exc:
+        # 缺 MASTER_IP / PD 预留(未实现)等 → 友好报错,不抛 traceback
+        parser.error(str(exc))
+        return
+
+    # 配方标识:--model-name(模型名称)或从 --model-path basename 推导。
+    try:
+        model_name = _resolve_model_name(args.model_name, args.model_path)
+    except ValueError as exc:
+        parser.error(str(exc))
+        return
+
+    # 运行时上下文:multi_node 选本 Pod 节点 + 注入用。缺省时走占位视图。
+    rank_ip, master_ip, node_ips = _parse_runtime_context_from_env()
+
+    # 分布式集群寻址:三 IP 全空(单机 / 无运行时上下文)→ placement=None,单机路径一眼知无关分布式。
+    placement = None
+    if rank_ip or node_ips or master_ip:
+        placement = ClusterPlacement(rank_ip=rank_ip, node_ips=node_ips, master_ip=master_ip)
+    request = PipelineRequest(
+        target=Target(model_name=model_name, topology=topology, engine=engine),
+        hardware_info_path=hardware_info_path,
+        config_root=args.config_root,
+        user_input=UserInput(
+            cli_overrides=user_cli_overrides,
+            cli_dropped=user_cli_dropped,
+            feature_switches=feature_switches,
+        ),
+        device_count=device_count,
+        placement=placement,
+    )
 
     if args.dry_run:
         _run_dry_mode(parser, request)
         return
 
-    _run_normal_mode(parser, request, args.output_dir)
+    try:
+        resolved, start_path, repro_path, audit_path = run_pipeline(
+            request, output_dir=_resolve_output_dir(args.output_dir)
+        )
+    except (ValueError, FileNotFoundError, NotImplementedError) as exc:
+        # 配置缺失(硬件/engine 无资产)/ 未支持的 topology / 强校验失败 → 友好报错,不抛 traceback
+        parser.error(str(exc))
+        return
+
+    if resolved.nodes:
+        # multi_node 占位(无运行时上下文):顶层无扁平 argv,逐节点打印。
+        _print_multi_node_summary(engine, resolved.nodes)
+    else:
+        # accel 已并入 traces,不再 append。shlex.join 与 exec 行同款。
+        argv = build_argv(resolved.engine_config_traces, engine=engine)
+        print(f"argv: {shlex.join(argv)}")
+    print(f"start_command: {start_path}")
+    print(f"repro:         {repro_path}")
+    print(f"audit:         {audit_path}")
 
 
 if __name__ == "__main__":

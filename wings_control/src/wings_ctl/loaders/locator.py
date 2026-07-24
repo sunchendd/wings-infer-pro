@@ -172,20 +172,6 @@ def load_platform_config(
     return data, path
 
 
-def _default_model_first_sort_key(path: Path) -> Tuple[bool, str]:
-    """返回模型 yaml 文件排序键,使 default_model.yaml 排在同目录其它文件前。
-
-    Args:
-        path: 待排序的 yaml 文件路径。
-
-    Returns:
-        排序键。第一项 False 表示 default_model.yaml,会排在 True 前;
-        第二项按文件名排序,保证同目录扫描顺序稳定。
-    """
-    is_not_default_model = path.name != "default_model.yaml"
-    return is_not_default_model, path.name
-
-
 def load_model_config(
     config_root: Path,
     hardware_family: str,
@@ -245,7 +231,7 @@ def load_model_config(
         if not model_dir.is_dir() or model_dir.name == "default_model.yaml":
             continue
         yaml_files = sorted(model_dir.glob("*.yaml"))
-        yaml_files.sort(key=_default_model_first_sort_key)
+        yaml_files.sort(key=lambda p: (p.name != "default_model.yaml", p.name))
         for yaml_file in yaml_files:
             try:
                 data = load_yaml(yaml_file)

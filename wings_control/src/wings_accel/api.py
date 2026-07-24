@@ -23,6 +23,7 @@ def resolve_smart_accel_from_config(
     model_name: str,
     flags: Optional[LoadFlags] = None,
     config_root: Union[str, Path] = "",
+    gpu_count: int = 1,
 ) -> Optional[SmartAccelOutput]:
     """从入参与包内配置完成 SmartAccel 解析并返回输出。
 
@@ -48,4 +49,11 @@ def resolve_smart_accel_from_config(
     )
     if smart_input is None:
         return None
+    # hardware_family 是部署权威硬件(smart-accel YAML 常无 hardware_profile 块);覆盖 gpu_type,
+    # 使 SystemConfig.gpu_type 对齐部署硬件族(端口/协议现由 YAML 资产明文声明,不再据此派生)。
+    smart_input.hardware_config.gpu_type = hardware_family
+    # gpu_count(device_count)用于按卡均分容量(mooncake global_segment_size / memcache dram.size);
+    # smart-accel YAML 无 hardware_profile → 默认 1,需由调用方(apply_smart_accel 的 device_count)透传。
+    if gpu_count and gpu_count > 0:
+        smart_input.hardware_config.gpu_count = gpu_count
     return func_smart_accel(smart_input)
