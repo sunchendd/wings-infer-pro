@@ -1,0 +1,19 @@
+# SmartAccel 加速配置(decoding=eagle3 [model_based])
+# 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
+# 由 features.spec_decoding 自动生成;仅 decoding,无 kv_offload/sparse。
+model:
+  name: GPT-OSS
+  variant_name: "gpt-oss-120b-mxfp4"
+  match:
+    - name_pattern: "(?i)gpt[-.]?oss"
+smart_accel:
+  decoding:
+    - name: eagle3
+      requires_model_path: true
+      cli_params:
+        speculative_config:
+          method: eagle3
+          model: $path
+          num_speculative_tokens: 7
+          draft_tensor_parallel_size: 1
+      envs: {}

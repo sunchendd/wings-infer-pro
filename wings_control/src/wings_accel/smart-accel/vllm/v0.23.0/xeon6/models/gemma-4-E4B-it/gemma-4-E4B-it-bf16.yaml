@@ -1,0 +1,17 @@
+# SmartAccel 加速配置(decoding=draft_model [model_based])
+# 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
+# 由 features.spec_decoding 自动生成;仅 decoding,无 kv_offload/sparse。
+model:
+  name: Gemma 4 E4B IT
+  variant_name: "gemma-4-E4B-it-bf16"
+  match:
+    - name_pattern: "(?i)gemma[-.]?4[-.]?e4b[-.]?it"
+smart_accel:
+  decoding:
+    - name: draft_model
+      requires_model_path: true
+      cli_params:
+        speculative_config:
+          model: $path
+          num_speculative_tokens: 4
+      envs: {}

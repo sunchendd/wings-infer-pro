@@ -1,0 +1,18 @@
+# SmartAccel 加速配置(decoding=qwen3_5_mtp)
+# 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
+# 由 features.spec_decoding 自动生成;仅 decoding,无 kv_offload/sparse。
+model:
+  name: Qwen3.6-35B-A3B
+  variant_name: "Qwen3.6-35B-A3B-w8a8"
+  match:
+    - name_pattern: "(?i)qwen3.6[-.]?35b[-.]?a3b"
+smart_accel:
+  decoding:
+    - name: qwen3_5_mtp
+      cli_params:
+        speculative_config:
+          method: qwen3_5_mtp
+          num_speculative_tokens: 3
+          enforce_eager: true
+          moe_backend: triton
+      envs: {}

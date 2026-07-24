@@ -66,7 +66,7 @@ smart_accel:
             model: $path
             num_speculative_tokens: 4
         envs: {}
-      # [model_based] eagle3 — Kimi K2.x 系列;附带顶层 --enforce-eager(bool 裸 flag)
+      # [model_based] eagle3 — Kimi K2.x 系列;enforce_eager 进 speculative_config JSON
       - name: eagle3
         requires_model_path: true
         cli_params:
@@ -74,7 +74,7 @@ smart_accel:
             method: eagle3
             model: $path
             num_speculative_tokens: 3
-          enforce_eager: true            # bool true -> --enforce-eager(顶层 flag,不进 speculative JSON)
+            enforce_eager: true          # bool true -> 进 speculative_config JSON
         envs:
           EARS_TOLERANCE: "0.3"
       # [no_model] MTP — DeepSeek/Qwen/Step 系列
@@ -171,6 +171,93 @@ smart_accel:
     #           cpu_bytes_to_use: "{mem_gb_to_bytes}"   # GiB → 字节(如 40 GiB → 42949672960)
     #     envs:
     #       KV_OFFLOAD_CPU_ONLY: "1"
+  
+    # ─ mooncake:KV 内存卸载的一种方法(AscendStoreConnector + backend:mooncake,与 cpu 同级)。
+    #   选中:本 scheme 是 yaml 声明的内存工具(走 _render_kv_store_scheme),
+    #   backend 命中即蕴含 memory_on。理论支持 cpu / disk / cpu_disk(内存+磁盘都能卸)。
+    #   master 起 mooncake_master。
+    #   files 内联 content(v2.1 首选写法)+ 框架自动合成 pre_serve(资产零 shell):
+    #     mooncake.json(scope=all,每节点 local_hostname 不同 → 运行时 envsubst 展开 ${RANK_IP});
+    #     start_kv_serve.sh(daemon,仅 master:bash <path> &,不监听端口)。
+    #   派生大小用 {= expr} 就地算:global_segment_size = memory_capacity_gb // gpu_count。
+    - name: mooncake
+      cli_params:
+        kv_transfer_config:
+          kv_connector: AscendStoreConnector
+          kv_role: kv_both
+          kv_load_failure_policy: recompute
+          kv_connector_extra_config:
+            lookup_rpc_port: "1"
+            backend: mooncake
+      envs:
+        MOONCAKE_CONFIG_PATH: /shared-volume/mooncake.json
+        LD_LIBRARY_PATH: "/usr/local/lib:${LD_LIBRARY_PATH:-}"   # mooncake 必加(加载 ascend_transport.so;memcache 不加)
+      files:
+        - path: mooncake.json
+          mode: "0755"
+          scope: all
+          content: |
+            {
+              "local_hostname": "{rank_ip}",
+              "metadata_server": "P2PHANDSHAKE",
+              "protocol": "ascend",
+              "device_name": "",
+              "master_server_address": "{master_ip}:50088",
+              "global_segment_size": "{= memory_capacity_gb // gpu_count}GB",
+              "preferred_segment": false,
+              "prefer_alloc_in_same_node": true
+            }
+        - path: start_kv_serve.sh
+          mode: "0755"
+          scope: master
+          content: |
+            #!/usr/bin/env bash
+            # mooncake_master daemon(仅 master 起;framework 自动 bash <path> &)。
+            mooncake_master --port 50088 \
+                --eviction_high_watermark_ratio 0.9 \
+                --eviction_ratio 0.1 \
+                --default_kv_lease_ttl 11000
+
+    # ─ memcache:KV 内存卸载的一种方法(AscendStoreConnector + backend:memcache,与 cpu 同级;纯内存,cpu/cpu_disk)。
+    #   选中:本 scheme 是 yaml 声明的内存工具(磁盘组合由 YAML 负责)。files:mmc_local.conf(所有节点)/ mmc_meta.conf(仅 master)/
+    #   start_kv_serve.sh(daemon,仅 master 起 MetaService)。dram.size 用 {= expr} 就地算;
+    #   protocol device_rdma、端口 15000/16000 全字面量(本 fixture 默示 ascend-a2 形态)。
+    - name: memcache
+      cli_params:
+        kv_transfer_config:
+          kv_connector: AscendStoreConnector
+          kv_role: kv_both
+          kv_load_failure_policy: recompute
+          kv_connector_extra_config:
+            lookup_rpc_port: "0"
+            backend: memcache
+      envs:
+        MMC_META_CONFIG_PATH: /shared-volume/mmc_meta.conf
+        MMC_LOCAL_CONFIG_PATH: /shared-volume/mmc_local.conf
+      files:
+        - path: mmc_local.conf
+          mode: "0755"
+          scope: all
+          content: |
+            ock.mmc.meta_service_url = tcp://{master_ip}:15000
+            ock.mmc.local_service.config_store_url = tcp://{rank_ip}:16000
+            ock.mmc.log_level = info
+            ock.mmc.local_service.world_size = 256
+            ock.mmc.local_service.protocol = device_rdma
+            ock.mmc.local_service.dram.size = {= memory_capacity_gb // gpu_count}GB
+        - path: mmc_meta.conf
+          mode: "0755"
+          scope: master
+          content: |
+            ock.mmc.meta_service_url = tcp://{master_ip}:15000
+            ock.mmc.meta_service.config_store_url = tcp://{rank_ip}:16000
+            ock.mmc.log_level = info
+        - path: start_kv_serve.sh
+          mode: "0755"
+          content: |
+            #!/usr/bin/env bash
+            # MetaService daemon(仅 master 起;framework 自动 bash <path> &)。
+            python -c "from memcache_hybrid import MetaService; MetaService.main()"
 
     # ─ disk:纯磁盘卸载,lmcache(LMCacheConnectorV1),仅 disk tier。
     #   需 lmcache 包 + lmcache_config.yaml(yaml 为容量真相源;env/cli 为补充)。
@@ -191,6 +278,7 @@ smart_accel:
         LMCACHE_MAX_LOCAL_DISK_SIZE: "{disk_capacity_gb}"
       files:                              # 通用写文件:写至 SHARED_VOLUME_PATH/<name>(任意文本 + 占位符)
         - name: lmcache_config.yaml
+          mode: "0755"
           content: |
             chunk_size: 256               # yaml 暴露配置,默认 256(MaaS 不传)
             local_disk: {disk_path}
@@ -226,6 +314,7 @@ smart_accel:
         LMCACHE_MAX_LOCAL_DISK_SIZE: "{disk_capacity_gb}"
       files:
         - name: lmcache_config.yaml
+          mode: "0755"
           content: |
             chunk_size: 256
             local_cpu: true
@@ -240,6 +329,7 @@ smart_accel:
                   instance_num: {qat_device_count}
                   loss_level: {qat_compression_level}
                   log_enabled: 1
+
 
   # ────────────────────────────────────────────
   # CustomFeatures:与三大特性正交的自由启动参数;仅在 decoding/kv/sparse 至少一项产出时启用。

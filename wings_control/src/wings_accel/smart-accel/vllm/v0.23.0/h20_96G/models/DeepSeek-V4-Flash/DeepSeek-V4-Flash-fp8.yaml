@@ -1,0 +1,37 @@
+# SmartAccel 加速配置(h20:decoding=mtp / sparse / kv_offload=cpu)
+# 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
+model:
+  name: DeepSeek-V4-Flash
+  variant_name: "DeepSeek-V4-Flash-fp8"
+  match:
+    - name_pattern: "(?i)deepseek[-.]?v4[-.]?flash"
+smart_accel:
+  decoding:
+    - name: mtp
+      cli_params:
+        speculative_config:
+          method: mtp
+          num_speculative_tokens: 1
+      envs: {}
+  sparse:
+    - name: performance_first
+      cli_params:
+        hf_overrides:
+          use_index_cache: true
+          index_topk_freq: 4
+      envs: {}
+    - name: accuracy_first
+      cli_params:
+        hf_overrides:
+          use_index_cache: true
+          index_topk_freq: 8
+      envs: {}
+  kv_offload:
+    - name: cpu
+      cli_params:
+        kv_transfer_config:
+          kv_connector: OffloadingConnector
+          kv_role: kv_both
+          kv_connector_extra_config:
+            cpu_bytes_to_use: "{mem_gb_to_bytes}"
+      envs: {}

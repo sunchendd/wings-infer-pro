@@ -1,0 +1,16 @@
+# SmartAccel 加速配置(decoding=mtp)
+# 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
+# 由 features.spec_decoding 自动生成;仅 decoding,无 kv_offload/sparse。
+model:
+  name: Qwen3.5-9B
+  variant_name: "Qwen3.5-9B-bf16"
+  match:
+    - name_pattern: "(?i)qwen3.5[-.]?9b"
+smart_accel:
+  decoding:
+    - name: mtp
+      cli_params:
+        speculative_config:
+          method: mtp
+          num_speculative_tokens: 1
+      envs: {}

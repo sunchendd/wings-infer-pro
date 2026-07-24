@@ -1,0 +1,46 @@
+# SmartAccel 加速配置(decoding=mtp / sparse / kv_offload=lmcache)
+# 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
+# 0day 验证补:sparse(indexcache perf=4/acc=8) + lmcache-ascend 卸载。
+model:
+  name: DeepSeek-V4-Flash
+  variant_name: "DeepSeek-V4-Flash-w8a8-mtp"
+  match:
+    - name_pattern: "(?i)deepseek[-.]?v4[-.]?flash"
+smart_accel:
+  decoding:
+    - name: mtp
+      cli_params:
+        speculative_config:
+          method: mtp
+          num_speculative_tokens: 1
+      envs: {}
+  sparse:
+    - name: performance_first
+      cli_params:
+        hf_overrides:
+          use_index_cache: true
+          index_topk_freq: 4
+      envs: {}
+    - name: accuracy_first
+      cli_params:
+        hf_overrides:
+          use_index_cache: true
+          index_topk_freq: 8
+      envs: {}
+  kv_offload:
+    - name: lmcache
+      cli_params:
+        kv_transfer_config:
+          kv_connector: LMCacheAscendConnectorV1Dynamic
+          kv_role: kv_both
+          kv_connector_module_path: lmcache_ascend.integration.vllm.lmcache_ascend_connector_v1
+      envs:
+        LMCACHE_TRACK_USAGE: "false"
+        LMCACHE_LOCAL_CPU: "True"
+        LMCACHE_MAX_LOCAL_CPU_SIZE: "40"
+        LMCACHE_LOG_LEVEL: "INFO"
+        LMCACHE_USE_LAYERWISE: "False"
+        LMCACHE_NUMA_MODE: "auto"
+        LMCACHE_CHUNK_SIZE: "1024"
+        LMCACHE_EXTRA_CONFIG: '{"save_only_first_rank": false}'
+        LMCACHE_LOOKUP_SERVER_WORKER_IDS: "0,1,2,3"
