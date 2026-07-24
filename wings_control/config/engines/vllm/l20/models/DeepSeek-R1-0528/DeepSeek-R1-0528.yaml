@@ -1,0 +1,56 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_deepseek-r1-0528_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://huggingface.co/deepseek-ai/DeepSeek-R1-0528"
+    date_updated: 2026-07-24
+    note: 用户提供 vLLM OpenAI API Server 启动命令，手工录入。
+
+# 模型基本信息
+model:
+  name: DeepSeek-R1-0528  # 模型名称
+  slug: deepseek-r1-0528  # 模型标识
+  provider: DeepSeek  # 提供者/厂商
+  description: "DeepSeek-R1 0528 版本 MoE 推理模型。"  # 模型描述
+  model_id: deepseek-ai/DeepSeek-R1-0528  # HuggingFace 模型 ID
+  architecture: moe  # 模型架构（dense/moe）
+  parameter_count: 671B
+  active_parameters: 37B
+  context_length: 163840
+  vram_minimum_gb: 384  # 最低显存需求(GB)
+  tasks: [text]  # 支持的任务类型
+  min_engine_version: "0.23.0"  # 最低引擎版本要求
+  date_updated: 2026-07-24  # 录入日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)DeepSeek[-.]?R1[-.]?0528"
+  variant_name: DeepSeek-R1-0528  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8  # 单节点 GPU 数量
+  vram_gb: 384  # 单节点总显存(GB)（8 × 48GB）
+  multi_node: false  # 仅支持单节点
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_deepseek-r1-0528_manual#single_node_tep"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tep:
+        display_name: Tensor + Expert Parallel
+        orientation: balanced
+        default_strategy: true
+        engine_config:
+          model: deepseek-ai/DeepSeek-R1-0528
+          trust_remote_code: true
+          max_model_len: 4096
+          enable_expert_parallel: true
+          host: 0.0.0.0
+          port: 17000
+          tensor_parallel_size: 8
+        env: {}
