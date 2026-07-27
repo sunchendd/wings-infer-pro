@@ -1,0 +1,55 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_deepseek-coder-v2-instruct_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://huggingface.co/deepseek-ai/DeepSeek-Coder-V2-Instruct"
+    date_updated: 2026-07-24
+    note: 用户提供 vLLM OpenAI API Server 启动命令，手工录入。
+
+# 模型基本信息
+model:
+  name: DeepSeek-Coder-V2-Instruct  # 模型名称
+  slug: deepseek-coder-v2-instruct  # 模型标识
+  provider: DeepSeek  # 提供者/厂商
+  description: "DeepSeek Coder V2 Instruct MoE 代码与通用指令模型。"  # 模型描述
+  model_id: deepseek-ai/DeepSeek-Coder-V2-Instruct  # HuggingFace 模型 ID
+  architecture: moe  # 模型架构（dense/moe）
+  parameter_count: 236B
+  active_parameters: 21B
+  context_length: 128000
+  vram_minimum_gb: 192  # 最低显存需求(GB)
+  tasks: [text]  # 支持的任务类型
+  min_engine_version: "0.23.0"  # 最低引擎版本要求
+  date_updated: 2026-07-24  # 录入日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)DeepSeek[-.]?Coder[-.]?V2[-.]?Instruct"
+  variant_name: DeepSeek-Coder-V2-Instruct  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 4  # 单节点 GPU 数量
+  vram_gb: 192  # 单节点总显存(GB)（4 × 48GB）
+  multi_node: false  # 仅支持单节点
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_deepseek-coder-v2-instruct_manual#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: deepseek-ai/DeepSeek-Coder-V2-Instruct
+          trust_remote_code: true
+          max_model_len: 4096
+          host: 0.0.0.0
+          port: 17000
+          tensor_parallel_size: 4
+        env: {}

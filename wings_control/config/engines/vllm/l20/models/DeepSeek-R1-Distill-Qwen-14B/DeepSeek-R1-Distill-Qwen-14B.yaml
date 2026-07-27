@@ -1,0 +1,55 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_deepseek-r1-distill-qwen-14b_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"
+    date_updated: 2026-07-24
+    note: 用户提供 vLLM OpenAI API Server 启动命令，手工录入。
+
+# 模型基本信息
+model:
+  name: DeepSeek-R1-Distill-Qwen-14B  # 模型名称
+  slug: deepseek-r1-distill-qwen-14b  # 模型标识
+  provider: DeepSeek  # 提供者/厂商
+  description: "DeepSeek-R1 蒸馏到 Qwen 14B 的 dense 推理模型。"  # 模型描述
+  model_id: deepseek-ai/DeepSeek-R1-Distill-Qwen-14B  # HuggingFace 模型 ID
+  architecture: dense  # 模型架构（dense/moe）
+  parameter_count: 14B
+  active_parameters: 14B
+  context_length: null  # 待补充：最大上下文长度
+  vram_minimum_gb: 48  # 最低显存需求(GB)
+  tasks: [text]  # 支持的任务类型
+  min_engine_version: "0.23.0"  # 最低引擎版本要求
+  date_updated: 2026-07-24  # 录入日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)DeepSeek[-.]?R1[-.]?Distill[-.]?Qwen[-.]?14B"
+  variant_name: DeepSeek-R1-Distill-Qwen-14B  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 1  # 单节点 GPU 数量
+  vram_gb: 48  # 单节点总显存(GB)（1 × 48GB）
+  multi_node: false  # 仅支持单节点
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_deepseek-r1-distill-qwen-14b_manual#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: deepseek-ai/DeepSeek-R1-Distill-Qwen-14B
+          trust_remote_code: true
+          max_model_len: 4096
+          host: 0.0.0.0
+          port: 17000
+          tensor_parallel_size: 1
+        env: {}
