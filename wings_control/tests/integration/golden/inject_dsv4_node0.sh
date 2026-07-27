@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ─── runtime commands (inline; source: <CONFIG>/engines/vllm-ascend/v0.18.0/ascend-a3/models/DeepSeek-V4-Pro/DeepSeek-V4-Pro.yaml @ scenarios.multi_node.strategies.multi_node.nodes[0].system_setup) ───
+# ─── runtime commands (inline; source: <CONFIG>/engines/vllm-ascend/v0.18.0/ascend-a3/models/DeepSeek-V4-Pro/DeepSeek-V4-Pro.yaml @ scenarios.multi_node.strategies.multi_node.head.system_setup) ───
 nic_name=$(awk '$2=="00000000"{print $1;exit}' /proc/net/route 2>/dev/null || echo eth0)
 
 export HCCL_OP_EXPANSION_MODE=AIV
@@ -20,7 +20,7 @@ export USE_MULTI_BLOCK_POOL=1
 export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
 export VLLM_ASCEND_ENABLE_FUSED_MC2=1
 
-# ─── System Setup (source: <CONFIG>/engines/vllm-ascend/v0.18.0/ascend-a3/models/DeepSeek-V4-Pro/DeepSeek-V4-Pro.yaml @ scenarios.multi_node.strategies.multi_node.nodes[0].system_setup) ───
+# ─── System Setup (source: <CONFIG>/engines/vllm-ascend/v0.18.0/ascend-a3/models/DeepSeek-V4-Pro/DeepSeek-V4-Pro.yaml @ scenarios.multi_node.strategies.multi_node.head.system_setup) ───
 # sysctls:
 #   sysctl -w vm.swappiness=0
 #   sysctl -w kernel.numa_balancing=0

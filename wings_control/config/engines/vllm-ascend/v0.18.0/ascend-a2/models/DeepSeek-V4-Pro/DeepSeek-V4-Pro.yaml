@@ -49,128 +49,127 @@ scenarios:
       multi_node:
         display_name: Multi-Node
         default_strategy: true
-        nodes:
-          - role: head
-            engine_config:
-              model: /root/.cache/modelscope/hub/models/vllm-ascend/DeepSeek-V4-Pro-w4a8-mtp
-              host: "0.0.0.0"
-              port: 10010
-              max_model_len: 133072
-              max_num_batched_tokens: 4096
-              served_model_name: dsv4
-              gpu_memory_utilization: 0.9
-              max_num_seqs: 4
-              data_parallel_size: 4
-              tensor_parallel_size: 8
-              data_parallel_size_local: 1
-              data_parallel_start_rank: 0
-              data_parallel_address: $node0_ip
-              enable_expert_parallel: true
-              quantization: ascend
-              enable_chunked_prefill: true
-              enable_prefix_caching: true
-              async_scheduling: true
-              safetensors_load_strategy: prefetch
-              profiler_config:
-                profiler: torch
-                torch_profiler_dir: /path
-                torch_profiler_with_stack: false
-              additional_config:
-                ascend_compilation_config:
-                  enable_npugraph_ex: true
-                  enable_static_kernel: false
-                enable_cpu_binding: "True"
-              compilation_config:
-                cudagraph_mode: FULL_DECODE_ONLY
-            env:
-              HCCL_IF_IP: $local_ip
-              IFNAME: xxx
-              GLOO_SOCKET_IFNAME: $IFNAME
-              TP_SOCKET_IFNAME: $IFNAME
-              HCCL_SOCKET_IFNAME: $IFNAME
-              HCCL_BUFFSIZE: 512
-              ASCEND_RT_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
-              OMP_PROC_BIND: "false"
-              OMP_NUM_THREADS: 10
-              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
-              ACL_OP_INIT_MODE: 1
-              VLLM_ENGINE_READY_TIMEOUT_S: 3600
-              HCCL_OP_EXPANSION_MODE: AIV
-              USE_MULTI_BLOCK_POOL: 1
-              USE_MULTI_GROUPS_KV_CACHE: 1
-              TASK_QUEUE_ENABLE: 1
-              VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
-              LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
-            system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
-              sysctls:
-                vm.swappiness: 0
-                kernel.numa_balancing: 0
-                kernel.sched_migration_cost_ns: 50000
-              sysfs_writes:
-                - path: "/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
-                  value: performance
-              commands: ["local_ip=\"xxx\"", "node0_ip=\"xxxx\""]
-          - role: worker
-            engine_config:
-              model: /root/.cache/modelscope/hub/models/vllm-ascend/DeepSeek-V4-Pro-w4a8-mtp
-              host: "0.0.0.0"
-              port: 10010
-              headless: true
-              max_model_len: 133072
-              max_num_batched_tokens: 4096
-              served_model_name: dsv4
-              gpu_memory_utilization: 0.9
-              max_num_seqs: 4
-              data_parallel_size: 4
-              tensor_parallel_size: 8
-              data_parallel_size_local: 1
-              data_parallel_start_rank: $data_parallel_start_rank
-              data_parallel_address: $node0_ip
-              enable_expert_parallel: true
-              quantization: ascend
-              enable_chunked_prefill: true
-              enable_prefix_caching: true
-              async_scheduling: true
-              safetensors_load_strategy: prefetch
-              profiler_config:
-                profiler: torch
-                torch_profiler_dir: /path
-                torch_profiler_with_stack: false
-              additional_config:
-                ascend_compilation_config:
-                  enable_npugraph_ex: true
-                  enable_static_kernel: false
-                enable_cpu_binding: "True"
-              compilation_config:
-                cudagraph_mode: FULL_DECODE_ONLY
-            env:
-              HCCL_IF_IP: $local_ip
-              IFNAME: xxx
-              GLOO_SOCKET_IFNAME: $IFNAME
-              TP_SOCKET_IFNAME: $IFNAME
-              HCCL_SOCKET_IFNAME: $IFNAME
-              HCCL_BUFFSIZE: 512
-              ASCEND_RT_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
-              OMP_PROC_BIND: "false"
-              OMP_NUM_THREADS: 10
-              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
-              ACL_OP_INIT_MODE: 1
-              VLLM_ENGINE_READY_TIMEOUT_S: 3600
-              HCCL_OP_EXPANSION_MODE: AIV
-              USE_MULTI_BLOCK_POOL: 1
-              USE_MULTI_GROUPS_KV_CACHE: 1
-              TASK_QUEUE_ENABLE: 1
-              VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
-              LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
-            system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
-              sysctls:
-                vm.swappiness: 0
-                kernel.numa_balancing: 0
-                kernel.sched_migration_cost_ns: 50000
-              sysfs_writes:
-                - path: "/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
-                  value: performance
-              commands: ["local_ip=\"xxx\"", "node0_ip=\"xxxx\"", data_parallel_start_rank=xxx]
+        head:
+          engine_config:
+            model: /root/.cache/modelscope/hub/models/vllm-ascend/DeepSeek-V4-Pro-w4a8-mtp
+            host: "0.0.0.0"
+            port: 10010
+            max_model_len: 133072
+            max_num_batched_tokens: 4096
+            served_model_name: dsv4
+            gpu_memory_utilization: 0.9
+            max_num_seqs: 4
+            data_parallel_size: 4
+            tensor_parallel_size: 8
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 0
+            data_parallel_address: $node0_ip
+            enable_expert_parallel: true
+            quantization: ascend
+            enable_chunked_prefill: true
+            enable_prefix_caching: true
+            async_scheduling: true
+            safetensors_load_strategy: prefetch
+            profiler_config:
+              profiler: torch
+              torch_profiler_dir: /path
+              torch_profiler_with_stack: false
+            additional_config:
+              ascend_compilation_config:
+                enable_npugraph_ex: true
+                enable_static_kernel: false
+              enable_cpu_binding: "True"
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+          env:
+            HCCL_IF_IP: $local_ip
+            IFNAME: xxx
+            GLOO_SOCKET_IFNAME: $IFNAME
+            TP_SOCKET_IFNAME: $IFNAME
+            HCCL_SOCKET_IFNAME: $IFNAME
+            HCCL_BUFFSIZE: 512
+            ASCEND_RT_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
+            OMP_PROC_BIND: "false"
+            OMP_NUM_THREADS: 10
+            PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+            ACL_OP_INIT_MODE: 1
+            VLLM_ENGINE_READY_TIMEOUT_S: 3600
+            HCCL_OP_EXPANSION_MODE: AIV
+            USE_MULTI_BLOCK_POOL: 1
+            USE_MULTI_GROUPS_KV_CACHE: 1
+            TASK_QUEUE_ENABLE: 1
+            VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
+            LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+          system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+            sysctls:
+              vm.swappiness: 0
+              kernel.numa_balancing: 0
+              kernel.sched_migration_cost_ns: 50000
+            sysfs_writes:
+              - path: "/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
+                value: performance
+            commands: ["local_ip=\"xxx\"", "node0_ip=\"xxxx\""]
+        worker:
+          engine_config:
+            model: /root/.cache/modelscope/hub/models/vllm-ascend/DeepSeek-V4-Pro-w4a8-mtp
+            host: "0.0.0.0"
+            port: 10010
+            headless: true
+            max_model_len: 133072
+            max_num_batched_tokens: 4096
+            served_model_name: dsv4
+            gpu_memory_utilization: 0.9
+            max_num_seqs: 4
+            data_parallel_size: 4
+            tensor_parallel_size: 8
+            data_parallel_size_local: 1
+            data_parallel_start_rank: $data_parallel_start_rank
+            data_parallel_address: $node0_ip
+            enable_expert_parallel: true
+            quantization: ascend
+            enable_chunked_prefill: true
+            enable_prefix_caching: true
+            async_scheduling: true
+            safetensors_load_strategy: prefetch
+            profiler_config:
+              profiler: torch
+              torch_profiler_dir: /path
+              torch_profiler_with_stack: false
+            additional_config:
+              ascend_compilation_config:
+                enable_npugraph_ex: true
+                enable_static_kernel: false
+              enable_cpu_binding: "True"
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+          env:
+            HCCL_IF_IP: $local_ip
+            IFNAME: xxx
+            GLOO_SOCKET_IFNAME: $IFNAME
+            TP_SOCKET_IFNAME: $IFNAME
+            HCCL_SOCKET_IFNAME: $IFNAME
+            HCCL_BUFFSIZE: 512
+            ASCEND_RT_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
+            OMP_PROC_BIND: "false"
+            OMP_NUM_THREADS: 10
+            PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+            ACL_OP_INIT_MODE: 1
+            VLLM_ENGINE_READY_TIMEOUT_S: 3600
+            HCCL_OP_EXPANSION_MODE: AIV
+            USE_MULTI_BLOCK_POOL: 1
+            USE_MULTI_GROUPS_KV_CACHE: 1
+            TASK_QUEUE_ENABLE: 1
+            VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
+            LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+          system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+            sysctls:
+              vm.swappiness: 0
+              kernel.numa_balancing: 0
+              kernel.sched_migration_cost_ns: 50000
+            sysfs_writes:
+              - path: "/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
+                value: performance
+            commands: ["local_ip=\"xxx\"", "node0_ip=\"xxxx\"", data_parallel_start_rank=xxx]
   pd_disaggregation:
     source_ref: "vllm_ascend_deepseek-v4-pro#pd_cluster"
     match:

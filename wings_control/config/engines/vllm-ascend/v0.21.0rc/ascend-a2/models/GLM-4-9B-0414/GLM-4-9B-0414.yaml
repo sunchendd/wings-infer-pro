@@ -1,0 +1,65 @@
+upstream_sources:
+  - id: vllm_ascend_glm-4-9b-0414_manual
+    kind: manual
+    repo: null
+    file: null
+    url: https://huggingface.co/ZhipuAI/GLM-4-9B-0414
+    date_updated: "2026-07-27"
+    note: User-provided vLLM-Ascend OpenAI API server command.
+
+model:
+  name: GLM-4-9B-0414
+  slug: glm-4-9b-0414
+  provider: ZhipuAI
+  description: GLM-4 9B dense language model checkpoint released by ZhipuAI.
+  model_id: ZhipuAI/GLM-4-9B-0414
+  model_path: null
+  architecture: dense
+  parameter_count: 9B
+  active_parameters: 9B
+  context_length: 4096
+  vram_minimum_gb: 512
+  tasks:
+    - text
+  min_engine_version: v0.21.0rc1
+  match:
+    - name_pattern: (?i)glm[-.]?4[-.]?9b[-.]?0414
+  variant_name: GLM-4-9B-0414
+
+hardware_profile:
+  name: ascend-a2
+  display_name: Ascend A2
+  gpu_count: 8
+  vram_gb: 512
+  multi_node: true
+
+features:
+  tool_calling:
+    description: Hermes tool-call parser.
+    args:
+      - --tool-call-parser
+      - hermes
+
+scenarios:
+  standalone:
+    source_ref: vllm_ascend_glm-4-9b-0414_manual#single_node
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        description: Single-node OpenAI-compatible API server.
+        default_strategy: true
+        engine_config:
+          model: ZhipuAI/GLM-4-9B-0414
+          served_model_name: GLM-4-9B-0414
+          trust_remote_code: true
+          dtype: bfloat16
+          max_model_len: 4096
+          tensor_parallel_size: 1
+          gpu_memory_utilization: 0.9
+          enforce_eager: true
+          host: "0.0.0.0"
+          port: 17000
+        env: {}

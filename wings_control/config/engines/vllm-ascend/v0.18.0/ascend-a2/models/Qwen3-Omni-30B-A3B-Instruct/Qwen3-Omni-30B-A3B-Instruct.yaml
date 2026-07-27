@@ -1,0 +1,59 @@
+upstream_sources:
+  - id: vllm_ascend_qwen3-omni-30b-a3b-instruct_manual
+    kind: manual
+    repo: null
+    file: null
+    url: https://huggingface.co/Qwen/Qwen3-Omni-30B-A3B-Instruct
+    date_updated: "2026-07-27"
+    note: User-provided vLLM-Ascend OpenAI API server command.
+
+model:
+  name: Qwen3-Omni-30B-A3B-Instruct
+  slug: qwen3-omni-30b-a3b-instruct
+  provider: Qwen
+  description: Qwen3-Omni 30B-A3B multimodal instruction model.
+  model_id: Qwen/Qwen3-Omni-30B-A3B-Instruct
+  model_path: null
+  architecture: moe
+  parameter_count: 30B
+  active_parameters: 3B
+  context_length: 4096
+  vram_minimum_gb: 512
+  tasks:
+    - multimodal
+    - text
+  min_engine_version: v0.18.0
+  match:
+    - name_pattern: (?i)qwen3[-.]?omni[-.]?30b[-.]?a3b[-.]?instruct
+  variant_name: Qwen3-Omni-30B-A3B-Instruct
+
+hardware_profile:
+  name: ascend-a2
+  display_name: Ascend A2
+  gpu_count: 8
+  vram_gb: 512
+  multi_node: true
+
+scenarios:
+  standalone:
+    source_ref: vllm_ascend_qwen3-omni-30b-a3b-instruct_manual#single_node
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        description: Single-node OpenAI-compatible API server.
+        default_strategy: true
+        engine_config:
+          model: Qwen/Qwen3-Omni-30B-A3B-Instruct
+          served_model_name: Qwen/Qwen3-Omni-30B-A3B-Instruct
+          trust_remote_code: true
+          dtype: bfloat16
+          max_model_len: 4096
+          tensor_parallel_size: 2
+          gpu_memory_utilization: 0.9
+          enforce_eager: true
+          host: "0.0.0.0"
+          port: 17000
+        env: {}

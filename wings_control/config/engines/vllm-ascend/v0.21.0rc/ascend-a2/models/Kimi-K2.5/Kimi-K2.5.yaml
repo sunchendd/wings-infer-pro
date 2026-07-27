@@ -43,106 +43,105 @@ scenarios:
       multi_node:
         display_name: Multi-Node
         default_strategy: true
-        nodes:
-          - role: head
-            engine_config:
-              model: Eco-Tech/Kimi-K2.5-W4A8
-              host: "0.0.0.0"
-              port: 8088
-              quantization: ascend
-              served_model_name: kimi_k25
-              allowed_local_media_path: /
-              trust_remote_code: true
-              no_enable_prefix_caching: true
-              seed: 1024
-              data_parallel_size: 4
-              data_parallel_size_local: 2
-              data_parallel_address: $node0_ip
-              data_parallel_rpc_port: 13389
-              tensor_parallel_size: 4
-              enable_expert_parallel: true
-              max_num_seqs: 16
-              max_model_len: 32768
-              max_num_batched_tokens: 16384
-              gpu_memory_utilization: 0.9
-              compilation_config:
-                cudagraph_capture_sizes: [4, 8, 16, 32, 64]
-                cudagraph_mode: FULL_DECODE_ONLY
-            env:
-              HCCL_IF_IP: $local_ip
-              GLOO_SOCKET_IFNAME: $nic_name
-              TP_SOCKET_IFNAME: $nic_name
-              HCCL_SOCKET_IFNAME: $nic_name
-              HCCL_INTRA_PCIE_ENABLE: 1
-              HCCL_INTRA_ROCE_ENABLE: 0
-              LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
-              HCCL_OP_EXPANSION_MODE: AIV
-              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
-              OMP_PROC_BIND: "false"
-              OMP_NUM_THREADS: 1
-              TASK_QUEUE_ENABLE: 1
-              HCCL_BUFFSIZE: 1024
-              VLLM_ASCEND_ENABLE_MLAPO: 1
-              VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
-              VLLM_ASCEND_BALANCE_SCHEDULING: 1
-            system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
-              sysctls:
-                vm.swappiness: 0
-                kernel.numa_balancing: 0
-                kernel.sched_migration_cost_ns: 50000
-              sysfs_writes:
-                - path: "/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
-                  value: performance
-              commands: ["nic_name=\"xxxx\"", "local_ip=\"xxxx\"", "node0_ip=\"xxxx\""]
-          - role: worker
-            engine_config:
-              model: Eco-Tech/Kimi-K2.5-W4A8
-              host: "0.0.0.0"
-              port: 8088
-              quantization: ascend
-              served_model_name: kimi_k25
-              allowed_local_media_path: /
-              trust_remote_code: true
-              no_enable_prefix_caching: true
-              seed: 1024
-              headless: true
-              data_parallel_size: 4
-              data_parallel_size_local: 2
-              data_parallel_start_rank: 2
-              data_parallel_address: $node0_ip
-              data_parallel_rpc_port: 13389
-              tensor_parallel_size: 4
-              enable_expert_parallel: true
-              max_num_seqs: 16
-              max_model_len: 32768
-              max_num_batched_tokens: 16384
-              gpu_memory_utilization: 0.9
-              compilation_config:
-                cudagraph_capture_sizes: [4, 8, 16, 32, 64]
-                cudagraph_mode: FULL_DECODE_ONLY
-            env:
-              HCCL_IF_IP: $local_ip
-              GLOO_SOCKET_IFNAME: $nic_name
-              TP_SOCKET_IFNAME: $nic_name
-              HCCL_SOCKET_IFNAME: $nic_name
-              HCCL_INTRA_PCIE_ENABLE: 1
-              HCCL_INTRA_ROCE_ENABLE: 0
-              LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
-              HCCL_OP_EXPANSION_MODE: AIV
-              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
-              OMP_PROC_BIND: "false"
-              OMP_NUM_THREADS: 1
-              TASK_QUEUE_ENABLE: 1
-              HCCL_BUFFSIZE: 1024
-              VLLM_ASCEND_ENABLE_MLAPO: 1
-              VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
-              VLLM_ASCEND_BALANCE_SCHEDULING: 1
-            system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
-              sysctls:
-                vm.swappiness: 0
-                kernel.numa_balancing: 0
-                kernel.sched_migration_cost_ns: 50000
-              sysfs_writes:
-                - path: "/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
-                  value: performance
-              commands: ["nic_name=\"xxx\"", "local_ip=\"xxx\"", "node0_ip=\"xxxx\""]
+        head:
+          engine_config:
+            model: Eco-Tech/Kimi-K2.5-W4A8
+            host: "0.0.0.0"
+            port: 8088
+            quantization: ascend
+            served_model_name: kimi_k25
+            allowed_local_media_path: /
+            trust_remote_code: true
+            no_enable_prefix_caching: true
+            seed: 1024
+            data_parallel_size: 4
+            data_parallel_size_local: 2
+            data_parallel_address: $node0_ip
+            data_parallel_rpc_port: 13389
+            tensor_parallel_size: 4
+            enable_expert_parallel: true
+            max_num_seqs: 16
+            max_model_len: 32768
+            max_num_batched_tokens: 16384
+            gpu_memory_utilization: 0.9
+            compilation_config:
+              cudagraph_capture_sizes: [4, 8, 16, 32, 64]
+              cudagraph_mode: FULL_DECODE_ONLY
+          env:
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            HCCL_INTRA_PCIE_ENABLE: 1
+            HCCL_INTRA_ROCE_ENABLE: 0
+            LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+            HCCL_OP_EXPANSION_MODE: AIV
+            PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+            OMP_PROC_BIND: "false"
+            OMP_NUM_THREADS: 1
+            TASK_QUEUE_ENABLE: 1
+            HCCL_BUFFSIZE: 1024
+            VLLM_ASCEND_ENABLE_MLAPO: 1
+            VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
+            VLLM_ASCEND_BALANCE_SCHEDULING: 1
+          system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+            sysctls:
+              vm.swappiness: 0
+              kernel.numa_balancing: 0
+              kernel.sched_migration_cost_ns: 50000
+            sysfs_writes:
+              - path: "/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
+                value: performance
+            commands: ["nic_name=\"xxxx\"", "local_ip=\"xxxx\"", "node0_ip=\"xxxx\""]
+        worker:
+          engine_config:
+            model: Eco-Tech/Kimi-K2.5-W4A8
+            host: "0.0.0.0"
+            port: 8088
+            quantization: ascend
+            served_model_name: kimi_k25
+            allowed_local_media_path: /
+            trust_remote_code: true
+            no_enable_prefix_caching: true
+            seed: 1024
+            headless: true
+            data_parallel_size: 4
+            data_parallel_size_local: 2
+            data_parallel_start_rank: 2
+            data_parallel_address: $node0_ip
+            data_parallel_rpc_port: 13389
+            tensor_parallel_size: 4
+            enable_expert_parallel: true
+            max_num_seqs: 16
+            max_model_len: 32768
+            max_num_batched_tokens: 16384
+            gpu_memory_utilization: 0.9
+            compilation_config:
+              cudagraph_capture_sizes: [4, 8, 16, 32, 64]
+              cudagraph_mode: FULL_DECODE_ONLY
+          env:
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            HCCL_INTRA_PCIE_ENABLE: 1
+            HCCL_INTRA_ROCE_ENABLE: 0
+            LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+            HCCL_OP_EXPANSION_MODE: AIV
+            PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+            OMP_PROC_BIND: "false"
+            OMP_NUM_THREADS: 1
+            TASK_QUEUE_ENABLE: 1
+            HCCL_BUFFSIZE: 1024
+            VLLM_ASCEND_ENABLE_MLAPO: 1
+            VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
+            VLLM_ASCEND_BALANCE_SCHEDULING: 1
+          system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+            sysctls:
+              vm.swappiness: 0
+              kernel.numa_balancing: 0
+              kernel.sched_migration_cost_ns: 50000
+            sysfs_writes:
+              - path: "/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
+                value: performance
+            commands: ["nic_name=\"xxx\"", "local_ip=\"xxx\"", "node0_ip=\"xxxx\""]

@@ -88,95 +88,94 @@ scenarios:
       multi_node:
         display_name: Multi-Node
         default_strategy: true
-        nodes:
-          - role: head
-            engine_config:
-              model: /root/.cache/modelscope/hub/models/vllm-ascend/GLM5-w8a8
-              host: "0.0.0.0"
-              port: 8077
-              data_parallel_size: 2
-              data_parallel_size_local: 1
-              data_parallel_address: $node0_ip
-              data_parallel_rpc_port: 12890
-              tensor_parallel_size: 16
-              seed: 1024
-              served_model_name: glm-5
-              enable_expert_parallel: true
-              max_num_seqs: 16
-              max_model_len: 200000
-              max_num_batched_tokens: 4096
-              trust_remote_code: true
-              gpu_memory_utilization: 0.95
-              quantization: ascend
-              enable_chunked_prefill: true
-              enable_prefix_caching: true
-              async_scheduling: true
-              compilation_config:
-                cudagraph_mode: FULL_DECODE_ONLY
-              additional_config:
-                fuse_muls_add: true
-                multistream_overlap_shared_expert: true
-                ascend_compilation_config:
-                  enable_npugraph_ex: true
-            env:
-              HCCL_OP_EXPANSION_MODE: AIV
-              HCCL_IF_IP: $local_ip
-              GLOO_SOCKET_IFNAME: $nic_name
-              TP_SOCKET_IFNAME: $nic_name
-              HCCL_SOCKET_IFNAME: $nic_name
-              OMP_PROC_BIND: "false"
-              OMP_NUM_THREADS: 1
-              HCCL_BUFFSIZE: 200
-              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
-              VLLM_ASCEND_BALANCE_SCHEDULING: 1
-              VLLM_ASCEND_ENABLE_MLAPO: 1
-            system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
-              commands: ["nic_name=\"xxx\"", "local_ip=\"xxx\"", "node0_ip=\"xxxx\""]
-          - role: worker
-            engine_config:
-              model: /root/.cache/modelscope/hub/models/vllm-ascend/GLM5-w8a8
-              host: "0.0.0.0"
-              port: 8077
-              headless: true
-              data_parallel_size: 2
-              data_parallel_size_local: 1
-              data_parallel_start_rank: 1
-              data_parallel_address: $node0_ip
-              data_parallel_rpc_port: 12890
-              tensor_parallel_size: 16
-              seed: 1024
-              served_model_name: glm-5
-              enable_expert_parallel: true
-              max_num_seqs: 16
-              max_model_len: 200000
-              max_num_batched_tokens: 4096
-              trust_remote_code: true
-              gpu_memory_utilization: 0.95
-              quantization: ascend
-              enable_chunked_prefill: true
-              enable_prefix_caching: true
-              async_scheduling: true
-              compilation_config:
-                cudagraph_mode: FULL_DECODE_ONLY
-              additional_config:
-                fuse_muls_add: true
-                multistream_overlap_shared_expert: true
-                ascend_compilation_config:
-                  enable_npugraph_ex: true
-            env:
-              HCCL_OP_EXPANSION_MODE: AIV
-              HCCL_IF_IP: $local_ip
-              GLOO_SOCKET_IFNAME: $nic_name
-              TP_SOCKET_IFNAME: $nic_name
-              HCCL_SOCKET_IFNAME: $nic_name
-              OMP_PROC_BIND: "false"
-              OMP_NUM_THREADS: 1
-              HCCL_BUFFSIZE: 200
-              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
-              VLLM_ASCEND_BALANCE_SCHEDULING: 1
-              VLLM_ASCEND_ENABLE_MLAPO: 1
-            system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
-              commands: ["nic_name=\"xxx\"", "local_ip=\"xxx\"", "node0_ip=\"xxxx\""]
+        head:
+          engine_config:
+            model: /root/.cache/modelscope/hub/models/vllm-ascend/GLM5-w8a8
+            host: "0.0.0.0"
+            port: 8077
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_address: $node0_ip
+            data_parallel_rpc_port: 12890
+            tensor_parallel_size: 16
+            seed: 1024
+            served_model_name: glm-5
+            enable_expert_parallel: true
+            max_num_seqs: 16
+            max_model_len: 200000
+            max_num_batched_tokens: 4096
+            trust_remote_code: true
+            gpu_memory_utilization: 0.95
+            quantization: ascend
+            enable_chunked_prefill: true
+            enable_prefix_caching: true
+            async_scheduling: true
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+            additional_config:
+              fuse_muls_add: true
+              multistream_overlap_shared_expert: true
+              ascend_compilation_config:
+                enable_npugraph_ex: true
+          env:
+            HCCL_OP_EXPANSION_MODE: AIV
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            OMP_PROC_BIND: "false"
+            OMP_NUM_THREADS: 1
+            HCCL_BUFFSIZE: 200
+            PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+            VLLM_ASCEND_BALANCE_SCHEDULING: 1
+            VLLM_ASCEND_ENABLE_MLAPO: 1
+          system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+            commands: ["nic_name=\"xxx\"", "local_ip=\"xxx\"", "node0_ip=\"xxxx\""]
+        worker:
+          engine_config:
+            model: /root/.cache/modelscope/hub/models/vllm-ascend/GLM5-w8a8
+            host: "0.0.0.0"
+            port: 8077
+            headless: true
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 1
+            data_parallel_address: $node0_ip
+            data_parallel_rpc_port: 12890
+            tensor_parallel_size: 16
+            seed: 1024
+            served_model_name: glm-5
+            enable_expert_parallel: true
+            max_num_seqs: 16
+            max_model_len: 200000
+            max_num_batched_tokens: 4096
+            trust_remote_code: true
+            gpu_memory_utilization: 0.95
+            quantization: ascend
+            enable_chunked_prefill: true
+            enable_prefix_caching: true
+            async_scheduling: true
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+            additional_config:
+              fuse_muls_add: true
+              multistream_overlap_shared_expert: true
+              ascend_compilation_config:
+                enable_npugraph_ex: true
+          env:
+            HCCL_OP_EXPANSION_MODE: AIV
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            OMP_PROC_BIND: "false"
+            OMP_NUM_THREADS: 1
+            HCCL_BUFFSIZE: 200
+            PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+            VLLM_ASCEND_BALANCE_SCHEDULING: 1
+            VLLM_ASCEND_ENABLE_MLAPO: 1
+          system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+            commands: ["nic_name=\"xxx\"", "local_ip=\"xxx\"", "node0_ip=\"xxxx\""]
   pd_disaggregation:
     source_ref: "vllm_ascend_glm-5.1#pd_cluster"
     match:
