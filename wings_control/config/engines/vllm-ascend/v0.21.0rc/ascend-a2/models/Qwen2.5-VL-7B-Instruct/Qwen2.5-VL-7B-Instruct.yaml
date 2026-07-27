@@ -1,0 +1,59 @@
+upstream_sources:
+  - id: vllm_ascend_qwen2.5-vl-7b-instruct_manual
+    kind: manual
+    repo: null
+    file: null
+    url: https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct
+    date_updated: "2026-07-27"
+    note: User-provided vLLM-Ascend OpenAI API server command.
+
+model:
+  name: Qwen2.5-VL-7B-Instruct
+  slug: qwen2.5-vl-7b-instruct
+  provider: Qwen
+  description: Qwen2.5-VL 7B multimodal instruction model.
+  model_id: Qwen/Qwen2.5-VL-7B-Instruct
+  model_path: null
+  architecture: dense
+  parameter_count: 7B
+  active_parameters: 7B
+  context_length: 4096
+  vram_minimum_gb: 512
+  tasks:
+    - multimodal
+    - text
+  min_engine_version: v0.21.0rc1
+  match:
+    - name_pattern: (?i)qwen2.5[-.]?vl[-.]?7b[-.]?instruct
+  variant_name: Qwen2.5-VL-7B-Instruct
+
+hardware_profile:
+  name: ascend-a2
+  display_name: Ascend A2
+  gpu_count: 8
+  vram_gb: 512
+  multi_node: true
+
+scenarios:
+  standalone:
+    source_ref: vllm_ascend_qwen2.5-vl-7b-instruct_manual#single_node
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        description: Single-node OpenAI-compatible API server.
+        default_strategy: true
+        engine_config:
+          model: Qwen/Qwen2.5-VL-7B-Instruct
+          served_model_name: Qwen/Qwen2.5-VL-7B-Instruct
+          trust_remote_code: true
+          dtype: bfloat16
+          max_model_len: 4096
+          tensor_parallel_size: 1
+          gpu_memory_utilization: 0.9
+          enforce_eager: true
+          host: "0.0.0.0"
+          port: 17000
+        env: {}

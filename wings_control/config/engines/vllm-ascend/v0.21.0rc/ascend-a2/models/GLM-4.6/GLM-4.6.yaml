@@ -83,87 +83,86 @@ scenarios:
       multi_node:
         display_name: Multi-Node
         default_strategy: true
-        nodes:
-          - role: head
-            engine_config:
-              model: Eco-Tech/GLM-4.6-W8A8-floatmtp
-              host: "0.0.0.0"
-              port: 8004
-              data_parallel_size: 2
-              data_parallel_size_local: 1
-              data_parallel_start_rank: 0
-              data_parallel_address: $local_ip
-              data_parallel_rpc_port: 13389
-              tensor_parallel_size: 8
-              enable_expert_parallel: true
-              seed: 1024
-              max_model_len: 140000
-              max_num_batched_tokens: 8192
-              max_num_seqs: 16
-              quantization: ascend
-              trust_remote_code: true
-              gpu_memory_utilization: 0.9
-              served_model_name: glm47
-              compilation_config:
-                cudagraph_capture_sizes: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
-                cudagraph_mode: FULL_DECODE_ONLY
-              additional_config:
-                enable_shared_expert_dp: true
-                ascend_fusion_config:
-                  fusion_ops_gmmswigluquant: false
-            env:
-              HCCL_IF_IP: $local_ip
-              GLOO_SOCKET_IFNAME: $nic_name
-              TP_SOCKET_IFNAME: $nic_name
-              HCCL_SOCKET_IFNAME: $nic_name
-              HCCL_BUFFSIZE: 512
-              OMP_PROC_BIND: "false"
-              OMP_NUM_THREADS: 1
-              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
-              HCCL_OP_EXPANSION_MODE: AIV
-              VLLM_ASCEND_BALANCE_SCHEDULING: 1
-              VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE: 1
-            system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
-              commands: ["nic_name=\"xxxx\"", "local_ip=\"xxxx\""]
-          - role: worker
-            engine_config:
-              model: Eco-Tech/GLM-4.6-W8A8-floatmtp
-              host: "0.0.0.0"
-              port: 8004
-              headless: true
-              data_parallel_size: 2
-              data_parallel_size_local: 1
-              data_parallel_start_rank: 1
-              data_parallel_address: $node0_ip
-              data_parallel_rpc_port: 13389
-              tensor_parallel_size: 8
-              enable_expert_parallel: true
-              seed: 1024
-              max_model_len: 140000
-              max_num_batched_tokens: 8192
-              max_num_seqs: 16
-              quantization: ascend
-              trust_remote_code: true
-              gpu_memory_utilization: 0.9
-              served_model_name: glm47
-              compilation_config:
-                cudagraph_capture_sizes: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
-                cudagraph_mode: FULL_DECODE_ONLY
-              additional_config:
-                enable_shared_expert_dp: true
-                ascend_fusion_config:
-                  fusion_ops_gmmswigluquant: false
-            env:
-              HCCL_IF_IP: $local_ip
-              GLOO_SOCKET_IFNAME: $nic_name
-              TP_SOCKET_IFNAME: $nic_name
-              HCCL_SOCKET_IFNAME: $nic_name
-              HCCL_BUFFSIZE: 512
-              OMP_PROC_BIND: "false"
-              OMP_NUM_THREADS: 1
-              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
-              HCCL_OP_EXPANSION_MODE: AIV
-              VLLM_ASCEND_BALANCE_SCHEDULING: 1
-              VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE: 1
-            system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
-              commands: ["nic_name=\"xxxx\"", "local_ip=\"xxxx\"", "node0_ip=\"xxxx\" # same as the local_IP address in node 0"]
+        head:
+          engine_config:
+            model: Eco-Tech/GLM-4.6-W8A8-floatmtp
+            host: "0.0.0.0"
+            port: 8004
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 0
+            data_parallel_address: $local_ip
+            data_parallel_rpc_port: 13389
+            tensor_parallel_size: 8
+            enable_expert_parallel: true
+            seed: 1024
+            max_model_len: 140000
+            max_num_batched_tokens: 8192
+            max_num_seqs: 16
+            quantization: ascend
+            trust_remote_code: true
+            gpu_memory_utilization: 0.9
+            served_model_name: glm47
+            compilation_config:
+              cudagraph_capture_sizes: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
+              cudagraph_mode: FULL_DECODE_ONLY
+            additional_config:
+              enable_shared_expert_dp: true
+              ascend_fusion_config:
+                fusion_ops_gmmswigluquant: false
+          env:
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            HCCL_BUFFSIZE: 512
+            OMP_PROC_BIND: "false"
+            OMP_NUM_THREADS: 1
+            PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+            HCCL_OP_EXPANSION_MODE: AIV
+            VLLM_ASCEND_BALANCE_SCHEDULING: 1
+            VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE: 1
+          system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+            commands: ["nic_name=\"xxxx\"", "local_ip=\"xxxx\""]
+        worker:
+          engine_config:
+            model: Eco-Tech/GLM-4.6-W8A8-floatmtp
+            host: "0.0.0.0"
+            port: 8004
+            headless: true
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 1
+            data_parallel_address: $node0_ip
+            data_parallel_rpc_port: 13389
+            tensor_parallel_size: 8
+            enable_expert_parallel: true
+            seed: 1024
+            max_model_len: 140000
+            max_num_batched_tokens: 8192
+            max_num_seqs: 16
+            quantization: ascend
+            trust_remote_code: true
+            gpu_memory_utilization: 0.9
+            served_model_name: glm47
+            compilation_config:
+              cudagraph_capture_sizes: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
+              cudagraph_mode: FULL_DECODE_ONLY
+            additional_config:
+              enable_shared_expert_dp: true
+              ascend_fusion_config:
+                fusion_ops_gmmswigluquant: false
+          env:
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            HCCL_BUFFSIZE: 512
+            OMP_PROC_BIND: "false"
+            OMP_NUM_THREADS: 1
+            PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+            HCCL_OP_EXPANSION_MODE: AIV
+            VLLM_ASCEND_BALANCE_SCHEDULING: 1
+            VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE: 1
+          system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+            commands: ["nic_name=\"xxxx\"", "local_ip=\"xxxx\"", "node0_ip=\"xxxx\" # same as the local_IP address in node 0"]

@@ -4,7 +4,7 @@
 最容易被重构悄悄改坏。这里把"相同输入 → 逐字相同 start_command.sh"冻住,覆盖
 两种布局 × head/worker:
   - MiMo-V2-Flash(nvidia,B 类 TP 跨 Pod,head/worker 形态)head + worker
-  - DeepSeek-V4-Pro(ascend,A 类 DP 跨 Pod,nodes[] 形态)node0 + node1
+  - DeepSeek-V4-Pro(ascend,A 类 DP 跨 Pod,head/worker 形态)head + worker
 
 刷新 golden(配方有意变更时):
   UPDATE_GOLDEN=1 PYTHONPATH=src pytest -q tests/integration/test_multi_node_inject_golden.py

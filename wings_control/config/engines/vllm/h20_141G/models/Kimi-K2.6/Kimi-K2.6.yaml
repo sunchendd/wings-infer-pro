@@ -1,0 +1,65 @@
+# 来源追溯
+upstream_sources:
+  - id: kimi_k2.6_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://recipes.vllm.ai/moonshotai/Kimi-K2.6"
+    date_updated: 2026-07-27
+    note: 用户提供 vLLM H20 141G 单节点启动命令，手工录入；模型资料参考 vLLM 官方 recipe。
+
+# 模型基本信息
+model:
+  name: Kimi-K2.6  # 模型名称
+  slug: kimi-k2.6  # 模型标识
+  provider: Moonshot AI  # 提供者/厂商
+  description: "Open-source native multimodal agentic MoE model with vision-language understanding, tool calling, and thinking modes"
+  model_id: moonshotai/Kimi-K2.6  # HuggingFace 模型 ID
+  architecture: moe  # 模型架构（dense/moe）
+  parameter_count: 1T  # 总参数量
+  active_parameters: 32B  # 激活参数量（MoE 模型）
+  context_length: 262144  # 最大上下文长度
+  vram_minimum_gb: 714  # 最低显存需求(GB)
+  tasks: [multimodal, text]  # 支持的任务类型
+  min_engine_version: "0.23.0"  # 最低引擎版本要求
+  date_updated: 2026-07-27
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)kimi[-.]?k2.6"
+  variant_name: Kimi-K2.6
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8  # 单节点 GPU 数量
+  vram_gb: 1128  # 单节点总显存(GB)（8 × 141GB）
+  multi_node: false
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: Kimi K2 tool-call parser with automatic tool choice
+    args: [--tool-call-parser, kimi_k2, --enable-auto-tool-choice]
+  reasoning:
+    description: Kimi K2 reasoning parser for extracting chain-of-thought content
+    args: [--reasoning-parser, kimi_k2]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "kimi_k2.6_manual#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: moonshotai/Kimi-K2.6
+          tensor_parallel_size: 8
+          trust_remote_code: true
+          gpu_memory_utilization: 0.95
+          max_model_len: 133000
+          host: "0.0.0.0"
+          port: 17000
+        env: {}
