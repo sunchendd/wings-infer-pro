@@ -1,0 +1,6 @@
+ock.mmc.meta_service_url = tcp://{master_ip}:15000
+ock.mmc.local_service.config_store_url = tcp://{rank_ip}:16000
+ock.mmc.log_level = info
+ock.mmc.local_service.world_size = 256
+ock.mmc.local_service.protocol = device_rdma
+ock.mmc.local_service.dram.size = {= memory_capacity_gb // gpu_count}GB

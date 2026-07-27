@@ -65,6 +65,13 @@ def test_collect_switches_kv_mem_size_numeric():
     assert collect_accel_switches({"KV_MEM_OFFLOAD_SIZE": "64"})["kv_mem_size_gb"] == 64
 
 
+def test_collect_switches_no_kv_store_envs():
+    """KV_STORE_BACKEND/DEPLOY_MODE/MASTER_ADDR/WORLD_SIZE 已退役:不在 switches 里。"""
+    s = collect_accel_switches({"KV_STORE_BACKEND": "mooncake", "KV_WORLD_SIZE": "32"})
+    for k in ("kv_store_backend", "kv_store_deploy_mode", "kv_store_master_addr", "kv_world_size"):
+        assert k not in s
+
+
 # ── build_smart_input(switches → schema)────────────────────────────────────
 
 def _stub_mod():

@@ -244,11 +244,9 @@ def _from_head_worker(
     specs = [_make_node_spec(head, role="head", index=0, node_prefix=f"{strategy_prefix}.head")]
     for i in range(1, pod_count):
         ec = dict(worker.get("engine_config") or {})
-        if detect_layout(ec) == LAYOUT_TP_ACROSS:
-            # TP 跨 Pod:每个 worker 写入自己的 node_rank。
+        if detect_layout(ec) == LAYOUT_TP_ACROSS:       # TP 跨 Pod
             ec["node_rank"] = i
-        elif "data_parallel_start_rank" in ec:
-            # DP 跨 Pod:start_rank 公式复用公共函数。
+        elif "data_parallel_start_rank" in ec:          # DP 跨 Pod(start_rank 公式复用公共函数)
             ec["data_parallel_start_rank"] = dp_start_rank(i, ec.get("data_parallel_size_local") or 1)
         specs.append(_make_node_spec(
             {"engine_config": ec, "env": worker.get("env"), "system_setup": worker.get("system_setup")},
@@ -282,8 +280,7 @@ def normalize_nodes(
         specs = _from_nodes_list(nodes_raw, strategy_prefix)
         logger.info("multi_node 形态归一:nodes[] → %d 节点", len(specs))
         return specs
-    # head/worker 形态:复用展开,当前主要见于 nvidia 多机 recipe。
-    if "head" in strategy or "worker" in strategy:
+    if "head" in strategy or "worker" in strategy:      # head/worker 形态:复用展开(当前见于 nvidia)
         if "head" not in strategy:
             raise ValueError(
                 f"multi_node 形态含 'worker' 但缺 'head',无法确定主节点:strategy 键={sorted(strategy)}"
@@ -291,8 +288,7 @@ def normalize_nodes(
         specs = _from_head_worker(strategy, strategy_prefix, pod_count)
         logger.info("multi_node 形态归一:head/worker → %d 节点", len(specs))
         return specs
-    # 非多段形态 → 交调用方按单段 engine_config/env/system_setup 处理。
-    return None
+    return None                                         # 非多段形态 → 交调用方按单段处理
 
 
 def _select_scenario(
@@ -339,12 +335,11 @@ def _select_scenario(
     # 新格式: scenarios.{topology}.strategies.{name}.*
     strategies = scenario.get("strategies") if isinstance(scenario, dict) else None
     if isinstance(strategies, dict) and len(strategies) > 0:
-        default_strategy_names = []
-        for name, strategy in strategies.items():
-            if not isinstance(strategy, dict):
-                continue
-            if strategy.get("default_strategy") is True:
-                default_strategy_names.append(name)
+        default_strategy_names = [
+            name
+            for name, strategy in strategies.items()
+            if isinstance(strategy, dict) and strategy.get("default_strategy") is True
+        ]
         if len(default_strategy_names) == 1:
             strategy_name = default_strategy_names[0]
             selection_source = "default_strategy"

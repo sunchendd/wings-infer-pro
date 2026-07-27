@@ -2,7 +2,7 @@
 
 用真有 smart-accel 资产的三模型(vllm / rtx_pro_5000_48G / v0.23.0):
 - DeepSeek-V4-Flash(decoding + sparse;kv_offload 已移除:v0.22.0 不支持)
-- MiniMax-M2.7(无 smart-accel 特性;kv_offload 已移除:不支持)
+- MiniMax-M2.7(decoding=suffix;无 kv_offload/sparse)
 - Qwen3.5-397B-A17B(decoding + kv_offload)
 
 跑"全开" LoadFlags 看真实 scheme + engine_config + env(`pytest -s` 可见打印);
@@ -67,11 +67,13 @@ def test_all_on_real_output(model):
         assert ec["hf_overrides"]["index_topk_freq"] == 4
         assert ec["kv_cache_dtype"] == "fp8"
     elif model == "MiniMax-M2.7":
-        # 无 smart-accel 特性(kv_offload 已移除:不支持;yaml 无 decoding/sparse 块)
-        assert out.smart_decoding_scheme is None
+        # decoding=suffix(features.spec_decoding method=suffix;无 kv_offload/sparse 块)
+        assert out.smart_decoding_scheme == "suffix"
         assert out.smart_kv_cache_scheme is None
         assert out.smart_kv_sparse_scheme is None
-        assert "kv_transfer_config" not in ec and "speculative_config" not in ec
+        assert "speculative_config" in ec and "kv_transfer_config" not in ec
+        assert ec["speculative_config"]["method"] == "suffix"
+        assert out.packages == []  # arctic-inference 默认已预装,不再声明为 pip 依赖
     else:  # Qwen3.5-397B-A17B
         # decoding + kv_offload(cpu)(yaml 无 sparse 块)
         assert out.smart_decoding_scheme == "mtp"

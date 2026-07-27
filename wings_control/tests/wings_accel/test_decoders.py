@@ -25,8 +25,8 @@ def make_decoding_block():
                     "method": "eagle3",
                     "num_speculative_tokens": 3,
                     "model": "$path",
+                    "enforce_eager": True,  # bool → 进 speculative_config JSON
                 },
-                "enforce_eager": True,  # bool → 裸 flag --enforce-eager
             },
             "envs": {"EARS_TOLERANCE": "0.3"},
         },
@@ -51,7 +51,7 @@ def test_decoding_model_based_hit():
     assert out.degraded is False
     assert out.engine_params.engine_config["speculative_config"]["method"] == "eagle3"
     assert out.engine_params.engine_config["speculative_config"]["model"] == "/draft/eagle"
-    assert out.engine_params.engine_config["enforce_eager"] is True
+    assert out.engine_params.engine_config["speculative_config"]["enforce_eager"] is True
     # envs
     assert out.engine_params.env == {"EARS_TOLERANCE": "0.3"}
 

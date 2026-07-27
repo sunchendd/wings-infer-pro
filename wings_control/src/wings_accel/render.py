@@ -24,6 +24,7 @@
   供上层 merge(open_source_template(), smart_accel()) 使用。
 """
 
+import ast
 import logging
 import os
 import re
@@ -38,6 +39,23 @@ logger = logging.getLogger(__name__)
 
 # 匹配 {placeholder} 形态的占位符令牌(用于配置文件 content 的子串替换)。
 _TOKEN_RE = re.compile(r"\{[a-zA-Z_][a-zA-Z0-9_]*\}")
+
+# 匹配写盘内容里的 ${VAR}(运行时 envsubst 展开),用于检测 files 是否需要 envsubst 步骤。
+_RUNTIME_VAR_RE = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)\}")
+
+# 匹配 {= expr} 算术求值标记(body 不含花括号,禁止与 {name} 占位符嵌套;与 _TOKEN_RE 不相交)。
+_EXPR_RE = re.compile(r"\{=\s*([^{}]*)\}")
+
+# {= expr} 允许的二元算术运算符(ast 节点类型 → Python 运算);其余节点一律拒(见 _eval_arith)。
+_EXPR_BINOPS = {
+    ast.Add: lambda a, b: a + b,
+    ast.Sub: lambda a, b: a - b,
+    ast.Mult: lambda a, b: a * b,
+    ast.Div: lambda a, b: a / b,
+    ast.FloorDiv: lambda a, b: a // b,
+    ast.Mod: lambda a, b: a % b,
+    ast.Pow: lambda a, b: a ** b,
+}
 
 
 @dataclass
@@ -55,6 +73,12 @@ class PlaceholderContext:
     qat_compression_level: int = 0
     # 投机解码草稿模型路径(来自 SmartDecodingConfig.model_path),解析 $path 令牌
     draft_model_path: str = ""
+    # ── KV 存储后端(memcache / mooncake)渲染参数 ──
+    # 工具选择由 yaml 声明 + offload 按 kv_connector 内容路由(不再有 KV_STORE_BACKEND env)。
+    # IP 用 {rank_ip}/{master_ip} → ${RANK_IP}/${MASTER_IP},运行时 envsubst 展开。
+    gpu_count: int = 1 # 卡数(= device_count);mooncake global_segment_size / memcache dram.size 按卡均分用
+    tp_size: int = 0 # 张量并行度;lmcache {lookup_server_worker_ids} → "0,..,tp_size-1"
+    config_root: str = "" # smart-accel 根目录;files 条目 src 解析基准(_resolve_smart_accel_root 结果)
 
 
 # ───────────────────────────────────────────────
@@ -106,7 +130,99 @@ def _resolve_token(token: str, ctx: PlaceholderContext) -> Optional[str]:
         return str(ctx.qat_device_count)
     if token == "{qat_compression_level}":
         return str(ctx.qat_compression_level)
+    # ── KV 存储后端(memcache/mooncake)占位符 ──
+    # {rank_ip}/{master_ip}:per-node/master IP。resolve 期写成 ${VAR} 字面量,
+    # 运行时由 offload 生成的 envsubst 步骤展开(engine 容器 RANK_IP/MASTER_IP 由拓扑注入)。
+    if token == "{rank_ip}":
+        return "${RANK_IP}"
+    if token == "{master_ip}":
+        return "${MASTER_IP}"
+    if token == "{lookup_server_worker_ids}":
+        # lmcache lookup server worker ids:tp_size=N → "0,1,...,N-1"(仅 lmcache disk/cpu_disk scheme 用)。
+        return ",".join(str(i) for i in range(ctx.tp_size)) if ctx.tp_size > 0 else None
     return None
+
+
+# ───────────────────────────────────────────────
+# {= expr} 算术求值(content / cli_params / envs 通用;与 {name} 占位符正则不相交)
+# ───────────────────────────────────────────────
+
+def _expr_namespace(ctx: PlaceholderContext) -> Dict[str, int]:
+    """``{= expr}`` 求值命名空间:PlaceholderContext 的数值字段(算术只对数字有意义)。
+
+    覆盖真实派生用例:per-card 容量 = ``memory_capacity_gb // gpu_count``、
+    ``tp_size * <n>`` 等。新增数值字段时在此登记即可暴露给 expr。
+    """
+    return {
+        "memory_capacity_gb": ctx.memory_capacity_gb,
+        "disk_capacity_gb": ctx.disk_capacity_gb,
+        "qat_device_count": ctx.qat_device_count,
+        "qat_compression_level": ctx.qat_compression_level,
+        "gpu_count": ctx.gpu_count,
+        "tp_size": ctx.tp_size,
+    }
+
+
+def _eval_arith(node: ast.AST, ns: Dict[str, int]) -> Any:
+    """白名单递归求值:仅允许 ``+ - * / // % **``、一元正负、数字常量、命名引用。
+
+    Call / Attribute / Subscript / Compare / BoolOp / Lambda 等**一律拒**(抛 ValueError)→
+    调用方据此保留 ``{= ...}`` 字面量。**不使用 eval()**,仅 ast 白名单递归。
+    """
+    if isinstance(node, ast.Expression):
+        return _eval_arith(node.body, ns)
+    if isinstance(node, ast.Constant):
+        # bool 是 int 子类,显式拒(避免 {= True} 这类怪异写法);只收 int/float。
+        if isinstance(node.value, bool) or not isinstance(node.value, (int, float)):
+            raise ValueError(f"非数字常量: {node.value!r}")
+        return node.value
+    if isinstance(node, ast.Name):
+        if node.id not in ns:
+            raise ValueError(f"未知变量: {node.id}")
+        return ns[node.id]
+    if isinstance(node, ast.BinOp):
+        op = _EXPR_BINOPS.get(type(node.op))
+        if op is None:
+            raise ValueError(f"不支持的运算符: {type(node.op).__name__}")
+        return op(_eval_arith(node.left, ns), _eval_arith(node.right, ns))
+    if isinstance(node, ast.UnaryOp):
+        operand = _eval_arith(node.operand, ns)
+        if isinstance(node.op, ast.UAdd):
+            return +operand
+        if isinstance(node.op, ast.USub):
+            return -operand
+        raise ValueError(f"不支持的一元运算符: {type(node.op).__name__}")
+    raise ValueError(f"不支持的语法: {type(node).__name__}")
+
+
+def _format_expr_result(value: Any) -> str:
+    """格式化求值结果:整值浮点 → 整数(``8/2``→``'4'`` 而非 ``'4.0'``);否则 str。"""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def _eval_expr_substr(text: str, ctx: PlaceholderContext) -> str:
+    """子串替换文本里的 ``{= expr}`` 算术标记为求值结果。
+
+    与 ``{name}`` 占位符正则不相交(``{=`` vs ``{字母``)。expr 解析/求值失败(语法错、未知变量、
+    非白名单节点如函数调用、除零)→ **原样保留 ``{= ...}`` 字面量**(与 ``_resolve_token`` 返回
+    None→保留语义一致),仅 debug 日志(常见于故意保留的写法,避免 warn 噪音)。
+    """
+    ns = _expr_namespace(ctx)
+
+    def _sub(match: "re.Match[str]") -> str:
+        body = match.group(1).strip()
+        if not body:
+            return match.group(0)
+        try:
+            tree = ast.parse(body, mode="eval")
+            return _format_expr_result(_eval_arith(tree, ns))
+        except (SyntaxError, ValueError, ZeroDivisionError, TypeError) as exc:
+            logger.debug("smart_accel: {= expr} 求值失败,保留字面量 %r: %s", match.group(0), exc)
+            return match.group(0)
+
+    return _EXPR_RE.sub(_sub, text)
 
 
 def _fill_str(value: str, ctx: PlaceholderContext) -> str:
@@ -136,7 +252,7 @@ def _fill_str(value: str, ctx: PlaceholderContext) -> str:
         out = out.replace("$path", ctx.draft_model_path)
     if "$draft_model_path" in out:
         out = out.replace("$draft_model_path", ctx.draft_model_path)
-    return out
+    return _eval_expr_substr(out, ctx)
 
 
 def _fill_str_substr(value: str, ctx: PlaceholderContext) -> str:
@@ -162,7 +278,7 @@ def _fill_str_substr(value: str, ctx: PlaceholderContext) -> str:
         out = out.replace("$path", ctx.draft_model_path)
     if "$draft_model_path" in out:
         out = out.replace("$draft_model_path", ctx.draft_model_path)
-    return out
+    return _eval_expr_substr(out, ctx)
 
 
 def fill_placeholders(node: Any, ctx: PlaceholderContext) -> Any:
@@ -191,48 +307,108 @@ def render_engine_config(cli_params: Dict[str, Any], ctx: PlaceholderContext) ->
     return dict(filled or {})
 
 
+def _resolve_file_entry(
+    f: Dict[str, Any],
+    ctx: PlaceholderContext,
+    volume: Path,
+) -> Optional[Dict[str, Any]]:
+    """解析单个 files 条目为 {path, content, scope, mode}。
+
+    - ``path``:优先(容器内路径);缺省取 ``name``(向后兼容 → ``<volume>/<name>``)。
+      以 ``/`` 开头按绝对路径;否则相对 ``volume``。
+    - ``src`` / ``content`` 二选一:``src`` 从 ``ctx.config_root`` 读模板文件;``content`` 内联。
+    - ``scope``(all/master/client,默认 all)、``mode``(权限如 ``"0755"``)透传,供 offload 合成 pre_serve。
+
+    返回 None 表示条目无效(非 dict / 缺 path 与 name / src 模板缺失 → 跳过 + warn)。
+    """
+    if not isinstance(f, dict):
+        return None
+    path_raw = f.get("path") or f.get("name")
+    if not path_raw:
+        return None
+    p = str(path_raw)
+    path = Path(p) if p.startswith("/") else (volume / p)
+    src = f.get("src")
+    if src:
+        if not ctx.config_root:
+            logger.warning("smart_accel: files %s 用 src=%r 但无 config_root,跳过", p, src)
+            return None
+        src_path = Path(ctx.config_root) / str(src)
+        if not src_path.is_file():
+            logger.warning("smart_accel: files src 模板不存在: %s,跳过", src_path)
+            return None
+        content: Any = src_path.read_text(encoding="utf-8")
+    else:
+        content = f.get("content", "")
+    scope = str(f.get("scope") or "all").strip().lower()
+    if scope not in ("all", "master", "client"):
+        scope = "all"
+    return {
+        "path": str(path),
+        "content": content,
+        "scope": scope,
+        "mode": f.get("mode"),
+    }
+
+
 def write_scheme_files(
     files: Optional[List[Dict[str, Any]]],
     ctx: PlaceholderContext,
     volume: Optional[str] = None,
-) -> List[str]:
-    """把 scheme 的 ``files:`` 块渲染(填占位符)并写到共享卷。
+) -> List[Dict[str, Any]]:
+    """把 scheme 的 ``files:`` 块渲染(填占位符)并写到共享卷,返回每文件运行时信息。
 
-    通用配置文件落盘:``files`` 形如 ``[{"name": <filename>, "content": <text>}, ...]``,
-    ``content`` 为任意文本(YAML/JSON/conf),支持与 cli_params/envs 相同的 ``{name}`` 占位符
-    与 ``$path`` 令牌,未知占位符原样保留。每个文件写到 ``<volume>/<name>``。
+    files 条目**自描述 schema**:
+      - ``path``(必填,容器内路径;或 ``name`` 兼容 → ``<volume>/<name>``)
+      - ``src``(相对 ``config_root`` 的模板文件)/ ``content``(内联)二选一
+      - ``scope``(all/master/client)、``mode``(权限)透传给 offload
 
-    用途:lmcache_config.yaml / mooncake.json / mmc_local.conf 等任意配置文件统一由本函数
-    落盘,无需为每种配置写专门代码。env 变量指向写出的文件由 scheme 的 ``envs:`` 字面量声明。
+    content 支持与 cli_params/envs 相同的 ``{name}`` 占位符与 ``$path`` 令牌;``{rank_ip}``/``{master_ip}``
+    解析为 ``${RANK_IP}``/``${MASTER_IP}`` 字面量,**运行时由 offload 生成的 envsubst 步骤展开**。
 
     Args:
-        files: scheme 的 ``files`` 列表;``None`` / 空 → 返回空列表(不创建目录、不写盘);
-            元素非 dict 或缺 ``name`` → 跳过该元素。
-        ctx: 占位符上下文(填充 ``content`` 里的 ``{name}`` / ``$path``)。
+        files: scheme 的 ``files`` 列表;``None``/空 → 返回 ``[]``(不建目录、不写盘)。
+        ctx: 占位符上下文(填充 ``content`` 里的 ``{name}``/``$path``;``config_root`` 供 ``src`` 解析)。
         volume: 写盘根目录;``None`` → 取 ``SHARED_VOLUME_PATH`` 环境变量,缺省 ``/shared-volume``。
 
     Returns:
-        已写文件的绝对路径列表(保持输入顺序);整体为空时返回 ``[]``。
+        ``[{path, scope, mode, runtime_vars}]``(保持输入顺序,跳过无效条目)。
+        ``runtime_vars`` = 写盘内容里检测到的 ``${VAR}`` 列表(如 ``["MASTER_IP","RANK_IP"]``),
+        供 offload 生成 envsubst 步骤;无运行时变量 → ``[]``。整体为空 → ``[]``。
 
     Raises:
         OSError: 创建目录或写文件失败时由文件系统抛出。
     """
     if not files:
         return []
-    root = Path(volume or os.getenv("SHARED_VOLUME_PATH", "/shared-volume"))
-    root.mkdir(parents=True, exist_ok=True)
-    written: List[str] = []
+    vol = Path(volume or os.getenv("SHARED_VOLUME_PATH", "/shared-volume"))
+    out: List[Dict[str, Any]] = []
     for f in files:
-        if not isinstance(f, dict) or not f.get("name"):
+        entry = _resolve_file_entry(f, ctx, vol)
+        if entry is None:
             continue
-        content = f.get("content", "")
-        # content 是任意文本(YAML/JSON/conf):用子串替换填占位符(整值匹配填不了多行文本)。
+        path = Path(entry["path"])
+        content = entry["content"]
+        # content 是任意文本(YAML/JSON/conf):子串替换填占位符(整值匹配填不了多行文本)。
         filled = _fill_str_substr(content, ctx) if isinstance(content, str) else content
-        path = root / str(f["name"])
-        path.write_text("" if filled is None else str(filled), encoding="utf-8")
-        written.append(str(path))
-        logger.info("smart_accel: wrote config file %s", path)
-    return written
+        text = "" if filled is None else str(filled)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        mode = entry.get("mode")
+        if mode is not None:
+            try:
+                path.chmod(int(str(mode), 8))
+            except (ValueError, OSError):
+                logger.warning("smart_accel: files %s chmod mode=%r 失败", path, mode)
+        runtime_vars = sorted(set(_RUNTIME_VAR_RE.findall(text)))
+        out.append({
+            "path": str(path),
+            "scope": entry["scope"],
+            "mode": mode,
+            "runtime_vars": runtime_vars,
+        })
+        logger.info("smart_accel: wrote config file %s (runtime_vars=%s)", path, runtime_vars)
+    return out
 
 
 def extract_packages(scheme: Dict[str, Any]) -> List[str]:
@@ -290,6 +466,28 @@ def render_scheme(
         degrade_reason=degrade_reason,
         packages=extract_packages(scheme),
     )
+
+
+def render_pre_serve(
+    commands: Optional[List[str]],
+    ctx: PlaceholderContext,
+) -> List[str]:
+    """渲染 pre-serve 命令列表(KV 存储后端用):填 ``{占位符}``(子串替换)。
+
+    与 files content 同走 ``_fill_str_substr``:``{rank_ip}``/``{master_ip}`` 等占位符按 ctx 填实;
+    ``$local_ip`` / ``$node0_ip`` / ``${RANK_IP}`` 等 wings-control 拓扑占位与 shell 变量**原样保留**
+    (本函数只认 ``{}`` 与 ``$path``,不碰 ``$local_ip``),交 ``topology_inject`` 在注入期替换。
+
+    Args:
+        commands: scheme 的 ``pre_serve`` / ``pre_serve_master`` 命令字符串列表;``None``/空 → ``[]``。
+        ctx: 占位符上下文。
+
+    Returns:
+        渲染后的命令列表(保持顺序);非字符串元素丢弃。
+    """
+    if not commands:
+        return []
+    return [_fill_str_substr(cmd, ctx) for cmd in commands if isinstance(cmd, str)]
 
 
 # ───────────────────────────────────────────────

@@ -25,7 +25,7 @@ smart_accel:
     # files 自描述:mooncake.json(内联 content)+ start_kv_serve.sh(daemon)由框架落盘到共享卷,
     # 并自动合成 pre_serve(envsubst 展开 {rank_ip}/{master_ip}→${VAR};daemon 仅 master bash &,不监听端口)。
     # 资产零 shell:端口 50088、protocol ascend、daemon 参数全字面量,只 IP/内存用占位符。
-    - name: mooncake
+    - name: cpu
       cli_params:
         kv_transfer_config:
           kv_connector: AscendStoreConnector

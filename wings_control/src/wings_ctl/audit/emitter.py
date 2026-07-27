@@ -15,7 +15,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from wings_ctl.core.models import ResolvedConfig, ResolvedNode, SystemSetup, TracedValue
+from wings_ctl.core.models import ResolvedConfig, SystemSetup, TracedValue
 
 
 def _serialize_traced_value(traced: TracedValue) -> Dict[str, Any]:
@@ -62,40 +62,6 @@ def _serialize_system_setup(system_setup: Optional[SystemSetup]) -> Optional[Dic
     }
 
 
-def _serialize_traced_mapping(traces: Dict[str, TracedValue]) -> Dict[str, Any]:
-    """将一组带来源追踪的参数按原插入顺序序列化。
-
-    Args:
-        traces: 参数名到 TracedValue 的映射。
-
-    Returns:
-        JSON 友好的参数追踪映射。
-    """
-    serialized: Dict[str, Any] = {}
-    for key, traced in traces.items():
-        serialized[key] = _serialize_traced_value(traced)
-    return serialized
-
-
-def _serialize_resolved_node(node: ResolvedNode) -> Dict[str, Any]:
-    """将 multi_node 占位视图中的单个节点序列化。
-
-    Args:
-        node: 待写入 audit.nodes[] 的节点解析结果。
-
-    Returns:
-        JSON 友好的节点字典。字段顺序与原 audit 产物保持一致。
-    """
-    return {
-        "role": node.role,
-        "index": node.index,
-        "source_prefix": node.source_prefix,
-        "engine_config": _serialize_traced_mapping(node.engine_config_traces),
-        "env": _serialize_traced_mapping(node.env_traces),
-        "system_setup": _serialize_system_setup(node.system_setup),
-    }
-
-
 def _build_audit_dict(resolved: ResolvedConfig) -> Dict[str, Any]:
     """构建完整的 audit 字典。"""
     audit: Dict[str, Any] = {}
@@ -136,10 +102,16 @@ def _build_audit_dict(resolved: ResolvedConfig) -> Dict[str, Any]:
     audit["source_files"] = resolved.source_files
 
     # engine_config 完整追踪
-    audit["engine_config"] = _serialize_traced_mapping(resolved.engine_config_traces)
+    audit["engine_config"] = {
+        key: _serialize_traced_value(traced)
+        for key, traced in resolved.engine_config_traces.items()
+    }
 
     # env 完整追踪
-    audit["env"] = _serialize_traced_mapping(resolved.env_traces)
+    audit["env"] = {
+        key: _serialize_traced_value(traced)
+        for key, traced in resolved.env_traces.items()
+    }
 
     # user_cli_params: 单数组含全量(status∈{applied,dropped},dropped 带 reason)。
     # 不另开 dropped_user_params 数组——dropped 项可由 status 过滤得出,避免双写漂移。
@@ -159,10 +131,23 @@ def _build_audit_dict(resolved: ResolvedConfig) -> Dict[str, Any]:
     # 真实视图在 nodes 数组。已完成注入时 nodes=None,本 Pod 升为顶层,集群信息见 resolution_notes。
     if resolved.nodes:
         audit["multi_node_injection_status"] = "pending_runtime_context"
-        nodes = []
-        for node in resolved.nodes:
-            nodes.append(_serialize_resolved_node(node))
-        audit["nodes"] = nodes
+        audit["nodes"] = [
+            {
+                "role": node.role,
+                "index": node.index,
+                "source_prefix": node.source_prefix,
+                "engine_config": {
+                    key: _serialize_traced_value(traced)
+                    for key, traced in node.engine_config_traces.items()
+                },
+                "env": {
+                    key: _serialize_traced_value(traced)
+                    for key, traced in node.env_traces.items()
+                },
+                "system_setup": _serialize_system_setup(node.system_setup),
+            }
+            for node in resolved.nodes
+        ]
 
     # wings-accel(智能加速)诊断:非空时写入,供排查"加速产出了什么"。
     # 内容为各 OutputParams 的 wings_accel_params + 顶层汇总;空(未接通/关闭)→ 不写。

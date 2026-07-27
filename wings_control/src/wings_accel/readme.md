@@ -498,7 +498,7 @@ class LoadFlags:
 **启用规则**(`yaml_loader.py:132-164`):
 - `enable_kv = flags.kv`(纯 flag,**不再** `or has_kv`——YAML 块存在不自动启用任何特性);
 - `enable_sparse = flags.sparse`;
-- `memory_on = (memory_intent is True) and enable_kv and has_cpu`(内存卸载另需 `KV_MEM_OFFLOAD_SIZE` 下发 auto/数值 **且** YAML 有 cpu scheme);
+- `memory_on = (memory_intent is True) and enable_kv and has_memory_method`(内存卸载另需 `KV_MEM_OFFLOAD_SIZE` 下发 auto/数值 **且** YAML 有内存方法:cpu/cpu_disk scheme 或选中的 backend);
 - `disk_on = flags.disk and enable_kv and has_disk`(磁盘另需 YAML 有 disk scheme)。
 
 > **模板存在性护栏**:即使开关开了,YAML 没有对应 scheme(cpu/disk/cpu_disk)也不产出。主开关开但无介质时不兜底、不凭空生成参数——offload expander 自然返回 `None`。
@@ -615,6 +615,16 @@ decoding:
     envs:
       EARS_TOLERANCE: "0.3"
 ```
+
+**动态投机解码(按 batch size 分档)**:`speculative_config` 还可声明 `num_speculative_tokens_per_batch_size`(上游 vLLM `SpeculativeConfig` 字段),按 batch size 闭区间动态选投机 token 数;`num_speculative_tokens` 保留作兜底。**必须写在 `speculative_config` 内**(提顶层会渲染成 `--num-speculative-tokens-per-batch-size`,vLLM 无此 flag)。紧凑写法:
+
+```yaml
+# speculative_config 内:
+num_speculative_tokens: 3            # 兜底(调度表未命中 / DP 禁用动态 SD 时用)
+num_speculative_tokens_per_batch_size: [[1, 64, 3], [65, 128, 1], [129, 512, 0]]
+```
+
+完整规则与渲染效果见 docs/55 §3。
 
 ### 12.3 sparse
 

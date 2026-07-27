@@ -43,6 +43,12 @@ class AccelResult:
     audit: dict[str, Any] = field(default_factory=dict)
     packages: list[str] = field(default_factory=list)
     enabled: bool = False
+    # KV 存储后端(memcache/mooncake)pre-serve 命令:script_builder 在 vllm serve 前渲染。
+    # pre_serve=所有节点(生成配置文件);pre_serve_master=仅 master 节点起 daemon;
+    # pre_serve_client=仅 client 节点(非 master)。
+    pre_serve: list[str] = field(default_factory=list)
+    pre_serve_master: list[str] = field(default_factory=list)
+    pre_serve_client: list[str] = field(default_factory=list)
 
 
 def _import_accel():
@@ -120,6 +126,7 @@ def collect_accel_switches(env: dict) -> dict[str, Any]:
         "kv_qat_instance_num": _as_int(env.get("KV_QAT_INSTANCE_NUM")),
         "available_pod_mem_gb": _as_int(env.get("AVAILABLE_POD_MEM_SIZE")),
         "pd_role": env.get("PD_ROLE") or None,
+        # KV 存储后端(memcache/mooncake)由 yaml 声明、按 connector 内容路由;不再有 KV_STORE_* env。
     }
 
 
@@ -183,6 +190,10 @@ def collect_output(output) -> AccelResult:
             audit=audit,
             # 选中 scheme 声明的 pip 依赖;getattr 兜底旧/stub 输出无该字段 → []
             packages=list(getattr(output, "packages", []) or []),
+            # KV 存储后端 pre-serve 命令;getattr 兜底旧/stub 输出无该字段 → []
+            pre_serve=list(getattr(output, "pre_serve", []) or []),
+            pre_serve_master=list(getattr(output, "pre_serve_master", []) or []),
+            pre_serve_client=list(getattr(output, "pre_serve_client", []) or []),
             # enabled = 真有产出(对齐 docstring"成功产出";模块跑了但产空 → False,不触发 install 段)
             enabled=bool(engine_config or env),
         )
@@ -248,6 +259,7 @@ def apply_smart_accel(*, hardware_family: str, gpu_count: int | None, model_path
             hardware_family=hardware_family,
             model_name=model_name or model_path or "",
             flags=flags,
+            gpu_count=gpu_count or 1,
         )
         if output is None:
             return AccelResult()

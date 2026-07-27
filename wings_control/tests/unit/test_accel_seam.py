@@ -91,6 +91,48 @@ def test_repro_wires_accel_env_section(tmp_path):
     assert "export WINGS_ACCEL_KV=on" in repro_text
 
 
+def test_build_scripts_wires_pre_serve_and_master_only(tmp_path):
+    """KV 存储后端 accel:pre_serve(所有节点)+ pre_serve_master(仅 master)+ pre_serve_client(仅 client)接入 start_command.sh。
+
+    master-only 段用 RANK_IP==MASTER_IP 运行时条件包裹 daemon(单机 MASTER_IP 未设 → 条件真 → 起 daemon);
+    client-only 段用逆条件 RANK_IP!=MASTER_IP 包裹(单机 MASTER_IP 未设 → 条件假 → 不跑,单机即 master)。
+    """
+    accel = AccelResult(
+        env={"MOONCAKE_CONFIG_PATH": "/shared-volume/mooncake.json"},
+        enabled=True,
+        pre_serve=["cat > /shared-volume/mooncake.json <<EOF", "EOF"],
+        pre_serve_master=["mooncake_master --port 50088 &"],
+        pre_serve_client=["cat > /shared-volume/worker_only.conf <<EOF", "EOF"],
+    )
+    start_path, repro_path = build_scripts(_make_resolved(accel), tmp_path)
+    text = start_path.read_text(encoding="utf-8")
+    # 所有节点段(生成配置)
+    assert "KV store pre-serve (all nodes)" in text
+    assert "cat > /shared-volume/mooncake.json <<EOF" in text
+    # master-only 段:条件包裹 daemon
+    assert "KV store pre-serve (master only)" in text
+    assert 'if [ -z "${MASTER_IP:-}" ] || [ "${RANK_IP:-}" = "${MASTER_IP:-}" ]; then' in text
+    assert "    mooncake_master --port 50088 &" in text
+    assert text.index("\nfi\n") > text.index("mooncake_master")  # 关闭 fi 在 daemon 之后(勿被 pipefail 误命中)
+    # client-only 段:逆条件包裹(RANK_IP != MASTER_IP)
+    assert "KV store pre-serve (client only)" in text
+    assert 'if [ -n "${MASTER_IP:-}" ] && [ "${RANK_IP:-}" != "${MASTER_IP:-}" ]; then' in text
+    assert "    cat > /shared-volume/worker_only.conf <<EOF" in text
+    # pre_serve 段位于 install 段之后、exec 之前
+    assert text.index("KV store pre-serve") > text.index("install.py --config")
+    assert text.index("exec ") > text.index("KV store pre-serve")
+    # repro.sh 同步渲染(master + client 段)
+    repro_text = repro_path.read_text(encoding="utf-8")
+    assert "KV store pre-serve (master only)" in repro_text
+    assert "KV store pre-serve (client only)" in repro_text
+
+
+def test_empty_accel_no_pre_serve_section(tmp_path):
+    """空 accel / 非 KV 后端 → start_command.sh 不含 pre_serve 段(零影响回归)。"""
+    start_path, _ = build_scripts(_make_resolved(), tmp_path)
+    assert "KV store pre-serve" not in start_path.read_text(encoding="utf-8")
+
+
 def test_emit_audit_writes_wings_accel(tmp_path):
     """验证非空 accel.audit → audit.json 写入 wings_accel 诊断块。"""
     audit_path = emit_audit(_make_resolved(_STUB), tmp_path)

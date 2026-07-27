@@ -70,6 +70,25 @@ class LoadFlags:
     min_offload_threshold_gb: int = 100
 
 
+def _has_backend_scheme(kv_offload_block) -> bool:
+    """kv_offload 块里是否存在后端 scheme(``kv_connector`` 为 ``AscendStoreConnector``[mooncake/memcache]
+    或 ``LMCacheAscendConnectorV1Dynamic``[ascend lmcache,方法三])。
+
+    工具选择按 connector 内容路由,不再靠 ``KV_STORE_BACKEND`` env。后端 scheme(name=cpu)命中即视为
+    声明了内存卸载工具(cpu 介质下的实现,参与 has_memory_method)。与 ``offload._find_backend_scheme``
+    同列。
+    """
+    if not isinstance(kv_offload_block, list):
+        return False
+    for s in kv_offload_block:
+        if not isinstance(s, dict):
+            continue
+        kt = (s.get("cli_params") or {}).get("kv_transfer_config") or {}
+        if (kt.get("kv_connector") or "") in ("AscendStoreConnector", "LMCacheAscendConnectorV1Dynamic"):
+            return True
+    return False
+
+
 def load_smart_accel_from_yaml(
     yaml_path: str,
     flags: Optional[LoadFlags] = None,
@@ -119,30 +138,39 @@ def load_smart_accel_from_yaml(
     chosen_ec = _get_chosen_engine_config(model_dict)
     engine_config = _build_engine_config(chosen_ec)
 
-    # kv_offload 三 scheme(cpu/disk/cpu_disk);has_cpu = 有 cpu 层(cpu 或 cpu_disk),
-    # has_disk = 有 disk 层(disk 或 cpu_disk)。模板存在性护栏:memory/disk 启用还需对应层方案。
-    has_cpu = False
-    has_disk = False
+    # kv_offload scheme:name=介质(cpu/disk/cpu_disk);后端工具(mooncake/memcache)是 cpu 介质下的实现,scheme 名也为 cpu。
+    # has_memory_method = 有内存卸载方法(name 含 cpu/cpu_disk,或 yaml 声明的后端 scheme);
+    # has_disk = 有 disk 层(disk 或 cpu_disk)。模板存在性护栏:memory/disk 启用还需对应方法存在。
     kv_offload_block = smart_accel.get("kv_offload")
-    if isinstance(kv_offload_block, list):
-        names = {s.get("name") for s in kv_offload_block if isinstance(s, dict)}
-        has_cpu = "cpu" in names or "cpu_disk" in names
-        has_disk = "disk" in names or "cpu_disk" in names
+    names = (
+        {s.get("name") for s in kv_offload_block if isinstance(s, dict)}
+        if isinstance(kv_offload_block, list) else set()
+    )
+    has_disk = "disk" in names or "cpu_disk" in names
+    # 内存方法:name=cpu/cpu_disk(native/lmcache),或 yaml 声明的后端 scheme(name=cpu;mooncake/memcache 按 connector 判定)。
+    # 工具按 connector 内容路由(AscendStoreConnector),不再靠 KV_STORE_BACKEND env 选。
+    has_backend = _has_backend_scheme(kv_offload_block)
+    has_memory_method = ("cpu" in names or "cpu_disk" in names) or has_backend
 
     # MaaS 显式开关为唯一驱动(YAML 块存在不再自动启用);介质另需对应 scheme 模板存在
     enable_kv = flags.kv
     enable_sparse = flags.sparse
 
-    memory_intent, memory_size_mode, memory_capacity_gb = _resolve_memory_offload(flags.memory_offload_size_mode)
+    # 后端 scheme 选中但未下 KV_MEM_OFFLOAD_SIZE → 视为 auto(按 pod 内存估算),避免容量静默=0
+    mem_size_mode_raw = flags.memory_offload_size_mode
+    if has_backend and not (mem_size_mode_raw or "").strip():
+        mem_size_mode_raw = "auto"
+    memory_intent, memory_size_mode, memory_capacity_gb = _resolve_memory_offload(mem_size_mode_raw)
 
-    # 只有 memory_offload_size_mode 下发 auto/数值、且 YAML 有 cpu scheme 时才开 memory_offload
-    memory_on = memory_intent is True and enable_kv and has_cpu
+    # memory_offload_size_mode 下发 auto/数值、且 YAML 有内存方法(cpu/cpu_disk 或选中 backend)时才开
+    memory_on = memory_intent is True and enable_kv and has_memory_method
     disk_on = flags.disk and enable_kv and has_disk
 
     # 内存卸载容量来源:auto=从 pod 内存 + TP/DP 估算 / 数值字符串=固定 GB 值
+    # tp_size = tensor_parallel_size(yaml 来源),无条件算:供 SmartKVCacheConfig.tp_size + auto 估算共用。
+    tp = int((chosen_ec or {}).get("tensor_parallel_size", 1))
     explicit_memory_on = False
     if memory_on and memory_size_mode == "auto":
-        tp = (chosen_ec or {}).get("tensor_parallel_size", 1)
         dp = (chosen_ec or {}).get("data_parallel_size", 1)
         est = estimate_offload_memory(
             container_memory_gb=flags.pod_available_memory_gb,
@@ -182,6 +210,7 @@ def load_smart_accel_from_yaml(
             qat_enabled=flags.qat,
             qat_device_count=flags.qat_devices,
             qat_compression_level=flags.qat_level,
+            tp_size=tp,
         ),
         smart_kv_sparse_config=SmartKVSparseConfig(enabled=enable_sparse, mode=flags.sparse_level),
         smart_accel=smart_accel,
@@ -359,7 +388,11 @@ def load_smart_accel_from_config(
     )
     if yaml_path is None:
         return None
-    return load_smart_accel_from_yaml(str(yaml_path), flags)
+    smart_input = load_smart_accel_from_yaml(str(yaml_path), flags)
+    if smart_input is not None:
+        # smart-accel 根目录供 files 条目 src 解析(kv_backends/<backend>/ 模板)。
+        smart_input.config_root = str(_resolve_smart_accel_root(config_root))
+    return smart_input
 
 
 def _match_variant_name(data: Dict[str, Any], model_name: str) -> bool:

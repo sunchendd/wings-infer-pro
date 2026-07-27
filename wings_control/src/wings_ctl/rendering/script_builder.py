@@ -7,7 +7,7 @@
 - start_command.sh: 本次实际执行脚本,简洁。
 - repro.sh: 可移植复现脚本,包含完整 env 设置 + 每个引擎参数的来源注释(取自 trace)。
 
-env 渲染与 system_setup 渲染会影响最终 shell 脚本,修改时必须确认 quoting 和执行顺序。
+⚠️ env 渲染与 system_setup 渲染为安全敏感代码,需人工 review。
 """
 
 from __future__ import annotations
@@ -45,8 +45,8 @@ def _render_system_setup_comments(
 ) -> List[str]:
     """渲染 system_setup 为注释形式(不生成可执行行)。
 
-    安全边界:这里只输出注释,不生成可执行指令。特权 sysctls / sysfs_writes 恒注释,
-    由运维或容器 init 流程决定是否执行。
+    ⚠️ 安全敏感:仅输出注释,不生成可执行指令。特权 sysctls / sysfs_writes **恒注释**
+    (维持单机「注释不执行」安全立场,留运维/容器 init)。
 
     Args:
         system_setup: 系统级设置(None 返回空)。
@@ -90,9 +90,10 @@ def _render_system_setup_comments(
 def _render_runtime_commands_inline(system_setup: Optional[SystemSetup]) -> List[str]:
     """把 system_setup.commands 渲染为**可执行** inline 行(multi_node)。
 
-    multi_node 路径下,当前只渲染框架生成的 NIC 探测命令。
+    multi_node 路径下,这里当前只会执行框架内固定命令(NIC 探测)。
     占位 ``$local_ip`` / ``$node0_ip`` 在上游已替换为字面值,不在这里赋值。
-    特权 sysctls / sysfs_writes 不在此执行,仍走注释(``_render_system_setup_comments``)。
+    ⚠️ 若将来扩展新的 inline 命令,需要同步做人审安全评估。
+    特权 sysctls / sysfs_writes 不在此,仍走注释(``_render_system_setup_comments``)。
 
     Args:
         system_setup: 系统级设置(None / 无 commands 返回空)。
@@ -114,11 +115,12 @@ def _render_runtime_commands_inline(system_setup: Optional[SystemSetup]) -> List
 def _render_accel_install_preamble(engine: str, engine_version: str, packages: List[str]) -> List[str]:
     """渲染 wings-accel runtime patch 安装段(``--config`` JSON 形式)。
 
-    install.py 当前接收 ``--config '{json}'``;JSON 包含引擎名称、引擎版本和
-    选中 scheme 声明的 pip 依赖包列表。``hardware_family`` 不再作为参数传入。
+    2026-07-06 更新:从 3 个位置参数改为 ``--config '{json}'``;JSON 含
+    ``engine{name,version}`` + ``packages``(各选中 scheme 声明的 pip 依赖,name:version 字符串)。
+    ``hardware_family`` 不再传入(新契约;若 install.py 仍需,加 ``"hardware"`` 字段即可)。
 
-    JSON 用 ``json.dumps`` 生成,再通过 ``shlex.quote`` 作为一个 shell 参数传入,避免
-    包名、版本号或路径内容影响命令结构。
+    ⚠️ 安全敏感:本行 exec,**改命令形态须 A5 人工 review**(对齐 §2.8 / docs/45 §5.3)。
+    JSON 用 ``json.dumps`` 生成(无单引号)再 ``shlex.quote`` 整体包住,杜绝注入。
 
     Args:
         engine: 引擎名(如 ``vllm``)。
@@ -140,6 +142,8 @@ def _render_accel_install_preamble(engine: str, engine_version: str, packages: L
     ]
 
 
+
+
 def _render_accel_env_section(accel_env: Dict[str, str]) -> List[str]:
     """渲染 wings-accel 注入的 env export 段。
 
@@ -156,6 +160,52 @@ def _render_accel_env_section(accel_env: Dict[str, str]) -> List[str]:
     return lines
 
 
+def _render_accel_pre_serve_section(
+    pre_serve: Optional[List[str]],
+    pre_serve_master: Optional[List[str]],
+    pre_serve_client: Optional[List[str]] = None,
+) -> List[str]:
+    """渲染 KV 存储后端(memcache/mooncake)pre-serve 段。
+
+    三段(对齐 start_kv_serve.sh:install.py → 起 KV 服务 → vllm serve):
+    - ``pre_serve``:所有节点运行(典型:heredoc 生成 mooncake.json/mmc_*.conf,引用 $local_ip/$node0_ip);
+    - ``pre_serve_master``:仅 master 节点起 daemon。包运行时条件
+      ``RANK_IP == MASTER_IP`` 判 master;单机(``MASTER_IP`` 未设)条件恒真 → 起 daemon。
+    - ``pre_serve_client``:仅 client 节点(非 master)。包运行时条件 ``RANK_IP != MASTER_IP``
+      判 client;单机(``MASTER_IP`` 未设)条件恒假 → 不跑(单机即 master)。
+
+    Args:
+        pre_serve: 所有节点命令;空 → 不渲染该段。
+        pre_serve_master: 仅 master 命令;空 → 不渲染该段(external 模式或无 daemon)。
+        pre_serve_client: 仅 client 命令;空 → 不渲染该段。
+
+    Returns:
+        pre-serve 段脚本行;三段皆空 → 空列表(非 KV 后端路径零影响)。
+    """
+    lines: List[str] = []
+    if pre_serve:
+        lines.append("# ─── KV store pre-serve (all nodes) ───")
+        lines.extend(pre_serve)
+        lines.append("")
+    if pre_serve_master:
+        lines.append("# ─── KV store pre-serve (master only) ───")
+        lines.append(
+            'if [ -z "${MASTER_IP:-}" ] || [ "${RANK_IP:-}" = "${MASTER_IP:-}" ]; then'
+        )
+        lines.extend(f"    {cmd}" for cmd in pre_serve_master)
+        lines.append("fi")
+        lines.append("")
+    if pre_serve_client:
+        lines.append("# ─── KV store pre-serve (client only) ───")
+        lines.append(
+            'if [ -n "${MASTER_IP:-}" ] && [ "${RANK_IP:-}" != "${MASTER_IP:-}" ]; then'
+        )
+        lines.extend(f"    {cmd}" for cmd in pre_serve_client)
+        lines.append("fi")
+        lines.append("")
+    return lines
+
+
 def _render_start_command_sh(
     argv: List[str],
     env_traces: Dict[str, TracedValue],
@@ -167,6 +217,9 @@ def _render_start_command_sh(
     execute_commands: bool = False,
     accel_env: Optional[Dict[str, str]] = None,
     accel_enabled: bool = False,
+    accel_pre_serve: Optional[List[str]] = None,
+    accel_pre_serve_master: Optional[List[str]] = None,
+    accel_pre_serve_client: Optional[List[str]] = None,
 ) -> str:
     """生成 start_command.sh 内容。简洁执行脚本。
 
@@ -211,6 +264,12 @@ def _render_start_command_sh(
     # wings-accel runtime patch 安装段(仅 accel 真启用时)
     if accel_enabled:
         lines.extend(_render_accel_install_preamble(engine, engine_version, packages))
+
+    # KV 存储后端(memcache/mooncake)pre-serve 段:vllm serve 前生成配置 / 起 daemon。
+    # 非 KV 后端路径 → 两段皆空 → _render_accel_pre_serve_section 返回 [](零影响)。
+    pre_serve_lines = _render_accel_pre_serve_section(accel_pre_serve, accel_pre_serve_master, accel_pre_serve_client)
+    if pre_serve_lines:
+        lines.extend(pre_serve_lines)
 
     # exec engine command
     lines.append("exec " + shlex.join(argv))
@@ -266,6 +325,13 @@ def _render_repro_sh(
         lines.append("# ─── Environment Variables (wings-accel) ───")
         lines.extend(accel_env_lines)
         lines.append("")
+
+    # KV 存储后端 pre-serve 段(memcache/mooncake);与 start_command.sh 同款渲染。
+    pre_serve_lines = _render_accel_pre_serve_section(
+        resolved.accel.pre_serve, resolved.accel.pre_serve_master, resolved.accel.pre_serve_client
+    )
+    if pre_serve_lines:
+        lines.extend(pre_serve_lines)
 
     # system_setup (注释形式,含来源;commands 若已 inline 则不重复)
     setup_lines = _render_system_setup_comments(
@@ -323,8 +389,8 @@ _MULTI_NODE_BANNER = [
     "# MULTI-NODE — RUNTIME INJECTION PENDING (无运行时上下文 RANK_IP/NODE_IPS)",
     "# 本脚本为【占位】:nodes[] 已加载并完成深合并,但未选定本 Pod / 未注入。",
     "# 部署时由 wings-ctl 在各 Pod 携 RANK_IP/NODE_IPS/MASTER_IP 重跑,产可执行脚本。",
-    "# 下方每个节点的 argv/env 中 $占位符 为【字面未解析】值,仅供检查。",
-    "# 请勿直接执行本脚本。",
+    "# 下方每个节点的 argv/env 中 $占位符 为【字面未解析】值,仅供 review。",
+    "# ⚠️ 切勿直接执行本脚本。",
     "# ============================================================================",
 ]
 
@@ -354,14 +420,9 @@ def _render_multi_node_placeholder(resolved: ResolvedConfig) -> str:
         env_lines = _render_env_section(node.env_traces)
         if env_lines:
             lines.append("#   env (未注入):")
-            for env_line in env_lines:
-                lines.append(f"#     {env_line}")
+            lines.extend(f"#     {line}" for line in env_lines)
         setup_lines = _render_system_setup_comments(node.system_setup)
-        for setup_line in setup_lines:
-            if setup_line:
-                lines.append(f"# {setup_line}")
-            else:
-                lines.append("#")
+        lines.extend(f"# {line}" if line else "#" for line in setup_lines)
         argv = build_argv(node.engine_config_traces, engine=resolved.engine)
         lines.append("#   argv (未注入,$占位符为字面值):")
         lines.append(f"#     {shlex.join(argv)}")
@@ -414,6 +475,9 @@ def build_scripts(
         execute_commands=execute_commands,
         accel_env=resolved.accel.env,
         accel_enabled=resolved.accel.enabled,
+        accel_pre_serve=resolved.accel.pre_serve,
+        accel_pre_serve_master=resolved.accel.pre_serve_master,
+        accel_pre_serve_client=resolved.accel.pre_serve_client,
     )
     start_path.write_text(start_content, encoding="utf-8")
     start_path.chmod(0o755)

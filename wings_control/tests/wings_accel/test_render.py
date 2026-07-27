@@ -100,8 +100,12 @@ def test_write_scheme_files_renders_multiple_formats(monkeypatch, tmp_path):
          "content": "ock.mmc.local_service.dram.size = 10GB\nlocal_disk = {disk_path}\n"},
     ]
     written = write_scheme_files(files, c)
-    # 返回路径 = SHARED_VOLUME_PATH/<name>,顺序与输入一致
-    assert written == [str(tmp_path / "mooncake.json"), str(tmp_path / "mmc_local.conf")]
+    # 返回每文件的运行时信息;path = SHARED_VOLUME_PATH/<name>,顺序与输入一致
+    assert [w["path"] for w in written] == [
+        str(tmp_path / "mooncake.json"), str(tmp_path / "mmc_local.conf")
+    ]
+    # 无 ${VAR} 运行时占位符 → runtime_vars=[]
+    assert all(w["runtime_vars"] == [] for w in written)
     # 占位符子串全部填实(多行文本里的 {占位符} 整体替换)
     assert (tmp_path / "mooncake.json").read_text(encoding="utf-8") == (
         '{"local_disk": "/mnt/kv", "instance_num": 4}\n'
@@ -129,7 +133,7 @@ def test_write_scheme_files_explicit_volume_overrides_env(monkeypatch, tmp_path)
         ctx(qat_enabled=True),
         volume=str(target),
     )
-    assert written == [str(target / "a.txt")]
+    assert [w["path"] for w in written] == [str(target / "a.txt")]
     assert (target / "a.txt").read_text(encoding="utf-8") == "enabled: true\n"
 
 
@@ -139,3 +143,57 @@ def test_write_scheme_files_unresolved_token_kept_literal(monkeypatch, tmp_path)
     write_scheme_files([{"name": "c.yaml", "content": "local_disk: {disk_path}\n"}], ctx())
     # disk_offload_enabled=False → {disk_path} 不解析,保留字面量
     assert (tmp_path / "c.yaml").read_text(encoding="utf-8") == "local_disk: {disk_path}\n"
+
+
+# ── {= expr} 算术求值(content / cli_params / envs 通用)───────────────────────
+
+
+def test_expr_arithmetic_floor_div():
+    """{= memory_capacity_gb // gpu_count} 算术求值(8 // 4 = 2)。"""
+    c = ctx(memory_capacity_gb=8, gpu_count=4)
+    assert render_engine_config({"x": "{= memory_capacity_gb // gpu_count}"}, c) == {"x": "2"}
+
+
+def test_expr_float_normalize():
+    """整值浮点归一为整数(8/2→'4'),非整值保留(7/2→'3.5')。"""
+    c = ctx()
+    assert render_engine_config({"a": "{= 8 / 2}"}, c) == {"a": "4"}
+    assert render_engine_config({"b": "{= 7 / 2}"}, c) == {"b": "3.5"}
+
+
+def test_expr_paren_precedence():
+    """括号与运算符优先级:((8 + 8) * 2) = 32。"""
+    c = ctx(memory_capacity_gb=8)
+    assert render_engine_config({"x": "{= (memory_capacity_gb + 8) * 2}"}, c) == {"x": "32"}
+
+
+def test_expr_unknown_var_kept_literal():
+    """未知变量(不在命名空间)→ 原样保留 {= ...},不抛异常。"""
+    c = ctx()
+    assert render_engine_config({"x": "{= nonexistent * 2}"}, c) == {"x": "{= nonexistent * 2}"}
+
+
+def test_expr_rejects_call():
+    """函数调用被白名单拒 → 原样保留(安全:max / __import__ 均不执行)。"""
+    c = ctx()
+    assert render_engine_config({"a": "{= max(1, 2)}"}, c) == {"a": "{= max(1, 2)}"}
+    assert render_engine_config({"b": "{= __import__('os').system('x')}"}, c) == {
+        "b": "{= __import__('os').system('x')}"
+    }
+
+
+def test_expr_in_files_content(monkeypatch, tmp_path):
+    """files content 多行文本里 {name} 与 {= expr} 共存:{rank_ip}/{master_ip}/{lookup_server_worker_ids} + {= ...}。"""
+    monkeypatch.setenv("SHARED_VOLUME_PATH", str(tmp_path))
+    c = ctx(memory_capacity_gb=8, gpu_count=4, tp_size=4)
+    write_scheme_files(
+        [{"name": "mooncake.json",
+          "content": "local = {rank_ip}\nmaster = {master_ip}\n"
+                     "segment = {= memory_capacity_gb // gpu_count}GB\n"
+                     "workers = {lookup_server_worker_ids}\n"}],
+        c,
+    )
+    assert (tmp_path / "mooncake.json").read_text(encoding="utf-8") == (
+        "local = ${RANK_IP}\nmaster = ${MASTER_IP}\n"
+        "segment = 2GB\nworkers = 0,1,2,3\n"
+    )

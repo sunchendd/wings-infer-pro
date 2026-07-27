@@ -19,6 +19,7 @@ __all__ = [
     "render_engine_config",
     "fill_envs",
     "render_scheme",
+    "render_pre_serve",
     "write_scheme_files",
     "deep_merge_dicts",
     "merge_engine_params",
@@ -42,6 +43,7 @@ from wings_accel.render import (
     fill_envs,
     merge_engine_params,
     render_engine_config,
+    render_pre_serve,
     render_scheme,
     write_scheme_files,
 )
