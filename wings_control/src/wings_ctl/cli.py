@@ -409,7 +409,7 @@ def _run_dry_mode(parser: argparse.ArgumentParser, request: PipelineRequest) -> 
 
 
 def _validate_unknown_args(parser: argparse.ArgumentParser, unknown_args: List[str]) -> None:
-    """校验未知参数列表并输出统一错误。
+    """校验未知参数：移除参数报错；其余未知参数告警放行。
 
     Args:
         parser: CLI parser。
@@ -419,14 +419,22 @@ def _validate_unknown_args(parser: argparse.ArgumentParser, unknown_args: List[s
         None。
 
     Raises:
-        SystemExit: 参数不合法时通过 ``parser.error`` 退出。
+        SystemExit: 命中已移除参数时通过 parser.error 退出。
     """
+    if not unknown_args:
+        return
+
+    # 已移除参数 —— 硬错误（语义已失效，静默忽略会导致语义漂移）
     if _contains_removed_engine_param(unknown_args):
         parser.error(
-            "`--engine-param` 已移除; 需要裸透传请使用 direct_vllm_serve 逃生通道。"
+            "`--engine-param` has been removed; "
+            "use the direct_vllm_serve escape hatch for raw passthrough."
         )
-    if unknown_args:
-        parser.error(f"unrecognized arguments: {' '.join(unknown_args)}")
+
+    # 其余未知参数 —— 告警放行（TODO: 后续将被忽略参数写入 audit 产物）
+    logger.warning(
+        "Received unrecognized arguments (ignored, startup continues): %s; ", " ".join(unknown_args),
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -516,6 +524,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help="Print argv to stdout without writing files",
+    )
+    parser.add_argument(
+        "--gpu-usage-mode",
+        type=str,
+        default="full",
+        help="Specify gpu usage mode (default: full)",
     )
     return parser
 
