@@ -5,7 +5,7 @@ upstream_sources:
     repo: null
     file: null
     url: https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash
-    date_updated: 2026-07-13
+    date_updated: 2026-07-28
     note: 手工录入
 # 模型基本信息
 model:
@@ -20,8 +20,8 @@ model:
   context_length: 1048576  # 最大上下文长度
   vram_minimum_gb: 384  # 最低显存需求(GB)（8 × 48GB）
   tasks: [text]  # 支持的任务类型
-  min_engine_version: "0.22.0"  # 最低引擎版本要求（实测 vLLM 0.22.0）
-  date_updated: 2026-07-13  # 录入日期
+  min_engine_version: "0.23.0"  # 最低引擎版本要求
+  date_updated: 2026-07-28  # 录入日期
   match:  # 模型名匹配规则
     - name_pattern: "(?i)deepseek[-.]?v4[-.]?flash"
   variant_name: DeepSeek-V4-Flash-fp8  # 模型量化版本精确名称
@@ -42,40 +42,44 @@ features:
     args: [--reasoning-parser, deepseek_v4]
   spec_decoding:
     description: Multi-Token Prediction speculative decoding with 2 speculative tokens.
-    args: [--speculative_config, "{\"method\":\"mtp\",\"num_speculative_tokens\":2}"]
+    args: [--speculative-config, "{\"method\":\"mtp\",\"num_speculative_tokens\":2}"]
   sparse_index:
-    description: Sparse attention index cache configuration via HF overrides.
-    args: [--hf-overrides, "{\"use_index_cache\":true, \"index_topk_freq\":4}"]
+    description: Sparse attention top-k frequency configuration via HF overrides.
+    args: [--hf-overrides, "{\"index_topk_freq\":4}"]
 
 # 部署场景
 scenarios:
   standalone:
-    source_ref: "deepseek-v4-flash_fp8_manual#single_node_tp"
+    source_ref: "deepseek-v4-flash_fp8_manual#single_node_tep"
     match:
       distributed: false
       pd_role: null
     strategies:
-      single_node_tp:
-        display_name: Tensor Parallel
+      single_node_tep:
+        display_name: Tensor + Expert Parallel
         orientation: latency
         default_strategy: true
         engine_config:
           model: deepseek-ai/DeepSeek-V4-Flash
           host: 0.0.0.0
           port: 5685
-          attention_backend: FLASHMLA_SPARSE_DSV4
+          attention_backend: FLASHINFER_MLA_SPARSE_SM120_DSV4
           kv_cache_dtype: fp8
           block_size: 256
-          max_model_len: 140000
-          max_num_batched_tokens: 16384
-          enable_prefix_caching: true
-          no_enable_flashinfer_autotune: true
           tensor_parallel_size: 4
           gpu_memory_utilization: 0.9
+          max_model_len: 140000
+          no_enable_flashinfer_autotune: true
+          enable_prefix_caching: true
           compilation_config:
-            mode: 0
             cudagraph_mode: FULL_AND_PIECEWISE
+            custom_ops: [all]
             max_cudagraph_capture_size: 768
           async_scheduling: true
-          load_format: auto
+          enable_expert_parallel: true
+          all2all_backend: allgather_reducescatter
+          enable_eplb: true
+          eplb_config:
+            num_redundant_experts: 2
+            use_async: true
         env: {}
