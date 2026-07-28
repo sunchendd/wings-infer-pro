@@ -40,6 +40,7 @@ from wings_ctl.engines.version_resolver import _parse_version_tuple
 from wings_ctl.loaders.locator import load_model_config, load_platform_config, resolve_family_dir
 from wings_ctl.strategy.parallelism import check_capacity, dp_start_rank
 from wings_ctl.strategy.feature_overlay import feature_overlay_transform
+from wings_ctl.strategy.feature_inject import feature_inject_transform
 from wings_ctl.strategy.post_template import post_template_strategy
 from wings_ctl.weight.reader import read_num_attention_heads, resolve_weight_bytes
 from wings_ctl.strategy.topology_inject import (
@@ -551,6 +552,8 @@ def _resolve_multi_node(
     rank_ip: str | None,
     node_ips: List[str] | None,
     master_ip: str | None,
+    strategy_env_layer: dict | None = None,
+    strategy_feature_inject_overrides: dict | None = None,
 ) -> tuple[
     Dict[str, TracedValue],
     Dict[str, TracedValue],
@@ -573,6 +576,10 @@ def _resolve_multi_node(
             排 strategy_feature 后、user_cli 前 → recipe < accel < user_cli;空=无加速产出)。
         device_count: 本 Pod 卡数(None 不触发多机 DP 协调)。
         rank_ip / node_ips / master_ip: 运行时上下文;``rank_ip and node_ips`` 在场时走注入路径。
+        strategy_env_layer: 特性注入层（SmartQoS/EnableTrace/Metrics）产出的环境变量覆盖层，
+            由调用方在 resolve_config 中统一计算后传入。
+        strategy_feature_inject_overrides: 特性注入层产出的引擎参数覆盖层，
+            由调用方在 resolve_config 中统一计算后传入。
 
     Returns:
         ``(engine_config_traces, env_traces, system_setup, nodes, notes)``:
@@ -610,6 +617,10 @@ def _resolve_multi_node(
                     "<strategy:topology_inject>", "strategy.topology_inject",
                 )
             )
+        if strategy_env_layer:
+            merge_layers.append(
+                MergeLayer("strategy_feature_env", strategy_env_layer, "<strategy:feature_env_inject>", "strategy.feature_env_inject"),
+            )
         return trace_merge(merge_layers)
 
     if rank_ip is not None and node_ips is not None:
@@ -627,6 +638,7 @@ def _resolve_multi_node(
             MergeLayer("strategy_multinode_dp", dp_override, "<strategy:multinode_dp>", "strategy.multinode_dp"),
             MergeLayer("strategy_topology_inject", ec_inject, "<strategy:topology_inject>", "strategy.topology_inject"),
             MergeLayer("strategy_feature", feature_overrides, "<strategy:feature>", "strategy.feature"),
+            MergeLayer("strategy_feature_inject", strategy_feature_inject_overrides or {}, "<strategy:feature_inject>", "strategy.feature_inject"),
             MergeLayer("strategy_accel", accel_overrides, "<wings-accel>", "strategy.accel"),
         ])
         env_traces = _env_traces(spec, override=env_inject)
@@ -654,6 +666,7 @@ def _resolve_multi_node(
     for spec in node_specs:
         extra_layers = [
             MergeLayer("strategy_feature", feature_overrides, "<strategy:feature>", "strategy.feature"),
+            MergeLayer("strategy_feature_inject", strategy_feature_inject_overrides or {}, "<strategy:feature_inject>", "strategy.feature_inject"),
             MergeLayer("strategy_accel", accel_overrides, "<wings-accel>", "strategy.accel"),
         ]
         engine_config_traces = _ec_traces(spec, extra_layers=extra_layers)
@@ -773,12 +786,13 @@ def _merge_engine_config_traces(
     model_layer_name: str,
     model_source_file: str,
     scenario_prefix: str,
+    feature_inject_overrides: dict | None = None,
 ) -> Dict[str, TracedValue]:
     """按固定层序深合并出 engine_config 逐参 trace(standalone 命中 / fallback 兜底共用)。
 
     层序(低→高优先级,trace-first):builtin_default < model(recipe) <
-    strategy_device_count < strategy_feature < strategy_accel < user_cli。accel 层排
-    feature 后、user_cli 前 → recipe < accel < user_cli。
+    strategy_device_count < strategy_feature < strategy_feature_inject <
+    strategy_accel < user_cli。accel 层排 feature 后、user_cli 前 → recipe < accel < user_cli。
 
     Args:
         scenario_engine_config: recipe/平台基线的 engine_config(model 层)。
@@ -790,6 +804,7 @@ def _merge_engine_config_traces(
             fallback 兜底为 ``"default_model"``。
         model_source_file: model 层来源文件路径(供 trace 溯源)。
         scenario_prefix: model 层 yaml 路径前缀。
+        feature_inject_overrides: SmartQoS/EnableTrace/Metrics 特性注入覆盖层。
 
     Returns:
         参数名 → TracedValue。
@@ -797,14 +812,21 @@ def _merge_engine_config_traces(
     # 每个 MergeLayer = 一个合并层;列表顺序即层序(低→高优先):
     #   builtin_default < model(recipe) < strategy_device_count < strategy_feature < strategy_accel < user_cli。
     # 加一个 merge layer = 往这个 list 里插一个 MergeLayer(名 / 数据 / 来源文件 / 来源路径前缀)。
-    return trace_merge([
+    layers: list[MergeLayer] = [
         MergeLayer("builtin_default", _BUILTIN_DEFAULTS, "<builtin_default>", "builtin_default"),
         MergeLayer(model_layer_name, scenario_engine_config, model_source_file, scenario_prefix),
         MergeLayer("strategy_device_count", strategy_overrides, "<strategy:device_count>", "strategy.device_count"),
         MergeLayer("strategy_feature", feature_overrides, "<strategy:feature>", "strategy.feature"),
+    ]
+    if feature_inject_overrides:
+        layers.append(
+            MergeLayer("strategy_feature_inject", feature_inject_overrides, "<strategy:feature_inject>", "strategy.feature_inject"),
+        )
+    layers.extend([
         MergeLayer("strategy_accel", accel_layer, "<wings-accel>", "strategy.accel"),
         MergeLayer("user_cli", user_layer, "<user_cli>", "user_cli"),
     ])
+    return trace_merge(layers)
 
 
 def resolve_config(
@@ -920,6 +942,13 @@ def resolve_config(
         },
     )
 
+    # 特性注入层（SmartQoS/EnableTrace/Metrics）：与模板内容无关，只依赖 feature_switches 和 engine。
+    # 像 feature_overlay_transform 一样只调用一次，结果供 fallback/standalone/multi_node 三条路径共用。
+    strategy_feature_inject_overrides, strategy_env_layer, feature_inject_notes = feature_inject_transform(
+        feature_switches or {},
+        engine,
+    )
+
     user_cli_audit_entries = _build_user_cli_audit_entries(user_layer, user_cli_dropped)
     platform_env = platform_data.get("platform_env", {})
 
@@ -981,11 +1010,18 @@ def resolve_config(
             model_layer_name="default_model",
             model_source_file=model_path_str,
             scenario_prefix=scenario_engine_config_source_prefix,
+            feature_inject_overrides=strategy_feature_inject_overrides,
         )
 
-        env_traces = trace_merge([
+        # env merge: model 层 + 特性 env 注入层
+        env_layers = [
             MergeLayer("default_model", scenario_env, model_path_str, scenario_env_source_prefix),
-        ])
+        ]
+        if strategy_env_layer:
+            env_layers.append(
+                MergeLayer("strategy_feature_env", strategy_env_layer, "<strategy:feature_env_inject>", "strategy.feature_env_inject"),
+            )
+        env_traces = trace_merge(env_layers)
         system_setup = None
     else:
         # pod_count 供 head/worker 形态展开:有运行时 NODE_IPS 用其长度,否则交 _select_scenario 兜底(nnodes/2)
@@ -1009,6 +1045,8 @@ def resolve_config(
                 rank_ip=rank_ip,
                 node_ips=node_ips,
                 master_ip=master_ip,
+                strategy_env_layer=strategy_env_layer,
+                strategy_feature_inject_overrides=strategy_feature_inject_overrides,
             )
         else:
             scenario_engine_config = scenario["engine_config"]
@@ -1028,12 +1066,18 @@ def resolve_config(
                 model_layer_name="model_scenario",
                 model_source_file=str(model_path),
                 scenario_prefix=scenario_engine_config_source_prefix,
+                feature_inject_overrides=strategy_feature_inject_overrides,
             )
 
-            # env merge: 命中 model 仅 model 层
-            env_traces = trace_merge([
+            # env merge: model 层 + 特性 env 注入层
+            env_layers = [
                 MergeLayer("model_scenario", scenario_env, str(model_path), scenario_env_source_prefix),
-            ])
+            ]
+            if strategy_env_layer:
+                env_layers.append(
+                    MergeLayer("strategy_feature_env", strategy_env_layer, "<strategy:feature_env_inject>", "strategy.feature_env_inject"),
+                )
+            env_traces = trace_merge(env_layers)
 
             # system_setup 构建(仅场景层,从空集合起)
             system_setup = _build_system_setup(
@@ -1085,7 +1129,8 @@ def resolve_config(
     resolution_notes["device_count_source"] = "provided" if device_count is not None else "unset"
     # 小策略层 DeviceCountTransform 协调摘要(template_tp/dp、resolved_dp、status)
     resolution_notes.update(strategy_notes)
-    resolution_notes.update(feature_notes)  # 特性附加/跳过摘要
+    resolution_notes.update(feature_notes)  # 特性附加/跳过摘要(feature_overlay)
+    resolution_notes.update(feature_inject_notes)  # SmartQoS/EnableTrace/Metrics 注入摘要
     resolution_notes["min_engine_version"] = min_engine_check["min_engine_version"]
     resolution_notes["engine_version_for_min_check"] = min_engine_check["engine_version_for_min_check"]
     resolution_notes["engine_version_for_min_check_source"] = min_check_version_source
