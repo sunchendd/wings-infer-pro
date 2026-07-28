@@ -5,9 +5,9 @@
 本测试用**真有 smart-accel yaml 资产**的组合 ``vllm / rtx_pro_5000_48G / Qwen3.5-397B-A17B / 0.23.0``,
 跑**真 CLI**(不 mock accel),覆盖两条已有资产的特性:
 - **投机解码** ``ENABLE_SPECULATIVE_DECODE`` → ``speculative_config`` 进 argv;``smart_decoding_scheme`` 进 audit。
-- **KV 卸载** ``ENABLE_KV_OFFLOAD`` + ``KV_MEM_OFFLOAD_SIZE`` → ``kv_transfer_config`` 进 argv
-  (``{mem_gb_to_bytes}`` 占位被真填成字节值;原生 vLLM(CUDA)≥v0.14 读 ``cpu_bytes_to_use``);
-  ``smart_kv_cache_scheme`` 进 audit。
+- **KV 卸载** ``ENABLE_KV_OFFLOAD`` + ``KV_MEM_OFFLOAD_SIZE`` → vLLM v0.23 原生 offload flag
+  (``--kv-offloading-backend native`` + ``--kv-offloading-size``;与旧 ``kv_transfer_config`` blob 等价)进 argv;
+  ``{memory_capacity_gb}`` 占位被真填;``smart_kv_cache_scheme`` 进 audit。
 - 两特性同开 → **两段都并入**同一条 argv(建议3 合并层)。
 - 全关 → accel no-op(argv/audit/install 段全无)。
 
@@ -99,15 +99,15 @@ def test_accel_speculative_enabled(tmp_path, monkeypatch, config_root_real):
 
 @_skip
 def test_accel_kv_offload_enabled(tmp_path, monkeypatch, config_root_real):
-    """开 KV 卸载:accel 真产出 kv_transfer_config → 进 argv;占位被真填;scheme 进 audit。"""
+    """开 KV 卸载:accel 真产出 vLLM v0.23 原生 offload flag → 进 argv;占位被真填;scheme 进 audit。"""
     start, audit = _run(tmp_path, monkeypatch, config_root_real,
                         accel_env={"ENABLE_KV_OFFLOAD": "true", "KV_MEM_OFFLOAD_SIZE": "40"})
-    compact = start.replace(" ", "")
-    assert "--kv-transfer-config" in start
-    assert '"kv_connector":"OffloadingConnector"' in compact
-    # {mem_gb_to_bytes} 占位必须被真实字节值替换(不残留字面占位);CUDA 读 cpu_bytes_to_use
-    assert "{mem_gb_to_bytes}" not in start
-    assert '"cpu_bytes_to_use":"' in compact
+    # cpu scheme → vLLM ≥v0.23 原生 offload flag(kv_offloading_backend=native + size;与旧 kv_transfer_config blob 等价)
+    assert "--kv-offloading-backend native" in start
+    assert "--kv-offloading-size 40" in start
+    assert "--kv-transfer-config" not in start
+    # {memory_capacity_gb} 占位必须被真实值替换(不残留字面占位);size 取自 KV_MEM_OFFLOAD_SIZE
+    assert "{memory_capacity_gb}" not in start
     assert audit["wings_accel"]["smart_kv_cache_scheme"] == "cpu"
     # install 段:cpu = 原生 OffloadingConnector,无 lmcache 依赖 → packages=[](cpu 不需要 lmcache;
     # lmcache 包只在 disk/cpu_disk scheme 上,见 tests/wings_accel/test_offload.py)
@@ -117,12 +117,13 @@ def test_accel_kv_offload_enabled(tmp_path, monkeypatch, config_root_real):
 
 @_skip
 def test_accel_speculative_and_kv_offload_both_wired(tmp_path, monkeypatch, config_root_real):
-    """两特性同开:speculative_config 与 kv_transfer_config **同时**并入一条 argv(合并层)。"""
+    """两特性同开:speculative_config 与 KV 原生 offload flag **同时**并入一条 argv(合并层)。"""
     start, audit = _run(tmp_path, monkeypatch, config_root_real, accel_env={
         "ENABLE_SPECULATIVE_DECODE": "true",
         "ENABLE_KV_OFFLOAD": "true", "KV_MEM_OFFLOAD_SIZE": "40",
     })
-    assert "--speculative-config" in start and "--kv-transfer-config" in start
+    assert "--speculative-config" in start
+    assert "--kv-offloading-backend native" in start and "--kv-offloading-size 40" in start
     assert audit["wings_accel"]["smart_decoding_scheme"] == "mtp"
     assert audit["wings_accel"]["smart_kv_cache_scheme"] == "cpu"
 
@@ -132,7 +133,7 @@ def test_accel_disabled_is_no_op(tmp_path, monkeypatch, config_root_real):
     """全关:accel 产空 → argv 无 accel 参数、audit 无 wings_accel、install 段不出现(gating 回归)。"""
     start, audit = _run(tmp_path, monkeypatch, config_root_real, accel_env={})
     assert "--speculative-config" not in start
-    assert "--kv-transfer-config" not in start
+    assert "--kv-offloading-backend" not in start
     assert "install.py" not in start
     assert "wings_accel" not in audit
 

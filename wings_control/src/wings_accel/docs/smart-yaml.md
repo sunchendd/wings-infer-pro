@@ -177,7 +177,7 @@ decoding:
 
 fallback:目标 scheme 缺失时,`cpu_disk` 缺 → 退化 `disk > cpu > None`;`cpu/disk` 缺 → None(`offload.py:93-103`)。
 
-- `cpu`:`kv_transfer_config.kv_connector = OffloadingConnector`;CUDA 原生 vLLM(≥v0.14)读 `cpu_bytes_to_use`(字节),用 `{mem_gb_to_bytes}`(见真实资产 Qwen3.5-397B-A17B)。
+- `cpu`:用 vLLM 原生 offload flag `kv_offloading_backend: native` + `kv_offloading_size`(≥v0.23;内部展开为 `OffloadingConnector`,与旧 `kv_transfer_config` blob 等价);`kv_offloading_size` 用 `{memory_capacity_gb}` 占位符(GB,见真实资产 Qwen3.5-397B-A17B)。
 - `disk` / `cpu_disk`:`kv_connector = LMCacheConnectorV1`;`packages` 带 `lmcache: v0.3.15`;**用 `files:` 字段提供配置文件内容模板**(`lmcache_config.yaml` 等),见 §5、§8 示例。
 
 ---
@@ -230,9 +230,7 @@ fallback:目标 scheme 缺失时,`cpu_disk` 缺 → 退化 `disk > cpu > None`;`
 **① cli_params / envs —— 整值匹配**:占位符必须是**整个值**(YAML 字符串)。用 `_fill_str`(整值精确命中)。
 ```yaml
 cli_params:
-  kv_transfer_config:
-    kv_connector_extra_config:
-      cpu_bytes_to_use: "{mem_gb_to_bytes}"   # 整值 = 占位符 → 替换
+  kv_offloading_size: "{memory_capacity_gb}"   # 整值 = 占位符 → 替换(cpu scheme 现用 flag 形态)
 envs:
   LMCACHE_MAX_LOCAL_CPU_SIZE: "{memory_capacity_gb}"
 ```
@@ -323,12 +321,9 @@ smart_accel:
   kv_offload:
     - name: cpu
       cli_params:
-        kv_transfer_config:
-          kv_connector: OffloadingConnector
-          kv_role: kv_both
-          kv_connector_extra_config:
-            # 原生 vLLM(CUDA)≥v0.14 读 cpu_bytes_to_use(字节),用 {mem_gb_to_bytes}
-            cpu_bytes_to_use: "{mem_gb_to_bytes}"
+        # vLLM ≥v0.23 原生 offload flag;内部展开为 OffloadingConnector(与旧 kv_transfer_config blob 等价)。size 用 {memory_capacity_gb}(GB)
+        kv_offloading_backend: native
+        kv_offloading_size: "{memory_capacity_gb}"
       envs: {}
 ```
 

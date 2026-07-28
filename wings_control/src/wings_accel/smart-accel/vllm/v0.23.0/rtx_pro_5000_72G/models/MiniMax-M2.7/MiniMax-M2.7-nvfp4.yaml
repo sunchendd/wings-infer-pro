@@ -29,4 +29,4 @@ smart_accel:
         LMCACHE_EXTRA_CONFIG: '{"use_odirect": true}'
         LMCACHE_PRE_CACHING_HASH_ALGORITHM: "sha256_cbor_64bit"
         LMCACHE_LOCAL_DISK: "{disk_path}"
-        LMCACHE_MAX_LOCAL_DISK_SIZE: "600.0"
+        LMCACHE_MAX_LOCAL_DISK_SIZE: "{= disk_capacity_gb // tp_size}"  # 磁盘总容量(KV_DISK_OFFLOAD_SIZE)÷ TP 平摊到每 rank(对齐老 afb7e73)
