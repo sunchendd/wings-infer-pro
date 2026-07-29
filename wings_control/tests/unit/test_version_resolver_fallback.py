@@ -87,3 +87,27 @@ def test_requested_not_found_is_fallback(tmp_path, monkeypatch):
     assert ev.resolved == "0.18.0"
     assert ev.is_fallback is True
     assert ev.requested == "9.9.9"
+
+
+def test_prerelease_build_version_matches_channel_directory(tmp_path, monkeypatch):
+    """带 rc 序号和构建时间戳的版本 → 命中 v0.21.0rc 配置目录。"""
+    monkeypatch.setenv("ENGINE_VERSION", "v0.21.0rc1-20260709144216")
+    root = _make_engine_dirs(tmp_path, "vllm-ascend", ["v0.18.0", "v0.21.0rc"])
+
+    ev = resolve_engine_version(root, "ascend-a3", engine="vllm-ascend")
+
+    assert ev.requested == "v0.21.0rc1-20260709144216"
+    assert ev.resolved == "0.21.0rc"
+    assert ev.is_fallback is False
+    assert ev.has_version_dir is True
+
+
+def test_prerelease_build_version_without_v_prefix_matches_channel_directory(tmp_path, monkeypatch):
+    """无 v 前缀的 rc 构建版本同样 → 命中 v0.21.0rc 配置目录。"""
+    monkeypatch.setenv("ENGINE_VERSION", "0.21.0rc1-20260709144216")
+    root = _make_engine_dirs(tmp_path, "vllm-ascend", ["v0.21.0rc"])
+
+    ev = resolve_engine_version(root, "ascend-a3", engine="vllm-ascend")
+
+    assert ev.resolved == "0.21.0rc"
+    assert ev.is_fallback is False

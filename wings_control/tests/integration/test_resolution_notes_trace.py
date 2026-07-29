@@ -7,6 +7,7 @@ import os
 from wings_ctl.core.config_resolver import _load_model_config
 from wings_ctl.core.topology import Topology
 from wings_ctl.core.models import PipelineRequest, ResolvedEnv, Target
+from wings_ctl.engines.version_resolver import resolve_engine_version
 from wings_ctl.pipeline import run_pipeline
 
 
@@ -76,8 +77,11 @@ def test_resolution_notes_fallback(config_root_real, tmp_path):
 
         assert notes["version_is_fallback"] == "true"
         assert notes["requested_version"] == "99.99.99"
-        assert notes["resolved_version"] == "0.18.0"
-        assert notes["resolved_version_dir"].endswith("v0.18.0")
+        latest_version = resolve_engine_version(
+            config_root_real, "ascend-a3", engine="vllm-ascend"
+        ).resolved
+        assert notes["resolved_version"] == latest_version
+        assert notes["resolved_version_dir"].endswith(f"v{latest_version}")
     finally:
         os.environ.pop("ENGINE_VERSION", None)
 
