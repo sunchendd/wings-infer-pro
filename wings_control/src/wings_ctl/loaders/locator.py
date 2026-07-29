@@ -37,6 +37,7 @@ _ALIAS: Dict[str, str] = {
     # 缺省不入表:去后缀+casefold 后 == 目录名者(h100 / b200 / mi300x 等)走精确/剥后缀直通,不占本表。
     "ascend910b": "ascend-a2",    # Ascend910B
     "ascend910": "ascend-a3",     # Ascend910
+    "ascend910c": "ascend-a3",    # Ascend910C
     "h20": "h20_96G",             # H20
     "h20-3e": "h20_141G",         # H20-3e
     "rtx-pro-5000-48gb-blackwell": "rtx_pro_5000_48G",    # RTX-PRO-5000-48GB-Blackwell

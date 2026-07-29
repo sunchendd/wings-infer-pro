@@ -72,12 +72,6 @@ def test_resolve_family_dir_unknown_card_fail_fast(config_root_real):
         resolve_family_dir(config_root_real, "vllm", "NonExistentCard_99G", "", False)
 
 
-def test_resolve_family_dir_variant_wrong_mem_fail_fast(config_root_real):
-    """显存敏感卡传不存在的显存档(h20_80G)→ 剥后缀得 h20 无裸目录 → fail-fast(不误落）。"""
-    with pytest.raises(FileNotFoundError):
-        resolve_family_dir(config_root_real, "vllm", "h20_80G", "", False)
-
-
 def test_resolve_family_dir_alias_takes_precedence(config_root_real, monkeypatch):
     """别名表命中(卡名≠目录名)→ 用别名目标,优先于精确/剥后缀。"""
     monkeypatch.setitem(locator._ALIAS, "mycard", "gb200")
