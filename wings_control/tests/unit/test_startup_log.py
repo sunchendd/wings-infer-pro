@@ -6,6 +6,7 @@ from pathlib import Path
 
 from wings_ctl.core.topology import Topology
 from wings_ctl.core.models import PipelineRequest, Target, UserInput
+from wings_ctl.engines.version_resolver import resolve_engine_version
 from wings_ctl.pipeline import run_pipeline
 
 
@@ -95,7 +96,10 @@ def test_startup_log_contains_fallback_warning_when_version_fallback(
 
     content = log_path.read_text(encoding="utf-8")
     assert "WARNING: ENGINE_VERSION=99.99.99" in content
-    assert "回退到最新支持版本 0.18.0" in content
+    latest_version = resolve_engine_version(
+        config_root_real, "ascend-a3", engine="vllm-ascend"
+    ).resolved
+    assert f"回退到最新支持版本 {latest_version}" in content
 
 
 def test_startup_log_downgrades_to_output_dir_when_target_unwritable(

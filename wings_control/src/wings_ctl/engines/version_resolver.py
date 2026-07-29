@@ -18,8 +18,14 @@ from wings_ctl.core.models import EngineVersion
 
 logger = logging.getLogger(__name__)
 
-# semver-like directory pattern: v0.19.0, v0.17.1, etc.
-_VERSION_DIR_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
+# 匹配磁盘上的配置目录名，例如 v0.19.0、v0.21.0rc、v0.17.1。
+# 示例：v0.21.0rc 可匹配；v0.21.0rc1-20260709144216 不可直接匹配。
+_VERSION_DIR_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)(?:[A-Za-z]+\d*)?$")
+# 匹配运行时传入的版本，并提取基础版本和预发布渠道。
+# 示例：v0.21.0rc1-20260709144216 → v0.21.0 + rc，最终查找 v0.21.0rc 目录。
+_REQUESTED_VERSION_RE = re.compile(
+    r"^v?(\d+\.\d+\.\d+)([A-Za-z]+)(?:\d+)?(?:[-+].*)?$"
+)
 
 
 def _parse_version_tuple(ver_str: str) -> Optional[Tuple[int, int, int]]:
@@ -92,16 +98,35 @@ def resolve_engine_version(
     engine_dir = engine_root
 
     if requested_raw:
+        # 先按原样查找目录，例如传入 0.18.0 时查找 v0.18.0。
+        # 这里统一补上 v 前缀，但保留用户传入的原始版本到 requested 字段。
         version_dir_name = requested_raw if requested_raw.startswith("v") else f"v{requested_raw}"
         exact_path = engine_dir / version_dir_name
-        if exact_path.is_dir():
-            logger.info("EngineResolver: exact match %s", version_dir_name)
-            return EngineVersion(
-                requested=requested_raw,
-                resolved=version_dir_name.lstrip("v"),
-                is_fallback=False,
-                has_version_dir=True,
-            )
+
+        # 有些运行时版本会比配置目录更详细，例如：
+        # v0.21.0rc1-20260709144216 → v0.21.0rc。
+        # 从完整版本中提取基础版本和渠道名称，生成配置目录名。
+        normalized_match = _REQUESTED_VERSION_RE.match(requested_raw)
+        normalized_dir_name = (
+            f"v{normalized_match.group(1)}{normalized_match.group(2)}"
+            if normalized_match
+            else None
+        )
+
+        # 按“原始目录名 → 简化后的目录名”的顺序查找，优先保证精确匹配。
+        candidate_names = [version_dir_name]
+        if normalized_dir_name and normalized_dir_name != version_dir_name:
+            candidate_names.append(normalized_dir_name)
+
+        for candidate_name in candidate_names:
+            if (engine_dir / candidate_name).is_dir():
+                logger.info("EngineResolver: matched requested version %s to %s", requested_raw, candidate_name)
+                return EngineVersion(
+                    requested=requested_raw,
+                    resolved=candidate_name.lstrip("v"),
+                    is_fallback=False,
+                    has_version_dir=True,
+                )
         logger.warning(
             "EngineResolver: requested version '%s' not found at %s; "
             "falling back to latest available version.",
