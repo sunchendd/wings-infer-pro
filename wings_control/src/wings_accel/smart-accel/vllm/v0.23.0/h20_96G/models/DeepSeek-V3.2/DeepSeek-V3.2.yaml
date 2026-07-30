@@ -19,19 +19,18 @@ smart_accel:
         hf_overrides:
           use_index_cache: true
           index_topk_freq: 4
+        kv_cache_dtype: fp8
       envs: {}
     - name: accuracy_first
       cli_params:
         hf_overrides:
           use_index_cache: true
           index_topk_freq: 8
+        kv_cache_dtype: fp8
       envs: {}
   kv_offload:
     - name: cpu
       cli_params:
-        kv_transfer_config:
-          kv_connector: OffloadingConnector
-          kv_role: kv_both
-          kv_connector_extra_config:
-            cpu_bytes_to_use: "{mem_gb_to_bytes}"
+        kv_offloading_backend: native
+        kv_offloading_size: "{memory_capacity_gb}"
       envs: {}

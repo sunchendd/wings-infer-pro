@@ -1,6 +1,6 @@
-# SmartAccel 加速配置(decoding=qwen3_5_mtp / kv_offload=memcache)
+# SmartAccel 加速配置(decoding=qwen3_5_mtp)
 # 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
-# 0day 验证补:kv_offload=memcache(AscendStoreConnector)。
+# issue47:Qwen 系列不支持 memcache 卸载,移除 kv_offload,仅保留 decoding。
 model:
   name: Qwen3.6-27B
   variant_name: "Qwen3.6-27B-w8a8"
@@ -15,40 +15,3 @@ smart_accel:
           num_speculative_tokens: 3
         enforce_eager: true
       envs: {}
-  kv_offload:
-    - name: cpu
-      cli_params:
-        kv_transfer_config:
-          kv_connector: AscendStoreConnector
-          kv_role: kv_both
-          kv_load_failure_policy: recompute
-          kv_connector_extra_config:
-            lookup_rpc_port: "0"
-            backend: memcache
-      envs:
-        MMC_META_CONFIG_PATH: /shared-volume/mmc_meta.conf
-        MMC_LOCAL_CONFIG_PATH: /shared-volume/mmc_local.conf
-      files:
-        - path: mmc_local.conf
-          mode: "0755"
-          scope: all
-          content: |
-            ock.mmc.meta_service_url = tcp://{master_ip}:15000
-            ock.mmc.local_service.config_store_url = tcp://{rank_ip}:16000
-            ock.mmc.log_level = info
-            ock.mmc.local_service.world_size = 256
-            ock.mmc.local_service.protocol = device_rdma
-            ock.mmc.local_service.dram.size = {= memory_capacity_gb // gpu_count}GB
-        - path: mmc_meta.conf
-          mode: "0755"
-          scope: master
-          content: |
-            ock.mmc.meta_service_url = tcp://{master_ip}:15000
-            ock.mmc.meta_service.config_store_url = tcp://{rank_ip}:16000
-            ock.mmc.log_level = info
-        - path: start_kv_serve.sh
-          mode: "0755"
-          content: |
-            #!/usr/bin/env bash
-            # MetaService daemon(colocated 仅 master 起;framework 自动 bash <path> &)。
-            python -c "from memcache_hybrid import MetaService; MetaService.main()"

@@ -48,6 +48,7 @@ scenarios:
         engine_config:
           model: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
           trust_remote_code: true
+          tokenizer_mode: deepseek_v32  # 修复 L20/H20 乱码(对齐老 US20260608334799);tokenizer 默认取 model 路径
           max_model_len: 4096
           host: 0.0.0.0
           port: 17000

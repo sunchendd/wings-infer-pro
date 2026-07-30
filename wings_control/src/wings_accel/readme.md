@@ -783,19 +783,26 @@ custom_features:
 ### 16.2 手动脚本验证
 
 ```bash
-# 跑全特性 fixture(看真实 scheme + engine_config + env)
+# 单模型矩阵(推荐):逐特性逐变体隔离测试,decoding/sparse/offload 全覆盖
 PYTHONPATH=src python3 tests/wings_accel/smart_accel_io.py \
-    tests/wings_accel/fixtures/smart_accel_all_features.yaml \
-    --kv --memory-offload-size-mode 64 --sparse
+    tests/wings_accel/fixtures/smart_accel_all_features.yaml --matrix
+
+# legacy 组合态:一次开启多特性(--kv/--sparse 等,与 LoadFlags 对齐)
+PYTHONPATH=src python3 tests/wings_accel/smart_accel_io.py <yaml> --kv --memory-offload-size-mode 64 --sparse
+
+# 全量扫描(vllm + vllm-ascend 所有模型)/ 路径覆盖检查 / 样本存档
+PYTHONPATH=src python3 tests/wings_accel/smart_accel_io.py --scan-all
+PYTHONPATH=src python3 tests/wings_accel/smart_accel_io.py --coverage --feature offload
+PYTHONPATH=src python3 tests/wings_accel/smart_accel_io.py --save-samples tests/wings_accel/samples
 
 # JSON 输出(适合 golden/diff)
-PYTHONPATH=src python3 tests/wings_accel/smart_accel_io.py <yaml> --json > out.json
+PYTHONPATH=src python3 tests/wings_accel/smart_accel_io.py <yaml> --matrix --json > out.json
 
 # 仅打印输入(loader 调试)
 PYTHONPATH=src python3 tests/wings_accel/smart_accel_io.py <yaml> --print input
 ```
 
-> ⚠️ **io 脚本目前无法启用 decoding**:`smart_accel_io.py` 只暴露 `--decoding-model-path`,未映射 `decoding_enabled`(`_flags_from_args` 不设该字段,默认 `False`)。上面命令产出 `kv_cache=cpu` + `sparse=performance_first`,但 `smart_decoding_scheme=None`。要验证 decoding,用 `test_demo_all_on.py`(直接 `LoadFlags(decoding_enabled=True)`)或在 Python 里构造 `LoadFlags`。
+> **decoding 验证**:`--matrix` / `--scan` 直接驱动 `decoding_enabled`(逐 method 隔离;`requires_model_path` 的方案自动注入 stub 草稿路径)。legacy 组合态(`--kv` 等)沿用 `_flags_from_args`,不映射 `decoding_enabled`(默认 `False`);且 fixture 同时含 native cpu + mooncake + memcache(均 `name=cpu`)时组合态选首个 `AscendStoreConnector`(mooncake)——要逐个验证这三类内存后端,用 `--matrix`(`offload` 文件落盘重定向到临时卷,不污染 `/shared-volume`,并做 JSON/YAML/bash 语义校验)。要直接构造意图,用 `test_demo_all_on.py` 或 Python 里建 `LoadFlags`。
 
 ### 16.3 全开 demo 期望(`test_demo_all_on.py`)
 
@@ -816,7 +823,7 @@ PYTHONPATH=src python3 tests/wings_accel/smart_accel_io.py <yaml> --print input
 1. **跑测试**:`PYTHONPATH=src python3 -m pytest tests/wings_accel -q` → 120 passed。
 2. **看一个真实端到端**:
    ```bash
-   PYTHONPATH=src python3 tests/wings_accel/smart_accel_io.py tests/wings_accel/fixtures/smart_accel_all_features.yaml --kv --memory-offload-size-mode 64
+   PYTHONPATH=src python3 tests/wings_accel/smart_accel_io.py tests/wings_accel/fixtures/smart_accel_all_features.yaml --matrix
    ```
 3. **改 expander 时先看**:
    - `decoders.py:30-71`(model_based / no_model 双分支)

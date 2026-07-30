@@ -9,9 +9,6 @@ smart_accel:
   kv_offload:
     - name: cpu
       cli_params:
-        kv_transfer_config:
-          kv_connector: OffloadingConnector
-          kv_role: kv_both
-          kv_connector_extra_config:
-            cpu_bytes_to_use: "{mem_gb_to_bytes}"
+        kv_offloading_backend: native
+        kv_offloading_size: "{memory_capacity_gb}"
       envs: {}

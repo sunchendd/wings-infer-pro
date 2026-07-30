@@ -12,6 +12,6 @@ smart_accel:
       cli_params:
         speculative_config:
           method: qwen3_5_mtp
-          num_speculative_tokens: 3
+          num_speculative_tokens: 1
           enforce_eager: true
       envs: {}
