@@ -79,4 +79,4 @@ scenarios:
           LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
           TASK_QUEUE_ENABLE: 1
           HCCL_OP_EXPANSION_MODE: AIV
-          MMC_LOCAL_CONFIG_PATH: "/home/swl/source/day0/qwen36_910c/confs/mmc_local.conf"
+          MMC_LOCAL_CONFIG_PATH: "/shared-volume/mmc_local.conf"

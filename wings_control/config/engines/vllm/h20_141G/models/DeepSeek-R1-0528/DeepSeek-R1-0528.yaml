@@ -19,7 +19,7 @@ model:
   parameter_count: 671B
   active_parameters: 37B
   context_length: 163840
-  vram_minimum_gb: 384  # 最低显存需求(GB)
+  vram_minimum_gb: 1128  # 最低显存需求(GB)
   tasks: [text]  # 支持的任务类型
   min_engine_version: "0.23.0"  # 最低引擎版本要求
   date_updated: 2026-07-24  # 录入日期
@@ -30,7 +30,7 @@ model:
 # 硬件信息
 hardware_profile:
   gpu_count: 8  # 单节点 GPU 数量
-  vram_gb: 384  # 单节点总显存(GB)（8 × 48GB）
+  vram_gb: 1128  # 单节点总显存(GB)（8 × 141GB）
   multi_node: false  # 仅支持单节点
 
 # 部署场景
