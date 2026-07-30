@@ -38,6 +38,11 @@ from wings_ctl.core.models import (
 from wings_ctl.core.topology import Topology
 from wings_ctl.engines.version_resolver import _parse_version_tuple
 from wings_ctl.loaders.locator import load_model_config, load_platform_config, resolve_family_dir
+from wings_ctl.loaders.reasoning_table import ReasoningTableError, load_reasoning_table
+from wings_ctl.strategy.reasoning_resolver import (
+    build_model_identity,
+    resolve_reasoning,
+)
 from wings_ctl.strategy.parallelism import check_capacity, dp_start_rank
 from wings_ctl.strategy.feature_overlay import feature_overlay_transform
 from wings_ctl.strategy.feature_inject import feature_inject_transform
@@ -60,6 +65,54 @@ logger = logging.getLogger(__name__)
 # DEFAULT_ENGINE_PORT 单点定义在 core.constants(port_plan 复用同一常量,消除双写);
 # 顶部已 import 并 re-export,保持既有 `from ...config_resolver import DEFAULT_ENGINE_PORT` 不变。
 _BUILTIN_DEFAULTS: Dict[str, Any] = {"host": "0.0.0.0", "port": DEFAULT_ENGINE_PORT}
+
+
+def _prepare_feature_context(
+    config_root: Any,
+    model_name: str,
+    engine: str,
+    model_data: Dict[str, Any] | None,
+    reasoning_enabled: bool,
+) -> tuple[Dict[str, Any], Any, str]:
+    """按用户开关补全 reasoning feature，并保留其他模型特性。"""
+    # 先复制整个 features，保留未来特性以及模型 YAML 中尚未迁移的配置。
+    # 不直接修改 model_data，避免后续合并或审计读取到被 resolver 改写的数据。
+    features = dict((model_data or {}).get("features") or {})
+    reasoning_resolution = None
+    reasoning_table_source = ""
+
+    # reasoning parser 的唯一优先级顺序：
+    #   0. 用户未显式开启 enable_auto_think_choice → 不处理、不加载公共表、不注入。
+    #   1. 模型 YAML 的 features.reasoning.args → 最高优先级，直接使用，不再查公共表。
+    #   2. reason_parser.yaml 的精确模型配置 → 仅在模型 YAML 未提供 override 时查询。
+    #   3. 两处都没有精确配置 → 保持没有 reasoning feature，不开启 parser。
+    if not reasoning_enabled:
+        return features, reasoning_resolution, reasoning_table_source
+    # 优先级 1：模型 YAML 显式 override。
+    # 命中后直接返回，确保公共表不能覆盖模型 YAML 的显式配置，
+    # 同时避免模型 YAML 已提供配置时依赖公共表文件。
+    reasoning_feature = features.get("reasoning")
+    if isinstance(reasoning_feature, dict) and reasoning_feature.get("args"):
+        return features, None, reasoning_table_source
+
+    try:
+        # 优先级 2：模型 YAML 未配置时，查询 reason_parser.yaml 精确模型配置。
+        loaded_reasoning = load_reasoning_table(config_root)
+        reasoning_table_source = loaded_reasoning.source_path
+        identity = build_model_identity(model_name, model_data)
+        reasoning_resolution = resolve_reasoning(
+            loaded_reasoning.data,
+            identity,
+            engine,
+            table_source=reasoning_table_source,
+        )
+        if reasoning_resolution.status == "matched" and reasoning_resolution.spec:
+            features["reasoning"] = {"args": list(reasoning_resolution.spec.args)}
+        # 优先级 3：unmatched 时不写入 features.reasoning，即不开启 parser。
+    except ReasoningTableError as exc:
+        raise ValueError(f"reasoning parser table is invalid: {exc}") from exc
+    # 返回补全后的特性集合，供 FeatureOverlay 处理。
+    return features, reasoning_resolution, reasoning_table_source
 
 
 def _evaluate_min_engine_version(
@@ -474,6 +527,7 @@ class MergeLayer(NamedTuple):
     data: Dict[str, Any]
     source_file: str
     source_path_prefix: str
+    source_overrides: Dict[str, tuple[str, str]] | None = None
 
 
 def trace_merge(layers: List[MergeLayer]) -> Dict[str, TracedValue]:
@@ -499,12 +553,14 @@ def trace_merge(layers: List[MergeLayer]) -> Dict[str, TracedValue]:
     for layer in layers:
         layer_name, src_file, path_prefix = layer.name, layer.source_file, layer.source_path_prefix
         for key, value in layer.data.items():
-            source_path = f"{path_prefix}.{key}" if path_prefix else key
+            override_source = (layer.source_overrides or {}).get(key)
+            event_file, event_path = override_source or (src_file, f"{path_prefix}.{key}" if path_prefix else key)
+            source_path = event_path
             event = SourceEvent(
                 action="set" if key not in merged else "override",
                 layer=layer_name,
                 value=value,
-                source_file=src_file,
+                source_file=event_file,
                 source_path=source_path,
             )
 
@@ -516,7 +572,7 @@ def trace_merge(layers: List[MergeLayer]) -> Dict[str, TracedValue]:
                     merged[key] = TracedValue(
                         final_value=deep_merged,
                         final_layer=layer_name,
-                        source_file=src_file,
+                        source_file=event_file,
                         source_path=source_path,
                         events=existing.events + [event],
                     )
@@ -525,7 +581,7 @@ def trace_merge(layers: List[MergeLayer]) -> Dict[str, TracedValue]:
                     merged[key] = TracedValue(
                         final_value=value,
                         final_layer=layer_name,
-                        source_file=src_file,
+                        source_file=event_file,
                         source_path=source_path,
                         events=existing.events + [event],
                     )
@@ -533,7 +589,7 @@ def trace_merge(layers: List[MergeLayer]) -> Dict[str, TracedValue]:
                 merged[key] = TracedValue(
                     final_value=value,
                     final_layer=layer_name,
-                    source_file=src_file,
+                    source_file=event_file,
                     source_path=source_path,
                     events=[event],
                 )
@@ -547,6 +603,7 @@ def _resolve_multi_node(
     model_path: Any,
     user_layer: dict,
     feature_overrides: dict,
+    feature_trace_sources: dict[str, tuple[str, str]],
     accel_overrides: dict,
     device_count: int | None,
     rank_ip: str | None,
@@ -637,7 +694,10 @@ def _resolve_multi_node(
         ec_traces = _ec_traces(spec, extra_layers=[
             MergeLayer("strategy_multinode_dp", dp_override, "<strategy:multinode_dp>", "strategy.multinode_dp"),
             MergeLayer("strategy_topology_inject", ec_inject, "<strategy:topology_inject>", "strategy.topology_inject"),
-            MergeLayer("strategy_feature", feature_overrides, "<strategy:feature>", "strategy.feature"),
+            MergeLayer(
+                "strategy_feature", feature_overrides, "<strategy:feature>", "strategy.feature",
+                feature_trace_sources,
+            ),
             MergeLayer("strategy_feature_inject", strategy_feature_inject_overrides or {}, "<strategy:feature_inject>", "strategy.feature_inject"),
             MergeLayer("strategy_accel", accel_overrides, "<wings-accel>", "strategy.accel"),
         ])
@@ -665,7 +725,10 @@ def _resolve_multi_node(
     resolved_nodes: List[ResolvedNode] = []
     for spec in node_specs:
         extra_layers = [
-            MergeLayer("strategy_feature", feature_overrides, "<strategy:feature>", "strategy.feature"),
+            MergeLayer(
+                "strategy_feature", feature_overrides, "<strategy:feature>", "strategy.feature",
+                feature_trace_sources,
+            ),
             MergeLayer("strategy_feature_inject", strategy_feature_inject_overrides or {}, "<strategy:feature_inject>", "strategy.feature_inject"),
             MergeLayer("strategy_accel", accel_overrides, "<wings-accel>", "strategy.accel"),
         ]
@@ -780,6 +843,7 @@ def _merge_engine_config_traces(
     scenario_engine_config: dict,
     strategy_overrides: dict,
     feature_overrides: dict,
+    feature_trace_sources: dict[str, tuple[str, str]],
     accel_layer: dict,
     user_layer: dict,
     *,
@@ -812,11 +876,16 @@ def _merge_engine_config_traces(
     # 每个 MergeLayer = 一个合并层;列表顺序即层序(低→高优先):
     #   builtin_default < model(recipe) < strategy_device_count < strategy_feature < strategy_accel < user_cli。
     # 加一个 merge layer = 往这个 list 里插一个 MergeLayer(名 / 数据 / 来源文件 / 来源路径前缀)。
+    feature_source_file = "<strategy:feature>"
+    feature_source_prefix = "strategy.feature"
     layers: list[MergeLayer] = [
         MergeLayer("builtin_default", _BUILTIN_DEFAULTS, "<builtin_default>", "builtin_default"),
         MergeLayer(model_layer_name, scenario_engine_config, model_source_file, scenario_prefix),
         MergeLayer("strategy_device_count", strategy_overrides, "<strategy:device_count>", "strategy.device_count"),
-        MergeLayer("strategy_feature", feature_overrides, "<strategy:feature>", "strategy.feature"),
+        MergeLayer(
+            "strategy_feature", feature_overrides, feature_source_file, feature_source_prefix,
+            feature_trace_sources,
+        ),
     ]
     if feature_inject_overrides:
         layers.append(
@@ -838,6 +907,7 @@ def _resolve_platform_fallback(
     model_name: str,
     user_layer: dict,
     feature_overrides: dict,
+    feature_trace_sources: dict[str, tuple[str, str]],
     accel_layer: dict,
     strategy_env_layer: dict | None,
     strategy_feature_inject_overrides: dict | None,
@@ -910,6 +980,7 @@ def _resolve_platform_fallback(
                 model_path=platform_path,
                 user_layer=user_layer,
                 feature_overrides=feature_overrides,
+                feature_trace_sources=feature_trace_sources,
                 accel_overrides=accel_layer,
                 device_count=device_count,
                 rank_ip=rank_ip,
@@ -947,6 +1018,7 @@ def _resolve_platform_fallback(
         scenario_engine_config,
         strategy_overrides,
         feature_overrides,
+        feature_trace_sources,
         accel_layer,
         user_layer,
         model_layer_name="default_model",
@@ -1075,16 +1147,32 @@ def resolve_config(
     # 模型权重目录(--model-path,经 CLITranslator 落 user_cli 的 model/model_path 键);TP 收缩前置闸会读取它。
     weights_path = user_layer.get("model") or user_layer.get("model_path")
 
-    # 特性覆盖层:按开关从 model.yaml 顶层 `features` 块拼特性参数。
-    # features 是模型级(yaml 顶层),对 standalone / multi_node 各节点统一应用;算一次复用。
-    # 无 model recipe(fallback)/ 无 features 块 / 无开关 → feature_overrides 为空(no-op)。
-    feature_overrides, feature_notes = feature_overlay_transform(
+    # 所有模型特性先复制，再由各特性自己的标准化步骤处理。
+    # 当前 reasoning 使用公共能力表；未来特性可在同一 helper/流水线中独立接入。
+    normalized_features, reasoning_resolution, reasoning_table_source = _prepare_feature_context(
+        config_root, model_name, engine, model_data,
+        bool((feature_switches or {}).get("enable_auto_think_choice")),
+    )
+    reasoning_source_file = ""
+    reasoning_source_path = ""
+    if reasoning_resolution is not None and reasoning_resolution.spec:
+        reasoning_source_file = reasoning_resolution.source
+        reasoning_source_path = reasoning_resolution.spec.source
+    elif isinstance((normalized_features or {}).get("reasoning"), dict):
+        reasoning_source_file = str(model_path or "<model_yaml>")
+        reasoning_source_path = "features.reasoning.args"
+    feature_result = feature_overlay_transform(
         {},
         {
-            "features": (model_data or {}).get("features"),
+            "features": normalized_features,
             "feature_switches": feature_switches or {},
+            "reasoning_source_file": reasoning_source_file,
+            "reasoning_source_path": reasoning_source_path,
         },
     )
+    feature_overrides = feature_result.overrides
+    feature_trace_sources = feature_result.trace_sources
+    feature_notes = feature_result.notes
 
     # 特性注入层（SmartQoS/EnableTrace/Metrics）：与模板内容无关，只依赖 feature_switches 和 engine。
     # 像 feature_overlay_transform 一样只调用一次，结果供 fallback/standalone/multi_node 三条路径共用。
@@ -1154,6 +1242,7 @@ def resolve_config(
             model_name=model_name,
             user_layer=user_layer,
             feature_overrides=feature_overrides,
+            feature_trace_sources=feature_trace_sources,
             accel_layer=accel_layer,
             strategy_env_layer=strategy_env_layer,
             strategy_feature_inject_overrides=strategy_feature_inject_overrides,
@@ -1181,6 +1270,7 @@ def resolve_config(
                 model_path=model_path,
                 user_layer=user_layer,
                 feature_overrides=feature_overrides,
+                feature_trace_sources=feature_trace_sources,
                 accel_overrides=accel_layer,
                 device_count=device_count,
                 rank_ip=rank_ip,
@@ -1203,7 +1293,7 @@ def resolve_config(
             # 命中 model:builtin_default + model_scenario + strategy + accel + user_cli(不叠 default_model)
             engine_config_traces = _merge_engine_config_traces(
                 scenario_engine_config, strategy_overrides, feature_overrides,
-                accel_layer, user_layer,
+                feature_trace_sources, accel_layer, user_layer,
                 model_layer_name="model_scenario",
                 model_source_file=str(model_path),
                 scenario_prefix=scenario_engine_config_source_prefix,
@@ -1230,6 +1320,8 @@ def resolve_config(
     # ── 5. 组装结果:source_files + resolution_notes(查找/合并轨迹)+ ResolvedConfig ──
     # 仅将实际存在的文件加入 source_files
     source_files: List[str] = []
+    if reasoning_table_source:
+        source_files.append(reasoning_table_source)
     if not platform_absent:
         source_files.append(platform_path_str)
     if model_path is not None:
@@ -1251,6 +1343,13 @@ def resolve_config(
 
     # 查找轨迹 — 模型匹配结果
     resolution_notes["matched_model_yaml"] = str(model_path) if model_path is not None else platform_path_str
+    if reasoning_resolution is not None:
+        resolution_notes["reasoning.status"] = reasoning_resolution.status
+        resolution_notes["reasoning.source"] = reasoning_resolution.source
+        resolution_notes["reasoning.match_level"] = reasoning_resolution.match_level
+        resolution_notes["reasoning.reason"] = reasoning_resolution.reason or ""
+    if reasoning_table_source:
+        resolution_notes["reasoning.table_source"] = reasoning_table_source
     resolution_notes["matched_name_pattern"] = matched_pattern
     resolution_notes["fallback"] = no_model_fallback
     model_schema_version = (
