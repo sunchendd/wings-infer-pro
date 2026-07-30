@@ -66,7 +66,7 @@ scenarios:
             cudagraph_mode: FULL_DECODE_ONLY
           block_size: 128
         env:
-          MMC_LOCAL_CONFIG_PATH: "/home/xxx/glm52/t16-optim/mmc_local.conf"
+          MMC_LOCAL_CONFIG_PATH: "/shared-volume/mmc_local.conf"
           ACL_OP_INIT_MODE: 1
           PYTHONHASHSEED: 0
           HCCL_BUFFSIZE: 1024

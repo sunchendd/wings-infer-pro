@@ -1,0 +1,59 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_ascend_deepseek-r1-distill-qwen-1.5b_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
+    date_updated: 2026-07-29
+    note: 用户提供 vLLM Ascend OpenAI API server 启动命令，手工录入。
+
+# 模型基本信息
+model:
+  name: DeepSeek-R1-Distill-Qwen-1.5B  # 模型名称
+  slug: deepseek-r1-distill-qwen-1.5b  # 模型标识
+  provider: DeepSeek  # 提供者/厂商
+  description: "DeepSeek-R1 蒸馏到 Qwen 1.5B 的 dense 推理模型。"  # 模型描述
+  model_id: deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B  # HuggingFace/ModelScope 模型 ID
+  model_path: null
+  architecture: dense
+  parameter_count: 1.5B
+  active_parameters: 1.5B
+  context_length: 131072
+  vram_minimum_gb: 512
+  tasks:
+    - text
+  min_engine_version: v0.21.0rc1
+  match:
+    - name_pattern: "(?i)deepseek[-.]?r1[-.]?distill[-.]?qwen[-.]?1[-.]?5b"
+  variant_name: DeepSeek-R1-Distill-Qwen-1.5B
+
+# 硬件信息
+hardware_profile:
+  name: ascend-a2
+  display_name: Ascend A2
+  gpu_count: 8
+  vram_gb: 512
+  multi_node: true
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: vllm_ascend_deepseek-r1-distill-qwen-1.5b_manual#single_node
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        description: Single-node OpenAI-compatible API server.
+        default_strategy: true
+        engine_config:
+          model: deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
+          trust_remote_code: true
+          max_model_len: 4096
+          host: "0.0.0.0"
+          port: 17000
+          served_model_name: deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
+          tensor_parallel_size: 1
+        env: {}
