@@ -44,6 +44,11 @@ features:
   spec_decoding:
     description: Suffix-based speculative decoding.
     args: ["--speculative-config", "{\"method\":\"suffix\",\"num_speculative_tokens\":10}"]
+  lmcache:
+    description: LMCache KV cache acceleration.
+    kv_transfer:
+      description: KV transfer configuration for LMCache.
+      args: ["--kv-transfer-config", "{\"kv_connector\":\"LMCacheConnectorV1\",\"kv_role\":\"kv_both\",\"kv_load_failure_policy\":\"recompute\"}"]
 
 # 部署场景
 scenarios:
@@ -64,10 +69,6 @@ scenarios:
           tensor_parallel_size: 4
           port: 5611
           moe_backend: "flashinfer_cutlass"
-          kv_transfer_config:
-            kv_connector: "LMCacheConnectorV1"
-            kv_role: "kv_both"
-            kv_load_failure_policy: "recompute"
         env:
           PYTHONHASHSEED: "0"
           VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: "900"
