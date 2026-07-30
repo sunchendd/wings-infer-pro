@@ -32,6 +32,15 @@ if [ -z "${PY:-}" ]; then
   exit 1
 fi
 
+# 拷贝 log_analyzer 模块到共享卷
+# log_analyzer 在构建时被单独拷贝到 /opt/log_analyzer(避免 pyc 编译),
+# 运行时再拷贝到 /shared-volume/log_analyzer,供 start_command.sh 中的后台进程使用。
+if [ -d "${DEFAULT_LOG_ANALYZER:-/opt/log_analyzer}" ]; then
+  echo "Copying ${DEFAULT_LOG_ANALYZER:-/opt/log_analyzer} module to /shared-volume..."
+  cp -r "${DEFAULT_LOG_ANALYZER:-/opt/log_analyzer}" "${SHARED_VOLUME_PATH:-/shared-volume}/"
+  echo "${DEFAULT_LOG_ANALYZER:-/opt/log_analyzer} copied successfully !"
+fi
+
 # 让 wings_ctl 可被导入(源码在 src/)
 export PYTHONPATH="$HERE/src${PYTHONPATH:+:$PYTHONPATH}"
 

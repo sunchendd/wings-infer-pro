@@ -94,6 +94,6 @@ def test_each_instance_pod_produces_executable_script(config_root_real, tmp_path
     out = tmp_path / "b_worker"
     _run_pod(tmp_path, monkeypatch, config_root_real, inst="instanceB", rank_ip="10.0.2.2", tag="b_worker")
     text = (out / "start_command.sh").read_text(encoding="utf-8")
-    assert "exec vllm serve" in text and "RUNTIME INJECTION PENDING" not in text
+    assert "vllm serve" in text and "RUNTIME INJECTION PENDING" not in text
     assert "--data-parallel-address 10.0.2.1" in text       # 本实例 head 字面 IP
     assert "'$local_ip'" not in text and "'$node0_ip'" not in text

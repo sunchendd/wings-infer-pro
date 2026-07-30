@@ -202,7 +202,7 @@ class TestStandaloneE2E:
         assert repro_path.exists()
 
         start_content = start_path.read_text()
-        assert "exec vllm serve" in start_content
+        assert "vllm serve" in start_content
         assert "Qwen/Qwen3.5-0.8B" in start_content
         assert "set -euo pipefail" in start_content
 
@@ -226,7 +226,21 @@ class TestStandaloneE2E:
 
         def _run_echo(script_path: Path) -> str:
             content = script_path.read_text(encoding="utf-8")
-            patched = content.replace("exec ", "echo ", 1)
+            # 替换引擎命令行为 echo,用于实际执行验证:
+            # - start_command.sh: "vllm serve ..." (后台化,行尾有 &)
+            # - repro.sh: "exec vllm serve ..." (exec 前缀,需剥离后 echo)
+            lines = content.splitlines()
+            engine_idx = next(
+                (i for i, ln in enumerate(lines)
+                 if ln.startswith("vllm serve ") or ln.startswith("exec vllm serve ")),
+                -1,
+            )
+            if engine_idx != -1:
+                cmd = lines[engine_idx]
+                if cmd.startswith("exec "):
+                    cmd = cmd[len("exec "):]
+                lines[engine_idx] = "echo " + cmd
+            patched = "\n".join(lines) + "\n"
             patched_path = script_path.with_name(f"echo_{script_path.name}")
             patched_path.write_text(patched, encoding="utf-8")
             out = subprocess.run(

@@ -8,7 +8,12 @@ from wings_ctl import cli
 
 def _run_echo_command(script_path):
     content = script_path.read_text(encoding="utf-8")
-    patched = content.replace("exec ", "echo ", 1)
+    # 替换引擎命令行(后台化后的 "vllm serve ..." 行)为 echo,用于实际执行验证
+    lines = content.splitlines()
+    engine_idx = next((i for i, ln in enumerate(lines) if ln.startswith("vllm serve ")), -1)
+    if engine_idx != -1:
+        lines[engine_idx] = "echo " + lines[engine_idx]
+    patched = "\n".join(lines) + "\n"
     patched_path = script_path.with_name(f"echo_{script_path.name}")
     patched_path.write_text(patched, encoding="utf-8")
     out = subprocess.run(

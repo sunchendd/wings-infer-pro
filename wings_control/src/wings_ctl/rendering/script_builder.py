@@ -17,6 +17,7 @@ import shlex
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from wings_ctl.common.settings import settings
 from wings_ctl.core.models import ResolvedConfig, SystemSetup, TracedValue
 from wings_ctl.core.topology import Topology
 from wings_ctl.engines.vllm_adapter import (
@@ -142,8 +143,6 @@ def _render_accel_install_preamble(engine: str, engine_version: str, packages: L
     ]
 
 
-
-
 def _render_accel_env_section(accel_env: Dict[str, str]) -> List[str]:
     """渲染 wings-accel 注入的 env export 段。
 
@@ -206,6 +205,93 @@ def _render_accel_pre_serve_section(
     return lines
 
 
+def _build_analyzer_config(resolved: ResolvedConfig) -> dict:
+    """从 ResolvedConfig 投影为 log_analyzer 实际消费的 analyzer_config dict。
+
+    log_analyzer 在引擎容器中作为后台进程运行,通过 ``--config`` 接收 JSON 配置。
+    经代码审计,log_analyzer 仅消费以下 4 个字段:
+    - ``engine``: 插件选择(PatternPluginManager.PLUGIN_MAPPING 的 key)
+    - ``deployment_mode``: 插件选择(同上)
+    - ``hardware``: 插件选择(同上)
+    - ``backend_port``: 健康探测(_probe_backend_health 的 URL 端口)
+
+    Args:
+        resolved: 配置解析最终产物。
+
+    Returns:
+        analyzer_config dict,仅含 log_analyzer 实际消费的 4 个字段。
+    """
+    is_multi_node = resolved.topology == Topology.MULTI_NODE
+
+    # backend_port: 从 engine_config_traces 提取,回退默认 17000
+    backend_port = 17000
+    port_traced = resolved.engine_config_traces.get("port")
+    if port_traced and port_traced.final_value is not None:
+        try:
+            backend_port = int(port_traced.final_value)
+        except (TypeError, ValueError):
+            pass
+
+    return {
+        "engine": resolved.engine,
+        "deployment_mode": "distributed" if is_multi_node else "single",
+        "hardware": resolved.hardware.device,
+        "backend_port": backend_port,
+    }
+
+
+def _build_analyzer_preamble(resolved: ResolvedConfig) -> Optional[str]:
+    """生成 log_analyzer shell 片段(仅 standalone 或 multi_node master 节点)。
+
+    log_analyzer 作为 ``start_command.sh`` 中的后台进程,在引擎启动前启动,
+    通过 ``tail -F`` 跟踪引擎日志,匹配阶段模式,写入 ``progress.jsonl``。
+
+    跳过条件:
+    - multi_node 占位脚本(``resolved.nodes`` 非空)→ 不注入
+    - multi_node worker 节点(node_rank > 0)→ 不注入
+
+    运行时模块路径: log_analyzer 在构建时被单独拷贝到 ``/opt/log_analyzer``(避免 pyc 编译),
+    再由 ``wings_start.sh`` 拷贝到 ``/shared-volume/log_analyzer``,因此启动命令使用
+    ``cd /shared-volume && python3 -B -m log_analyzer.log_analyzer``(顶层包名,非 wings_ctl 子包)。
+
+    Args:
+        resolved: 配置解析最终产物。
+
+    Returns:
+        log_analyzer shell 片段字符串;跳过时返回 None。
+    """
+    # multi_node 占位脚本不注入(无运行时上下文,不可执行)
+    if resolved.nodes:
+        return None
+
+    is_multi_node = resolved.topology == Topology.MULTI_NODE
+    node_rank = int(resolved.resolution_notes.get("multi_node_index", 0)) if is_multi_node else 0
+
+    # worker 节点跳过(仅 master 运行分析器)
+    if is_multi_node and node_rank > 0:
+        return None
+
+    analyzer_config = _build_analyzer_config(resolved)
+    config_json = json.dumps(analyzer_config)
+    # shell 单引号安全转义: ' → '"'"'
+    config_escaped = config_json.replace("'", "'\"'\"'")
+    # progress.jsonl 必须写入共享卷,与 proxy 的 settings.PROGRESS_FILE 路径一致
+    # (proxy 通过 settings.PROGRESS_FILE 读取进度)
+    progress_file = settings.PROGRESS_FILE
+
+    # 从模板文件加载 shell 片段,注入动态变量。
+    # 模板文件有 shell 语法高亮,可独立 bash -n 验证,Python 代码更简洁。
+    template_path = Path(__file__).parent / "templates" / "analyzer_preamble.sh.tmpl"
+    template = template_path.read_text(encoding="utf-8")
+    return (
+        template.replace("{ANALYZER_CONFIG}", config_escaped)
+        .replace("{PROGRESS_FILE}", progress_file)
+        .replace("{ENGINE_LOG}", settings.ENGINE_LOG_FILE)
+        .replace("{ENGINE_FULL_LOG}", settings.ENGINE_FULL_LOG_FILE)
+        .replace("{SHARED_VOLUME}", settings.SHARED_VOLUME_PATH)
+    )
+
+
 def _render_start_command_sh(
     argv: List[str],
     env_traces: Dict[str, TracedValue],
@@ -220,6 +306,7 @@ def _render_start_command_sh(
     accel_pre_serve: Optional[List[str]] = None,
     accel_pre_serve_master: Optional[List[str]] = None,
     accel_pre_serve_client: Optional[List[str]] = None,
+    analyzer_preamble: Optional[str] = None,
 ) -> str:
     """生成 start_command.sh 内容。简洁执行脚本。
 
@@ -236,10 +323,27 @@ def _render_start_command_sh(
         accel_env: wings-accel 注入的环境变量,并入 env export 段;None/空 → 不变。
         accel_enabled: wings-accel 是否真启用(``AccelResult.enabled``)。仅 True 时渲染
             runtime patch 安装段;False(未开/模块缺席)→ 不加,非 accel 路径零影响。
+        accel_pre_serve: KV 存储后端 pre-serve 段(所有节点);None/空 → 不渲染。
+        accel_pre_serve_master: KV 存储后端 pre-serve 段(仅 master);None/空 → 不渲染。
+        accel_pre_serve_client: KV 存储后端 pre-serve 段(仅 client);None/空 → 不渲染。
+        analyzer_preamble: log_analyzer 进度监控 shell 片段;None → 不注入。
+            在 env export 之前插入,确保分析器在引擎启动前就开始监控日志。
+            启动后台分析器进程并注册 trap 清理。
     """
     lines = [
         "#!/usr/bin/env bash",
         "set -euo pipefail",
+        "",
+        # shell 日志辅助函数: 输出符合 log-format 规范的日志行(所有脚本通用)。
+        # 格式: 时间 [LEVEL] WINGS-CONTROL [组件#函数:行号] 消息
+        # 无条件定义,使 worker 节点(无 analyzer_preamble)也能使用 _wings_log。
+        "_wings_log() {",
+        '    local level="$1"; shift',
+        '    local msg="$*"',
+        "    local ts",
+        '    ts=$(date "+%Y-%m-%d %H:%M:%S.%3N")',
+        '    echo "$ts [$level] WINGS-CONTROL [wings-launcher#start_command:0] $msg"',
+        "}",
         "",
     ]
 
@@ -248,6 +352,25 @@ def _render_start_command_sh(
         cmd_lines = _render_runtime_commands_inline(system_setup)
         if cmd_lines:
             lines.extend(cmd_lines)
+
+    # log_analyzer 进度监控(在 env export 之前,与旧版组装顺序一致)
+    if analyzer_preamble:
+        lines += [
+            analyzer_preamble,
+            "",
+            # stdout 重定向到 engine.log(供 log_analyzer tail -F 跟踪)
+            # 与旧版 wings_entry.py:1899-1911 逻辑一致:
+            # 1) mkdir 确保日志目录存在
+            # 2) PYTHONUNBUFFERED 确保引擎 ready 消息立即到达 engine.log(不卡在 8KB 缓冲区)
+            # 3) tee 管道:完整日志→engine-full.log,过滤健康检查/调度噪声→engine.log
+            f"mkdir -p {settings.ENGINE_LOG_DIR}",
+            "export PYTHONUNBUFFERED=1",
+            f"exec > >(tee -a {settings.ENGINE_FULL_LOG_FILE}"
+            " | grep --line-buffered -vE"
+            " '\"GET\\s+/(health|metrics)\\s|\\b(Prefill|Decode) batch\\b'"
+            f" | tee -a {settings.ENGINE_LOG_FILE}) 2>&1",
+            "",
+        ]
 
     # env exports(trace 段 + wings-accel 注入段)
     env_lines = _render_env_section(env_traces)
@@ -271,9 +394,19 @@ def _render_start_command_sh(
     if pre_serve_lines:
         lines.extend(pre_serve_lines)
 
-    # exec engine command
-    lines.append("exec " + shlex.join(argv))
-    lines.append("")
+    # 后台化引擎进程(而非 exec 替换 shell),使 trap cleanup_analyzer 保持有效。
+    # exec 会替换 shell 进程导致 trap 失效:引擎退出时 cleanup 无法触发,
+    # log_analyzer 成为孤儿进程。后台化 + wait 保持 shell 存活,trap 正常工作,
+    # 引擎退出后 shell 执行 cleanup → kill log_analyzer → 写 early-fail 进度。
+    lines += [
+        shlex.join(argv) + " &",
+        "ENGINE_PID=$!",
+        '_wings_log INFO "engine started, PID=$ENGINE_PID"',
+        'wait "$ENGINE_PID"',
+        "ENGINE_EXIT_CODE=$?",
+        'exit "$ENGINE_EXIT_CODE"',
+        "",
+    ]
     return "\n".join(lines)
 
 
@@ -378,6 +511,7 @@ def _render_repro_sh(
     # 注:accel.engine_config 已作为 strategy_accel 合并层进 engine_config_traces,
     # 上方主循环已渲染并标来源,这里无需重复追加。
 
+    # repro.sh 使用 exec 直接替换进程(无需 trap/cleanup,repro 仅用于复现,无 log_analyzer)
     lines.append("exec " + shlex.join(command_tokens))
 
     lines.append("")
@@ -464,6 +598,7 @@ def build_scripts(
     # accel.engine_config 已作为 strategy_accel 合并层并入 engine_config_traces,
     # build_argv 自动渲染(深合并 + 去重 + 带 trace),无需在此 append。
     argv = build_argv(resolved.engine_config_traces, engine=resolved.engine)
+    analyzer_preamble = _build_analyzer_preamble(resolved)
     start_content = _render_start_command_sh(
         argv,
         resolved.env_traces,
@@ -478,6 +613,7 @@ def build_scripts(
         accel_pre_serve=resolved.accel.pre_serve,
         accel_pre_serve_master=resolved.accel.pre_serve_master,
         accel_pre_serve_client=resolved.accel.pre_serve_client,
+        analyzer_preamble=analyzer_preamble,
     )
     start_path.write_text(start_content, encoding="utf-8")
     start_path.chmod(0o755)

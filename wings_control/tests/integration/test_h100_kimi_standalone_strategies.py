@@ -51,7 +51,12 @@ def test_h100_kimi_standalone_strategies_pipeline_and_source_path(config_root_re
 
         # echo 方式执行生成脚本(不真实拉起服务)
         content = start_path.read_text(encoding="utf-8")
-        patched = content.replace("exec ", "echo ", 1)
+        # 替换引擎命令行(后台化后的 "vllm serve ..." 行)为 echo,用于实际执行验证
+        lines = content.splitlines()
+        engine_idx = next((i for i, ln in enumerate(lines) if ln.startswith("vllm serve ")), -1)
+        if engine_idx != -1:
+            lines[engine_idx] = "echo " + lines[engine_idx]
+        patched = "\n".join(lines) + "\n"
         env = os.environ.copy()
         env.setdefault("LD_PRELOAD", "")
         proc = subprocess.run(["bash"], input=patched, capture_output=True, text=True, env=env)

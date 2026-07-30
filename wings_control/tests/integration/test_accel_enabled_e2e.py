@@ -188,13 +188,16 @@ def test_dry_run_matches_start_command_exec(tmp_path, monkeypatch, config_root_r
         "--config-root", str(config_root_real), "--hardware-info", str(hw), "--engine", "vllm",
     ]
 
-    # 真路径落盘 → start_command.sh 的 exec 行
+    # 真路径落盘 → start_command.sh 的引擎命令行(后台化,无 exec 前缀)
     out = tmp_path / "out"
     monkeypatch.setattr("sys.argv", base + ["--output-dir", str(out)])
     cli.main()
     capsys.readouterr()  # 清空 stdout
     start = (out / "start_command.sh").read_text(encoding="utf-8")
-    start_exec = next(ln for ln in start.splitlines() if ln.startswith("exec vllm serve "))[len("exec "):]
+    # 引擎命令行以后台模式运行(尾部 " &"),dry-run 无此后缀,需剥离再比较
+    start_exec = next(ln for ln in start.splitlines() if ln.startswith("vllm serve "))
+    if start_exec.endswith(" &"):
+        start_exec = start_exec[:-2]
 
     # dry-run → 打印的命令行
     monkeypatch.setattr("sys.argv", base + ["--dry-run"])

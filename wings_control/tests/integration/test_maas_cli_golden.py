@@ -129,7 +129,13 @@ def _run_cli(
     assert start_path.exists(), f"missing start_command.sh: {start_path}"
     assert audit_path.exists(), f"missing audit.json: {audit_path}"
 
-    patched = start_path.read_text(encoding="utf-8").replace("exec ", "echo ", 1)
+    _content = start_path.read_text(encoding="utf-8")
+    # 替换引擎命令行(后台化后的 "vllm serve ..." 行)为 echo,用于实际执行验证
+    _lines = _content.splitlines()
+    _engine_idx = next((i for i, ln in enumerate(_lines) if ln.startswith("vllm serve ")), -1)
+    if _engine_idx != -1:
+        _lines[_engine_idx] = "echo " + _lines[_engine_idx]
+    patched = "\n".join(_lines) + "\n"
     patched_path = scene_out / "echo_start_command.sh"
     patched_path.write_text(patched, encoding="utf-8")
     proc = subprocess.run(["bash", str(patched_path)], check=True, capture_output=True, text=True)

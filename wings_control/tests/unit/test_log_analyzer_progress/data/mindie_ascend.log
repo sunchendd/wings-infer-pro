@@ -1,0 +1,194 @@
+==> mindie-llm-request_767_20260420194954427.log <==
+[2026-04-20 19:49:54.427650] [767] [767] [llm] LLM log default format: [yyyy-mm-dd hh:mm:ss.uuuuuu][processid] [threadid] [llm] [loglevel] [file:line] [status code] msg
+
+==> mindie-llm-token_767_20260420194954427.log <==
+2026-04-20 19:49:54.427866 767 LLM log default format: [yyyy-mm-dd hh:mm:ss.uuuuuu][processid] [threadid] [llm] [loglevel] [file:line] [status code] msg
+
+==> mindie-llm_767_20260420194954426.log <==
+[2026-04-20 19:49:54.500856] [767] [905] [llm] [WARN] [model_deploy_config.cpp:453] maxLoraRank not found or invalid in ModelDeployConfig, using default 0
+[2026-04-20 19:49:54.504216] [767] [905] [llm] [INFO] [model_deploy_config.cpp:281] ModelDeployConfig::vocabSize=151936
+[2026-04-20 19:49:54.504225] [767] [905] [llm] [INFO] [model_deploy_config.cpp:282] ModelDeployConfig::maxTopK=1000
+[2026-04-20 19:49:54.556222] [767] [905] [llm] [INFO] [llm_manager_impl.cpp:431] LLMRuntime init success!
+[2026-04-20 19:49:54.556253] [767] [905] [llm] [INFO] [llm_manager_impl.cpp:571] InitModelConfig: maxSeqLen=4096, maxInputTokenLen=2048, g_truncation=0, g_truncLen=1
+[2026-04-20 19:49:54.556271] [767] [905] [llm] [INFO] [llm_manager_impl.cpp:635] Input plugin_params is empty or only contains whitespace.
+[2026-04-20 19:49:54.556277] [767] [905] [llm] [INFO] [llm_manager_impl.cpp:635] Input plugin_params is empty or only contains whitespace.
+[2026-04-20 19:49:54.556285] [767] [905] [llm] [INFO] [llm_manager_impl.cpp:863] The rankIdList is In InitEngineConfig paras
+[2026-04-20 19:49:54.557014] [767] [908] [llm] [INFO] [executor.cpp:111] Executor instance init with rankIdx 0, remoteDPRankIdx -1, isMultiNodesInfer 0
+[2026-04-20 19:49:54.852632] [767] [908] [llm] [INFO] [executor.cpp:686] Execute command: mindie_llm_backend --local_rank 0 --local_world_size 1 --npu_num_per_dp 1 --npu_device_id 0 --parent_pid 767 --shm_name_prefix /767_0
+
+==> mindie-llm_910_20260420194954177.log <==
+[2026-04-20 19:50:00,703] [910] [281463069536672] [llm] [INFO] [config.py-123] : The item npu_mem value is -1.
+[2026-04-20 19:50:00,703] [910] [281463069536672] [llm] [INFO] [config.py-123] : The item max_seq_len value is 4096.
+[2026-04-20 19:50:00,703] [910] [281463069536672] [llm] [INFO] [config.py-123] : The item max_iter_times value is 2048.
+[2026-04-20 19:50:00,703] [910] [281463069536672] [llm] [INFO] [config.py-123] : The item max_prefill_tokens value is 8192.
+[2026-04-20 19:50:00,703] [910] [281463069536672] [llm] [INFO] [config.py-123] : The item block_size value is 128.
+[2026-04-20 19:50:00,703] [910] [281463069536672] [llm] [INFO] [config.py-123] : The item distributed_enable value is false.
+[2026-04-20 19:50:00,703] [910] [281463069536672] [llm] [INFO] [config.py-54] : >>model_config after initialize {'max_iter_times': '2048', 'local_rank': '0', 'interNodeTlsPk': 'security/grpc/keys/server.key.pem', 'backend_type': 'atb', 'is_dmi_infer': '0', 'max_prefill_tokens': '8192', 'asyncBatchscheduler': 'false', 'model_name': 'DeepSeek-R1-Distill-Qwen-1.5B', 'async_scheduler_wait_time': '120', 'block_size': '128', 'kv_pool_backend': '', 'model_instance_type': 'Standard', 'masterIP': '', 'kv_trans_timeout': '10', 'interNodeKmcKsfStandby': 'tools/pmt/standby/ksfb', 'cpu_mem': '5', 'world_size': '1', 'threadNum': '1', 'speculation_gamma': '0', 'max_seq_len': '4096', 'rank': '0', 'kv_pool_async_write': 'false', 'multiNodesInferEnabled': '0', 'multiNodesInferPort': '1120', 'interNodeTlsCaPath': 'security/grpc/ca/', 'backend_bin_path': '/bin/', 'localIP': '', 'interNodeTLSEnabled': '1', 'interNodeTlsCert': 'security/grpc/certs/server.pem', 'deploy_type': 'INTER_PROCESS', 'globalRankIds': '', 'max_lora_rank': '0', 'interNodeTlsCrlFiles': 'server_crl.pem,', 'kv_pool_config_path': '', 'interNodeTlsCrlPath': 'security/grpc/certs/', 'max_loras': '0', 'max_input_len': '2048', 'isMaster': '0', 'max_batch_size': '200', 'infer_mode': 'standard', 'npu_mem': '-1', 'interNodeKmcKsfMaster': 'tools/pmt/master/ksfa', 'model_id': '/usr/local/serving/models/', 'trust_remote_code': '1', 'npu_device_id': '0', 'distributed_enable': 'false', 'executor_type': 'LLM_EXECUTOR_PYTHON', 'slaveIPs': '', 'model_instance_number': '1', 'kv_link_timeout': '1080', 'local_world_size': '1', 'async_inference': 'false', 'interNodeTlsCaFiles': 'ca.pem,', 'npu_device_ids': '0', 'globalWorldSize': '0', 'interNodeTlsPkPwd': 'security/grpc/pass/mindie_server_key_pwd.txt'}
+[2026-04-20 19:50:00,704] [910] [281463069536672] [llm] [INFO] [request_router.py-55] : init base config
+[2026-04-20 19:50:00,704] [910] [281463069536672] [llm] [INFO] [metrics.py-56] : profiling is disenabled.
+[2026-04-20 19:50:00,704] [910] [281463069536672] [llm] [INFO] [router_impl.py-167] : global rank id 0 get model config: {'max_iter_times': '2048', 'local_rank': '0', 'interNodeTlsPk': 'security/grpc/keys/server.key.pem', 'backend_type': 'atb', 'is_dmi_infer': '0', 'max_prefill_tokens': '8192', 'asyncBatchscheduler': 'false', 'model_name': 'DeepSeek-R1-Distill-Qwen-1.5B', 'async_scheduler_wait_time': '120', 'block_size': '128', 'kv_pool_backend': '', 'model_instance_type': 'Standard', 'masterIP': '', 'kv_trans_timeout': '10', 'interNodeKmcKsfStandby': 'tools/pmt/standby/ksfb', 'cpu_mem': '5', 'world_size': '1', 'threadNum': '1', 'speculation_gamma': '0', 'max_seq_len': '4096', 'rank': '0', 'kv_pool_async_write': 'false', 'multiNodesInferEnabled': '0', 'multiNodesInferPort': '1120', 'interNodeTlsCaPath': 'security/grpc/ca/', 'backend_bin_path': '/bin/', 'localIP': '', 'interNodeTLSEnabled': '1', 'interNodeTlsCert': 'security/grpc/certs/server.pem', 'deploy_type': 'INTER_PROCESS', 'globalRankIds': '', 'max_lora_rank': '0', 'interNodeTlsCrlFiles': 'server_crl.pem,', 'kv_pool_config_path': '', 'interNodeTlsCrlPath': 'security/grpc/certs/', 'max_loras': '0', 'max_input_len': '2048', 'isMaster': '0', 'max_batch_size': '200', 'infer_mode': 'standard', 'npu_mem': '-1', 'interNodeKmcKsfMaster': 'tools/pmt/master/ksfa', 'model_id': '/usr/local/serving/models/', 'trust_remote_code': '1', 'npu_device_id': '0', 'distributed_enable': 'false', 'executor_type': 'LLM_EXECUTOR_PYTHON', 'slaveIPs': '', 'model_instance_number': '1', 'kv_link_timeout': '1080', 'local_world_size': '1', 'async_inference': 'false', 'interNodeTlsCaFiles': 'ca.pem,', 'npu_device_ids': '0', 'globalWorldSize': '0', 'interNodeTlsPkPwd': 'security/grpc/pass/mindie_server_key_pwd.txt'}
+
+==> mindie-llmmodels_910_20260420195002177.log <==
+[2026-04-20 19:50:03,811] [910] [281463069536672] [llmmodels] [INFO] [cpu_binding.py-258] : rank_id: 0, device_id: 0, numa_id: 6, shard_devices: [0], cpus: [144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167]
+[2026-04-20 19:50:03,814] [910] [281463069536672] [llmmodels] [INFO] [cpu_binding.py-287] : process 910, new_affinity is [144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167], cpu count 24
+[2026-04-20 19:50:04,576] [910] [281463069536672] [llmmodels] [INFO] [model_runner.py-166] : model_runner.config: Qwen2Config(max_position_embeddings=131072, vocab_size=151936, quantize=None, rope_scaling=RopeScaling(factor=1.0, type='linear', long_factor=None, short_factor=None, low_freq_factor=None, high_freq_factor=None, original_max_position_embeddings=None, rope_type=None, rope_theta=None, attention_factor=None, beta_fast=32, beta_slow=1), quantization_config=QuantizationConfig(group_size=0, kv_quant_type=None, fa_quant_type=None, reduce_quant_type=None), reasoning_config=ReasoningConfig(start_reasoning_token_id=None, end_reasoning_token_id=None), generation_config=GenerationConfig(max_new_tokens=None, pad_token_id=None, eos_token_id=151643, bot_token_id=None, user_token_id=None, assistant_token_id=None, system_token_id=None, max_length=None), is_reasoning_model=False, hidden_size=1536, intermediate_size=8960, num_hidden_layers=28, num_attention_heads=12, num_key_value_heads=2, hidden_act='silu', initializer_range=0.02, rms_norm_eps=1e-06, use_cache=True, tie_word_embeddings=False, rope_theta=10000, use_sliding_window=False, sliding_window=4096, max_window_layers=21, attention_dropout=0.0, pdmix=False, attention_bias=True, use_qk_norm=False)
+[2026-04-20 19:50:04,577] [910] [281463069536672] [llmmodels] [INFO] [dist.py-77] : Current process is setting device npu:0 for rank 0.
+[2026-04-20 19:50:09,968] [910] [281463069536672] [llmmodels] [INFO] [dist.py-97] : Current process finished setting device npu:0 for rank 0.
+[2026-04-20 19:50:09,969] [910] [281463069536672] [llmmodels] [INFO] [model_runner.py-199] : init tokenizer done
+[2026-04-20 19:50:10,235] [910] [281463069536672] [llmmodels] [INFO] [flash_causal_qwen2.py-150] : >>>> qwen_QwenDecoderModel is called.
+
+==> mindie-llmmodels_910_20260420195002546.log <==
+2026-04-20 19:50:02.547047 1125 LLM log default format: [yyyy-mm-dd hh:mm:ss.uuuuuu][processid] [threadid] [llmmodels] [loglevel] [file:line] [status code] msg
+[2026-04-20 19:50:02.622852] [910] [1125] [llmmodels] [WARN] [model_factory.cpp:28] deepseekV2_DecoderModel model already exists, but the duplication doesn't matter.
+[2026-04-20 19:50:02.622911] [910] [1125] [llmmodels] [WARN] [model_factory.cpp:28] deepseekV2_DecoderModel model already exists, but the duplication doesn't matter.
+[2026-04-20 19:50:02.623716] [910] [1125] [llmmodels] [WARN] [model_factory.cpp:28] llama_LlamaDecoderModel model already exists, but the duplication doesn't matter.
+
+==> mindie-server_767_20260420194954428.log <==
+2026-04-20 19:49:54.428552 767 LLM log default format: [yyyy-mm-dd hh:mm:ss.uuuuuu][processid] [threadid] [server] [loglevel] [file:line] [status code] msg
+[2026-04-20 19:49:54.556140] [767] [905] [server] [INFO] [endpoint.cpp:46] [endpoint] Start dynamic config handler success.
+
+==> mindie-llm_910_20260420194954177.log <==
+[2026-04-20 19:51:14,062] [910] [281463069536672] [llm] [INFO] [generator.py-253] : The effective eos_token_id is `[151643]`.
+[2026-04-20 19:51:14,062] [910] [281463069536672] [llm] [INFO] [generator.py-261] : The effective pad_token_id is `151936`.
+[2026-04-20 19:51:14,063] [910] [281463069536672] [llm] [INFO] [generator.py-269] : The effective bos_token_id is `151646`.
+
+==> mindie-llmmodels_910_20260420195002177.log <==
+[2026-04-20 19:51:13,168] [910] [281463069536672] [llmmodels] [INFO] [model_runner.py-256] : Initialized model: FlashQwen2ForCausalLM
+[2026-04-20 19:51:13,174] [910] [281463069536672] [llmmodels] [INFO] [model_runner.py-279] : Start transferring model to device npu:0
+[2026-04-20 19:51:13,957] [910] [281463069536672] [llmmodels] [INFO] [model_runner.py-281] : Model successfully transferred to device npu:0
+[2026-04-20 19:51:14,060] [910] [281463069536672] [llmmodels] [INFO] [model_runner.py-321] : Successfully loaded model: FlashQwen2ForCausalLM
+FlashQwen2ForCausalLM(
+  (rotary_embedding): PositionRotaryEmbedding()
+  (attn_mask): AttentionMask()
+  (transformer): FlashQwenModel(
+    (wte): TensorParallelEmbedding()
+    (h): ModuleList(
+      (0-27): 28 x FlashQwenLayer(
+        (attn): FlashQwenAttention(
+          (rotary_emb): PositionRotaryEmbedding()
+          (c_attn): TensorParallelColumnLinear(
+            (linear): FastLinear()
+          )
+          (c_proj): TensorParallelRowLinear(
+            (linear): FastLinear()
+          )
+        )
+        (mlp): QwenMLP(
+          (act): SiLU()
+          (w2_w1): TensorParallelColumnLinear(
+            (linear): FastLinear()
+          )
+          (c_proj): TensorParallelRowLinear(
+            (linear): FastLinear()
+          )
+        )
+        (ln_1): QwenRMSNorm()
+        (ln_2): QwenRMSNorm()
+      )
+    )
+    (ln_f): QwenRMSNorm()
+  )
+  (lm_head): TensorParallelHead(
+    (linear): FastLinear()
+  )
+)
+
+==> mindie-llmmodels_910_20260420195002546.log <==
+[2026-04-20 19:51:13.144626] [910] [1125] [llmmodels] [WARN] [operation_factory.cpp:42] OperationName: TransdataOperation not find in operation factory map
+
+==> mindie-llm_910_20260420194954177.log <==
+[2026-04-20 19:51:14,265] [910] [281463069536672] [llm] [INFO] [cache_manager.py-92] : Before prefill warmup, peak mem: 3.88G, total_mem: 60.96G
+[2026-04-20 19:51:14,265] [910] [281463069536672] [llm] [INFO] [generator.py-677] : warmup params: max_prefill_tokens=8192, max_seq_len=4096, max_input_len=2048, max_iter_times=2048
+[2026-04-20 19:51:14,267] [910] [281463069536672] [llm] [INFO] [generator.py-876] : `standard blocks` during warmup needs npu memory(GB): 0.00341796875
+[2026-04-20 19:51:14,268] [910] [281463069536672] [llm] [INFO] [cache_pool.py-179] : Allocating npu_cache, acl format is ND, sepd mode is off.
+
+==> mindie-llmmodels_910_20260420195002177.log <==
+[2026-04-20 19:51:22,913] [910] [281463069536672] [llmmodels] [INFO] [flash_causal_qwen2.py-645] : <<<<<<< ori k_caches[0].shape=torch.Size([1, 128, 2, 128])
+[2026-04-20 19:51:22,983] [910] [281463069536672] [llmmodels] [INFO] [flash_causal_qwen2.py-671] : >>>>>>id of kcache is 281458981686544 id of vcache is 281458981686448
+
+==> mindie-llm_910_20260420194954177.log <==
+[2026-04-20 19:51:33,133] [910] [281463069536672] [llm] [INFO] [cache_manager.py-92] : After prefill warmup, peak mem: 5.00G, total_mem: 60.96G
+[2026-04-20 19:51:33,133] [910] [281463069536672] [llm] [INFO] [generator.py-677] : warmup params: max_prefill_tokens=8192, max_seq_len=4096, max_input_len=2048, max_iter_times=2048
+[2026-04-20 19:51:33,136] [910] [281463069536672] [llm] [INFO] [cache_manager.py-92] : After check warmup, peak mem: 5.00G, total_mem: 60.96G
+[2026-04-20 19:51:33,136] [910] [281463069536672] [llm] [INFO] [generator.py-899] : `Total blocks` needs npu memory(GB): 43.763671875
+[2026-04-20 19:51:33,137] [910] [281463069536672] [llm] [INFO] [cache_manager.py-92] : Before Decode warmup, peak mem: 5.00G, total_mem: 60.96G
+[2026-04-20 19:51:33,137] [910] [281463069536672] [llm] [INFO] [generator.py-677] : warmup params: max_prefill_tokens=200, max_seq_len=1, max_input_len=200, max_iter_times=2048
+[2026-04-20 19:51:33,144] [910] [281463069536672] [llm] [INFO] [generator.py-876] : `standard blocks` during warmup needs npu memory(GB): 0.00341796875
+[2026-04-20 19:51:33,145] [910] [281463069536672] [llm] [INFO] [cache_pool.py-179] : Allocating npu_cache, acl format is ND, sepd mode is off.
+
+==> mindie-llmmodels_910_20260420195002177.log <==
+[2026-04-20 19:51:33,244] [910] [281463069536672] [llmmodels] [INFO] [flash_causal_qwen2.py-645] : <<<<<<< ori k_caches[0].shape=torch.Size([1, 128, 2, 128])
+[2026-04-20 19:51:33,245] [910] [281463069536672] [llmmodels] [INFO] [flash_causal_qwen2.py-671] : >>>>>>id of kcache is 281472164182448 id of vcache is 281472164182544
+
+==> mindie-llm-request_767_20260420194954427.log <==
+[2026-04-20 19:51:34.810404] [767] [1883] [llm] [INFO] [scheduler.cpp:229] [Scheduler|Schedule-scheduling] DP RankId: 0. After Backfill, running size:0; waiting size: 0; swapped size:0; batch size:0; transferring size:0; schedule forwardMode:1; PD PriorityType:1
+
+==> mindie-llm_767_20260420194954426.log <==
+[2026-04-20 19:51:34.798430] [767] [908] [llm] [INFO] [executor.cpp:384] [Executor::HandleInitResult]: Initialized KV cache overview: CPU blocks = 1462, NPU blocks = 12669, MaxPosEmb = 131072
+[2026-04-20 19:51:34.798769] [767] [908] [llm] [INFO] [executor.cpp:152] Successfully initialize Executor with IPC and lanuch model!
+[2026-04-20 19:51:34.798986] [767] [905] [llm] [INFO] [llm_manager_impl.cpp:1273] CpuBlockNum:1462; NpuBlockNum: 12669
+[2026-04-20 19:51:34.809923] [767] [905] [llm] [INFO] [self_attn_block_manager.cpp:58] SelfAttnBlockManager init success!
+[2026-04-20 19:51:34.809946] [767] [905] [llm] [INFO] [scheduler.cpp:85] Policy create success!
+[2026-04-20 19:51:34.810081] [767] [905] [llm] [INFO] [scheduler.cpp:66] Scheduler init success!
+[2026-04-20 19:51:34.810109] [767] [905] [llm] [INFO] [llm_engine.cpp:90] LlmEngine init succeeds! 1 enginePerDPs are created. Need to call StartEngineThread to start Engine thread(s).
+[2026-04-20 19:51:34.810351] [767] [905] [llm] [INFO] [llm_engine.cpp:258] [LlmEngine]Start thread(0) successfully.
+[2026-04-20 19:51:34.810358] [767] [905] [llm] [INFO] [llm_engine.cpp:260] [LlmEngine]Engine thread(s) start successfully.
+[2026-04-20 19:51:34.810809] [767] [905] [llm] [INFO] [llm_manager_impl.cpp:443] LLMRuntime thread start success!
+
+==> mindie-llm_910_20260420194954177.log <==
+[2026-04-20 19:51:34,102] [910] [281463069536672] [llm] [INFO] [cache_manager.py-92] : After Decode warmup, peak mem: 5.46G, total_mem: 60.96G
+[2026-04-20 19:51:34,102] [910] [281463069536672] [llm] [INFO] [generator.py-677] : warmup params: max_prefill_tokens=8192, max_seq_len=4096, max_input_len=2048, max_iter_times=2048
+[2026-04-20 19:51:34,104] [910] [281463069536672] [llm] [INFO] [cache_manager.py-92] : After check warmup, peak mem: 5.46G, total_mem: 60.96G
+[2026-04-20 19:51:34,105] [910] [281463069536672] [llm] [INFO] [generator.py-899] : `Total blocks` needs npu memory(GB): 43.3056640625
+[2026-04-20 19:51:34,116] [910] [281463069536672] [llm] [INFO] [cache_pool.py-179] : Allocating npu_cache, acl format is ND, sepd mode is off.
+[2026-04-20 19:51:34,796] [910] [281463069536672] [llm] [INFO] [router_impl.py-172] : >>>global rank:0 done ibis manager to device
+[2026-04-20 19:51:34,797] [910] [281463069536672] [llm] [INFO] [router_impl.py-200] : model init success, parent pid=767, pid=910, device_id=0, global_rank_id=0, local_rank_id=0
+[2026-04-20 19:51:34,797] [910] [281463069536672] [llm] [INFO] [router_impl.py-202] : >>>global rank:0: return initialize success result: {'status': 'ok', 'npuBlockNum': '12669', 'cpuBlockNum': '1462', 'maxPositionEmbeddings': '131072', 'memPoolId': '-1'}
+[2026-04-20 19:51:34,798] [910] [281463069536672] [llm] [INFO] [request_router.py-86] : [python thread: infer] model initialized.
+
+==> mindie-server_767_20260420194954428.log <==
+[2026-04-20 19:51:34.811004] [767] [905] [server] [INFO] [infer_tokenizer.cpp:272] [tokenizer] Total shared memory size is 8192MB, and available shared memory size is 7647.83MB.
+[2026-04-20 19:51:34.811014] [767] [905] [server] [INFO] [infer_tokenizer.cpp:273] [tokenizer] Shared memory size check success.
+[2026-04-20 19:51:34.833339] [767] [905] [server] [INFO] [infer_tokenizer.cpp:333] [tokenizer] Create share memory /llm_tokenizer_shared_memory_767_0 success.
+[2026-04-20 19:51:34.833418] [767] [905] [server] [INFO] [infer_tokenizer.cpp:272] [tokenizer] Total shared memory size is 8192MB, and available shared memory size is 7607.83MB.
+[2026-04-20 19:51:34.833425] [767] [905] [server] [INFO] [infer_tokenizer.cpp:273] [tokenizer] Shared memory size check success.
+[2026-04-20 19:51:34.855583] [767] [905] [server] [INFO] [infer_tokenizer.cpp:333] [tokenizer] Create share memory /llm_tokenizer_shared_memory_767_1 success.
+[2026-04-20 19:51:34.855645] [767] [905] [server] [INFO] [infer_tokenizer.cpp:272] [tokenizer] Total shared memory size is 8192MB, and available shared memory size is 7567.82MB.
+[2026-04-20 19:51:34.855651] [767] [905] [server] [INFO] [infer_tokenizer.cpp:273] [tokenizer] Shared memory size check success.
+[2026-04-20 19:51:34.877713] [767] [905] [server] [INFO] [infer_tokenizer.cpp:333] [tokenizer] Create share memory /llm_tokenizer_shared_memory_767_2 success.
+[2026-04-20 19:51:34.877766] [767] [905] [server] [INFO] [infer_tokenizer.cpp:272] [tokenizer] Total shared memory size is 8192MB, and available shared memory size is 7527.82MB.
+[2026-04-20 19:51:34.877772] [767] [905] [server] [INFO] [infer_tokenizer.cpp:273] [tokenizer] Shared memory size check success.
+[2026-04-20 19:51:34.899632] [767] [905] [server] [INFO] [infer_tokenizer.cpp:333] [tokenizer] Create share memory /llm_tokenizer_shared_memory_767_3 success.
+[2026-04-20 19:51:34.899684] [767] [905] [server] [INFO] [infer_tokenizer.cpp:272] [tokenizer] Total shared memory size is 8192MB, and available shared memory size is 7487.82MB.
+[2026-04-20 19:51:34.899690] [767] [905] [server] [INFO] [infer_tokenizer.cpp:273] [tokenizer] Shared memory size check success.
+[2026-04-20 19:51:34.921780] [767] [905] [server] [INFO] [infer_tokenizer.cpp:333] [tokenizer] Create share memory /llm_tokenizer_shared_memory_767_4 success.
+[2026-04-20 19:51:34.921831] [767] [905] [server] [INFO] [infer_tokenizer.cpp:272] [tokenizer] Total shared memory size is 8192MB, and available shared memory size is 7447.81MB.
+[2026-04-20 19:51:34.921841] [767] [905] [server] [INFO] [infer_tokenizer.cpp:273] [tokenizer] Shared memory size check success.
+[2026-04-20 19:51:34.944070] [767] [905] [server] [INFO] [infer_tokenizer.cpp:333] [tokenizer] Create share memory /llm_tokenizer_shared_memory_767_5 success.
+[2026-04-20 19:51:34.944123] [767] [905] [server] [INFO] [infer_tokenizer.cpp:272] [tokenizer] Total shared memory size is 8192MB, and available shared memory size is 7407.81MB.
+[2026-04-20 19:51:34.944130] [767] [905] [server] [INFO] [infer_tokenizer.cpp:273] [tokenizer] Shared memory size check success.
+[2026-04-20 19:51:34.966144] [767] [905] [server] [INFO] [infer_tokenizer.cpp:333] [tokenizer] Create share memory /llm_tokenizer_shared_memory_767_6 success.
+[2026-04-20 19:51:34.966195] [767] [905] [server] [INFO] [infer_tokenizer.cpp:272] [tokenizer] Total shared memory size is 8192MB, and available shared memory size is 7367.8MB.
+[2026-04-20 19:51:34.966201] [767] [905] [server] [INFO] [infer_tokenizer.cpp:273] [tokenizer] Shared memory size check success.
+[2026-04-20 19:51:34.988381] [767] [905] [server] [INFO] [infer_tokenizer.cpp:333] [tokenizer] Create share memory /llm_tokenizer_shared_memory_767_7 success.
+[2026-04-20 19:51:34.988396] [767] [905] [server] [INFO] [infer_tokenizer.cpp:490] [tokenizer] Init share memory done with size 8
+[2026-04-20 19:51:34.992457] [767] [905] [server] [INFO] [infer_tokenizer.cpp:451] [tokenizer] Started tokenizer sub process with pid 1887
+[2026-04-20 19:51:34.996007] [767] [905] [server] [INFO] [infer_tokenizer.cpp:451] [tokenizer] Started tokenizer sub process with pid 1889
+[2026-04-20 19:51:34.999902] [767] [905] [server] [INFO] [infer_tokenizer.cpp:451] [tokenizer] Started tokenizer sub process with pid 1891
+[2026-04-20 19:51:35.003768] [767] [905] [server] [INFO] [infer_tokenizer.cpp:451] [tokenizer] Started tokenizer sub process with pid 1893
+[2026-04-20 19:51:35.007675] [767] [905] [server] [INFO] [infer_tokenizer.cpp:451] [tokenizer] Started tokenizer sub process with pid 1895
+[2026-04-20 19:51:35.011438] [767] [905] [server] [INFO] [infer_tokenizer.cpp:451] [tokenizer] Started tokenizer sub process with pid 1897
+[2026-04-20 19:51:35.015591] [767] [905] [server] [INFO] [infer_tokenizer.cpp:451] [tokenizer] Started tokenizer sub process with pid 1899
+[2026-04-20 19:51:35.019495] [767] [905] [server] [INFO] [infer_tokenizer.cpp:451] [tokenizer] Started tokenizer sub process with pid 1901
+[2026-04-20 19:51:35.019544] [767] [905] [server] [INFO] [infer_tokenizer.cpp:388] [tokenizer] Create and wait process success, sub pid 1887
+[2026-04-20 19:51:35.019554] [767] [905] [server] [INFO] [infer_tokenizer.cpp:388] [tokenizer] Create and wait process success, sub pid 1889
+[2026-04-20 19:51:35.019559] [767] [905] [server] [INFO] [infer_tokenizer.cpp:388] [tokenizer] Create and wait process success, sub pid 1891
+[2026-04-20 19:51:35.019575] [767] [905] [server] [INFO] [infer_tokenizer.cpp:388] [tokenizer] Create and wait process success, sub pid 1893
+[2026-04-20 19:51:35.019587] [767] [905] [server] [INFO] [infer_tokenizer.cpp:388] [tokenizer] Create and wait process success, sub pid 1895
+[2026-04-20 19:51:35.019595] [767] [905] [server] [INFO] [infer_tokenizer.cpp:388] [tokenizer] Create and wait process success, sub pid 1897
+[2026-04-20 19:51:35.019599] [767] [905] [server] [INFO] [infer_tokenizer.cpp:388] [tokenizer] Create and wait process success, sub pid 1899
+[2026-04-20 19:51:35.019603] [767] [905] [server] [INFO] [infer_tokenizer.cpp:388] [tokenizer] Create and wait process success, sub pid 1901
+[2026-04-20 19:51:48.653355] [767] [905] [server] [INFO] [infer_tokenizer.cpp:416] [tokenizer] Finished to init tokenizer sub process size 8
+[2026-04-20 19:51:48.653422] [767] [905] [server] [INFO] [endpoint.cpp:158] [endpoint] mExpertParallel is false, healthchecker init skipped
+[2026-04-20 19:51:48.664569] [767] [905] [server] [INFO] [endpoint.cpp:142] [endpoint] Start endpoint success
+[2026-04-20 19:51:48.664638] [767] [905] [server] [INFO] [llm_daemon.cpp:340] [daemon] Daemon start success!

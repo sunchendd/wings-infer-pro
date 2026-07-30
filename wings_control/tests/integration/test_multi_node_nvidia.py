@@ -58,7 +58,7 @@ def test_nvidia_worker_argv_node_rank_and_literal_master(config_root_real, tmp_p
     """验证 worker 产可执行脚本:node_rank=1、master_addr=字面 MASTER_IP、--headless、$IFACE_NAME 运行时。"""
     _, start_path, repro_path, _ = _run(tmp_path, monkeypatch, config_root_real, rank_ip="10.0.0.2", tag="worker")
     text = start_path.read_text(encoding="utf-8")
-    assert "exec vllm serve" in text and "RUNTIME INJECTION PENDING" not in text
+    assert "vllm serve" in text and "RUNTIME INJECTION PENDING" not in text
     # B 类 per-Pod 身份键:node_rank=index=1
     assert "--node-rank 1" in text
     # $HEAD_IP → 字面 MASTER_IP(argv 安全,无裸 $)
@@ -69,7 +69,7 @@ def test_nvidia_worker_argv_node_rank_and_literal_master(config_root_real, tmp_p
     assert text.index("IFACE_NAME=$(awk") < text.index("export ")
     assert 'NCCL_SOCKET_IFNAME="$IFACE_NAME"' in text
     subprocess.run(["bash", "-n", str(start_path)], check=True)
-    assert "exec vllm serve" in repro_path.read_text(encoding="utf-8")
+    assert "exec vllm serve" in repro_path.read_text(encoding="utf-8")  # repro.sh 仍用 exec
 
 
 def test_nvidia_head_argv_node_rank_0_no_headless(config_root_real, tmp_path, monkeypatch):
@@ -78,8 +78,8 @@ def test_nvidia_head_argv_node_rank_0_no_headless(config_root_real, tmp_path, mo
     text = start_path.read_text(encoding="utf-8")
     assert "--node-rank 0" in text
     # head 段无 headless(worker 才有)
-    head_exec = [ln for ln in text.splitlines() if ln.startswith("exec vllm serve")][0]
-    assert "--headless" not in head_exec
+    head_line = [ln for ln in text.splitlines() if ln.startswith("vllm serve")][0]
+    assert "--headless" not in head_line
 
 
 def test_nvidia_placeholder_without_runtime_ctx(config_root_real, tmp_path, monkeypatch):
@@ -96,4 +96,4 @@ def test_nvidia_placeholder_without_runtime_ctx(config_root_real, tmp_path, monk
     )
     assert resolved.nodes is not None and [n.role for n in resolved.nodes] == ["head", "worker"]
     text = start_path.read_text(encoding="utf-8")
-    assert "exit 3" in text and "\nexec " not in text
+    assert "exit 3" in text and "\nexec " not in text  # 占位脚本无引擎命令
