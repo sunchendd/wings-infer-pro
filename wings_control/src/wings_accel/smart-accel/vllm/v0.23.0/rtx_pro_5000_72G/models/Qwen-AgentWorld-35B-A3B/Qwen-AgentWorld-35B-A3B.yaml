@@ -1,4 +1,4 @@
-# SmartAccel 加速配置(decoding=suffix / kv_offload=cpu_disk(lmcache))
+# SmartAccel 加速配置(decoding=suffix;kv_offload 不启用,去除 lmcache 卸载参数)
 # 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
 model:
   name: Qwen-AgentWorld-35B-A3B
@@ -13,38 +13,3 @@ smart_accel:
           method: suffix
           num_speculative_tokens: 32
       envs: {}
-  kv_offload:
-    - name: cpu_disk
-      packages:
-        lmcache: v0.3.15
-      cli_params:
-        kv_transfer_config:
-          kv_connector: LMCacheConnectorV1
-          kv_role: kv_both
-          kv_connector_extra_config:
-            local_cpu: true
-            max_local_cpu_size: "{memory_capacity_gb}"
-            local_disk: "{disk_path}"
-            max_local_disk_size: "{disk_capacity_gb}"
-      envs:
-        LMCACHE_CONFIG_FILE: /shared-volume/lmcache_config.yaml
-        LMCACHE_LOCAL_CPU: "true"
-        LMCACHE_MAX_LOCAL_CPU_SIZE: "{memory_capacity_gb}"
-        LMCACHE_LOCAL_DISK: "{disk_path}"
-        LMCACHE_MAX_LOCAL_DISK_SIZE: "{disk_capacity_gb}"
-      files:
-        - name: lmcache_config.yaml
-          content: |
-            chunk_size: 256
-            local_cpu: true
-            max_local_cpu_size: {memory_capacity_gb}
-            local_disk: {disk_path}
-            max_local_disk_size: {disk_capacity_gb}
-            extra_config:
-              wings:
-                qat:
-                  enabled: {qat_enabled}
-                  module_name: kv_agent
-                  instance_num: {qat_device_count}
-                  loss_level: {qat_compression_level}
-                  log_enabled: 1

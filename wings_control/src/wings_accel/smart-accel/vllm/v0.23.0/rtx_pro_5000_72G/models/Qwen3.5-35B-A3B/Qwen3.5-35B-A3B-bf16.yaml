@@ -1,4 +1,4 @@
-# SmartAccel 加速配置(decoding=qwen3_5_mtp / kv_offload=cpu)
+# SmartAccel 加速配置(kv_offload=cpu;decoding 不启用,speculative_config=None)
 # 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
 model:
   name: Qwen3.5-35B-A3B
@@ -6,13 +6,6 @@ model:
   match:
     - name_pattern: "(?i)qwen3[-.]?5[-.]?35b[-.]?a3b"
 smart_accel:
-  decoding:
-    - name: qwen3_5_mtp
-      cli_params:
-        speculative_config:
-          method: qwen3_5_mtp
-          num_speculative_tokens: 1
-      envs: {}
   kv_offload:
     - name: cpu
       cli_params:

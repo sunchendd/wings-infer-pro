@@ -42,6 +42,36 @@ from wings_accel.schemas import (
 
 logger = logging.getLogger(__name__)
 
+# 匹配运行时传入的版本,提取基础版本+预发布渠道,用于把构建版本归一化成渠道目录。
+# 与 wings_ctl/engines/version_resolver.py 的 _REQUESTED_VERSION_RE 保持一致(自闭环,不反向依赖)。
+# 示例:v0.21.0rc1-20260709144216 → base=0.21.0 + channel=rc → v0.21.0rc
+_SMART_ACCEL_PRERELEASE_RE = re.compile(
+    r"^v?(\d+\.\d+\.\d+)([A-Za-z]+)(?:\d+)?(?:[-+].*)?$"
+)
+
+
+def _candidate_version_dirs(engine_version: str) -> list[str]:
+    """把传入的版本号展开成候选目录名列表(带 v 前缀),按精确优先排序。
+
+    - "0.23.0"                        → ["v0.23.0"]
+    - "v0.21.0rc"                     → ["v0.21.0rc"]
+    - "v0.21.0rc1-20260709144216"     → ["v0.21.0rc1-20260709144216", "v0.21.0rc"]
+    - "0.21.0rc1-20260709144216"      → ["v0.21.0rc1-20260709144216", "v0.21.0rc"]
+
+    第一个候选 = 原样(精确匹配优先);若能归一化出渠道目录且与原样不同,追加为第二候选。
+    """
+    raw = str(engine_version).strip()
+    if not raw:
+        return []
+    version_dir_name = raw if raw.startswith("v") else f"v{raw}"
+    candidates = [version_dir_name]
+    m = _SMART_ACCEL_PRERELEASE_RE.match(raw)
+    if m:
+        normalized = f"v{m.group(1)}{m.group(2)}"
+        if normalized != version_dir_name:
+            candidates.append(normalized)
+    return candidates
+
 
 @dataclass
 class LoadFlags:
@@ -265,7 +295,10 @@ def build_smart_accel_yaml_path(
     新调用优先使用 find_smart_accel_yaml_path 按 hardware models 目录扫描匹配。
     """
     root = _resolve_smart_accel_root(config_root)
-    version_dir = f"v{str(engine_version).lstrip('v')}"
+    # build 路径无法像 find 那样多候选探测(调用方要确定单一路径),取归一化后的最后一个候选
+    # (即最简渠道目录,如 v0.21.0rc);干净版本只有一个候选,行为不变。
+    candidates = _candidate_version_dirs(str(engine_version))
+    version_dir = candidates[-1] if candidates else f"v{str(engine_version).lstrip('v')}"
     return root / engine / version_dir / hardware_family / "models" / model_dir / yaml_name
 
 
@@ -302,10 +335,20 @@ def find_smart_accel_yaml_path(
             错误信息带 model_name + 候选清单,避免静默选错。
     """
     root = _resolve_smart_accel_root(config_root)
-    version_dir = f"v{str(engine_version).lstrip('v')}"
-    models_dir = root / engine / version_dir / hardware_family / "models"
-    if not models_dir.is_dir():
-        logger.warning("SmartAccel models dir not found: %s", models_dir)
+    # 按"原始版本目录 → 归一化渠道目录"顺序查找,兼容构建版本号
+    # (如 v0.21.0rc1-20260709144216 → v0.21.0rc)。与 version_resolver 候选顺序对齐:精确优先。
+    candidate_dirs = _candidate_version_dirs(str(engine_version))
+    models_dir: Optional[Path] = None
+    for version_dir in candidate_dirs:
+        candidate = root / engine / version_dir / hardware_family / "models"
+        if candidate.is_dir():
+            models_dir = candidate
+            break
+    if models_dir is None:
+        logger.warning(
+            "SmartAccel models dir not found under %s/%s/[candidates=%s]/%s",
+            root, engine, candidate_dirs, hardware_family,
+        )
         return None
 
     # 三层分桶:同一文件只入其命中的最高优先层(if/elif),逐层判定,与 docs/48 逐层回退等价。
