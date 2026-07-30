@@ -78,6 +78,9 @@ def _collect_user_cli_overrides(
     enable_chunked_prefill: bool | None = None,
     enable_prefix_caching: bool | None = None,
     enable_expert_parallel: bool | None = None,
+    enable_smartqos: bool | None = None,
+    enable_otlp_traces: bool | None = None,
+    enable_metrics: bool | None = None,
 ) -> Dict[str, Any]:
     """收集用户 CLI 覆盖层 dict。
 
@@ -142,6 +145,12 @@ def _collect_user_cli_overrides(
         overrides["enable_prefix_caching"] = enable_prefix_caching
     if enable_expert_parallel is not None:
         overrides["enable_expert_parallel"] = enable_expert_parallel
+    if enable_smartqos is not None:
+        overrides["enable_smartqos"] = enable_smartqos
+    if enable_otlp_traces is not None:
+        overrides["enable_otlp_traces"] = enable_otlp_traces
+    if enable_metrics is not None:
+        overrides["enable_metrics"] = enable_metrics
 
     return overrides
 
@@ -157,6 +166,20 @@ def _export_proxy_port(port: int | None) -> None:
     """
     if port is not None:
         os.environ["PORT"] = str(port)
+
+
+def _export_smartqos_env(enable_smartqos: bool | None) -> None:
+    """把 ``--enable-smartqos`` 写入 ``os.environ["ENABLE_SMARTQOS"]``,供 proxy 子进程继承。
+
+    ENABLE_SMARTQOS 需要被 proxy 子进程消费（Anthropic 协议转换门控）。
+    在 ``main()`` 中调用后,``wings_control._build_child_env()``
+    通过 ``os.environ.copy()`` 自动继承,无需额外修改。
+
+    Args:
+        enable_smartqos: ``--enable-smartqos`` 值;None/False 时不写(保持 env 原样)。
+    """
+    if enable_smartqos:
+        os.environ["ENABLE_SMARTQOS"] = "true"
 
 
 def _canonicalize_engine(name: str) -> str:
@@ -314,7 +337,13 @@ def _resolve_model_name(model_name: str | None, model_path: str | None) -> str:
 
 
 def _collect_subsystem_switches(args: argparse.Namespace) -> List[str]:
-    """提取已开启的子系统开关(仅记录,不进入引擎 argv)。
+    """提取已开启的子系统开关(用于启动日志留痕)。
+
+    注意:本函数仅做日志留痕,不决定开关的消费方式。
+    - enable_rag_acc:由 proxy/RAG 子系统消费,不进引擎 argv。
+    - enable_smartqos / enable_otlp_traces / enable_metrics:
+      进入 feature_switches,由 feature_inject 注入 engine_config/env。
+    各开关的实际消费在 main() 中由 _collect_user_cli_overrides + feature_switches 完成。
 
     Args:
         args: argparse 解析结果。
@@ -326,6 +355,7 @@ def _collect_subsystem_switches(args: argparse.Namespace) -> List[str]:
         ("enable_rag_acc", args.enable_rag_acc),
         ("enable_smartqos", args.enable_smartqos),
         ("enable_otlp_traces", args.enable_otlp_traces),
+        ("enable_metrics", args.enable_metrics),
     )
     return [name for name, enabled in switches if enabled]
 
@@ -509,11 +539,15 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--enable-chunked-prefill", action="store_true", default=None)
     parser.add_argument("--enable-prefix-caching", action="store_true", default=None)
     parser.add_argument("--enable-expert-parallel", action="store_true", default=None)
-    # 子系统特性开关(rag / 优先级调度 / OTLP 追踪):当前仅接收留痕,业务逻辑由下游消费。
-    # 这些不是引擎参数,不进 vllm argv。
+    # 子系统特性开关:
+    #   --enable-rag-acc:由 proxy/RAG 子系统消费,不进引擎 argv。
+    #   --enable-smartqos / --enable-otlp-traces / --enable-metrics:
+    #     进入 feature_switches,由 feature_inject 注入 engine_config/env;
+    #     开关本身不作为 user_cli 原值直通 argv。
     parser.add_argument("--enable-rag-acc", action="store_true", default=None)
     parser.add_argument("--enable-smartqos", action="store_true", default=None)
     parser.add_argument("--enable-otlp-traces", action="store_true", default=None)
+    parser.add_argument("--enable-metrics", action="store_true", default=None)
     parser.add_argument(
         "--device-count",
         type=int,
@@ -541,10 +575,10 @@ def main() -> None:
     args, unknown_args = parser.parse_known_args()
     _validate_unknown_args(parser, unknown_args)
 
-    # 子系统特性开关当前仅接收留痕,不进入引擎 argv。
+    # 子系统特性开关留痕(实际消费见下方 feature_switches / proxy 子系统)。
     _received_subsys_switches = _collect_subsystem_switches(args)
     if _received_subsys_switches:
-        logger.info("已接收子系统特性开关(当前仅保存):%s", _received_subsys_switches)
+        logger.info("已接收子系统特性开关:%s", _received_subsys_switches)
 
     # --trust-remote-code 未显式开启时给出告警,但不阻断启动。
     if not args.trust_remote_code:
@@ -559,6 +593,9 @@ def main() -> None:
         device_count = _resolve_device_count(args.device_count)
         # 显式副作用:把 --port(对外/代理端口)写入 env PORT,供 proxy 子系统读取(独立成步,不藏在参数收集里)。
         _export_proxy_port(args.port)
+
+        # ENABLE_SMARTQOS 需要被 proxy 子进程消费（Anthropic 协议转换门控）。
+        _export_smartqos_env(args.enable_smartqos)
         raw_user_cli_overrides = _collect_user_cli_overrides(
             host=args.host,
             port=args.port,
@@ -581,15 +618,22 @@ def main() -> None:
             enable_chunked_prefill=args.enable_chunked_prefill,
             enable_prefix_caching=args.enable_prefix_caching,
             enable_expert_parallel=args.enable_expert_parallel,
+            enable_smartqos=args.enable_smartqos,
+            enable_otlp_traces=args.enable_otlp_traces,
+            enable_metrics=args.enable_metrics,
         )
         user_cli_overrides, user_cli_dropped = CLITranslator.translate_overrides(
             raw_user_cli_overrides, engine
         )
-        # 特性开关本身不直接渲染进 argv。
-        # 这里只提取为 ON 的开关,后续由 feature_overlay 按 model.yaml features 生成实际参数。
+        # 特性开关本身不直接渲染进 argv,只提取为 ON 的开关传入 resolve_config:
+        #   enable_auto_tool_choice / enable_auto_think_choice → feature_overlay 按 model.yaml features 渲染;
+        #   enable_smartqos / enable_otlp_traces / enable_metrics → feature_inject 按引擎类型注入 engine_config/env。
         feature_switches = {
             k: raw_user_cli_overrides[k]
-            for k in ("enable_auto_tool_choice", "enable_auto_think_choice")
+            for k in (
+                "enable_auto_tool_choice", "enable_auto_think_choice",
+                "enable_smartqos", "enable_otlp_traces", "enable_metrics",
+            )
             if raw_user_cli_overrides.get(k)
         }
     except ValueError as exc:

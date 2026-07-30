@@ -20,6 +20,13 @@ _VLLM = {
     #   故此处一律丢弃(不进 user_cli 渲染层);开关状态另经 resolve_config(feature_switches=) 传入。
     "enable_auto_think_choice": _DROP,
     "enable_auto_tool_choice": _DROP,
+    # SmartQoS/EnableTrace/Metrics 特性开关:不直接渲染原 key,由 FeatureInject 接管。
+    #   开关状态另经 resolve_config(feature_switches=) 传入,真正引擎参数
+    #   (--scheduling-policy / --otlp-traces-endpoint / --enable-metrics 等)
+    #   由 strategy 层 feature_inject 按引擎类型注入。
+    "enable_smartqos": _DROP,
+    "enable_otlp_traces": _DROP,
+    "enable_metrics": _DROP,
     # 同名直通(不列,缺省返回原 key):host / port / max_num_seqs / max_num_batched_tokens /
     #   trust_remote_code /
     #   dtype / kv_cache_dtype / quantization / quantization_param_path / gpu_memory_utilization /
@@ -48,6 +55,9 @@ _SGLANG = {
     "output_length": _DROP,
     "enable_auto_think_choice": _DROP,       # → FeatureOverlay(同 vllm)
     "enable_auto_tool_choice": _DROP,
+    "enable_smartqos": _DROP,                # → FeatureInject(引擎感知注入)
+    "enable_otlp_traces": _DROP,
+    "enable_metrics": _DROP,
     "enable_chunked_prefill": _DROP,         # sglang 靠 chunked_prefill_size,无独立开关
     "block_size": _DROP,                     # sglang 无 block_size 概念
     # 同名直通(不列):host / port / trust_remote_code
@@ -71,6 +81,9 @@ MAAS_CONTRACT_ALLOWLIST = frozenset(
         "trust_remote_code",
         "enable_auto_think_choice",
         "enable_auto_tool_choice",
+        "enable_smartqos",
+        "enable_otlp_traces",
+        "enable_metrics",
         "dtype",
         "kv_cache_dtype",
         "quantization_param_path",
@@ -89,6 +102,9 @@ _DROP_REASONS = {
     # 真正的引擎参数由 FeatureOverlay 按 model.yaml features 配置渲染。
     "enable_auto_think_choice": "maas_status=开关由 FeatureOverlay 按 model.yaml features 配置渲染,不作 user_cli 直通参数",
     "enable_auto_tool_choice": "maas_status=开关由 FeatureOverlay 按 model.yaml features 配置渲染,不作 user_cli 直通参数",
+    "enable_smartqos": "maas_status=开关由 FeatureInject 按引擎类型注入引擎参数,不作 user_cli 直通参数",
+    "enable_otlp_traces": "maas_status=开关由 FeatureInject 按引擎类型注入引擎参数,不作 user_cli 直通参数",
+    "enable_metrics": "maas_status=开关由 FeatureInject 按引擎类型注入引擎参数,不作 user_cli 直通参数",
 }
 
 

@@ -46,7 +46,7 @@ def want_stream(v: Any) -> bool:
 def make_upstream_headers(req: Request, want_gzip: bool = False) -> Dict[str, str]:
     """构造转发到后端引擎的 HTTP 请求头。
 
-    从原始请求中提取需要透传的头部（Authorization、X-Request-Id），
+    从原始请求中提取需要透传的头部（Authorization、X-Request-Id、traceparent、tracestate），
     并设置 content-type、accept-encoding、connection 等固定头部。
 
     Args:
@@ -69,6 +69,13 @@ def make_upstream_headers(req: Request, want_gzip: bool = False) -> Dict[str, st
     rid = req.headers.get("x-request-id")
     if rid:
         h["x-request-id"] = rid
+    # 透传分布式链路追踪头
+    traceparent = req.headers.get("traceparent")
+    if traceparent:
+        h["traceparent"] = traceparent
+    tracestate = req.headers.get("tracestate")
+    if tracestate:
+        h["tracestate"] = tracestate
     return h
 
 

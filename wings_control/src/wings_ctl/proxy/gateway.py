@@ -25,6 +25,11 @@ from wings_ctl.rag_acc.rag_app import is_rag_scenario, rag_acc_chat
 from wings_ctl.rag_acc.extract_dify_info import is_dify_scenario
 
 from . import proxy_config as C
+from .anthropic_converter import (
+    convert_anthropic_request_to_openai,
+    convert_openai_response_to_anthropic,
+    convert_openai_stream_to_anthropic,
+)
 from .http_client import create_async_client
 from .queueing import QueueGate
 from .tags import (
@@ -673,6 +678,160 @@ async def _forward_nonstream(req: Request, upstream_path: str):
 
 
 #
+# ── SmartQoS: Anthropic ↔ OpenAI 协议转换 ──────────────────────────────
+
+
+async def _handle_anthropic_with_conversion(
+    req: Request,
+    payload: Dict[str, Any],
+    rid: str,
+) -> Response | StreamingResponse | JSONResponse:
+    """处理 Anthropic /v1/messages 请求，转换为 OpenAI 格式后转发到 /v1/chat/completions。
+
+    在 SmartQoS 模式下启用，实现:
+    1. 请求体: Anthropic → OpenAI 格式转换（支持 text/image/thinking/tool_use/tool_result）
+    2. 转发: 转换后的请求发送到后端 /v1/chat/completions
+    3. 响应体: OpenAI → Anthropic 格式转换（非流式/流式均支持）
+    4. Priority 注入: 从 metadata.priority 或显式参数提取，解决 Anthropic 协议
+       不支持 priority 调度的问题
+
+    Args:
+        req:     原始客户端 Request 对象
+        payload: 解析后的 Anthropic 请求体字典
+        rid:     请求 ID，用于日志追踪
+
+    Returns:
+        Response | StreamingResponse | JSONResponse:
+            正常时返回 Anthropic 格式的响应；异常时返回错误 JSONResponse。
+    """
+    # 1. Anthropic → OpenAI 请求体转换
+    try:
+        openai_payload = convert_anthropic_request_to_openai(payload)
+    except Exception as e:
+        elog("anthropic_convert_error", rid=rid, detail=str(e))
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"Failed to convert Anthropic request: {e}"},
+        )
+
+    jlog("anthropic_converted_to_openai", rid=rid,
+         model=openai_payload.get("model", ""),
+         has_tools="tools" in openai_payload,
+         has_priority="priority" in openai_payload)
+
+    # 2. 序列化为 bytes
+    body_bytes = json.dumps(openai_payload, ensure_ascii=False).encode("utf-8")
+
+    # 3. 转发到 /v1/chat/completions
+    is_stream = want_stream(openai_payload.get("stream", False))
+
+    if is_stream:
+        return await _forward_anthropic_stream(req, body_bytes, rid)
+    else:
+        return await _forward_anthropic_nonstream(req, body_bytes, rid)
+
+
+async def _forward_anthropic_stream(
+    req: Request,
+    body_bytes: bytes,
+    rid: str,
+) -> StreamingResponse | JSONResponse:
+    """转发转换后的 OpenAI 流式请求，并将响应转换回 Anthropic 格式。"""
+    client: httpx.AsyncClient = app.state.client
+    gate: QueueGate = app.state.gate
+
+    jlog("req_recv", rid=rid, path="/v1/chat/completions", body_len=len(body_bytes))
+
+    try:
+        queue_headers = await _acquire_gate_early(req, gate, rid)
+    except HTTPException as e:
+        elog("gate_acquire_error", rid=rid, status=e.status_code, detail=str(e.detail))
+        return JSONResponse(
+            status_code=e.status_code,
+            content={"detail": e.detail},
+            headers=gate.obs_headers(e.headers),
+        )
+
+    try:
+        r = await _send_stream_request(client, "/v1/chat/completions", body_bytes, req, rid)
+    except Exception:
+        if not C.GATE_EARLY_RELEASE:
+            await gate.release()
+            jlog("gate_released_on_error", rid=rid, mode="anthropic_stream")
+        raise
+
+    passthrough = _build_passthrough_headers(r, gate, queue_headers)
+    return StreamingResponse(
+        convert_openai_stream_to_anthropic(
+            _stream_gen(req, r, rid, gate=gate)
+        ),
+        status_code=r.status_code,
+        media_type="text/event-stream",
+        headers=passthrough,
+    )
+
+
+async def _forward_anthropic_nonstream(
+    req: Request,
+    body_bytes: bytes,
+    rid: str,
+) -> Response | JSONResponse:
+    """转发转换后的 OpenAI 非流式请求，并将响应转换回 Anthropic 格式。"""
+    client: httpx.AsyncClient = app.state.client
+    gate: QueueGate = app.state.gate
+
+    jlog("req_recv", rid=rid, path="/v1/chat/completions", body_len=len(body_bytes))
+
+    try:
+        queue_headers = await _acquire_gate_early_nonstream(req, gate, rid)
+    except HTTPException as e:
+        elog("gate_acquire_error", rid=rid, status=e.status_code, detail=str(e.detail))
+        return JSONResponse(
+            status_code=e.status_code,
+            content={"detail": e.detail},
+            headers=gate.obs_headers(e.headers),
+        )
+
+    # 统一 try/finally 确保 release，与 _forward_nonstream 对齐
+    try:
+        r = await _send_nonstream_request(client, "/v1/chat/completions", body_bytes, req, rid)
+
+        # 读取完整响应体
+        data = await r.aread()
+        await r.aclose()
+
+        merged = _merge_obs_and_retry_headers(gate, queue_headers, r)
+        entity_headers = _copy_entity_headers(r)
+
+        # OpenAI → Anthropic 响应转换
+        # 后端可能返回非 JSON body（如 HTML 错误页），json.loads 会抛 JSONDecodeError。
+        # 此时透传后端原始响应体 + 状态码，避免变成 500。
+        # 捕获 JSONDecodeError：converter 内部异常（KeyError/TypeError 等）仍上抛为 500，
+        try:
+            openai_response = json.loads(data)
+        except json.JSONDecodeError as e:
+            elog("anthropic_response_parse_error", rid=rid, detail=str(e), status=r.status_code)
+            return Response(
+                data,
+                status_code=r.status_code,
+                media_type=r.headers.get("content-type", "application/json"),
+                headers={**entity_headers, **merged},
+            )
+
+        anthropic_response = convert_openai_response_to_anthropic(openai_response)
+        anthropic_bytes = json.dumps(anthropic_response, ensure_ascii=False).encode("utf-8")
+
+        return Response(
+            anthropic_bytes,
+            status_code=r.status_code,
+            media_type="application/json",
+            headers={**entity_headers, **merged},
+        )
+    finally:
+        # 统一释放闸门：正常返回、异常、CancelledError 均能覆盖
+        if not C.GATE_EARLY_RELEASE:
+            await gate.release()
+            jlog("gate_released_after_response", rid=rid, mode="anthropic_nonstream")
 
 
 def _should_flush_first_packet(buf: bytearray, first_flush_done: bool, now: float, last_flush: float) -> bool:
@@ -1025,13 +1184,28 @@ async def completions(req: Request):
 
 @app.post("/v1/messages")
 async def messages(req: Request):
-    """传统 messages 接口。"""
-    rid = req.headers.get("x-request-id")
+    """Anthropic Messages 兼容接口。
+
+    根据 ENABLE_SMARTQOS 配置决定处理方式:
+    - SmartQoS 模式（True）: 将 Anthropic 请求转换为 OpenAI 格式后转发到
+      /v1/chat/completions，再将 OpenAI 响应转换回 Anthropic 格式。
+      同时支持在转换时注入 priority 参数，解决 Anthropic 协议不支持
+      priority 调度的问题。
+    - 普通模式（False）: 直接透传 Anthropic 请求到后端 /v1/messages。
+    """
+    rid = req.headers.get("x-request-id") or ""
     try:
         payload: Dict[str, Any] = await req.json()
     except Exception as e:
-        elog("completions_json_parse_error", rid=rid, detail=str(e))
+        elog("messages_json_parse_error", rid=rid, detail=str(e))
         payload = {}
+
+    # SmartQoS 模式: Anthropic → OpenAI 转换后转发到 /v1/chat/completions
+    smartqos_enabled = os.getenv("ENABLE_SMARTQOS", "false").lower() == "true"
+    if smartqos_enabled:
+        return await _handle_anthropic_with_conversion(req, payload, rid)
+
+    # 普通模式: 直接透传到后端 /v1/messages
     if want_stream(payload.get("stream", False)):
         return await _forward_stream(req, "/v1/messages")
     return await _forward_nonstream(req, "/v1/messages")
