@@ -47,16 +47,6 @@ from wings_ctl.utils.env_utils import parse_node_ips
 
 logger = logging.getLogger(LOGGER_LAUNCHER)
 
-
-def _contains_removed_engine_param(unknown_args: List[str]) -> bool:
-    """识别已移除的 engine-param 入口。"""
-    for arg in unknown_args:
-        token = arg.split("=", 1)[0]
-        if token.startswith("--") and token[2:] == "engine-param":
-            return True
-    return False
-
-
 def _collect_user_cli_overrides(
     host: str | None,
     port: int | None,
@@ -440,30 +430,18 @@ def _run_dry_mode(parser: argparse.ArgumentParser, request: PipelineRequest) -> 
     print(shlex.join(argv))
 
 
-def _validate_unknown_args(parser: argparse.ArgumentParser, unknown_args: List[str]) -> None:
-    """校验未知参数：移除参数报错；其余未知参数告警放行。
+def _validate_unknown_args(unknown_args: List[str]) -> None:
+    """校验未知参数：告警放行。
 
     Args:
-        parser: CLI parser。
         unknown_args: argparse 未识别参数列表。
 
     Returns:
         None。
-
-    Raises:
-        SystemExit: 命中已移除参数时通过 parser.error 退出。
     """
     if not unknown_args:
         return
 
-    # 已移除参数 —— 硬错误（语义已失效，静默忽略会导致语义漂移）
-    if _contains_removed_engine_param(unknown_args):
-        parser.error(
-            "`--engine-param` has been removed; "
-            "use the direct_vllm_serve escape hatch for raw passthrough."
-        )
-
-    # 其余未知参数 —— 告警放行（TODO: 后续将被忽略参数写入 audit 产物）
     logger.warning(
         "Received unrecognized arguments (ignored, startup continues): %s; ", " ".join(unknown_args),
     )
@@ -580,7 +558,7 @@ def main() -> None:
     setup_root_logging()
     parser = _build_parser()
     args, unknown_args = parser.parse_known_args()
-    _validate_unknown_args(parser, unknown_args)
+    _validate_unknown_args(unknown_args)
 
     # 子系统特性开关留痕(实际消费见下方 feature_switches / proxy 子系统)。
     _received_subsys_switches = _collect_subsystem_switches(args)
