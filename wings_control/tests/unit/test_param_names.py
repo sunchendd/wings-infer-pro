@@ -23,19 +23,19 @@ def test_flag_to_key_basic():
     assert flag_to_key("--enable-auto-tool-choice") == "enable_auto_tool_choice"
 
 
-def test_key_to_flag_preserves_dot():
-    """验证:点号参数只转下划线、不动点号(锁定当前真实行为)。"""
+def test_key_to_flag_preserves_nested_path_after_dot():
+    """验证:只转换顶层参数;点号后的 vLLM 嵌套路径(含下划线)必须原样保留。"""
     assert (
-        key_to_flag("attention_config.use_fp4_indexer_cache")
-        == "--attention-config.use-fp4-indexer-cache"
+        key_to_flag("kernel_config.enable_flashinfer_autotune")
+        == "--kernel-config.enable_flashinfer_autotune"
     )
 
 
-def test_flag_to_key_preserves_dot():
-    """验证:反向同样保留点号,连字符转回下划线。"""
+def test_flag_to_key_preserves_nested_path_after_dot():
+    """验证:反向同样只转换顶层参数,点号后的嵌套路径原样保留。"""
     assert (
-        flag_to_key("--attention-config.use-fp4-indexer-cache")
-        == "attention_config.use_fp4_indexer_cache"
+        flag_to_key("--kernel-config.enable_flashinfer_autotune")
+        == "kernel_config.enable_flashinfer_autotune"
     )
 
 
@@ -51,10 +51,13 @@ def test_flag_to_key_without_prefix():
 
 
 def test_render_param_tokens_uses_key_to_flag():
-    """验证:消费方 vllm_adapter 渲染仍产出原 argv(委托 helper 后行为不变)。"""
+    """验证:顶层参数沿用现有 argv 规则,点号嵌套配置用单 token 赋值语法。"""
     assert render_param_tokens("max_model_len", 262144) == ["--max-model-len", "262144"]
     assert render_param_tokens("trust_remote_code", True) == ["--trust-remote-code"]
     assert render_param_tokens("trust_remote_code", False) is None
+    assert render_param_tokens(
+        "kernel_config.enable_flashinfer_autotune", False,
+    ) == ["--kernel-config.enable_flashinfer_autotune=False"]
 
 
 def test_parse_feature_args_uses_flag_to_key():

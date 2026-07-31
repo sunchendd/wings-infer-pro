@@ -86,14 +86,17 @@ def collect_unsupported(
         tokens = render_param_tokens(key, traced.final_value)
         if not tokens:
             continue
-        flag = tokens[0]
-        if not flag.startswith("--"):
+        rendered_flag = tokens[0]
+        if not rendered_flag.startswith("--"):
             continue
-        if flag not in supported:
+        # 点号嵌套配置以 --kernel-config.field=value 形式渲染,而支持清单只记录
+        # 顶层 CLI option --kernel-config;校验时去掉点号后的路径和值。
+        supported_flag = rendered_flag.split(".", 1)[0]
+        if supported_flag not in supported:
             unsupported.append(
                 {
                     "param": key,
-                    "rendered_as": flag,
+                    "rendered_as": rendered_flag,
                     "final_layer": traced.final_layer,
                     "source_file": traced.source_file,
                     "source_path": traced.source_path,

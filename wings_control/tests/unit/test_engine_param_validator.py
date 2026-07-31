@@ -195,6 +195,15 @@ def test_collect_unsupported_complex_param_top_level_name():
     assert not collect_unsupported(traces, {"--kv-transfer-config"})
 
 
+def test_collect_unsupported_nested_config_uses_top_level_flag():
+    """点号嵌套配置渲成 --kernel-config.field=False,但按清单中的顶层 --kernel-config 校验。"""
+    traces = {
+        "model": _tv("m"),
+        "kernel_config.enable_flashinfer_autotune": _tv(False),
+    }
+    assert not collect_unsupported(traces, {"--kernel-config"})
+
+
 def test_collect_unsupported_sglang_native_not_confused_with_canonical():
     """sglang native context_length 命中 sglang 清单;不因 canonical max_model_len 误判(决策①)。"""
     traces = {"model": _tv("m"), "context_length": _tv(75000)}
