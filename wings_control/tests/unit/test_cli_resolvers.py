@@ -12,6 +12,7 @@ from wings_ctl import cli
 
 # ─── _resolve_model_name(配方标识推导)──────────────────────────────────────
 
+
 def test_resolve_model_name_explicit():
     """显式 --model-name 优先。"""
     assert cli._resolve_model_name("Qwen3.5-9B", None) == "Qwen3.5-9B"
@@ -29,6 +30,7 @@ def test_resolve_model_name_both_none_raises():
 
 
 # ─── _resolve_device_count(卡数:CLI > env > None)────────────────────────────
+
 
 def test_resolve_device_count_cli_wins(monkeypatch):
     """CLI 值优先于 DEVICE_COUNT env。"""
@@ -56,6 +58,7 @@ def test_resolve_device_count_unset(monkeypatch):
 
 # ─── _resolve_engine / _canonicalize_engine(引擎名归一:下划线→连字符)──────────
 
+
 def test_canonicalize_engine_underscore_to_hyphen():
     """下划线形式归一到 config 目录命名(vllm_ascend → vllm-ascend)。"""
     assert cli._canonicalize_engine("vllm_ascend") == "vllm-ascend"
@@ -80,6 +83,7 @@ def test_resolve_engine_env_underscore_canonicalized(monkeypatch):
 
 # ─── _derive_max_model_len(input+output → max_model_len)──────────────────────
 
+
 def test_derive_max_model_len_sum():
     """两者都给 → max_model_len = input + output(无余量)。"""
     assert cli._derive_max_model_len(4096, 1024) == 5120
@@ -99,23 +103,37 @@ def test_derive_max_model_len_nonpositive_returns_none():
 
 def test_collect_overrides_injects_max_model_len():
     """收集层:给 input/output → overrides 注入 max_model_len(供 user_cli 覆盖 recipe)。"""
-    ov = cli._collect_user_cli_overrides(
-        host=None, port=None, model_path=None, input_length=4096, output_length=4096
-    )
+    ov = cli._collect_user_cli_overrides(host=None, port=None, model_path=None, input_length=4096, output_length=4096)
     assert ov["max_model_len"] == 8192
 
 
 # ─── --trust-remote-code 不传 → 告警(MaaS v3:选填但告警)────────────────────
 
+
 def _argv_qwen_dryrun(config_root, hw, *extra):
     """legacy 夹具 Qwen3.5-0.8B 的最小 standalone dry-run argv;extra 追加额外 flag。"""
-    return ["wings-ctl", "--engine", "vllm", "--model-name", "Qwen3.5-0.8B",
-            "--model-path", "/m/Qwen3.5-0.8B", "--config-root", str(config_root),
-            "--hardware-info", str(hw), "--dry-run", *extra]
+    return [
+        "wings-ctl",
+        "--engine",
+        "vllm",
+        "--model-name",
+        "Qwen3.5-0.8B",
+        "--model-path",
+        "/m/Qwen3.5-0.8B",
+        "--config-root",
+        str(config_root),
+        "--hardware-info",
+        str(hw),
+        "--dry-run",
+        *extra,
+    ]
 
 
 def test_main_warns_when_no_trust_remote_code(config_root, tmp_path, monkeypatch, caplog):
     """不传 --trust-remote-code → 打 WARNING(不阻断,仍正常 dry-run)。"""
+    # cli.main() 内部调用 setup_root_logging()，其 basicConfig(force=True) 会移除
+    # pytest caplog handler，导致 caplog.records 为空。mock 掉以保留 caplog 捕获能力。
+    monkeypatch.setattr("wings_ctl.cli.setup_root_logging", lambda: None)
     hw = tmp_path / "hw.json"
     hw.write_text(json.dumps({"hardware_family": "nvidia-RTX5880", "device": "nvidia", "count": 1}))
     monkeypatch.setenv("ENGINE_VERSION", "0.19.0")
@@ -127,6 +145,7 @@ def test_main_warns_when_no_trust_remote_code(config_root, tmp_path, monkeypatch
 
 def test_main_no_warn_when_trust_remote_code_passed(config_root, tmp_path, monkeypatch, caplog):
     """传了 --trust-remote-code → 不打该 WARNING。"""
+    monkeypatch.setattr("wings_ctl.cli.setup_root_logging", lambda: None)
     hw = tmp_path / "hw.json"
     hw.write_text(json.dumps({"hardware_family": "nvidia-RTX5880", "device": "nvidia", "count": 1}))
     monkeypatch.setenv("ENGINE_VERSION", "0.19.0")
@@ -138,6 +157,7 @@ def test_main_no_warn_when_trust_remote_code_passed(config_root, tmp_path, monke
 
 def test_main_accepts_and_logs_v3_subsystem_switches(config_root, tmp_path, monkeypatch, caplog):
     """v3 子系统开关(--enable-rag-acc/smartqos/otlp-traces)被接收不崩 + 日志留痕(暂仅保存)。"""
+    monkeypatch.setattr("wings_ctl.cli.setup_root_logging", lambda: None)
     hw = tmp_path / "hw.json"
     hw.write_text(json.dumps({"hardware_family": "nvidia-RTX5880", "device": "nvidia", "count": 1}))
     monkeypatch.setenv("ENGINE_VERSION", "0.19.0")
@@ -152,14 +172,23 @@ def test_main_accepts_and_logs_v3_subsystem_switches(config_root, tmp_path, monk
 
 # ─── main() 错误路径 + dry-run 多节点占位分支 ────────────────────────────────
 
+
 def test_main_missing_model_name_and_path_friendly_error(config_root_real, tmp_path, monkeypatch, capsys):
     """既无 --model-name 又无 --model-path → parser.error(exit 2,友好,无 traceback)。"""
     hw = tmp_path / "hw.json"
     hw.write_text(json.dumps({"hardware_family": "gb200", "device": "nvidia", "count": 8}))
     monkeypatch.setattr(
         "sys.argv",
-        ["wings-ctl", "--engine", "vllm", "--config-root", str(config_root_real),
-         "--hardware-info", str(hw), "--dry-run"],
+        [
+            "wings-ctl",
+            "--engine",
+            "vllm",
+            "--config-root",
+            str(config_root_real),
+            "--hardware-info",
+            str(hw),
+            "--dry-run",
+        ],
     )
     with pytest.raises(SystemExit) as exc:
         cli.main()
@@ -175,9 +204,21 @@ def test_dry_run_multi_node_placeholder_prints_nodes(config_root_real, tmp_path,
     monkeypatch.setenv("MASTER_IP", "10.0.0.1")  # 分布式必填(无 RANK_IP/NODE_IPS → 占位)
     monkeypatch.setattr(
         "sys.argv",
-        ["wings-ctl", "--engine", "vllm", "--model-name", "MiMo-V2-Flash",
-         "--model-path", "/model/MiMo-V2-Flash", "--distributed",
-         "--config-root", str(config_root_real), "--hardware-info", str(hw), "--dry-run"],
+        [
+            "wings-ctl",
+            "--engine",
+            "vllm",
+            "--model-name",
+            "MiMo-V2-Flash",
+            "--model-path",
+            "/model/MiMo-V2-Flash",
+            "--distributed",
+            "--config-root",
+            str(config_root_real),
+            "--hardware-info",
+            str(hw),
+            "--dry-run",
+        ],
     )
     cli.main()
     out = capsys.readouterr().out

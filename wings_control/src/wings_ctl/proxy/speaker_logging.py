@@ -208,14 +208,17 @@ def _ensure_root_handler():
     """
      root logger  StreamHandlerstderr
      logger
-    使用 log_config 中的统一格式。
+     使用 log_config 中的统一格式（WingsControlFormatter）。
     """
-    from wings_ctl.common.log_config import LOG_FORMAT, LOG_DATE_FORMAT
+    from wings_ctl.common.log_config import _make_formatter
+
     root = logging.getLogger()
     if not root.handlers:
         h = logging.StreamHandler(stream=sys.stderr)
-        fmt = logging.Formatter(LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
-        h.setFormatter(fmt)
+        # 必须使用 WingsControlFormatter（而非 logging.Formatter），
+        # 否则子进程日志中继的 wings_child_component extra 字段无法识别，
+        # 导致格式不正确。
+        h.setFormatter(_make_formatter())
         root.addHandler(h)
 
 
