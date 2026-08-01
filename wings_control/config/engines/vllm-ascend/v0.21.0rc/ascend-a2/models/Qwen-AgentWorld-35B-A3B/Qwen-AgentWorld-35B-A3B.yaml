@@ -68,4 +68,3 @@ scenarios:
           OMP_PROC_BIND: "false"
           OMP_NUM_THREADS: 1
           TASK_QUEUE_ENABLE: 1
-          ASCEND_RT_VISIBLE_DEVICES: "0,1"

@@ -45,6 +45,5 @@ scenarios:
           gpu_memory_utilization: 0.9
         env:
           HCCL_INTRA_ROCE_ENABLE: 1
-          ASCEND_RT_VISIBLE_DEVICES: "0,1,2,3"
           HF_HOME: /data
           MODEL_PATH: Hunyuan-A13B-Instruct

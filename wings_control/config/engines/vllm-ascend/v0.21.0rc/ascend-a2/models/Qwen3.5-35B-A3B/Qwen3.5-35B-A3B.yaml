@@ -73,7 +73,6 @@ scenarios:
           HCCL_IF_IP: "127.0.0.1"
           GLOO_SOCKET_IFNAME: lo
           HCCL_SOCKET_IFNAME: lo
-          ASCEND_RT_VISIBLE_DEVICES: "4,5"
           LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
           TASK_QUEUE_ENABLE: 1
           HCCL_OP_EXPANSION_MODE: AIV

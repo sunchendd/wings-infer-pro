@@ -246,7 +246,6 @@ scenarios:
               ACL_OP_INIT_MODE: 1
               ASCEND_A3_ENABLE: 1
               VLLM_MOONCAKE_ABORT_REQUEST_TIMEOUT: 480
-              ASCEND_RT_VISIBLE_DEVICES: $1
               VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
               VLLM_ASCEND_ENABLE_FUSED_MC2: 1
               LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:/usr/local/lib"
@@ -312,7 +311,6 @@ scenarios:
               ACL_OP_INIT_MODE: 1
               ASCEND_A3_ENABLE: 1
               VLLM_MOONCAKE_ABORT_REQUEST_TIMEOUT: 480
-              ASCEND_RT_VISIBLE_DEVICES: $1
               VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
               VLLM_ASCEND_ENABLE_FUSED_MC2: 1
               LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:/usr/local/lib"
@@ -379,7 +377,6 @@ scenarios:
               ASCEND_A3_ENABLE: 1
               VLLM_MOONCAKE_ABORT_REQUEST_TIMEOUT: 480
               TASK_QUEUE_ENABLE: 1
-              ASCEND_RT_VISIBLE_DEVICES: $1
               VLLM_ASCEND_ENABLE_FUSED_MC2: 1
               VLLM_ASCEND_ENABLE_MLAPO: 1
               LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:/usr/local/lib"
@@ -446,7 +443,6 @@ scenarios:
               ASCEND_A3_ENABLE: 1
               VLLM_MOONCAKE_ABORT_REQUEST_TIMEOUT: 480
               TASK_QUEUE_ENABLE: 1
-              ASCEND_RT_VISIBLE_DEVICES: $1
               VLLM_ASCEND_ENABLE_FUSED_MC2: 1
               VLLM_ASCEND_ENABLE_MLAPO: 1
               LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:/usr/local/lib"
@@ -513,7 +509,6 @@ scenarios:
               ASCEND_A3_ENABLE: 1
               VLLM_MOONCAKE_ABORT_REQUEST_TIMEOUT: 480
               TASK_QUEUE_ENABLE: 1
-              ASCEND_RT_VISIBLE_DEVICES: $1
               VLLM_ASCEND_ENABLE_FUSED_MC2: 1
               VLLM_ASCEND_ENABLE_MLAPO: 1
               LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:/usr/local/lib"
@@ -580,7 +575,6 @@ scenarios:
               ASCEND_A3_ENABLE: 1
               VLLM_MOONCAKE_ABORT_REQUEST_TIMEOUT: 480
               TASK_QUEUE_ENABLE: 1
-              ASCEND_RT_VISIBLE_DEVICES: $1
               VLLM_ASCEND_ENABLE_FUSED_MC2: 1
               VLLM_ASCEND_ENABLE_MLAPO: 1
               LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:/usr/local/lib"

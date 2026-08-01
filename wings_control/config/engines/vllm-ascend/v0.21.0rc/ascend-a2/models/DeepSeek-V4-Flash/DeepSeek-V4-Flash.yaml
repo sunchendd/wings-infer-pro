@@ -158,6 +158,5 @@ scenarios:
               OMP_NUM_THREADS: 10
               PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
               HCCL_BUFFSIZE: 1024
-              ASCEND_RT_VISIBLE_DEVICES: $1
             system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
               commands: [unset ftp_proxy, unset ftp_proxy, unset https_proxy, unset http_proxy, rm -rf ~/ascend/log, "nic_name=\"xxxxxx\" #eg.\"enp67s0f0np0\"", "local_ip=`hostname -I|awk -F \" \" '{print$1}'`"]

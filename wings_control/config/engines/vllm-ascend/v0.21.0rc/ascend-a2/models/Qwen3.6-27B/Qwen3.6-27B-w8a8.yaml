@@ -65,7 +65,6 @@ scenarios:
             cudagraph_mode: FULL_DECODE_ONLY
           async_scheduling: true
         env:
-          ASCEND_RT_VISIBLE_DEVICES: "0,1"
           PYTHONHASHSEED: 0
           HCCL_BUFFSIZE: 512
           OMP_PROC_BIND: "false"

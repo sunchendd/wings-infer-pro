@@ -202,7 +202,6 @@ scenarios:
               HCCL_BUFFSIZE: 1024
               TASK_QUEUE_ENABLE: 1
               LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
-              ASCEND_RT_VISIBLE_DEVICES: $1
               VLLM_ASCEND_ENABLE_FUSED_MC2: 1
               VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
             system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
@@ -265,7 +264,6 @@ scenarios:
               HCCL_BUFFSIZE: 1024
               TASK_QUEUE_ENABLE: 1
               LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
-              ASCEND_RT_VISIBLE_DEVICES: $1
               VLLM_ASCEND_ENABLE_FUSED_MC2: 1
               VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
             system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
@@ -334,6 +332,5 @@ scenarios:
               OMP_NUM_THREADS: 10
               PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
               HCCL_BUFFSIZE: 1024
-              ASCEND_RT_VISIBLE_DEVICES: $1
             system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
               commands: ["nic_name=\"xxxx\" # change to your own nic name", "local_ip=xx.xx.xx.3/4 # change to your own ip"]
