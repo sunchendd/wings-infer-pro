@@ -70,7 +70,6 @@ scenarios:
           GLOO_SOCKET_IFNAME: lo
           TP_SOCKET_IFNAME: lo
           HCCL_SOCKET_IFNAME: lo
-          ASCEND_RT_VISIBLE_DEVICES: "2,3"
           PYTHONHASHSEED: 0
           HCCL_BUFFSIZE: 512
           OMP_PROC_BIND: "false"

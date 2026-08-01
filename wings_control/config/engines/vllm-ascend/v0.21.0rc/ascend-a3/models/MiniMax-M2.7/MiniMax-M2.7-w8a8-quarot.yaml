@@ -84,7 +84,6 @@ scenarios:
           VLLM_ASCEND_BALANCE_SCHEDULING: 0
           LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages:/usr/local/lib:${LD_LIBRARY_PATH:-}"
           MOONCAKE_CONFIG_PATH: "/home/personal/zhujingru/MCS/MiniMax-M2.7/scripts/mooncake.json"
-          ASCEND_RT_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
           PYTHONHASHSEED: 0
           ACL_OP_INIT_MODE: 1
         system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）

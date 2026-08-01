@@ -42,5 +42,4 @@ scenarios:
           trust_remote_code: true
           max_model_len: 32768
         env:
-          ASCEND_RT_VISIBLE_DEVICES: 0
           MODEL_PATH: ./Qwen2.5-7B-Instruct

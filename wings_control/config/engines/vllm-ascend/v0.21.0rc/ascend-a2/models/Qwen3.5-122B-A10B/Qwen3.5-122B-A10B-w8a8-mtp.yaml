@@ -68,7 +68,6 @@ scenarios:
             cudagraph_mode: FULL_DECODE_ONLY
           async_scheduling: true
         env:
-          ASCEND_RT_VISIBLE_DEVICES: "6,7,10,11,12,13,14,15"
           HCCL_IF_IP: "127.0.0.1"
           GLOO_SOCKET_IFNAME: lo
           TP_SOCKET_IFNAME: lo
@@ -83,4 +82,4 @@ scenarios:
           TASK_QUEUE_ENABLE: 1
           HCCL_OP_EXPANSION_MODE: AIV
         system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
-          commands: [unset ASCEND_RT_VISIBLE_DEVICES, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh]
+          commands: [source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh]

@@ -82,4 +82,4 @@ scenarios:
           HCCL_OP_EXPANSION_MODE: AIV
           MMC_LOCAL_CONFIG_PATH: "/shared-volume/mmc_local.conf"
         system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
-          commands: [unset ASCEND_RT_VISIBLE_DEVICES, source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh]
+          commands: [source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh]
