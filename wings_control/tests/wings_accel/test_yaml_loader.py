@@ -205,6 +205,26 @@ def test_find_smart_accel_yaml_path_clean_version_unchanged(tmp_path):
     assert find_smart_accel_yaml_path(tmp_path, "vllm", "v0.23.0", "h200", "M") == yaml_path
 
 
+def test_find_smart_accel_yaml_path_matches_cu130_variant(tmp_path):
+    """NVIDIA CUDA 变体构建版本 → 剥变体段命中基础版本目录 v0.23.0。
+
+    运行时下发的版本常带 cuXXX + 构建时间戳(如 v0.23.0-cu130-20260727055844),
+    smart-accel 资产按基础版本建目录(v0.23.0),需剥首个 - 后的变体段归一化命中。
+    """
+    yaml_path = tmp_path / "smart-accel" / "vllm" / "v0.23.0" / "h20_141G" / "models" / "M" / "M.yaml"
+    yaml_path.parent.mkdir(parents=True)
+    yaml_path.write_text(YAML_TEMPLATE, encoding="utf-8")
+
+    # 带 v 前缀 + cu 变体 + 时间戳
+    assert find_smart_accel_yaml_path(
+        tmp_path, "vllm", "v0.23.0-cu130-20260727055844", "h20_141G", "M"
+    ) == yaml_path
+    # 不带 v 前缀
+    assert find_smart_accel_yaml_path(
+        tmp_path, "vllm", "0.23.0-cu130-20260727055844", "h20_141G", "M"
+    ) == yaml_path
+
+
 def test_load_smart_accel_from_config_missing_returns_none(tmp_path):
     """硬件目录或模型 YAML 缺失 → 返回 None,调用方 no-op。"""
     assert load_smart_accel_from_yaml(str(tmp_path / "missing.yaml")) is None

@@ -45,6 +45,8 @@ logger = logging.getLogger(__name__)
 # 匹配运行时传入的版本,提取基础版本+预发布渠道,用于把构建版本归一化成渠道目录。
 # 与 wings_ctl/engines/version_resolver.py 的 _REQUESTED_VERSION_RE 保持一致(自闭环,不反向依赖)。
 # 示例:v0.21.0rc1-20260709144216 → base=0.21.0 + channel=rc → v0.21.0rc
+# 注:本正则只认"字母紧贴版本号"的预发布(rc/m);连字符变体(如 v0.23.0-cu130-...)由
+# _candidate_version_dirs 的"剥构建/变体段"步骤处理(见下),不走本正则。
 _SMART_ACCEL_PRERELEASE_RE = re.compile(
     r"^v?(\d+\.\d+\.\d+)([A-Za-z]+)(?:\d+)?(?:[-+].*)?$"
 )
@@ -55,20 +57,28 @@ def _candidate_version_dirs(engine_version: str) -> list[str]:
 
     - "0.23.0"                        → ["v0.23.0"]
     - "v0.21.0rc"                     → ["v0.21.0rc"]
-    - "v0.21.0rc1-20260709144216"     → ["v0.21.0rc1-20260709144216", "v0.21.0rc"]
-    - "0.21.0rc1-20260709144216"      → ["v0.21.0rc1-20260709144216", "v0.21.0rc"]
+    - "v0.21.0rc1-20260709144216"     → ["v0.21.0rc1-20260709144216", "v0.21.0rc1", "v0.21.0rc"]
+    - "0.21.0rc1-20260709144216"      → ["v0.21.0rc1-20260709144216", "v0.21.0rc1", "v0.21.0rc"]
+    - "v0.23.0-cu130-20260727055844"  → ["v0.23.0-cu130-20260727055844", "v0.23.0"]
 
-    第一个候选 = 原样(精确匹配优先);若能归一化出渠道目录且与原样不同,追加为第二候选。
+    优先级:原样(精确)→ 剥构建/变体段(首个 -/+ 截断,如 cu130→v0.23.0)→ 渠道归一化(rc1→rc)。
     """
     raw = str(engine_version).strip()
     if not raw:
         return []
     version_dir_name = raw if raw.startswith("v") else f"v{raw}"
     candidates = [version_dir_name]
+    # 剥首个 -/+ 后的构建元数据/变体段(cu130、时间戳等),保留 rc 序号 → v0.23.0 / v0.21.0rc1。
+    # 兼容 NVIDIA 构建版本号(如 v0.23.0-cu130-20260727055844)。
+    base = re.split(r"[-+]", raw, 1)[0]
+    base_with_v = base if base.startswith("v") else f"v{base}"
+    if base_with_v != version_dir_name:
+        candidates.append(base_with_v)
+    # 渠道归一化:rc1-时间戳 → rc(配置目录用渠道形式)。
     m = _SMART_ACCEL_PRERELEASE_RE.match(raw)
     if m:
         normalized = f"v{m.group(1)}{m.group(2)}"
-        if normalized != version_dir_name:
+        if normalized != version_dir_name and normalized not in candidates:
             candidates.append(normalized)
     return candidates
 
