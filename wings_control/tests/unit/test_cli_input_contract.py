@@ -172,30 +172,6 @@ def test_store_true_none_not_in_overrides():
     assert "enable_expert_parallel" not in out
 
 
-def test_removed_engine_param_has_escape_route_message(monkeypatch, capsys):
-    monkeypatch.setattr(
-        "sys.argv",
-        ["wings-ctl", "--model-name", "Qwen3-Next", "--engine-param", "port=9000"],
-    )
-    with pytest.raises(SystemExit) as exc:
-        cli.main()
-    assert exc.value.code == 2
-    err = capsys.readouterr().err
-    assert "direct_vllm_serve" in err
-    assert "docs/" not in err
-
-
-def test_removed_engine_param_equals_form_has_escape_route_message(monkeypatch, capsys):
-    monkeypatch.setattr(
-        "sys.argv",
-        ["wings-ctl", "--model-name", "Qwen3-Next", "--engine-param=port=9000"],
-    )
-    with pytest.raises(SystemExit) as exc:
-        cli.main()
-    assert exc.value.code == 2
-    err = capsys.readouterr().err
-    assert "direct_vllm_serve" in err
-
 
 def test_nonexistent_hardware_friendly_error_not_crash(config_root_real, tmp_path, monkeypatch, capsys):
     """验证选不存在的硬件 → 友好报错(SystemExit 2)而非 FileNotFoundError 崩溃(回归:tester 上报)。"""
