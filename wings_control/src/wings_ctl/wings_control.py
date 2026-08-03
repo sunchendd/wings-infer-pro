@@ -37,7 +37,7 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event
-from typing import Sequence
+from typing import NamedTuple, Sequence
 
 from wings_ctl.common.settings import settings
 from wings_ctl.core.port_plan import PortPlan, derive_port_plan
@@ -90,6 +90,145 @@ _PROMETHEUS_MULTIPROC_DIR = "/var/log/wings/prometheus_multiproc"
 
 
 # ---------------------------------------------------------------------------
+# 子进程日志结构化中继
+# ---------------------------------------------------------------------------
+
+
+class ChildLogRelay(NamedTuple):
+    """子进程日志中继数据结构。
+
+    Attributes:
+        logger_name: 目标 logger 名称（通常为 LOGGER_LAUNCHER）。
+        level:       logging 级别常量。
+        message:     日志消息文本。
+        extra:       LogRecord extra 字段，供 WingsControlFormatter 使用。
+    """
+    logger_name: str
+    level: int
+    message: str
+    extra: dict[str, str]
+
+
+# 子进程日志时间戳正则（兼容有无毫秒部分）
+_CHILD_TIMESTAMP_RE = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:[,.]\d{3})?"
+
+# 4 个正则覆盖新旧格式的所有变体
+_CHILD_STRUCTURED_LOG_RES = (
+    # 格式 1: [WINGS-CONTROL] 2026-07-22 10:00:01.456 [WARNING] [source] msg
+    re.compile(
+        r"^(?:\[WINGS-CONTROL\]\s+)?"
+        rf"(?P<timestamp>{_CHILD_TIMESTAMP_RE})\s+"
+        r"\[(?P<level>WARNING|ERROR|CRITICAL)\]\s+"
+        r"\[(?P<source>[^\]]+)\]\s+"
+        r"(?P<message>.*)$",
+        re.IGNORECASE,
+    ),
+    # 格式 2: 2026-07-22 10:00:01.456 [WARNING] WINGS-CONTROL [source] msg
+    re.compile(
+        rf"^(?P<timestamp>{_CHILD_TIMESTAMP_RE})\s+"
+        r"\[(?P<level>WARNING|ERROR|CRITICAL)\]\s+"
+        r"WINGS-CONTROL\s+"
+        r"\[(?P<source>[^\]]+)\]\s+"
+        r"(?P<message>.*)$",
+        re.IGNORECASE,
+    ),
+    # 格式 3: [WINGS-CONTROL][source] [WARNING] 2026-07-22 10:00:01.456 msg
+    re.compile(
+        r"^\[WINGS-CONTROL\]\[(?P<source>[^\]]+)\]\s+"
+        r"\[(?P<level>WARNING|ERROR|CRITICAL)\]\s*"
+        rf"(?P<timestamp>{_CHILD_TIMESTAMP_RE})\s+"
+        r"(?P<message>.*)$",
+        re.IGNORECASE,
+    ),
+    # 格式 4: 2026-07-22 10:00:01.456 [WINGS-CONTROL][source] [WARNING] msg
+    re.compile(
+        rf"^(?P<timestamp>{_CHILD_TIMESTAMP_RE})\s+"
+        r"\[WINGS-CONTROL\]\[(?P<source>[^\]]+)\]\s+"
+        r"\[(?P<level>WARNING|ERROR|CRITICAL)\]\s+"
+        r"(?P<message>.*)$",
+        re.IGNORECASE,
+    ),
+)
+
+# 通用级别检测正则（非结构化日志）
+_CHILD_LEVEL_RE = re.compile(
+    r"\[(?P<bracket>WARNING|ERROR|CRITICAL)\]"
+    r"|^(?P<prefix>WARNING|ERROR|CRITICAL):"
+    r"|\b(?P<error>Traceback|Exception|Error:)",
+    re.IGNORECASE,
+)
+
+# 级别名称 → logging 常量映射
+_LOG_LEVELS = {
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL,
+    "TRACEBACK": logging.ERROR,
+    "EXCEPTION": logging.ERROR,
+    "ERROR:": logging.ERROR,
+}
+
+
+def _normalize_child_log_line(
+    proc_name: str,
+    line: str,
+) -> ChildLogRelay | None:
+    """Parse a managed child-process log line for launcher relay.
+
+    优先尝试结构化匹配（4 个正则覆盖新旧格式变体），
+    匹配成功时保留子进程的原始时间戳、组件名和 source 信息。
+    非结构化日志通过 _CHILD_LEVEL_RE 检测级别后转发。
+
+    Args:
+        proc_name: 子进程名称（如 'proxy'、'health'）。
+        line:      子进程 stdout 原始行。
+
+    Returns:
+        解析成功返回 ChildLogRelay，否则返回 None（静默丢弃）。
+    """
+    text = line.rstrip()
+    if not text:
+        return None
+
+    # 尝试结构化匹配
+    structured = None
+    for structured_log_re in _CHILD_STRUCTURED_LOG_RES:
+        structured = structured_log_re.match(text)
+        if structured:
+            break
+    if structured:
+        level_name = structured.group("level").upper()
+        return ChildLogRelay(
+            LOGGER_LAUNCHER,
+            _LOG_LEVELS.get(level_name, logging.WARNING),
+            structured.group("message"),
+            {
+                "wings_child_component": proc_name,
+                "wings_child_time": structured.group("timestamp"),
+                "wings_child_source": structured.group("source"),
+            },
+        )
+
+    # 非结构化日志：检测级别
+    level_match = _CHILD_LEVEL_RE.search(text)
+    if not level_match:
+        return None
+
+    level_name = (
+        level_match.group("bracket")
+        or level_match.group("prefix")
+        or level_match.group("error")
+        or "WARNING"
+    ).upper()
+    return ChildLogRelay(
+        LOGGER_LAUNCHER,
+        _LOG_LEVELS.get(level_name, logging.WARNING),
+        text,
+        {"wings_child_component": proc_name},
+    )
+
+
+# ---------------------------------------------------------------------------
 # 进程生命周期管理
 # ---------------------------------------------------------------------------
 
@@ -100,20 +239,24 @@ def _start_output_filter_thread(proc: ManagedProc) -> None:
     只转发 WARNING / ERROR / CRITICAL 级别的消息到 launcher 日志，
     所有 INFO 及以下级别（含 uvicorn worker 启动日志、proxy 应用日志）静默丢弃。
     这显著减少了多 worker 场景下的日志噪声。
-    """
-    _severity_re = re.compile(
-        r'\[(WARNING|ERROR|CRITICAL)\]'
-        r'|^(WARNING|ERROR|CRITICAL):'
-        r'\b(Traceback|Exception|Error:)',
-        re.IGNORECASE,
-    )
 
+    与旧版简单正则匹配不同，新版使用 _normalize_child_log_line() 进行
+    结构化解析，支持：
+    - 识别子进程已格式化的日志（保留原始时间戳和组件名）
+    - 通过 WingsControlFormatter 格式化输出，避免重复前缀
+    - 非结构化日志通过 _CHILD_LEVEL_RE 检测级别后转发
+    """
     def _relay() -> None:
         try:
             for raw in iter(proc.proc.stdout.readline, b""):
                 line = raw.decode("utf-8", errors="replace")
-                if _severity_re.search(line):
-                    logger.warning("[%s] %s", proc.name, line.rstrip())
+                relay = _normalize_child_log_line(proc.name, line)
+                if relay is not None:
+                    logging.getLogger(relay.logger_name).log(
+                        relay.level,
+                        relay.message,
+                        extra=relay.extra,
+                    )
         except (ValueError, OSError):
             pass
 

@@ -136,7 +136,6 @@ scenarios:
               ACL_OP_INIT_MODE: 1
               ASCEND_A3_ENABLE: 1
               VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE: 1
-              ASCEND_RT_VISIBLE_DEVICES: $1
               LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:$LD_LIBRARY_PATH"
             system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
               commands: ["nic_name=\"xxxx\" # change to your own nic name", "local_ip=\"xxxx\" # change to your own ip"]
@@ -197,7 +196,6 @@ scenarios:
               ACL_OP_INIT_MODE: 1
               ASCEND_A3_ENABLE: 1
               VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE: 1
-              ASCEND_RT_VISIBLE_DEVICES: $1
               LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:$LD_LIBRARY_PATH"
             system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
               commands: ["nic_name=\"xxxx\" # change to your own nic name", "local_ip=\"xxxx\" # change to your own ip"]
@@ -265,7 +263,6 @@ scenarios:
               LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:$LD_LIBRARY_PATH"
               VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE: 1
               VLLM_ASCEND_ENABLE_FUSED_MC2: 1
-              ASCEND_RT_VISIBLE_DEVICES: $1
             system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
               commands: ["nic_name=\"xxxx\" # change to your own nic name", "local_ip=\"xxxx\" # change to your own ip"]
           - role: decode  # Decode Node 1
@@ -332,6 +329,5 @@ scenarios:
               LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:$LD_LIBRARY_PATH"
               VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE: 1
               VLLM_ASCEND_ENABLE_FUSED_MC2: 1
-              ASCEND_RT_VISIBLE_DEVICES: $1
             system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
               commands: ["nic_name=\"xxxx\" # change to your own nic name", "local_ip=\"xxxx\" # change to your own ip"]

@@ -60,7 +60,7 @@ scenarios:
           engine_config:
             model: deepseek-ai/DeepSeek-V3.2
             trust_remote_code: true
-            kernel_config_enable_flashinfer_autotune: false
+            kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
             enable_expert_parallel: true
             data_parallel_hybrid_lb: true
             data_parallel_size: 16
@@ -73,7 +73,7 @@ scenarios:
           engine_config:
             model: deepseek-ai/DeepSeek-V3.2
             trust_remote_code: true
-            kernel_config_enable_flashinfer_autotune: false
+            kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
             enable_expert_parallel: true
             data_parallel_hybrid_lb: true
             data_parallel_size: 16
@@ -90,7 +90,7 @@ scenarios:
           engine_config:
             model: deepseek-ai/DeepSeek-V3.2
             trust_remote_code: true
-            kernel_config_enable_flashinfer_autotune: false
+            kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
             enable_expert_parallel: true
             cc_pass_config_fuse_allreduce_rms: false
             tensor_parallel_size: 16
@@ -104,7 +104,7 @@ scenarios:
           engine_config:
             model: deepseek-ai/DeepSeek-V3.2
             trust_remote_code: true
-            kernel_config_enable_flashinfer_autotune: false
+            kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
             enable_expert_parallel: true
             cc_pass_config_fuse_allreduce_rms: false
             tensor_parallel_size: 16
@@ -123,7 +123,7 @@ scenarios:
           engine_config:
             model: deepseek-ai/DeepSeek-V3.2
             trust_remote_code: true
-            kernel_config_enable_flashinfer_autotune: false
+            kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
             cc_pass_config_fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
@@ -136,7 +136,7 @@ scenarios:
           engine_config:
             model: deepseek-ai/DeepSeek-V3.2
             trust_remote_code: true
-            kernel_config_enable_flashinfer_autotune: false
+            kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
             cc_pass_config_fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
@@ -152,7 +152,7 @@ scenarios:
           engine_config:
             model: deepseek-ai/DeepSeek-V3.2
             trust_remote_code: true
-            kernel_config_enable_flashinfer_autotune: false
+            kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
             tensor_parallel_size: 8
             pipeline_parallel_size: 2
             nnodes: 2
@@ -165,7 +165,7 @@ scenarios:
           engine_config:
             model: deepseek-ai/DeepSeek-V3.2
             trust_remote_code: true
-            kernel_config_enable_flashinfer_autotune: false
+            kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
             tensor_parallel_size: 8
             pipeline_parallel_size: 2
             nnodes: 2
@@ -193,7 +193,7 @@ scenarios:
             engine_config:
               model: deepseek-ai/DeepSeek-V3.2
               trust_remote_code: true
-              kernel_config_enable_flashinfer_autotune: false
+              kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
               port: 8001
               kv_transfer_config:
                 kv_connector: NixlConnector
@@ -210,7 +210,7 @@ scenarios:
             engine_config:
               model: deepseek-ai/DeepSeek-V3.2
               trust_remote_code: true
-              kernel_config_enable_flashinfer_autotune: false
+              kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
               port: 8002
               kv_transfer_config:
                 kv_connector: NixlConnector

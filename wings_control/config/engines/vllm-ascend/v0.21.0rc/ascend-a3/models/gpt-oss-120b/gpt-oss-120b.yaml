@@ -53,7 +53,6 @@ scenarios:
           HCCL_OP_EXPANSION_MODE: AIV
           HCCL_BUFFSIZE: 512
           NPU_MEMORY_FRACTION: "0.95"
-          ASCEND_RT_VISIBLE_DEVICES: "0,1,2,3"
           OMP_PROC_BIND: "false"
           VLLM_USE_V1: 1
           TASK_QUEUE_ENABLE: 1

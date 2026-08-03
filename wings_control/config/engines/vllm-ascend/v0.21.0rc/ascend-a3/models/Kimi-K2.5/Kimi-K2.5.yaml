@@ -144,7 +144,6 @@ scenarios:
               LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:$LD_LIBRARY_PATH"
               HCCL_BUFFSIZE: 256
               VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
-              ASCEND_RT_VISIBLE_DEVICES: $1
             system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
               sysctls:
                 vm.swappiness: 0
@@ -206,7 +205,6 @@ scenarios:
               LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:$LD_LIBRARY_PATH"
               HCCL_BUFFSIZE: 256
               VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
-              ASCEND_RT_VISIBLE_DEVICES: $1
             system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
               sysctls:
                 vm.swappiness: 0
@@ -271,7 +269,6 @@ scenarios:
               LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:$LD_LIBRARY_PATH"
               HCCL_BUFFSIZE: 1100
               VLLM_ASCEND_ENABLE_MLAPO: 1
-              ASCEND_RT_VISIBLE_DEVICES: $1
             system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
               sysctls:
                 vm.swappiness: 0
@@ -336,7 +333,6 @@ scenarios:
               LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:$LD_LIBRARY_PATH"
               HCCL_BUFFSIZE: 1100
               VLLM_ASCEND_ENABLE_MLAPO: 1
-              ASCEND_RT_VISIBLE_DEVICES: $1
             system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
               sysctls:
                 vm.swappiness: 0

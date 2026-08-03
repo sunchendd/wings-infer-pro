@@ -177,6 +177,5 @@ scenarios:
               USE_MULTI_BLOCK_POOL: 1
               VLLM_TORCH_PROFILER_WITH_STACK: 0
               VLLM_TORCH_PROFILER_DIR: ./profiling
-              ASCEND_RT_VISIBLE_DEVICES: $1
             system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
               commands: [unset ftp_proxy, unset https_proxy, unset http_proxy, rm -rf ~/ascend/log, "nic_name=\"xxxxxxx\" #eg. \"enp67s0f0np0\"", "local_ip=`hostname -I|awk -F \" \" '{print$1}'`"]

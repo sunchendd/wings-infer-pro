@@ -60,6 +60,17 @@ def test_resolve_family_dir_exact_variant(config_root_real):
     assert resolve_family_dir(config_root_real, "vllm", "h20_96G", "", False) == "h20_96G"
 
 
+def test_resolve_family_dir_exact_variant_not_eaten_by_alias(config_root_real):
+    """回归:同型号多显存档(h20_96G / h20_141G)按显存精确命中,不被 _ALIAS['h20']→'h20_96G' 吞掉。
+
+    _ALIAS['h20'] 是给裸卡型 'h20' 做默认档兜底的;下发值带显存后缀时必须按显存精确命中
+    对应目录,否则 h20_141G 会被错误坍缩到 h20_96G,用错 recipe(参见 locator.resolve_family_dir)。
+    """
+    assert resolve_family_dir(config_root_real, "vllm", "h20_141G", "", False) == "h20_141G"
+    # 裸卡型仍走别名默认档,语义不变。
+    assert resolve_family_dir(config_root_real, "vllm", "h20", "", False) == "h20_96G"
+
+
 def test_resolve_family_dir_casefold_variant(config_root_real):
     """大小写无关:h20_96g 归一后仍命中大写 G 的真实目录 h20_96G。"""
     assert resolve_family_dir(config_root_real, "vllm", "h20_96g", "", False) == "h20_96G"
@@ -72,22 +83,24 @@ def test_resolve_family_dir_unknown_card_fail_fast(config_root_real):
         resolve_family_dir(config_root_real, "vllm", "NonExistentCard_99G", "", False)
 
 
-def test_resolve_family_dir_variant_wrong_mem_fail_fast(config_root_real):
-    """显存敏感卡传不存在的显存档(h20_80G)→ 剥后缀得 h20 无裸目录 → fail-fast(不误落）。"""
-    with pytest.raises(FileNotFoundError):
-        resolve_family_dir(config_root_real, "vllm", "h20_80G", "", False)
-
-
-def test_resolve_family_dir_alias_takes_precedence(config_root_real, monkeypatch):
-    """别名表命中(卡名≠目录名)→ 用别名目标,优先于精确/剥后缀。"""
+def test_resolve_family_dir_alias_after_exact_miss(config_root_real, monkeypatch):
+    """完整硬件名精确未命中后,别名仍可映射带显存后缀的卡名到目标目录。"""
     monkeypatch.setitem(locator._ALIAS, "mycard", "gb200")
     assert resolve_family_dir(config_root_real, "vllm", "MyCard_80G", "", False) == "gb200"
 
 
-def test_resolve_family_dir_alias_bad_target_warns_and_fallthrough(config_root_real, monkeypatch, caplog):
-    """别名目标目录不存在(_ALIAS 配错)→ 记 WARNING 且回落;此例回落剥后缀命中 h100。"""
-    monkeypatch.setitem(locator._ALIAS, "h100", "nonexistent-dir")
+def test_resolve_family_dir_suffix_bearing_ascend_alias(config_root_real):
+    """回归:带显存后缀的昇腾卡名在精确未命中后仍可经别名命中架构目录。"""
+    assert (
+        resolve_family_dir(config_root_real, "vllm-ascend", "Ascend910B_64G", "0.18.0", True)
+        == "ascend-a2"
+    )
+
+
+def test_resolve_family_dir_alias_bad_target_warns_and_fail(config_root_real, monkeypatch, caplog):
+    """别名目标目录不存在(_ALIAS 配错)→ 记 WARNING 并 fail-fast,不静默兜底。"""
+    monkeypatch.setitem(locator._ALIAS, "mycard", "nonexistent-dir")
     with caplog.at_level(logging.WARNING):
-        result = resolve_family_dir(config_root_real, "vllm", "H100_80G", "", False)
-    assert result == "h100"  # 别名目标缺失 → 回落剥后缀命中
+        with pytest.raises(FileNotFoundError, match="无配置资产"):
+            resolve_family_dir(config_root_real, "vllm", "mycard", "", False)
     assert "别名" in caplog.text and "nonexistent-dir" in caplog.text

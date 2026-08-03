@@ -22,10 +22,14 @@ import time
 # 统一格式常量
 # ---------------------------------------------------------------------------
 
-#: 默认日志格式 — [name] 标签唯一标识组件，kubectl --all-containers 再叠加容器名
+#: 组件名称标签，kubectl --all-containers 时区分不同容器
+LOG_COMPONENT = os.getenv("LOG_COMPONENT", "WINGS-CONTROL")
+
+#: 默认日志格式 — 毫秒精度时间戳 + 组件标签 + 函数名行号
 LOG_FORMAT = os.getenv(
     "LOG_FORMAT",
-    "%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
+    f"%(asctime)s.%(msecs)03d [%(levelname)s] {LOG_COMPONENT} "
+    "[%(name)s#%(funcName)s:%(lineno)d] %(message)s",
 )
 
 #: 日期格式
@@ -54,8 +58,55 @@ LOG_BACKUP_COUNT = 5
 
 
 # ---------------------------------------------------------------------------
+# WingsControlFormatter — 格式化普通日志和子进程中继日志
+# ---------------------------------------------------------------------------
+
+
+class WingsControlFormatter(logging.Formatter):
+    """Format normal logs and launcher-relayed child logs without duplicate prefixes.
+
+    对于带有 ``wings_child_component`` extra 字段的 LogRecord（即子进程中继日志），
+    使用子进程的原始时间戳和组件名格式化，避免重复添加 WINGS-CONTROL 前缀。
+    对于普通 LogRecord，使用 LOG_FORMAT 模板正常格式化。
+    """
+
+    @staticmethod
+    def _format_child_time(child_time: object) -> str:
+        text = str(child_time).strip().replace(",", ".")
+        if len(text) == len("YYYY-MM-DD HH:MM:SS"):
+            return f"{text}.000"
+        return text
+
+    def format(self, record: logging.LogRecord) -> str:
+        child_component = getattr(record, "wings_child_component", None)
+        if child_component:
+            child_time = getattr(record, "wings_child_time", None)
+            if not child_time:
+                child_time = self._format_record_time(record)
+            else:
+                child_time = self._format_child_time(child_time)
+            child_source = getattr(record, "wings_child_source", None)
+            if not child_source:
+                child_source = f"{record.name}#{child_component}"
+            return (
+                f"{child_time} [{record.levelname}] {LOG_COMPONENT} "
+                f"[{child_source}] {record.getMessage()}"
+            )
+        return super().format(record)
+
+    def _format_record_time(self, record: logging.LogRecord) -> str:
+        return f"{self.formatTime(record, self.datefmt)}.{int(record.msecs):03d}"
+
+
+def _make_formatter() -> WingsControlFormatter:
+    """创建 WingsControlFormatter 实例。"""
+    return WingsControlFormatter(LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
+
+
+# ---------------------------------------------------------------------------
 # DedupErrorFilter — suppress duplicate error messages within a time window
 # ---------------------------------------------------------------------------
+
 
 class DedupErrorFilter(logging.Filter):
     """Suppress duplicate ERROR/CRITICAL messages within a configurable window.
@@ -153,7 +204,7 @@ def _setup_file_handler(root: logging.Logger) -> None:
             encoding="utf-8",
         )
         file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(logging.Formatter(LOG_FORMAT, datefmt=LOG_DATE_FORMAT))
+        file_handler.setFormatter(_make_formatter())
         root.addHandler(file_handler)
     except OSError:
         root.warning("Cannot write log file to %s, file logging disabled", LOG_FILE_PATH)
@@ -188,6 +239,11 @@ def setup_root_logging(
     )
 
     root = logging.getLogger()
+    # basicConfig 内部创建的 StreamHandler 使用的是 logging.Formatter，
+    # 需要替换为 WingsControlFormatter 以支持子进程日志中继的格式化
+    formatter = _make_formatter()
+    for handler in root.handlers:
+        handler.setFormatter(formatter)
     _configure_stderr_handlers(root, stderr_log_level)
     _install_dedup_filter(root)
     _setup_file_handler(root)

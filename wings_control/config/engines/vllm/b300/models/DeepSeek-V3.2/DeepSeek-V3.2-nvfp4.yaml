@@ -59,7 +59,7 @@ scenarios:
         engine_config:
           model: nvidia/DeepSeek-V3.2-NVFP4
           trust_remote_code: true
-          kernel_config_enable_flashinfer_autotune: false
+          kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
           kv_cache_dtype: fp8
           enable_expert_parallel: true
           data_parallel_size: 8
@@ -71,7 +71,7 @@ scenarios:
         engine_config:
           model: nvidia/DeepSeek-V3.2-NVFP4
           trust_remote_code: true
-          kernel_config_enable_flashinfer_autotune: false
+          kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
           kv_cache_dtype: fp8
           enable_expert_parallel: true
           tensor_parallel_size: 8
@@ -84,7 +84,7 @@ scenarios:
         engine_config:
           model: nvidia/DeepSeek-V3.2-NVFP4
           trust_remote_code: true
-          kernel_config_enable_flashinfer_autotune: false
+          kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
           kv_cache_dtype: fp8
           tensor_parallel_size: 8
         env:
@@ -102,7 +102,7 @@ scenarios:
           engine_config:
             model: nvidia/DeepSeek-V3.2-NVFP4
             trust_remote_code: true
-            kernel_config_enable_flashinfer_autotune: false
+            kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
             kv_cache_dtype: fp8
             enable_expert_parallel: true
             data_parallel_hybrid_lb: true
@@ -117,7 +117,7 @@ scenarios:
           engine_config:
             model: nvidia/DeepSeek-V3.2-NVFP4
             trust_remote_code: true
-            kernel_config_enable_flashinfer_autotune: false
+            kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
             kv_cache_dtype: fp8
             enable_expert_parallel: true
             data_parallel_hybrid_lb: true
@@ -136,7 +136,7 @@ scenarios:
           engine_config:
             model: nvidia/DeepSeek-V3.2-NVFP4
             trust_remote_code: true
-            kernel_config_enable_flashinfer_autotune: false
+            kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
             kv_cache_dtype: fp8
             enable_expert_parallel: true
             cc_pass_config_fuse_allreduce_rms: false
@@ -152,7 +152,7 @@ scenarios:
           engine_config:
             model: nvidia/DeepSeek-V3.2-NVFP4
             trust_remote_code: true
-            kernel_config_enable_flashinfer_autotune: false
+            kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
             kv_cache_dtype: fp8
             enable_expert_parallel: true
             cc_pass_config_fuse_allreduce_rms: false
@@ -173,7 +173,7 @@ scenarios:
           engine_config:
             model: nvidia/DeepSeek-V3.2-NVFP4
             trust_remote_code: true
-            kernel_config_enable_flashinfer_autotune: false
+            kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
             kv_cache_dtype: fp8
             cc_pass_config_fuse_allreduce_rms: false
             tensor_parallel_size: 16
@@ -188,7 +188,7 @@ scenarios:
           engine_config:
             model: nvidia/DeepSeek-V3.2-NVFP4
             trust_remote_code: true
-            kernel_config_enable_flashinfer_autotune: false
+            kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
             kv_cache_dtype: fp8
             cc_pass_config_fuse_allreduce_rms: false
             tensor_parallel_size: 16
@@ -206,7 +206,7 @@ scenarios:
           engine_config:
             model: nvidia/DeepSeek-V3.2-NVFP4
             trust_remote_code: true
-            kernel_config_enable_flashinfer_autotune: false
+            kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
             kv_cache_dtype: fp8
             tensor_parallel_size: 8
             pipeline_parallel_size: 2
@@ -221,7 +221,7 @@ scenarios:
           engine_config:
             model: nvidia/DeepSeek-V3.2-NVFP4
             trust_remote_code: true
-            kernel_config_enable_flashinfer_autotune: false
+            kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
             kv_cache_dtype: fp8
             tensor_parallel_size: 8
             pipeline_parallel_size: 2
@@ -251,7 +251,7 @@ scenarios:
             engine_config:
               model: nvidia/DeepSeek-V3.2-NVFP4
               trust_remote_code: true
-              kernel_config_enable_flashinfer_autotune: false
+              kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
               kv_cache_dtype: fp8
               port: 8001
               kv_transfer_config:
@@ -270,7 +270,7 @@ scenarios:
             engine_config:
               model: nvidia/DeepSeek-V3.2-NVFP4
               trust_remote_code: true
-              kernel_config_enable_flashinfer_autotune: false
+              kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
               kv_cache_dtype: fp8
               port: 8002
               kv_transfer_config:

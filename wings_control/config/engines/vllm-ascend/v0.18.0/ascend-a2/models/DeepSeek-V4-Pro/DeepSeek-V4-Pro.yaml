@@ -88,7 +88,6 @@ scenarios:
             TP_SOCKET_IFNAME: $IFNAME
             HCCL_SOCKET_IFNAME: $IFNAME
             HCCL_BUFFSIZE: 512
-            ASCEND_RT_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
             OMP_PROC_BIND: "false"
             OMP_NUM_THREADS: 10
             PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
@@ -149,7 +148,6 @@ scenarios:
             TP_SOCKET_IFNAME: $IFNAME
             HCCL_SOCKET_IFNAME: $IFNAME
             HCCL_BUFFSIZE: 512
-            ASCEND_RT_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
             OMP_PROC_BIND: "false"
             OMP_NUM_THREADS: 10
             PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
@@ -238,7 +236,6 @@ scenarios:
               USE_MULTI_GROUPS_KV_CACHE: 1
               USE_MULTI_BLOCK_POOL: 1
               VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
-              ASCEND_RT_VISIBLE_DEVICES: $1
             system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
               sysctls:
                 vm.swappiness: 0
@@ -310,7 +307,6 @@ scenarios:
               HCCL_BUFFSIZE: 1024
               USE_MULTI_GROUPS_KV_CACHE: 1
               USE_MULTI_BLOCK_POOL: 1
-              ASCEND_RT_VISIBLE_DEVICES: $1
             system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
               sysctls:
                 vm.swappiness: 0

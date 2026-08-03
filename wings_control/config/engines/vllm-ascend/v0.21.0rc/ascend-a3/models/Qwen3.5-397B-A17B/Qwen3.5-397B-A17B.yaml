@@ -144,7 +144,6 @@ scenarios:
               VLLM_TORCH_PROFILER_WITH_STACK: 0
               TASK_QUEUE_ENABLE: 1
               HCCL_OP_EXPANSION_MODE: AIV
-              ASCEND_RT_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15"
             system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
               commands: [unset ftp_proxy, unset https_proxy, unset http_proxy, "nic_name=\"xxx\"", "local_ip=\"xxx\""]
           - role: decode  # Decode Node 0
@@ -207,7 +206,6 @@ scenarios:
               VLLM_TORCH_PROFILER_WITH_STACK: 0
               TASK_QUEUE_ENABLE: 1
               HCCL_OP_EXPANSION_MODE: AIV
-              ASCEND_RT_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15"
             system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
               commands: [unset ftp_proxy, unset https_proxy, unset http_proxy, "nic_name=\"xxx\"", "local_ip=\"xxx\"", "node0_ip=\"xxxx\""]
           - role: decode  # Decode Node 1
@@ -270,6 +268,5 @@ scenarios:
               VLLM_TORCH_PROFILER_WITH_STACK: 0
               TASK_QUEUE_ENABLE: 1
               HCCL_OP_EXPANSION_MODE: AIV
-              ASCEND_RT_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15"
             system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
               commands: [unset ftp_proxy, unset https_proxy, unset http_proxy, "nic_name=\"xxx\"", "local_ip=\"xxx\"", "node0_ip=\"xxxx\""]

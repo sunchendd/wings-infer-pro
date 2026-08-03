@@ -58,7 +58,7 @@ scenarios:
           compilation_config:
             cudagraph_mode: FULL_DECODE_ONLY
         env:
-          MMC_LOCAL_CONFIG_PATH: "/model/xxx/t16-mmc/mmc_local.conf"
+          MMC_LOCAL_CONFIG_PATH: "/shared-volume/mmc_local.conf"
           ACL_OP_INIT_MODE: 1
           PYTHONHASHSEED: 0
           HCCL_BUFFSIZE: 1024

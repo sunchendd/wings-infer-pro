@@ -37,6 +37,7 @@ _ALIAS: Dict[str, str] = {
     # 缺省不入表:去后缀+casefold 后 == 目录名者(h100 / b200 / mi300x 等)走精确/剥后缀直通,不占本表。
     "ascend910b": "ascend-a2",    # Ascend910B
     "ascend910": "ascend-a3",     # Ascend910
+    "ascend910c": "ascend-a3",    # Ascend910C
     "h20": "h20_96G",             # H20
     "h20-3e": "h20_141G",         # H20-3e
     "rtx-pro-5000-48gb-blackwell": "rtx_pro_5000_48G",    # RTX-PRO-5000-48GB-Blackwell
@@ -55,10 +56,16 @@ def resolve_family_dir(
 
     下发值是资源域词汇(resourceCardName + 显存后缀,大小写不一、可能冗长),
     config 目录是资产域词汇;三步把前者映射到后者(大小写无关,回填磁盘真实目录名):
-      1. 别名表:卡名 ≠ 目录名者(昇腾芯片→架构代 / 冗长 NV 名)显式映射;
-      2. 精确:{卡型}_{显存}G 直接命中显存敏感目录(如 h20_96G,显存即区分键);
+      1. 精确:下发原值(含显存后缀)直接命中显存敏感目录(如 h20_96G / h20_141G,
+         显存即区分键,优先于别名——避免裸卡型别名吞掉显存档);
+      2. 别名表:下发值去显存后缀得裸卡型,卡名 ≠ 目录名者
+         (昇腾芯片→架构代 / 冗长 NV 名)显式映射到目录;
       3. 剥后缀:去掉 _<N>G 用裸卡名命中普通目录(如 H100_80G → h100,后缀冗余)。
     三步皆不中 → fail-fast:该卡 / 该显存档无 recipe 资产(不静默兜底,避免错配)。
+
+    顺序要点:精确先于别名。h20 同型号有 h20_96G / h20_141G 两个显存敏感目录,
+    下发 h20_141G 必须精确命中 h20_141G,不能被 _ALIAS["h20"]→"h20_96G" 一律吞掉;
+    精确未命中时再按去后缀的裸卡型查 _ALIAS,保留 Ascend910B_64G 等带后缀别名硬件的兼容性。
 
     Args:
         config_root: 配置根目录,内含 engines/ 子树。
@@ -71,7 +78,7 @@ def resolve_family_dir(
         磁盘上真实存在的 config 目录名(供 build_models_dir 定位 + accel gpu_type)。
 
     Raises:
-        FileNotFoundError: 别名 / 精确 / 剥后缀三步都没命中任何 recipe 目录。
+        FileNotFoundError: 精确 / 别名 / 剥后缀三步都没命中任何 recipe 目录。
     """
     # 列出该 engine[/version] 下所有含 models/ 的硬件目录,按 casefold 建"归一名→真实名"索引:
     # 匹配大小写无关,命中后回填磁盘真实目录名(config 变体目录用大写 G,不能只比小写)。
@@ -83,26 +90,35 @@ def resolve_family_dir(
             if (child / "models").is_dir():
                 candidates[child.name.casefold()] = child.name
 
-    card = strip_gpu_mem_suffix(hardware_family)  # 去显存后缀得卡型基名
+    card = strip_gpu_mem_suffix(hardware_family)  # 去显存后缀得卡型基名(无后缀时 == 原值,即裸卡型)
 
+    # ① 精确:下发原值(含显存后缀)直接命中显存敏感目录,优先于别名。
+    # h20_96G / h20_141G 这类同型号多显存档卡,显存即区分键,必须按显存精确命中,
+    # 不能落到按裸卡型查的别名默认档(否则 h20_141G 会被 _ALIAS["h20"] 吞成 h20_96G)。
+    if hardware_family.casefold() in candidates:
+        return candidates[hardware_family.casefold()]
+
+    # ② 别名:完整 hardware_family 精确未命中后,按去后缀的裸卡型查映射。
+    # 这样 h20_141G 已在 ① 精确命中,不会被 h20 默认档吞掉;而 Ascend910B_64G 等
+    # "带显存后缀 + 卡名与目录名不同"的既有别名仍能落到对应架构目录。
     aliased = _ALIAS.get(card.casefold())
     if aliased:
         if aliased.casefold() in candidates:
             logger.info("resolve_family_dir: '%s' 经别名 → %s", hardware_family, candidates[aliased.casefold()])
             return candidates[aliased.casefold()]
-        # 别名命中但目标目录不存在 = _ALIAS 配错(填表时目录名写错);不静默,记 warn 再回落精确/剥后缀。
+        # 别名命中但目标目录不存在 = _ALIAS 配错(填表时目录名写错);不静默,记 warn 再回落剥后缀。
         logger.warning(
-            "resolve_family_dir: 别名 '%s' → '%s' 但该目录在 engine='%s' 下不存在(_ALIAS 配置可能有误);回落精确/剥后缀",
+            "resolve_family_dir: 别名 '%s' → '%s' 但该目录在 engine='%s' 下不存在(_ALIAS 配置可能有误);回落剥后缀",
             card.casefold(), aliased, engine,
         )
-    if hardware_family.casefold() in candidates:  # 精确:显存敏感目录
-        return candidates[hardware_family.casefold()]
-    if card.casefold() in candidates:  # 剥后缀:普通卡
+
+    # ③ 剥后缀:普通卡带冗余显存后缀,去掉后用裸卡名命中普通目录(如 H100_80G → h100)。
+    if card.casefold() in candidates:
         return candidates[card.casefold()]
 
     raise FileNotFoundError(
         f"hardware_family='{hardware_family}' 无配置资产"
-        f"(engine='{engine}';归一卡型='{card}';已试 别名/精确/剥后缀)。"
+        f"(engine='{engine}';归一卡型='{card}';已试 精确/别名/剥后缀)。"
         "请确认下发的 hardware_family 带正确显存后缀(如 h20_96G)、且该硬件 recipe 已下发。"
     )
 

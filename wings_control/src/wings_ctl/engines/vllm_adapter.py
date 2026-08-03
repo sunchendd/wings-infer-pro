@@ -5,11 +5,11 @@
 
 规则:
 - 命令前缀通过 engine → prefix 查表确定
-- key 下划线转连字符 (max_model_len → --max-model-len)
-- bool=true → 无值 flag (--trust-remote-code)
-- bool=false / None → 不输出
-- 嵌套 dict/list → 紧凑 JSON 字符串(不 quote,由调用方在渲染 shell 时统一 quote)
-- 标量值原样 str()
+- 顶层 key 下划线转连字符 (max_model_len → --max-model-len);点号后的嵌套路径原样保留
+- 顶层 bool=true → 无值 flag (--trust-remote-code);bool=false / None → 不输出
+- 点号嵌套配置始终渲为 --flag=value(包括 bool 的 True / False)
+- dict/list → 紧凑 JSON 字符串(不 quote,由调用方在渲染 shell 时统一 quote)
+- 其余标量值原样 str()
 """
 
 from __future__ import annotations
@@ -99,13 +99,14 @@ def render_param_tokens(key: str, value: Any) -> Optional[List[str]]:
 
     规则(与 build_argv 一致,不要在别处重复实现):
     - None → None (跳过)
-    - bool=True → ["--flag"]
-    - bool=False → None (跳过)
-    - dict/list → ["--flag", compact_json]
-    - 标量 → ["--flag", str(value)]
+    - 顶层 bool=True → ["--flag"];顶层 bool=False → None (跳过)
+    - 点号嵌套配置 → ["--flag=value"](包括 bool;如 False → --kernel-config.xxx=False)
+    - 顶层 dict/list → ["--flag", compact_json]
+    - 顶层标量 → ["--flag", str(value)]
 
     Args:
-        key: 参数名(下划线形式,如 "max_model_len")。
+        key: 参数名(下划线形式的顶层 key,或点号嵌套配置 key,如
+            "max_model_len" / "kernel_config.enable_flashinfer_autotune")。
         value: 参数值。
 
     Returns:
@@ -115,6 +116,12 @@ def render_param_tokens(key: str, value: Any) -> Optional[List[str]]:
         return None
 
     flag = key_to_flag(key)
+    if "." in key:
+        # vLLM 的 --kernel-config.<field>=<value> 是嵌套配置赋值而非开关:
+        # False 也必须显式传入,且 value 与 flag 组成同一 argv token。
+        if isinstance(value, (dict, list)):
+            value = serialize_nested_value(value)
+        return [f"{flag}={value}"]
 
     if isinstance(value, bool):
         return [flag] if value else None
