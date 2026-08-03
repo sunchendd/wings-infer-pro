@@ -1,0 +1,29 @@
+# SmartAccel 加速配置(decoding=deepseek_mtp / sparse)
+# 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
+# 0day 验证补:sparse(indexcache perf=4/acc=8)。
+model:
+  name: GLM-5.1
+  variant_name: "GLM-5.1-w8a8"
+  match:
+    - name_pattern: "(?i)glm[-.]?5.1"
+smart_accel:
+  decoding:
+    - name: deepseek_mtp
+      cli_params:
+        speculative_config:
+          method: deepseek_mtp
+          num_speculative_tokens: 3
+      envs: {}
+  sparse:
+    - name: performance_first
+      cli_params:
+        hf_overrides:
+          use_index_cache: true
+          index_topk_freq: 4
+      envs: {}
+    - name: accuracy_first
+      cli_params:
+        hf_overrides:
+          use_index_cache: true
+          index_topk_freq: 8
+      envs: {}

@@ -175,6 +175,36 @@ def test_resolve_smart_accel_from_config_self_contained(tmp_path):
     assert out.smart_kv_cache_scheme is not None
 
 
+def test_find_smart_accel_yaml_path_matches_prerelease_build_version(tmp_path):
+    """带构建时间戳的预发布版本 → 归一化命中渠道目录 v0.21.0rc。
+
+    调用方(config_resolver)传 engine_version.requested(原始构建版本),smart-accel 内部
+    需自行归一化:v0.21.0rc1-20260709144216 → v0.21.0rc。
+    """
+    yaml_path = tmp_path / "smart-accel" / "vllm-ascend" / "v0.21.0rc" / "ascend-a3" / "models" / "M" / "M.yaml"
+    yaml_path.parent.mkdir(parents=True)
+    yaml_path.write_text(YAML_TEMPLATE, encoding="utf-8")
+
+    # 带 v 前缀 + 构建时间戳
+    assert find_smart_accel_yaml_path(
+        tmp_path, "vllm-ascend", "v0.21.0rc1-20260709144216", "ascend-a3", "M"
+    ) == yaml_path
+    # 不带 v 前缀 + 构建时间戳
+    assert find_smart_accel_yaml_path(
+        tmp_path, "vllm-ascend", "0.21.0rc1-20260709144216", "ascend-a3", "M"
+    ) == yaml_path
+
+
+def test_find_smart_accel_yaml_path_clean_version_unchanged(tmp_path):
+    """干净版本号(无构建时间戳)行为不变,回归保护。"""
+    yaml_path = tmp_path / "smart-accel" / "vllm" / "v0.23.0" / "h200" / "models" / "M" / "M.yaml"
+    yaml_path.parent.mkdir(parents=True)
+    yaml_path.write_text(YAML_TEMPLATE, encoding="utf-8")
+
+    assert find_smart_accel_yaml_path(tmp_path, "vllm", "0.23.0", "h200", "M") == yaml_path
+    assert find_smart_accel_yaml_path(tmp_path, "vllm", "v0.23.0", "h200", "M") == yaml_path
+
+
 def test_load_smart_accel_from_config_missing_returns_none(tmp_path):
     """硬件目录或模型 YAML 缺失 → 返回 None,调用方 no-op。"""
     assert load_smart_accel_from_yaml(str(tmp_path / "missing.yaml")) is None
