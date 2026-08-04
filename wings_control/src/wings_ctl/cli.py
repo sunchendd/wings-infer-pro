@@ -417,16 +417,17 @@ def _run_dry_mode(parser: argparse.ArgumentParser, request: PipelineRequest) -> 
     engine = request.target.engine
     try:
         resolved = resolve_pipeline(request)
+
+        if resolved.nodes:
+            _print_multi_node_dry_run(engine, resolved.nodes)
+            return
+
+        # accel.engine_config 已并入 engine_config_traces,build_argv 输出即最终命令。
+        argv = build_argv(resolved.engine_config_traces, engine=engine)
     except (ValueError, FileNotFoundError, NotImplementedError) as exc:
         parser.error(str(exc))
         return
 
-    if resolved.nodes:
-        _print_multi_node_dry_run(engine, resolved.nodes)
-        return
-
-    # accel.engine_config 已并入 engine_config_traces,build_argv 输出即最终命令。
-    argv = build_argv(resolved.engine_config_traces, engine=engine)
     print(shlex.join(argv))
 
 
