@@ -829,6 +829,156 @@ def _merge_engine_config_traces(
     return trace_merge(layers)
 
 
+def _resolve_platform_fallback(
+    *,
+    platform_data: Dict[str, Any],
+    platform_path: Any,
+    platform_env: dict,
+    topology: Topology,
+    model_name: str,
+    user_layer: dict,
+    feature_overrides: dict,
+    accel_layer: dict,
+    strategy_env_layer: dict | None,
+    strategy_feature_inject_overrides: dict | None,
+    device_count: int | None,
+    hardware: HardwareContext,
+    weights_path: Any,
+    rank_ip: str | None,
+    node_ips: List[str] | None,
+    master_ip: str | None,
+) -> tuple[
+    Dict[str, TracedValue],
+    Dict[str, TracedValue],
+    SystemSetup | None,
+    List[ResolvedNode] | None,
+    dict,
+    str,
+]:
+    """用平台 default_model 配置兜底解析未命中的模型。
+
+    模型 recipe 未命中时，根据请求的 topology 从 ``default_model.yaml``
+    选择平台默认场景并生成可渲染的配置。多机场景保留每个节点的
+    ``head``/``worker`` 或 ``nodes`` 配置，并通过 ``_resolve_multi_node``
+    生成节点级命令；单段场景则生成普通引擎配置。
+
+    处理规则:
+        1. 选择与 ``topology`` 对应的平台场景。
+        2. 为没有模型配置的场景补充请求中的模型名。
+        3. 多机场景按节点模板解析，保留节点角色和并行参数。
+        4. 合并策略、特性、智能加速和用户参数，并记录来源链。
+        5. 用户显式的 ``model`` / ``model_path`` 始终优先于 fallback 模型名。
+
+    Returns:
+        ``(engine_config_traces, env_traces, system_setup, nodes, notes, pattern)``。
+        ``nodes`` 在无运行时上下文时保存全集群占位节点；有运行时上下文时为 None。
+    """
+    # default_model.yaml 可能缺失；这里保留一个可写入 trace 的占位路径，
+    # 让 fallback 的审计信息仍能说明配置来源。
+    platform_path_str = str(platform_path) if platform_path is not None else "<absent>"
+
+    # topology 已由 CLI 大策略层确定；这里只按该 topology 选择平台场景，
+    # 不再重新判断 standalone / multi_node / PD。
+    platform_scenario = _select_scenario(platform_data, topology)
+    platform_node_specs = platform_scenario.get("nodes")
+    fallback_pattern = "<fallback_default_model>"
+
+    if platform_node_specs:
+        # 多机场景被 _select_scenario 统一成 NodeSpec 列表。逐节点保留配置，
+        # 确保 head/worker 的角色、node_rank、nnodes 等参数完整传递。
+        fallback_node_specs = []
+        for spec in platform_node_specs:
+            # 复制配置而不是原地修改 platform_data，避免污染 YAML 加载结果，
+            # 也避免同一个配置对象在后续解析中被重复追加 model。
+            node_engine_config = dict(spec.engine_config)
+            if (
+                "model" not in node_engine_config
+                and "model_path" not in node_engine_config
+                and "model" not in user_layer
+                and "model_path" not in user_layer
+            ):
+                # 没有模型 recipe 时只能使用请求中的模型名；这是最低优先级，
+                # _resolve_multi_node 后续仍会让显式 user_layer 覆盖它。
+                node_engine_config["model"] = model_name
+            fallback_node_specs.append(spec._replace(engine_config=node_engine_config))
+
+        # 统一复用正常模型 recipe 的多机解析流程：
+        # 有运行时 IP 时选择当前 Pod 并注入；没有时生成 head/worker 占位视图。
+        return (
+            *_resolve_multi_node(
+                fallback_node_specs,
+                model_path=platform_path,
+                user_layer=user_layer,
+                feature_overrides=feature_overrides,
+                accel_overrides=accel_layer,
+                device_count=device_count,
+                rank_ip=rank_ip,
+                node_ips=node_ips,
+                master_ip=master_ip,
+                strategy_env_layer=strategy_env_layer,
+                strategy_feature_inject_overrides=strategy_feature_inject_overrides,
+            ),
+            fallback_pattern,
+        )
+
+    # 当前场景未提供节点列表时，使用场景级 engine_config 生成普通引擎配置。
+    scenario_engine_config = dict(platform_scenario.get("engine_config", {}))
+
+    # 平台场景没有 model/model_path 时，用请求名补齐引擎必需的模型参数；
+    # 如果平台或用户已经提供路径，则保留它们，不进行覆盖。
+    if (
+        "model" not in scenario_engine_config
+        and "model_path" not in scenario_engine_config
+        and "model" not in user_layer
+        and "model_path" not in user_layer
+    ):
+        scenario_engine_config["model"] = model_name
+
+    # 单段 fallback 也必须经过与正常 recipe 相同的 TP/DP 策略处理，
+    # 这样 device_count 等用户输入仍能产生一致的 trace 和校验结果。
+    _preflight_shrink_gate(scenario_engine_config, device_count, hardware, weights_path)
+    strategy_overrides, strategy_notes = post_template_strategy(
+        scenario_engine_config,
+        {"device_count": device_count, "topology": topology},
+    )
+    # 按统一优先级合并平台默认值、策略覆盖、特性注入、智能加速和用户参数，
+    # 并为每个最终参数保留来源链。
+    engine_config_traces = _merge_engine_config_traces(
+        scenario_engine_config,
+        strategy_overrides,
+        feature_overrides,
+        accel_layer,
+        user_layer,
+        model_layer_name="default_model",
+        model_source_file=platform_path_str,
+        scenario_prefix="engine_config",
+        feature_inject_overrides=strategy_feature_inject_overrides,
+    )
+
+    # 环境变量单独合并，保持 engine_config 和 env 两条 trace 链互不混淆；
+    # SmartQoS/OTLP/Metrics 等特性环境变量作为更高优先级覆盖层追加。
+    env_layers = [
+        MergeLayer("default_model", platform_env, platform_path_str, "env"),
+    ]
+    if strategy_env_layer:
+        env_layers.append(
+            MergeLayer(
+                "strategy_feature_env",
+                strategy_env_layer,
+                "<strategy:feature_env_inject>",
+                "strategy.feature_env_inject",
+            )
+        )
+    return (
+        engine_config_traces,
+        trace_merge(env_layers),
+        None,
+        None,
+        strategy_notes,
+        fallback_pattern,
+    )
+
+
 def resolve_config(
     env: ResolvedEnv,
     target: Target,
@@ -839,7 +989,7 @@ def resolve_config(
     """端到端配置解析主入口。
 
     执行:
-    1. 加载 default_model.yaml 的 engine_config_defaults (缺失时按空 dict 处理)
+    1. 加载 default_model.yaml 的 scenarios.{topology} 默认策略
     2. 加载 model yaml 的 scenarios.{topology}.engine_config(multi_node 为 nodes[])
     3. trace-aware 多层合并 (builtin_default → model_scenario → strategy → user_cli)
     4. 写入 resolution_notes: 版本查找轨迹 + 模型匹配轨迹
@@ -910,12 +1060,6 @@ def resolve_config(
     )
     platform_absent = platform_path is None
     platform_path_str = str(platform_path) if platform_path is not None else "<absent>"
-    engine_config_defaults = platform_data.get("engine_config_defaults", {})
-    if not isinstance(engine_config_defaults, dict) or not engine_config_defaults:
-        fallback_engine_config = platform_data.get("engine_config", {})
-        if isinstance(fallback_engine_config, dict):
-            engine_config_defaults = fallback_engine_config
-
     # 2. 加载模型配置(ret: data|None, yaml_path|None, matched_pattern)
     model_data, model_path, matched_pattern = load_model_config(
         config_root,
@@ -992,37 +1136,31 @@ def resolve_config(
     #      fallback(无 recipe)/ standalone 命中 / multi_node 逐节点,三条路径。
     if no_model_fallback:
         logger.warning("无 model recipe,按平台基线兜底")
-        scenario_engine_config = engine_config_defaults
-        _preflight_shrink_gate(scenario_engine_config, device_count, hardware, weights_path)
-        strategy_overrides, strategy_notes = post_template_strategy(
-            scenario_engine_config,
-            {"device_count": device_count, "topology": topology},
+        (
+            engine_config_traces,
+            env_traces,
+            system_setup,
+            nodes,
+            strategy_notes,
+            matched_pattern,
+        ) = _resolve_platform_fallback(
+            platform_data=platform_data,
+            platform_path=platform_path,
+            platform_env=platform_env,
+            topology=topology,
+            model_name=model_name,
+            user_layer=user_layer,
+            feature_overrides=feature_overrides,
+            accel_layer=accel_layer,
+            strategy_env_layer=strategy_env_layer,
+            strategy_feature_inject_overrides=strategy_feature_inject_overrides,
+            device_count=device_count,
+            hardware=hardware,
+            weights_path=weights_path,
+            rank_ip=rank_ip,
+            node_ips=node_ips,
+            master_ip=master_ip,
         )
-        scenario_env = platform_env
-        scenario_engine_config_source_prefix = "engine_config"
-        scenario_env_source_prefix = "env"
-        model_path_str = platform_path_str
-        matched_pattern = "<fallback_default_model>"
-
-        engine_config_traces = _merge_engine_config_traces(
-            scenario_engine_config, strategy_overrides, feature_overrides,
-            accel_layer, user_layer,
-            model_layer_name="default_model",
-            model_source_file=model_path_str,
-            scenario_prefix=scenario_engine_config_source_prefix,
-            feature_inject_overrides=strategy_feature_inject_overrides,
-        )
-
-        # env merge: model 层 + 特性 env 注入层
-        env_layers = [
-            MergeLayer("default_model", scenario_env, model_path_str, scenario_env_source_prefix),
-        ]
-        if strategy_env_layer:
-            env_layers.append(
-                MergeLayer("strategy_feature_env", strategy_env_layer, "<strategy:feature_env_inject>", "strategy.feature_env_inject"),
-            )
-        env_traces = trace_merge(env_layers)
-        system_setup = None
     else:
         # pod_count 供 head/worker 形态展开:有运行时 NODE_IPS 用其长度,否则交 _select_scenario 兜底(nnodes/2)
         scenario = _select_scenario(

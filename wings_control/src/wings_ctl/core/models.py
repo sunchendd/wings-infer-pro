@@ -24,7 +24,7 @@ class SourceEvent:
     layer: str
     value: Any
     source_file: str      # 来源文件的相对或绝对路径
-    source_path: str      # YAML 路径,如 "engine_config_defaults.host"
+    source_path: str      # YAML 路径,如 "scenarios.standalone.strategies.single_node.engine_config.host"
 
 
 @dataclass

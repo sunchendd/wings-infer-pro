@@ -1,13 +1,103 @@
 # 硬件 + 引擎公共默认值
-# 该文件由 wings-config update yaml --engine recipes 自动生成
 
 hardware:
   gpu_count: 4  # 单节点 GPU 数量
   vram_gb: 1152  # 单节点总显存(GB)
-  multi_node: false  # 是否支持多节点
+  multi_node: true  # 支持单节点及多节点场景
   description: NVIDIA GB300 Grace-Blackwell Ultra compute tray · 288 GB HBM3e/GPU · 4 GPUs (NVL72 tray unit)  # 描述
 
 engine:
   name: vllm  # 推理引擎
   version: v0.19.0  # 引擎版本
 
+scenarios:
+  standalone:
+    source_ref: default#single_node
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Single Node
+        default_strategy: true
+        engine_config:
+          trust_remote_code: true
+          max_model_len: 4096
+          tensor_parallel_size: 4
+
+  multi_node:
+    source_ref: default#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        display_name: Multi-Node
+        default_strategy: true
+        head:
+          engine_config:
+            trust_remote_code: true
+            max_model_len: 4096
+            tensor_parallel_size: 8
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:
+          engine_config:
+            trust_remote_code: true
+            max_model_len: 4096
+            tensor_parallel_size: 8
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+
+  pd_disaggregation:
+    source_ref: default#pd_cluster
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        default_strategy: true
+        nodes:
+          - role: prefill
+            index: 0
+            engine_config:
+              trust_remote_code: true
+              max_model_len: 4096
+              tensor_parallel_size: 4
+              enforce_eager: true
+              kv_transfer_config:
+                kv_connector: NixlConnector
+                kv_role: kv_producer
+                kv_load_failure_policy: fail
+            env:
+              VLLM_NIXL_SIDE_CHANNEL_PORT: 5557
+              VLLM_NIXL_SIDE_CHANNEL_HOST: $PREFILL_NODE_1
+              GLOO_SOCKET_IFNAME: $IFACE_NAME
+              NCCL_SOCKET_IFNAME: $IFACE_NAME
+          - role: decode
+            index: 0
+            engine_config:
+              trust_remote_code: true
+              max_model_len: 4096
+              tensor_parallel_size: 4
+              compilation_config:
+                cudagraph_mode: FULL_DECODE_ONLY
+              kv_transfer_config:
+                kv_connector: NixlConnector
+                kv_role: kv_consumer
+                kv_load_failure_policy: fail
+            env:
+              VLLM_NIXL_SIDE_CHANNEL_PORT: 5558
+              VLLM_NIXL_SIDE_CHANNEL_HOST: $DECODE_NODE_1
+              GLOO_SOCKET_IFNAME: $IFACE_NAME
+              NCCL_SOCKET_IFNAME: $IFACE_NAME
