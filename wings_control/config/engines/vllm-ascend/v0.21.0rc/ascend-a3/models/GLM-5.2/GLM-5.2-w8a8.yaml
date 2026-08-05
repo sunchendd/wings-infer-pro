@@ -119,7 +119,7 @@ scenarios:
           env:
             LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages:${LD_LIBRARY_PATH}:/usr/local/lib"
             PYTHONPATH: "$PYTHONPATH:/vllm-workspace/vllm"
-            MOONCAKE_CONFIG_PATH: "/home/tjl/glm52/d2t16-moon/mooncake.json"
+            MOONCAKE_CONFIG_PATH: /shared-volume/mooncake.json
             PYTHONHASHSEED: 0
             ACL_OP_INIT_MODE: 1
             HCCL_INTER_HCCS_DISABLE: "true"
@@ -173,7 +173,7 @@ scenarios:
           env:
             LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages:${LD_LIBRARY_PATH}:/usr/local/lib"
             PYTHONPATH: "$PYTHONPATH:/vllm-workspace/vllm"
-            MOONCAKE_CONFIG_PATH: "/home/tjl/glm52/d2t16-moon/mooncake.json"
+            MOONCAKE_CONFIG_PATH: /shared-volume/mooncake.json
             PYTHONHASHSEED: 0
             ACL_OP_INIT_MODE: 1
             HCCL_INTER_HCCS_DISABLE: "true"

@@ -32,7 +32,7 @@ features:
     description: Enable the model's reasoning-content parser.
     args: [--reasoning-parser, minimax_m2_append_think]
   spec_decoding:
-    description: Speculative decoding (MTP draft) to accelerate generation.
+    description: Eagle3 speculative decoding to accelerate generation.
     args: [--speculative_config, "{\"enforce_eager\":true,\"method\":\"eagle3\",\"model\":\"/path/to/weight/Eagle3/\",\"num_speculative_tokens\":3}"]
   mooncake_offloading:
     description: Enable Mooncake-backed KV transfer/offloading for prefill/decode cache sharing.
@@ -51,14 +51,15 @@ scenarios:
         default_strategy: true
         engine_config:
           model: Eco-Tech/MiniMax-M2.7-w8a8-QuaRot
+          served_model_name: MiniMax-M2.7
           host: "0.0.0.0"
           port: 8800
           trust_remote_code: true
-          enforce_eager: true
           no_enable_prefix_caching: true
           quantization: ascend
-          load_format: dummy
           async_scheduling: true
+          compilation_config:
+            cudagraph_mode: FULL_DECODE_ONLY
           additional_config:
             enable_cpu_binding: true
             enable_fused_mc2: true
@@ -66,14 +67,14 @@ scenarios:
             weight_nz_mode: true
           enable_expert_parallel: true
           tensor_parallel_size: 8
-          data_parallel_size: 1
+          data_parallel_size: 2
           max_num_seqs: 48
           max_model_len: 40690
           max_num_batched_tokens: 16384
           gpu_memory_utilization: 0.9
           kv_cache_memory_bytes: 4G
         env:
-          VLLM_LOG_LEVEL: DEBUG
+          VLLM_LOGGING_LEVEL: INFO
           HCCL_OP_EXPANSION_MODE: AIV
           HCCL_BUFFSIZE: 1024
           PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
@@ -83,7 +84,7 @@ scenarios:
           ASCEND_BUFFER_POOL: "4:8"
           VLLM_ASCEND_BALANCE_SCHEDULING: 0
           LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages:/usr/local/lib:${LD_LIBRARY_PATH:-}"
-          MOONCAKE_CONFIG_PATH: "/home/personal/zhujingru/MCS/MiniMax-M2.7/scripts/mooncake.json"
+          MOONCAKE_CONFIG_PATH: /shared-volume/mooncake.json
           PYTHONHASHSEED: 0
           ACL_OP_INIT_MODE: 1
         system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
