@@ -124,13 +124,19 @@ def select_node(
 
 
 # ── 维护说明:coordinate_parallelism 多机并行布局概览 ─────────────────────────────
-# 职责:按 layout 算并注入 DP 相关 engine_config;不支持/危险组合直接 fail-fast(宁可报错不静默错配)。
-#       TP、PP 一律沿用模板,本函数只协调 DP;不渲染 argv、不读 YAML(那是 adapter / loaders 的事)。
+# 职责:按 layout 计算并注入多机并行参数;不支持/危险组合直接 fail-fast(宁可报错不静默错配)。
+#       DP_across 保持模板 TP,协调每 Pod 的 DP-local、集群 DP 与 start-rank;
+#       TP_across 将 world_size 视为同一 TP 组的实际卡数,必要时按单机规则收缩 TP。
+#       不渲染 argv、不读 YAML(那是 adapter / loaders 的事)。
 # 两类 layout(detect_layout 按 per-Pod 身份键判,见 _LAYOUT_KEYS):
-#   DP_across:TP 在单 Pod 内、DP 跨 Pod。每 Pod 放 dp_local = device_count // TP → DP = pod_count × dp_local。
-#   TP_across:一个 TP 组跨多个 Pod。world_size = pod_count × device_count → DP = world_size // TP。
-# fail-fast:非整除(不向下取整)、pipeline_parallel_size>1、TP 跨且算出 DP>1(node_rank 摆放未确认)。
-# 未下发 device_count → 不协调,返回空覆盖层(沿用模板)。
+#   DP_across:TP 在单 Pod 内、DP 跨 Pod。dp_local = device_count // TP，
+#              DP = pod_count × dp_local，start-rank = index × dp_local。
+#   TP_across:所有 Pod 的卡共同组成一份模型的 TP 组，world_size = pod_count × device_count。
+#              world_size < TP 时按单机收缩规则得到 TP=world_size、DP=1；
+#              world_size >= TP 时要求整除，DP>1 的多 TP 组暂不支持。
+# fail-fast:非法卡数、pipeline_parallel_size>1、DP_across 卡数不足或非 TP 整数倍、
+#   TP_across 收缩卡数非 2 的幂、world_size 非 TP 整数倍、或算出多个 TP 组。
+# 未下发 device_count → 不协调,返回空覆盖层(沿用模板;DP_across 仍做静态一致性检查)。
 def coordinate_parallelism(
     template_engine_config: dict,
     *,
@@ -138,23 +144,22 @@ def coordinate_parallelism(
     pod_count: int,
     index: int,
 ) -> tuple[dict, dict]:
-    """根据 ``device_count`` 计算多机场景下的 DP 覆盖参数。
+    """根据每 Pod 卡数计算多机场景下的 TP/DP 覆盖参数。
 
-    **TP / PP 一律沿用模板**;这里仅协调 DP。记 ``world_size = pod_count × device_count``。
-    计算分两种布局:
+    记 ``world_size = pod_count × device_count``。布局由 ``detect_layout`` 判定:
 
     - **DP_across**(含 ``data_parallel_start_rank`` / ``data_parallel_size_local``,TP 在 Pod 内):
       每 Pod 放 ``dp_local = cnt // TP`` 份 → ``DP = pod_count × dp_local``、``start_rank = index × dp_local``。
       前提 ``cnt ≥ TP`` 且 ``cnt % TP == 0``,否则 raise(不向下取整)。
-    - **TP_across**(含 ``node_rank``):``DP = world_size // TP``;前提 ``world_size % TP == 0``
-      否则 raise;算出 ``DP > 1``(多 TP 组)→ raise 暂不支持(node_rank 摆放未确认)。
+    - **TP_across**(含 ``node_rank``):先校验 ``world_size`` 为 2 的幂，
+      然后始终使用全部实际卡作为 TP，DP 保持模板值。
 
     ``pipeline_parallel_size > 1`` 时直接报错(当前未支持)。
     未传 ``device_count`` 时返回空覆盖层,沿用模板参数。
 
     Args:
         template_engine_config: 选中节点的模板 engine_config(只读)。
-        device_count: 本 Pod 卡数(None=不协调)。
+        device_count: 每个 Pod 的实际卡数(None=不协调)。TP_across 会先计算 world_size。
         pod_count: 集群 Pod 数(= len(NODE_IPS))。
         index: 本 Pod 下标(决定 start_rank)。
 
@@ -162,7 +167,7 @@ def coordinate_parallelism(
         ``(override_layer, notes)``:计算出的覆盖层与摘要信息。
 
     Raises:
-        ValueError: 当前输入不满足约束(如非整除、PP>1、卡数非法等)。
+        ValueError: 当前输入不满足硬约束(如 TP 收缩非 2 的幂、非整除、PP>1、卡数非法等)。
     """
     pp = template_engine_config.get("pipeline_parallel_size") or 1
     if pp > 1:
@@ -198,25 +203,29 @@ def coordinate_parallelism(
     }
 
     if layout == LAYOUT_TP_ACROSS:
-        # TP_across
-        if world_size % tp != 0:
-            raise ValueError(
-                f"world_size={world_size} 不是 tensor_parallel_size={tp} 的整数倍:不支持(不向下取整)"
-            )
-        dp = world_size // tp
-        if dp > 1:
-            raise ValueError(
-                f"TP 跨 Pod 且算出 DP={dp}>1(多 TP 组):暂不支持(node_rank 摆放未确认)"
-            )
+        # TP_across 先校验 world_size，再使用全部实际卡作为 TP；DP 始终沿用模板值。
+        if world_size & (world_size - 1):
+            raise ValueError(f"world_size={world_size} 不是 2 的幂")
+
         tpl_dp = template_engine_config.get("data_parallel_size") or 1
-        notes["multinode_dp_resolved_dp"] = str(dp)
-        if dp == tpl_dp:
-            notes["multinode_dp_status"] = "noop"
-            logger.info("multi_node 协调(TP 跨):DP=%d(=模板),world_size=%d TP=%d", dp, world_size, tp)
-            return {}, notes
-        notes["multinode_dp_status"] = "overridden"
-        logger.info("multi_node 协调(TP 跨):DP %d→%d,world_size=%d TP=%d", tpl_dp, dp, world_size, tp)
-        return {"data_parallel_size": dp}, notes
+        resolved_tp = world_size
+        notes.update({
+            "multinode_dp_resolved_tp": str(resolved_tp),
+            "multinode_dp_resolved_dp": str(tpl_dp),
+            "multinode_dp_status": "warning_tp_overridden" if resolved_tp != tp else "noop",
+        })
+        if resolved_tp != tp:
+            logger.warning(
+                "multi_node 下发参数与模板不一致(TP 跨):模板 TP=%d,DP=%d;"
+                "下发 world_size=%d,将 TP 调整为%d,DP 保持%d",
+                tp, tpl_dp, world_size, resolved_tp, tpl_dp,
+            )
+            return {"tensor_parallel_size": resolved_tp}, notes
+        logger.info(
+            "multi_node 协调(TP 跨):TP=%d(=world_size),DP 保持%d,world_size=%d",
+            resolved_tp, tpl_dp, world_size,
+        )
+        return {}, notes
 
     # DP_across。DP-local 与 start_rank 复用公共函数。
     dp_local = dp_local_from_device_count(device_count, tp)

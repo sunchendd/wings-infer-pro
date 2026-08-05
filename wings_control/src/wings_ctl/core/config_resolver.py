@@ -552,6 +552,8 @@ def _resolve_multi_node(
     rank_ip: str | None,
     node_ips: List[str] | None,
     master_ip: str | None,
+    hardware: HardwareContext | None = None,
+    weights_path: Any = None,
     strategy_env_layer: dict | None = None,
     strategy_feature_inject_overrides: dict | None = None,
 ) -> tuple[
@@ -627,6 +629,15 @@ def _resolve_multi_node(
         # 注入路径:选本 Pod 节点 + DP 调整 + 占位注入,升顶层可执行。
         sel = select_node(pod_count, rank_ip=rank_ip, node_ips=node_ips, master_ip=master_ip)
         spec = node_specs[sel.index]
+        if device_count is not None and detect_layout(spec.engine_config) == LAYOUT_TP_ACROSS:
+            if hardware is None:
+                raise ValueError("TP 跨机收缩需要硬件上下文以执行显存校验")
+            _preflight_shrink_gate(
+                spec.engine_config,
+                pod_count * device_count,
+                hardware,
+                weights_path,
+            )
         dp_override, dp_notes = coordinate_parallelism(
             spec.engine_config, device_count=device_count, pod_count=pod_count, index=sel.index,
         )
@@ -702,16 +713,18 @@ def _preflight_shrink_gate(
     hardware: HardwareContext,
     weights_path: Any,
 ) -> None:
-    """单机 TP 收缩的前置校验:仅当 ``cnt < 模板 TP`` 时触发。
+    """TP 收缩的前置校验:仅当 ``cnt < 模板 TP`` 时触发。
 
-    在 ``device_count_transform`` 真正收缩之前跑,防"把装不下的模型缩了 TP 硬跑":
-    过**显存硬闸**(``cnt × gpu_mem ≥ 1.5 × weight_bytes``,裸 gpu_mem 无 util)+ **heads 守卫**
-    (``num_attention_heads % cnt == 0``,config 读不到则 warn-skip)。``cnt ≥ TP``(不收缩)直接返回,
-    不读 gpu_mem/权重(仅收缩场景触发,非收缩部署零影响)。
+    在并行策略实际收缩 TP 之前运行，防止把装不下的模型缩小 TP 后直接启动:
+    通过**显存硬闸**(``cnt × gpu_mem ≥ 1.5 × weight_bytes``,裸 gpu_mem 无 util)
+    和 **heads 守卫**(``num_attention_heads % cnt == 0``,config 读不到则 warn-skip)。
+    ``cnt ≥ TP``(不收缩)直接返回，不读取 gpu_mem/权重；``cnt`` 可以是单机卡数，
+    也可以是 TP 跨 Pod 场景的全局 ``world_size``。
 
     Args:
         scenario_engine_config: 选定模板 engine_config(读 ``tensor_parallel_size``)。
-        device_count: MaaS 下发卡数(None=不触发)。
+        device_count: 实际参与 TP 的卡数；单机为本机卡数，多机 TP-across 为全局卡数
+            (``pod_count × 每 Pod 卡数``)，None 表示不触发。
         hardware: 硬件上下文(读 ``gpu_mem_gb``,来自 hardware_family 的 _<N>G 后缀)。
         weights_path: 模型权重目录(``--model-path``;读 weight_bytes / num_attention_heads)。
 
@@ -727,7 +740,7 @@ def _preflight_shrink_gate(
     gpu_mem_gb = hardware.gpu_mem_gb
     if gpu_mem_gb is None:
         raise ValueError(
-            "单机 TP 收缩(device-count<TP)需前置显存闸,但 hardware_family 无 _<N>G 显存后缀、"
+            "TP 收缩(device-count<TP)需前置显存闸,但 hardware_family 无 _<N>G 显存后缀、"
             "拿不到单卡显存(gpu_mem);请在 hardware_family 带上单卡显存,如 h20_96G。"
         )
     if not weights_path:
@@ -742,7 +755,7 @@ def _preflight_shrink_gate(
             f"TP 收缩到 {device_count} 无法切分(收缩守卫);请调整卡数或用 direct_vllm_serve。"
         )
     logger.info(
-        "单机 TP 收缩前置闸通过:cnt=%d gpu_mem=%dG weight_bytes=%d",
+        "TP 收缩前置闸通过:cnt=%d gpu_mem=%dG weight_bytes=%d",
         device_count, int(gpu_mem_gb), weight_bytes,
     )
 
@@ -915,6 +928,8 @@ def _resolve_platform_fallback(
                 rank_ip=rank_ip,
                 node_ips=node_ips,
                 master_ip=master_ip,
+                hardware=hardware,
+                weights_path=weights_path,
                 strategy_env_layer=strategy_env_layer,
                 strategy_feature_inject_overrides=strategy_feature_inject_overrides,
             ),
@@ -1183,6 +1198,8 @@ def resolve_config(
                 rank_ip=rank_ip,
                 node_ips=node_ips,
                 master_ip=master_ip,
+                hardware=hardware,
+                weights_path=weights_path,
                 strategy_env_layer=strategy_env_layer,
                 strategy_feature_inject_overrides=strategy_feature_inject_overrides,
             )
