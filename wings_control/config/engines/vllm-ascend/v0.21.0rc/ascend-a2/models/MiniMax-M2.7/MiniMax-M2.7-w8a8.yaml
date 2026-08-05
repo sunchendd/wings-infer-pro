@@ -82,7 +82,7 @@ scenarios:
           ASCEND_BUFFER_POOL: "4:8"
           VLLM_ASCEND_BALANCE_SCHEDULING: 0
           LD_LIBRARY_PATH: "/usr/local/Ascend/ascend-toolkit/latest/python/site-packages:/usr/local/lib:${LD_LIBRARY_PATH:-}"
-          MOONCAKE_CONFIG_PATH: "/home/personal/zhujingru/MCS/MiniMax-M2.7/scripts/mooncake.json"
+          MOONCAKE_CONFIG_PATH: /shared-volume/mooncake.json
           PYTHONHASHSEED: 0
           ACL_OP_INIT_MODE: 1
         system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
