@@ -9,8 +9,6 @@ from __future__ import annotations
 
 import types
 
-import pytest
-
 from wings_ctl.accel import smart_accel
 from wings_ctl.accel.smart_accel import (
     AccelResult,
