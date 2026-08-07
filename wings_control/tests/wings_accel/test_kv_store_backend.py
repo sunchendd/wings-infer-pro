@@ -66,9 +66,13 @@ def memcache_block():
 
 
 def lmcache_ascend_block():
-    """ascend lmcache 单 scheme(LMCacheAscendConnectorV1Dynamic + module_path;方法三,纯 cpu/env,无 files)。"""
+    """ascend lmcache 单 scheme(LMCacheAscendConnectorV1Dynamic + module_path;方法三,纯 cpu/env,无 daemon)。
+
+    name=cpu(cpu 介质,走三选一;不起独立服务,无 start_kv_serve.sh)。与原生 OffloadingConnector
+    同为 cpu 介质的内嵌 connector,只是 connector 不同 + 带 kv_connector_module_path。
+    """
     return [{
-        "name": "lmcache",
+        "name": "cpu",
         "cli_params": {"kv_transfer_config": {
             "kv_connector": "LMCacheAscendConnectorV1Dynamic", "kv_role": "kv_both",
             "kv_connector_module_path": "lmcache_ascend.integration.vllm.lmcache_ascend_connector_v1",
@@ -79,18 +83,22 @@ def lmcache_ascend_block():
 
 
 def test_lmcache_ascend_backend_routes_by_connector():
-    """LMCacheAscendConnectorV1Dynamic 被 _find_backend_scheme 识别 → memory_on 时路由命中(纯 env,无 files/daemon)。"""
+    """LMCacheAscendConnectorV1Dynamic(无 daemon)走三选一 cpu → 完整渲染 cli_params(connector+module_path)+ envs。
+
+    daemon 判定(2026-08-06):无 start_kv_serve.sh → 走三选一按 name 选 cpu scheme。
+    三选一 cpu 完整渲染 cli_params/envs/packages,与 backend 路径渲染能力一致(仅不起 daemon)。
+    """
     ctx = make_ctx(memory_capacity_gb=8, gpu_count=4)
     cfg = SmartKVCacheConfig(enabled=True, memory_offload_enabled=True, memory_offload_size_mode="8")
     out = smart_kv_offload_expander(cfg, lmcache_ascend_block(), ctx)
-    assert out.scheme == "lmcache"
+    assert out.scheme == "cpu"  # 三选一按 name=cpu 选(无 daemon 不走 backend)
     kt = out.engine_params.engine_config["kv_transfer_config"]
     assert kt["kv_connector"] == "LMCacheAscendConnectorV1Dynamic"
     assert kt["kv_connector_module_path"] == "lmcache_ascend.integration.vllm.lmcache_ascend_connector_v1"
     # envs 透传
     assert out.engine_params.env["LMCACHE_LOCAL_CPU"] == "True"
     assert out.engine_params.env["LMCACHE_MAX_LOCAL_CPU_SIZE"] == "40"
-    # 无 files → 无 pre_serve / daemon
+    # 无 daemon → 无 pre_serve / daemon
     assert out.pre_serve == [] and out.pre_serve_master == []
 
 
@@ -131,6 +139,9 @@ def test_client_scope_file_routes_to_pre_serve_client(monkeypatch, tmp_path):
             "kv_connector_extra_config": {"lookup_rpc_port": "1", "backend": "mooncake"}}},
         "envs": {},
         "files": [
+            # 必须含 start_kv_serve.sh 才能走 backend 路径(daemon 判定);否则落三选一
+            {"path": "start_kv_serve.sh", "mode": "0755", "scope": "master",
+             "content": "mooncake_master --port 50088\n"},
             {"path": "worker_only.conf", "scope": "client",
              "content": "local_hostname = {rank_ip}\nmaster = {master_ip}\n"},
             {"path": "shared.conf", "scope": "all", "content": "ip = {rank_ip}\n"},
