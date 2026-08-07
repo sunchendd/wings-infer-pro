@@ -32,13 +32,21 @@ scenarios:
           version: "0.22.0"
           tensor_parallel_size: 4
           data_parallel_size: 2
-smart_accel:
-  kv_offload:
-    - name: cpu
-      cli_params:
-        kv_transfer_config:
-          kv_connector: OffloadingConnector
-          kv_role: kv_both
+smart_accel:                   # scenario 嵌套结构(对齐 wings_control scenarios,§1.1)
+  standalone:                  # test 默认 topology=None → 路由到 standalone.strategies.single_node
+    source_ref: "test#standalone"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        kv_offload:
+          - name: cpu
+            cli_params:
+              kv_transfer_config:
+                kv_connector: OffloadingConnector
+                kv_role: kv_both
 """
 
 

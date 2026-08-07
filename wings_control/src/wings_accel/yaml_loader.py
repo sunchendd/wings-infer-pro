@@ -4,12 +4,15 @@ YAML 加载器 — 从模型 YAML 构建 SmartAccelInput。
 解析以下标签:
 - model: 模型元数据(model_id / name / architecture)
 - hardware_profile: 硬件配置(gpu_type / gpu_count)
-- smart_accel: smart_accel 块本体(嵌入 SmartAccelInput.smart_accel 供 func_smart_accel 展开)
+- smart_accel: smart_accel 块本体(scenario 嵌套结构,按 topology 路由出对应子块后嵌入
+  SmartAccelInput.smart_accel 供 func_smart_accel 展开;详见 smart-yaml.md §1)
 - scenarios.{topology}.strategies.{name}.engine_config: 引擎配置(读取 name/version/TP/DP,可选)
 
 重要关键点:
 - smart_accel 精确取自命中的模型 YAML,不合并 default_model.yaml。
-- 自动探测只根据 smart_accel 子块决定默认开关;CLI/LoadFlags 可覆盖用户意图。
+- smart_accel 按 topology 路由(standalone/multi_node/pd_disaggregation.{prefill,decode});
+  路由后的扁平子块嵌入 SmartAccelInput.smart_accel,expander 不感知 scenario。
+- 自动探测只根据路由后子块决定默认开关;CLI/LoadFlags 可覆盖用户意图。
 - KV offload 介质用 kv_offload[].name == cpu/disk 探测;主开关开但无介质时不兜底。
 - 找不到 YAML 返回 None,由 api.resolve_smart_accel_from_config 调用方按 no-op 处理。
 - config_root/smart-accel 优先,否则回落到随包分发的 smart-accel 配置。
@@ -104,6 +107,7 @@ class LoadFlags:
     decoding_model_path: str = ""
     sparse_level: str = "performance_first"
     pd_role: Optional[str] = None
+    topology: Optional[str] = None # 部署拓扑(standalone/multi_node/pd_prefill/pd_decode);透传 DeploymentMode.topology
     # KV_MEM_OFFLOAD_SIZE: "auto" 或数值字符串(GB);空字符串/false 表示不显式下发。
     memory_offload_size_mode: str = ""
     pod_available_memory_gb: int = 0
@@ -127,6 +131,131 @@ def _has_backend_scheme(kv_offload_block) -> bool:
         if (kt.get("kv_connector") or "") in ("AscendStoreConnector", "LMCacheAscendConnectorV1Dynamic"):
             return True
     return False
+
+
+def _route_smart_accel_block(smart_accel: Any, topology: Optional[str]) -> Dict[str, Any]:
+    """按部署拓扑路由 smart_accel 到对应 scenario 子块(对齐 wings_control scenarios 结构)。
+
+    新结构(对齐 wings_control,smart-yaml.md §1.1):smart_accel 按 scenario 拆块,每块带
+    ``source_ref`` + ``match`` + ``strategies``;PD 分离用 ``strategies.{name}.nodes[].role`` 区分 P/D:
+
+        smart_accel:
+          standalone:
+            source_ref: "..."
+            match: { distributed: false, pd_role: null }
+            strategies:
+              single_node:
+                default_strategy: true
+                decoding: [...]
+                sparse: [...]
+                kv_offload: [...]
+          multi_node:
+            source_ref / match / strategies.multi_node_dp.{default + 特性}
+          pd_disaggregation:
+            source_ref: "..."
+            match: { distributed: true, pd_role: null }
+            strategies:
+              pd_cluster:
+                default_strategy: true
+                nodes:
+                  - role: prefill        # P 节点特性(如仅 sparse)
+                    sparse: [...]
+                  - role: decode         # D 节点特性(如 decoding + sparse)
+                    decoding: [...]
+                    sparse: [...]
+
+    路由规则(对齐 wings-control Topology 枚举 + ``_select_scenario`` 语义):
+      - ``topology == "multi_node"`` → ``smart_accel.multi_node.strategies.{default}``
+      - ``topology == "pd_prefill"`` → ``smart_accel.pd_disaggregation.strategies.{default}.nodes[role=prefill]``
+      - ``topology == "pd_decode"``  → ``smart_accel.pd_disaggregation.strategies.{default}.nodes[role=decode]``
+      - 其它(含 None / "standalone" / 未知)→ ``smart_accel.standalone.strategies.{default}`` 兜底
+
+    策略选取(对齐 wings_control ``_select_scenario``):取 ``default_strategy: true`` 的首个 strategy;
+    无则取首个 strategy;strategies 为空 → 该 scenario 块整体视为缺省(空 dict)。
+
+    PD role 匹配:``nodes[].role`` 取 ``prefill`` / ``p`` 匹配 pd_prefill,``decode`` / ``d`` 匹配 pd_decode
+    (大小写不敏感);无匹配 role → 空 dict(该 role 不产出)。
+
+    路由后的扁平 dict(含 decoding/kv_offload/sparse/custom_features 键)直接塞进
+    ``SmartAccelInput.smart_accel``,expander 不再感知 scenario / topology / role。
+
+    ``match`` 字段**仅作者自检**(wings_control 自己也不读 match,只用 topology 选键名),loader 不消费。
+
+    Args:
+        smart_accel: yaml 顶层 smart_accel dict(scenario 嵌套结构)。
+        topology: 当前部署拓扑(standalone/multi_node/pd_prefill/pd_decode);None 按 standalone 兜底。
+
+    Returns:
+        路由后的扁平子块 dict(含 decoding/kv_offload/sparse/custom_features 等键);缺失 → 空 dict。
+    """
+    if not isinstance(smart_accel, dict) or not smart_accel:
+        return {}
+    topo = (topology or "standalone").strip().lower()
+    if topo == "multi_node":
+        return _extract_strategy_features(smart_accel.get("multi_node"))
+    if topo in ("pd_prefill", "pd_decode"):
+        pd = smart_accel.get("pd_disaggregation")
+        strategy = _select_default_strategy(pd) if isinstance(pd, dict) else None
+        if not isinstance(strategy, dict):
+            return {}
+        nodes = strategy.get("nodes")
+        if not isinstance(nodes, list):
+            return {}
+        wanted = "prefill" if topo == "pd_prefill" else "decode"
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            role = str(node.get("role") or "").strip().lower()
+            if role in (wanted, wanted[0]):  # prefill/p, decode/d
+                # 返回该 node 的特性键(排除 role/index 等节点元数据)
+                return {k: v for k, v in node.items() if k not in ("role", "index")}
+        return {}
+    # standalone / None / 未知 → standalone 兜底
+    return _extract_strategy_features(smart_accel.get("standalone"))
+
+
+def _select_default_strategy(scenario: Any) -> Optional[Dict[str, Any]]:
+    """从 scenario 块的 strategies 里选默认策略(对齐 wings_control ``_select_scenario``)。
+
+    选取规则:取 ``default_strategy: true`` 的首个;无则取首个 strategy;strategies 为空 → None。
+
+    Args:
+        scenario: scenario 块 dict(含 strategies 键)。
+
+    Returns:
+        选中的 strategy dict;无 → None。
+    """
+    if not isinstance(scenario, dict):
+        return None
+    strategies = scenario.get("strategies")
+    if not isinstance(strategies, dict) or not strategies:
+        return None
+    # 优先 default_strategy: true
+    for _name, strat in strategies.items():
+        if isinstance(strat, dict) and strat.get("default_strategy") is True:
+            return strat
+    # 无 default → 取首个
+    for _name, strat in strategies.items():
+        if isinstance(strat, dict):
+            return strat
+    return None
+
+
+def _extract_strategy_features(scenario: Any) -> Dict[str, Any]:
+    """从 scenario 块提取默认 strategy 的特性键(decoding/sparse/kv_offload/custom_features)。
+
+    Args:
+        scenario: scenario 块 dict(含 strategies 键)。
+
+    Returns:
+        默认 strategy 里的特性键 dict;scenario 缺 strategies → 空 dict。
+    """
+    strategy = _select_default_strategy(scenario)
+    if not isinstance(strategy, dict):
+        return {}
+    # 只取特性键(排除 default_strategy 等策略元数据)
+    feature_keys = ("decoding", "sparse", "kv_offload", "custom_features")
+    return {k: strategy[k] for k in feature_keys if k in strategy}
 
 
 def load_smart_accel_from_yaml(
@@ -161,7 +290,11 @@ def load_smart_accel_from_yaml(
     hw = model_dict.get("hardware_profile", {})
 
     # 精确读取 smart-accel model yaml 的 smart_accel(不合并 default_model.yaml —— 需求1)
-    smart_accel = model_dict.get("smart_accel", {}) or {}
+    smart_accel_raw = model_dict.get("smart_accel", {}) or {}
+    # 按 topology 路由到对应 scenario 子块(scenario 嵌套结构):
+    #   standalone/multi_node → 顶层对应键;pd_prefill/pd_decode → pd_disaggregation.{prefill,decode}
+    #   缺键即该场景不产出;子块缺失 → 空 dict(全特性不产出)
+    smart_accel = _route_smart_accel_block(smart_accel_raw, flags.topology)
 
     hardware_config = SystemConfig(
         gpu_type=hw.get("gpu_type", "A100"),
@@ -235,7 +368,7 @@ def load_smart_accel_from_yaml(
         hardware_config=hardware_config,
         model_config=model_config,
         engine_config=engine_config,
-        deployment_mode=DeploymentMode(pd_role=flags.pd_role),
+        deployment_mode=DeploymentMode(pd_role=flags.pd_role, topology=flags.topology),
         smart_decoding_config=SmartDecodingConfig(
             enabled=flags.decoding_enabled,
             model_path=flags.decoding_model_path,

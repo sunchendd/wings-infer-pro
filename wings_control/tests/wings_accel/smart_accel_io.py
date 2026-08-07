@@ -705,10 +705,17 @@ def _coverage(files: List[Path], features: List[str]) -> Dict[str, Dict[str, Lis
 
     decoding/sparse 变体标签 = scheme.name;offload 标签 = _offload_classifier(connector+backend)。
     一条路径声明多个变体(GLM-5.2 同时有 mooncake+memcache)时,分别计入各自变体。
+
+    scenario 嵌套结构(对齐 wings_control,§1.1)后,smart_accel 按 topology 路由;此处直接读 yaml
+    不经 loader,故取 standalone.strategies.{default} 子块(最全,包含资产支持的所有特性)统计覆盖。
     """
+    from wings_accel.yaml_loader import _extract_strategy_features
     cov: Dict[str, Dict[str, List[Path]]] = {f: {} for f in features}
     for yf in files:
-        sa = (_load_yaml(yf) or {}).get("smart_accel") or {}
+        sa_raw = (_load_yaml(yf) or {}).get("smart_accel") or {}
+        # scenario 嵌套(wings_control 风格):取 standalone.strategies.{default} 的特性
+        standalone = sa_raw.get("standalone") if isinstance(sa_raw, dict) else None
+        sa = _extract_strategy_features(standalone) if standalone else {}
         if "decoding" in cov:
             for m in _as_scheme_list(sa.get("decoding")):
                 cov["decoding"].setdefault(str(m.get("name") or "?"), []).append(yf)

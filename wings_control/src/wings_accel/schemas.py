@@ -171,6 +171,39 @@ class DeploymentMode:
     """
 
     pd_role: Optional[str] = None # PD 角色;MaaS 必填 `PD_ROLE`(enum:P/D/none;none 表示非 PD 分离)
+    topology: Optional[str] = None # 部署拓扑(standalone/multi_node/pd_prefill/pd_decode);对齐 wings-control Topology 枚举值。yaml_loader 据此把 smart_accel 路由到对应 scenario 子块(见 smart-yaml.md §1)
+
+
+def scheme_supports_deploy_mode(scheme: Dict[str, Any], topology: Optional[str]) -> bool:
+    """判断 scheme 是否声明支持当前部署拓扑。
+
+    .. deprecated:: scenario 重构(2026-08-06)
+        scenario 嵌套结构后,smart_accel 按 topology 路由在 ``yaml_loader._route_smart_accel_block``
+        完成,expander 拿到的就是当前 scenario 的扁平子块,**不再需要 scheme 级 deploy_modes 过滤**。
+        本函数仅作向后兼容保留(避免破坏外部 import / 旧调用),新代码不应再调用;新结构 yaml 也不应
+        再声明 ``deploy_modes`` 字段。
+
+    旧语义(scheme 级 deploy_modes 白名单):
+
+      - scheme 的 ``deploy_modes`` 字段(可选 list)声明该 scheme 产出的部署模式白名单:
+        未声明(缺字段/None/空)→ 支持所有模式;声明了 → 仅当 ``topology`` 在白名单内才支持。
+      - ``deploy_modes`` 取值对齐 wings-control ``Topology`` 枚举:
+        ``standalone`` / ``multi_node`` / ``pd_prefill`` / ``pd_decode``。
+
+    Args:
+        scheme: decoding/kv_offload/sparse 的单个方案 dict。
+        topology: 当前部署拓扑(``DeploymentMode.topology``);None 时按 standalone 兜底。
+
+    Returns:
+        True 表示 scheme 可在当前拓扑产出。
+    """
+    modes = scheme.get("deploy_modes")
+    if not modes:  # None / [] / 缺字段 → 全场景
+        return True
+    if not isinstance(modes, list):
+        return True  # 非法写法兜底放行(避免误拦全部资产);由 yaml schema 校验把关
+    current = topology or "standalone"
+    return current in modes
 
 
 @dataclass

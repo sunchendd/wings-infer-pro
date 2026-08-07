@@ -1,39 +1,33 @@
-# SmartAccel 三特性全覆盖测试模型 (基于 production YAML 真实配置)
-# 演示 cli_params 渲染的 4 种值类型:bool(--flag) / scalar(--k v) / dict(--k '<json>') / envs
 upstream_sources:
-  - id: smart_accel_all_features_test
-    kind: manual
-    date_updated: 2026-06-23
-    note: "Production-derived test fixture. Covers all 6 speculative decoding methods + CPU/Disk KV offloading + custom features."
-
+- id: smart_accel_all_features_test
+  kind: manual
+  date_updated: 2026-06-23
+  note: Production-derived test fixture. Covers all 6 speculative decoding methods + CPU/Disk KV offloading + custom features.
 model:
   name: SmartAccel-Demo-AllFeatures
   slug: smart-accel-demo-all
   provider: SmartAccel
-  description: "Demonstrates all 6 speculative decoding methods + sparse + CPU/Disk KV offloading + custom features."
-  model_id: ""
+  description: Demonstrates all 6 speculative decoding methods + sparse + CPU/Disk KV offloading + custom features.
+  model_id: ''
   architecture: dense
   parameter_count: 0B
   active_parameters: 0B
   context_length: 8192
   vram_minimum_gb: 0
-  tasks: [text]
-  min_engine_version: "0.22.0"
+  tasks:
+  - text
+  min_engine_version: 0.22.0
   date_updated: 2026-06-23
-  # docs/48:variant_name 精确优先(= MaaS 下发的完整 --model-name),name_pattern 家族兜底。
-  # 解析时 --model-name 与 variant_name 精确相等即命中(确定性),零命中再回退 name_pattern。
-  variant_name: "SmartAccel-Demo-AllFeatures"
+  variant_name: SmartAccel-Demo-AllFeatures
   match:
-    - name_pattern: "(?i)smart[-.]?accel[-.]?demo"
-
+  - name_pattern: (?i)smart[-.]?accel[-.]?demo
 hardware_profile:
   gpu_count: 2
   vram_gb: 48
   multi_node: false
-
 scenarios:
   standalone:
-    source_ref: "smart_accel_all_features_test#standalone"
+    source_ref: smart_accel_all_features_test#standalone
     match:
       distributed: false
       pd_role: null
@@ -48,294 +42,649 @@ scenarios:
           gpu_memory_utilization: 0.85
           trust_remote_code: true
         env:
-          DEMO_ENV: "smart_accel_all"
+          DEMO_ENV: smart_accel_all
 
+# SmartAccel 加速配置(scenario 嵌套结构,对齐 wings_control scenarios,见 smart-yaml.md §1.1)。
+# 每 scenario 带 source_ref(来源追溯)+ match(作者自检,loader 不读)+ strategies;
+# PD 分离用 strategies.pd_cluster.nodes[].role 区分 P/D。
+# 缺特性键即该场景不产出:P 节点(standalone.prefill)仅 sparse;D 节点(decode)有 decoding+sparse;
+# PD 两节点都不声明 kv_offload(不支持卸载)。standalone/multi_node 三特性全声明。
+# topology 路由(yaml_loader._route_smart_accel_block):
+#   standalone/None → standalone.strategies.single_node
+#   multi_node      → multi_node.strategies.multi_node_dp
+#   pd_prefill      → pd_disaggregation.strategies.pd_cluster.nodes[role=prefill]
+#   pd_decode       → pd_disaggregation.strategies.pd_cluster.nodes[role=decode]
 smart_accel:
-  # ────────────────────────────────────────────
-  # SmartDecoding: 6 种投机解码方案
-  #   model_based(requires_model_path):draft_model/eagle3/eagle/dflash
-  #   no_model(架构无关 fallback):mtp/suffix
-  # 草稿路径以 $path 令牌声明,由 PlaceholderContext 注入(不再硬编码注入键)。
-  # ────────────────────────────────────────────
-  decoding:
-      # [model_based] draft_model — Gemma 4 系列
-      - name: draft_model
-        requires_model_path: true
-        cli_params:
-          speculative_config:
-            model: $path
-            num_speculative_tokens: 4
-        envs: {}
-      # [model_based] eagle3 — Kimi K2.x 系列;enforce_eager 进 speculative_config JSON
-      - name: eagle3
-        requires_model_path: true
-        cli_params:
-          speculative_config:
-            method: eagle3
-            model: $path
-            num_speculative_tokens: 3
-            enforce_eager: true          # bool true -> 进 speculative_config JSON
-        envs:
-          EARS_TOLERANCE: "0.3"
-      # [no_model] MTP — DeepSeek/Qwen/Step 系列
-      - name: mtp
-        priority: 4
-        cli_params:
-          speculative_config:
-            method: mtp
-            num_speculative_tokens: 2
-        envs:
-          EARS_TOLERANCE: "0.3"
-      # [model_based] eagle — Mistral 系列
-      - name: eagle
-        requires_model_path: true
-        cli_params:
-          speculative_config:
-            model: $path
-            method: eagle
-            num_speculative_tokens: 3
-            max_model_len: "65536"
-        envs: {}
-      # [model_based] dflash — Poolside Laguna 系列
-      - name: dflash
-        requires_model_path: true
-        cli_params:
-          speculative_config:
-            model: $path
-            method: dflash
-            num_speculative_tokens: 7
-        envs: {}
-      # [no_model] suffix — 通用 fallback
-      - name: suffix
-        priority: 1
-        cli_params:
-          speculative_config:
-            method: suffix
-            num_speculative_tokens: 16
-            suffix_lookup_max_len: 3
-        envs: {}
-
-  # ────────────────────────────────────────────
-  # SmartSparse:performance_first / accuracy_first
-  # hf_overrides(dict -> --hf-overrides '<json>');kv_cache_dtype(scalar -> --kv-cache-dtype fp8)
-  # ────────────────────────────────────────────
-  sparse:
-    - name: performance_first
-      cli_params:
-        hf_overrides:
-          use_index_cache: true
-          index_topk_freq: 4
-        kv_cache_dtype: fp8
-      envs: {}
-    - name: accuracy_first
-      cli_params:
-        hf_overrides:
-          use_index_cache: true
-          index_topk_freq: 8
-        kv_cache_dtype: fp8
-      envs: {}
-
-  # ────────────────────────────────────────────
-  # KVOffload:cpu / disk 介质;容量占位符 {mem_gb_to_blocks} / {memory_capacity_gb} /
-  # {disk_capacity_gb} / {disk_path} 由 PlaceholderContext 解析。
-  # cpu+disk 同时启用 → 深合并 kv_transfer_config 后渲染一次 --kv-transfer-config。
-  #
-  # CPU 卸载 key 随后端分叉(见 /root/kv-offload-config-guide.md):
-  #   - NPU(vllm-ascend):num_cpu_blocks(块数),占位符 {mem_gb_to_blocks}(GiB→块,÷16 KiB);
-  #     另需 spec_name: NPUOffloadingSpec + spec_module_path: vllm_ascend.kv_offload.npu。
-  #   - 原生 vLLM(CUDA)≥v0.14:cpu_bytes_to_use(字节,全 TP 合计),占位符 {mem_gb_to_bytes}
-  #     (GiB→字节);原生侧静默忽略 num_cpu_blocks,故 CUDA 配置必须用 cpu_bytes_to_use。
-  #   生产 CUDA 资产见 smart-accel/vllm/v0.23.0/rtx_pro_5000_*/Qwen3.5-397B-A17B/*.yaml。
-  # ────────────────────────────────────────────
-  kv_offload:
-    # ─ cpu:纯 CPU 卸载,vllm 原生 OffloadingConnector。不需要 lmcache 包 / 不生成 lmcache_config.yaml。
-    #   下式为 NPU(vllm-ascend)形态:num_cpu_blocks(块数)。CUDA 形态见本块下方注释样例。
-    - name: cpu
-      cli_params:
-        kv_transfer_config:
-          kv_connector: OffloadingConnector
-          kv_role: kv_both
-          kv_connector_extra_config:
-            num_cpu_blocks: "{mem_gb_to_blocks}"
-      envs:
-        KV_OFFLOAD_CPU_ONLY: "1"
-    # ─ CUDA 注释样例(原生 vLLM ≥v0.14):同一 cpu scheme,把 num_cpu_blocks 换成 cpu_bytes_to_use
-    #   (字节)。原生 vLLM 只读 cpu_bytes_to_use、静默忽略 num_cpu_blocks;故 NVIDIA/CUDA 部署
-    #   必须用下式(生产资产 Qwen3.5 即此形态)。复制时取消注释、覆盖上面的 cpu scheme 即可。
-    #   - name: cpu
-    #     cli_params:
-    #       kv_transfer_config:
-    #         kv_connector: OffloadingConnector
-    #         kv_role: kv_both
-    #         kv_connector_extra_config:
-    #           cpu_bytes_to_use: "{mem_gb_to_bytes}"   # GiB → 字节(如 40 GiB → 42949672960)
-    #     envs:
-    #       KV_OFFLOAD_CPU_ONLY: "1"
-  
-    # ─ mooncake(cpu 介质下的 KV 内存卸载工具,与 native cpu 同为 name=cpu;隔离测试覆盖)。
-    #   生产中 native cpu / mooncake / memcache 三选一(组合态首个 AscendStoreConnector 胜出);
-    #   本 fixture 三者并存仅供隔离测试覆盖。AscendStoreConnector + backend:mooncake。
-    #   files:mooncake.json(scope=all,${RANK_IP} 运行时 envsubst 展开)+ start_kv_serve.sh
-    #   (仅 master bash &,起 mooncake_master,不监听端口);master 必加 LD_LIBRARY_PATH。
-    #   global_segment_size 用 {= memory_capacity_gb // gpu_count}GB 就地算。
-    - name: cpu
-      cli_params:
-        kv_transfer_config:
-          kv_connector: AscendStoreConnector
-          kv_role: kv_both
-          kv_load_failure_policy: recompute
-          kv_connector_extra_config:
-            lookup_rpc_port: "1"
-            backend: mooncake
-      envs:
-        MOONCAKE_CONFIG_PATH: /shared-volume/mooncake.json
-        LD_LIBRARY_PATH: "/usr/local/lib:${LD_LIBRARY_PATH:-}"
-      files:
-        - path: mooncake.json
-          mode: "0755"
-          scope: all
-          content: |
-            {
-              "local_hostname": "{rank_ip}",
-              "metadata_server": "P2PHANDSHAKE",
-              "protocol": "ascend",
-              "device_name": "",
-              "master_server_address": "{master_ip}:50088",
-              "global_segment_size": "{= memory_capacity_gb // gpu_count}GB",
-              "preferred_segment": false,
-              "prefer_alloc_in_same_node": true
-            }
-        - path: start_kv_serve.sh
-          mode: "0755"
-          scope: master
-          content: |
-            #!/usr/bin/env bash
-            # mooncake_master daemon(仅 master 起;framework 自动 bash <path> &)。
-            mooncake_master --port 50088 \
-                --eviction_high_watermark_ratio 0.9 \
-                --eviction_ratio 0.1 \
-                --default_kv_lease_ttl 11000
-
-    # ─ memcache(cpu 介质下的 KV 内存卸载工具,与 native cpu / mooncake 同为 name=cpu;隔离测试覆盖)。
-    #   AscendStoreConnector + backend:memcache(纯内存)。files:mmc_local.conf(所有节点)/
-    #   mmc_meta.conf(仅 master)/ start_kv_serve.sh(daemon,仅 master 起 MetaService)。
-    #   dram.size 用 {= expr} 就地算;protocol device_rdma、端口 15000/16000 全字面量。
-    - name: cpu
-      cli_params:
-        kv_transfer_config:
-          kv_connector: AscendStoreConnector
-          kv_role: kv_both
-          kv_load_failure_policy: recompute
-          kv_connector_extra_config:
-            lookup_rpc_port: "0"
-            backend: memcache
-      envs:
-        MMC_META_CONFIG_PATH: /shared-volume/mmc_meta.conf
-        MMC_LOCAL_CONFIG_PATH: /shared-volume/mmc_local.conf
-      files:
-        - path: mmc_local.conf
-          mode: "0755"
-          scope: all
-          content: |
-            ock.mmc.meta_service_url = tcp://{master_ip}:15000
-            ock.mmc.local_service.config_store_url = tcp://{rank_ip}:16000
-            ock.mmc.log_level = info
-            ock.mmc.local_service.world_size = 256
-            ock.mmc.local_service.protocol = device_rdma
-            ock.mmc.local_service.dram.size = {= memory_capacity_gb // gpu_count}GB
-        - path: mmc_meta.conf
-          mode: "0755"
-          scope: master
-          content: |
-            ock.mmc.meta_service_url = tcp://{master_ip}:15000
-            ock.mmc.meta_service.config_store_url = tcp://{rank_ip}:16000
-            ock.mmc.log_level = info
-        - path: start_kv_serve.sh
-          mode: "0755"
-          content: |
-            #!/usr/bin/env bash
-            # MetaService daemon(仅 master 起;framework 自动 bash <path> &)。
-            python -c "from memcache_hybrid import MetaService; MetaService.main()"
-
-
-    # ─ disk:纯磁盘卸载,lmcache(LMCacheConnectorV1),仅 disk tier。
-    #   需 lmcache 包 + lmcache_config.yaml(yaml 为容量真相源;env/cli 为补充)。
-    #   配置文件经通用 files: 块落盘;指向文件的 env(LMCACHE_CONFIG_FILE)在 envs: 字面量声明。
-    - name: disk
-      packages:
-        lmcache: v0.3.15
-      cli_params:
-        kv_transfer_config:
-          kv_connector: LMCacheConnectorV1
-          kv_role: kv_both
-          kv_connector_extra_config:
-            local_disk: "{disk_path}"
-            max_local_disk_size: "{disk_capacity_gb}"
-      envs:
-        LMCACHE_CONFIG_FILE: /shared-volume/lmcache_config.yaml   # 指向 files 写出的文件(字面量)
-        LMCACHE_LOCAL_DISK: "{disk_path}"
-        LMCACHE_MAX_LOCAL_DISK_SIZE: "{disk_capacity_gb}"
-      files:                              # 通用写文件:写至 SHARED_VOLUME_PATH/<name>(任意文本 + 占位符)
-        - name: lmcache_config.yaml
-          mode: "0755"
-          content: |
-            chunk_size: 256               # yaml 暴露配置,默认 256(MaaS 不传)
-            local_disk: {disk_path}
-            max_local_disk_size: {disk_capacity_gb}
-            extra_config:
-              wings:
-                qat:                      # disk 命中即给;enabled 随 qat 开关
-                  enabled: {qat_enabled}
-                  module_name: kv_agent
-                  instance_num: {qat_device_count}
-                  loss_level: {qat_compression_level}
-                  log_enabled: 1
-
-    # ─ cpu_disk:CPU+磁盘卸载,lmcache 同时管 cpu tier(local_cpu)+ disk tier。
-    #   与 disk 的差异:开 local_cpu + 给内存大小(max_local_cpu_size)。
-    - name: cpu_disk
-      packages:
-        lmcache: v0.3.15
-      cli_params:
-        kv_transfer_config:
-          kv_connector: LMCacheConnectorV1
-          kv_role: kv_both
-          kv_connector_extra_config:
-            local_cpu: true
-            max_local_cpu_size: "{memory_capacity_gb}"
-            local_disk: "{disk_path}"
-            max_local_disk_size: "{disk_capacity_gb}"
-      envs:
-        LMCACHE_CONFIG_FILE: /shared-volume/lmcache_config.yaml
-        LMCACHE_LOCAL_CPU: "true"
-        LMCACHE_MAX_LOCAL_CPU_SIZE: "{memory_capacity_gb}"
-        LMCACHE_LOCAL_DISK: "{disk_path}"
-        LMCACHE_MAX_LOCAL_DISK_SIZE: "{disk_capacity_gb}"
-      files:
-        - name: lmcache_config.yaml
-          mode: "0755"
-          content: |
-            chunk_size: 256
-            local_cpu: true
-            max_local_cpu_size: {memory_capacity_gb}
-            local_disk: {disk_path}
-            max_local_disk_size: {disk_capacity_gb}
-            extra_config:
-              wings:
-                qat:
-                  enabled: {qat_enabled}
-                  module_name: kv_agent
-                  instance_num: {qat_device_count}
-                  loss_level: {qat_compression_level}
-                  log_enabled: 1
-
-
-  # ────────────────────────────────────────────
-  # CustomFeatures:与三大特性正交的自由启动参数;仅在 decoding/kv/sparse 至少一项产出时启用。
-  # mamba_cache(bool true -> --mamba-cache)。
-  # ────────────────────────────────────────────
-  custom_features:
-    - name: Mamba prefix caching
-      cli_params:
-        mamba_cache: true
-      envs: {}
+  standalone:
+    source_ref: smart_accel_all_features_test#standalone
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+        - name: draft_model
+          requires_model_path: true
+          cli_params:
+            speculative_config:
+              model: $path
+              num_speculative_tokens: 4
+          envs: {}
+        - name: eagle3
+          requires_model_path: true
+          draft_arch:
+          - eagle3
+          cli_params:
+            speculative_config:
+              method: eagle3
+              model: $path
+              num_speculative_tokens: 3
+              enforce_eager: true
+          envs:
+            EARS_TOLERANCE: '0.3'
+        - name: mtp
+          cli_params:
+            speculative_config:
+              method: mtp
+              num_speculative_tokens: 2
+          envs:
+            EARS_TOLERANCE: '0.3'
+        - name: eagle
+          requires_model_path: true
+          draft_arch:
+          - eagle
+          cli_params:
+            speculative_config:
+              model: $path
+              method: eagle
+              num_speculative_tokens: 3
+              max_model_len: '65536'
+          envs: {}
+        - name: dflash
+          requires_model_path: true
+          draft_arch:
+          - dflash
+          cli_params:
+            speculative_config:
+              model: $path
+              method: dflash
+              num_speculative_tokens: 7
+          envs: {}
+        - name: suffix
+          cli_params:
+            speculative_config:
+              method: suffix
+              num_speculative_tokens: 16
+              suffix_lookup_max_len: 3
+          envs: {}
+        sparse:
+        - name: performance_first
+          cli_params:
+            hf_overrides:
+              use_index_cache: true
+              index_topk_freq: 4
+            kv_cache_dtype: fp8
+          envs: {}
+        - name: accuracy_first
+          cli_params:
+            hf_overrides:
+              use_index_cache: true
+              index_topk_freq: 8
+            kv_cache_dtype: fp8
+          envs: {}
+        kv_offload:
+        - name: cpu
+          cli_params:
+            kv_transfer_config:
+              kv_connector: OffloadingConnector
+              kv_role: kv_both
+              kv_connector_extra_config:
+                num_cpu_blocks: '{mem_gb_to_blocks}'
+          envs:
+            KV_OFFLOAD_CPU_ONLY: '1'
+        - name: cpu
+          cli_params:
+            kv_transfer_config:
+              kv_connector: AscendStoreConnector
+              kv_role: kv_both
+              kv_load_failure_policy: recompute
+              kv_connector_extra_config:
+                lookup_rpc_port: '1'
+                backend: mooncake
+          envs:
+            MOONCAKE_CONFIG_PATH: /shared-volume/mooncake.json
+            LD_LIBRARY_PATH: /usr/local/lib:${LD_LIBRARY_PATH:-}
+          files:
+          - path: mooncake.json
+            mode: '0755'
+            scope: all
+            content: |
+              {
+                "local_hostname": "{rank_ip}",
+                "metadata_server": "P2PHANDSHAKE",
+                "protocol": "ascend",
+                "device_name": "",
+                "master_server_address": "{master_ip}:50088",
+                "global_segment_size": "{= memory_capacity_gb // gpu_count}GB",
+                "preferred_segment": false,
+                "prefer_alloc_in_same_node": true
+              }
+          - path: start_kv_serve.sh
+            mode: '0755'
+            scope: master
+            content: |
+              #!/usr/bin/env bash
+              # mooncake_master daemon(仅 master 起;framework 自动 bash <path> &)。
+              mooncake_master --port 50088 \
+                  --eviction_high_watermark_ratio 0.9 \
+                  --eviction_ratio 0.1 \
+                  --default_kv_lease_ttl 11000
+        - name: cpu
+          cli_params:
+            kv_transfer_config:
+              kv_connector: AscendStoreConnector
+              kv_role: kv_both
+              kv_load_failure_policy: recompute
+              kv_connector_extra_config:
+                lookup_rpc_port: '0'
+                backend: memcache
+          envs:
+            MMC_META_CONFIG_PATH: /shared-volume/mmc_meta.conf
+            MMC_LOCAL_CONFIG_PATH: /shared-volume/mmc_local.conf
+          files:
+          - path: mmc_local.conf
+            mode: '0755'
+            scope: all
+            content: |
+              ock.mmc.meta_service_url = tcp://{master_ip}:15000
+              ock.mmc.local_service.config_store_url = tcp://{rank_ip}:16000
+              ock.mmc.log_level = info
+              ock.mmc.local_service.world_size = 256
+              ock.mmc.local_service.protocol = device_rdma
+              ock.mmc.local_service.dram.size = {= memory_capacity_gb // gpu_count}GB
+          - path: mmc_meta.conf
+            mode: '0755'
+            scope: master
+            content: |
+              ock.mmc.meta_service_url = tcp://{master_ip}:15000
+              ock.mmc.meta_service.config_store_url = tcp://{rank_ip}:16000
+              ock.mmc.log_level = info
+          - path: start_kv_serve.sh
+            mode: '0755'
+            content: |
+              #!/usr/bin/env bash
+              # MetaService daemon(仅 master 起;framework 自动 bash <path> &)。
+              python -c "from memcache_hybrid import MetaService; MetaService.main()"
+        # ─ lmcache_mp(vllm lmcache MP 分离部署,方法四;独立 lmcache server,类似 mooncake daemon 模式)。
+        #   connector=LMCacheMPConnector + cli_params.kv_connector_extra_config(lmcache.mp.port/mq_timeout);
+        #   独立 lmcache server 由 files.start_kv_serve.sh 声明(仅 master bash &,不监听端口)。
+        #   server 的 L1 配置(--l1-size-gb 等)是 server flag,放 daemon 脚本 content;不进 cli_params。
+        #   测试 lmcache 命中时建议关 prefix caching(--no-enable-prefix-caching),避免 prefix cache 干扰。
+        - name: cpu
+          packages:
+            lmcache: v0.3.15
+          cli_params:
+            kv_transfer_config:
+              kv_connector: LMCacheMPConnector
+              kv_role: kv_both
+              kv_connector_extra_config:
+                lmcache.mp.port: 5555
+                lmcache.mp.mq_timeout: 300
+          envs: {}
+          files:
+          - path: start_kv_serve.sh
+            mode: '0755'
+            scope: master
+            content: |
+              #!/usr/bin/env bash
+              # lmcache server daemon(仅 master 起;framework 自动 bash <path> &)。
+              # L1/L2 容量、worker 数、eviction 策略等都是 server flag,按部署调参。
+              lmcache server \
+                --port 5555 \
+                --http-port 7899 \
+                --l1-size-gb {memory_capacity_gb} \
+                --l1-init-size-gb 20 \
+                --max-gpu-workers 1 \
+                --max-cpu-workers 8 \
+                --chunk-size 1024 \
+                --l1-align-bytes 16384 \
+                --eviction-trigger-watermark 0.85 \
+                --eviction-ratio 0.10 \
+                --eviction-policy LRU \
+                --supported-transfer-mode lmcache_driven
+        - name: disk
+          packages:
+            lmcache: v0.3.15
+          cli_params:
+            kv_transfer_config:
+              kv_connector: LMCacheConnectorV1
+              kv_role: kv_both
+              kv_connector_extra_config:
+                local_disk: '{disk_path}'
+                max_local_disk_size: '{disk_capacity_gb}'
+          envs:
+            LMCACHE_CONFIG_FILE: /shared-volume/lmcache_config.yaml
+            LMCACHE_LOCAL_DISK: '{disk_path}'
+            LMCACHE_MAX_LOCAL_DISK_SIZE: '{disk_capacity_gb}'
+          files:
+          - name: lmcache_config.yaml
+            mode: '0755'
+            content: |
+              chunk_size: 256               # yaml 暴露配置,默认 256(MaaS 不传)
+              local_disk: {disk_path}
+              max_local_disk_size: {disk_capacity_gb}
+              extra_config:
+                wings:
+                  qat:                      # disk 命中即给;enabled 随 qat 开关
+                    enabled: {qat_enabled}
+                    module_name: kv_agent
+                    instance_num: {qat_device_count}
+                    loss_level: {qat_compression_level}
+                    log_enabled: 1
+        - name: cpu_disk
+          packages:
+            lmcache: v0.3.15
+          cli_params:
+            kv_transfer_config:
+              kv_connector: LMCacheConnectorV1
+              kv_role: kv_both
+              kv_connector_extra_config:
+                local_cpu: true
+                max_local_cpu_size: '{memory_capacity_gb}'
+                local_disk: '{disk_path}'
+                max_local_disk_size: '{disk_capacity_gb}'
+          envs:
+            LMCACHE_CONFIG_FILE: /shared-volume/lmcache_config.yaml
+            LMCACHE_LOCAL_CPU: 'true'
+            LMCACHE_MAX_LOCAL_CPU_SIZE: '{memory_capacity_gb}'
+            LMCACHE_LOCAL_DISK: '{disk_path}'
+            LMCACHE_MAX_LOCAL_DISK_SIZE: '{disk_capacity_gb}'
+          files:
+          - name: lmcache_config.yaml
+            mode: '0755'
+            content: |
+              chunk_size: 256
+              local_cpu: true
+              max_local_cpu_size: {memory_capacity_gb}
+              local_disk: {disk_path}
+              max_local_disk_size: {disk_capacity_gb}
+              extra_config:
+                wings:
+                  qat:
+                    enabled: {qat_enabled}
+                    module_name: kv_agent
+                    instance_num: {qat_device_count}
+                    loss_level: {qat_compression_level}
+                    log_enabled: 1
+        custom_features:
+        - name: Mamba prefix caching
+          cli_params:
+            mamba_cache: true
+          envs: {}
+  multi_node:
+    source_ref: smart_accel_all_features_test#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dp:
+        default_strategy: true
+        decoding:
+        - name: draft_model
+          requires_model_path: true
+          cli_params:
+            speculative_config:
+              model: $path
+              num_speculative_tokens: 4
+          envs: {}
+        - name: eagle3
+          requires_model_path: true
+          draft_arch:
+          - eagle3
+          cli_params:
+            speculative_config:
+              method: eagle3
+              model: $path
+              num_speculative_tokens: 3
+              enforce_eager: true
+          envs:
+            EARS_TOLERANCE: '0.3'
+        - name: mtp
+          cli_params:
+            speculative_config:
+              method: mtp
+              num_speculative_tokens: 2
+          envs:
+            EARS_TOLERANCE: '0.3'
+        - name: eagle
+          requires_model_path: true
+          draft_arch:
+          - eagle
+          cli_params:
+            speculative_config:
+              model: $path
+              method: eagle
+              num_speculative_tokens: 3
+              max_model_len: '65536'
+          envs: {}
+        - name: dflash
+          requires_model_path: true
+          draft_arch:
+          - dflash
+          cli_params:
+            speculative_config:
+              model: $path
+              method: dflash
+              num_speculative_tokens: 7
+          envs: {}
+        - name: suffix
+          cli_params:
+            speculative_config:
+              method: suffix
+              num_speculative_tokens: 16
+              suffix_lookup_max_len: 3
+          envs: {}
+        sparse:
+        - name: performance_first
+          cli_params:
+            hf_overrides:
+              use_index_cache: true
+              index_topk_freq: 4
+            kv_cache_dtype: fp8
+          envs: {}
+        - name: accuracy_first
+          cli_params:
+            hf_overrides:
+              use_index_cache: true
+              index_topk_freq: 8
+            kv_cache_dtype: fp8
+          envs: {}
+        kv_offload:
+        - name: cpu
+          cli_params:
+            kv_transfer_config:
+              kv_connector: OffloadingConnector
+              kv_role: kv_both
+              kv_connector_extra_config:
+                num_cpu_blocks: '{mem_gb_to_blocks}'
+          envs:
+            KV_OFFLOAD_CPU_ONLY: '1'
+        - name: cpu
+          cli_params:
+            kv_transfer_config:
+              kv_connector: AscendStoreConnector
+              kv_role: kv_both
+              kv_load_failure_policy: recompute
+              kv_connector_extra_config:
+                lookup_rpc_port: '1'
+                backend: mooncake
+          envs:
+            MOONCAKE_CONFIG_PATH: /shared-volume/mooncake.json
+            LD_LIBRARY_PATH: /usr/local/lib:${LD_LIBRARY_PATH:-}
+          files:
+          - path: mooncake.json
+            mode: '0755'
+            scope: all
+            content: |
+              {
+                "local_hostname": "{rank_ip}",
+                "metadata_server": "P2PHANDSHAKE",
+                "protocol": "ascend",
+                "device_name": "",
+                "master_server_address": "{master_ip}:50088",
+                "global_segment_size": "{= memory_capacity_gb // gpu_count}GB",
+                "preferred_segment": false,
+                "prefer_alloc_in_same_node": true
+              }
+          - path: start_kv_serve.sh
+            mode: '0755'
+            scope: master
+            content: |
+              #!/usr/bin/env bash
+              # mooncake_master daemon(仅 master 起;framework 自动 bash <path> &)。
+              mooncake_master --port 50088 \
+                  --eviction_high_watermark_ratio 0.9 \
+                  --eviction_ratio 0.1 \
+                  --default_kv_lease_ttl 11000
+        - name: cpu
+          cli_params:
+            kv_transfer_config:
+              kv_connector: AscendStoreConnector
+              kv_role: kv_both
+              kv_load_failure_policy: recompute
+              kv_connector_extra_config:
+                lookup_rpc_port: '0'
+                backend: memcache
+          envs:
+            MMC_META_CONFIG_PATH: /shared-volume/mmc_meta.conf
+            MMC_LOCAL_CONFIG_PATH: /shared-volume/mmc_local.conf
+          files:
+          - path: mmc_local.conf
+            mode: '0755'
+            scope: all
+            content: |
+              ock.mmc.meta_service_url = tcp://{master_ip}:15000
+              ock.mmc.local_service.config_store_url = tcp://{rank_ip}:16000
+              ock.mmc.log_level = info
+              ock.mmc.local_service.world_size = 256
+              ock.mmc.local_service.protocol = device_rdma
+              ock.mmc.local_service.dram.size = {= memory_capacity_gb // gpu_count}GB
+          - path: mmc_meta.conf
+            mode: '0755'
+            scope: master
+            content: |
+              ock.mmc.meta_service_url = tcp://{master_ip}:15000
+              ock.mmc.meta_service.config_store_url = tcp://{rank_ip}:16000
+              ock.mmc.log_level = info
+          - path: start_kv_serve.sh
+            mode: '0755'
+            content: |
+              #!/usr/bin/env bash
+              # MetaService daemon(仅 master 起;framework 自动 bash <path> &)。
+              python -c "from memcache_hybrid import MetaService; MetaService.main()"
+        # ─ lmcache_mp(vllm lmcache MP 分离部署,方法四;独立 lmcache server,类似 mooncake daemon 模式)。
+        #   connector=LMCacheMPConnector + cli_params.kv_connector_extra_config(lmcache.mp.port/mq_timeout);
+        #   独立 lmcache server 由 files.start_kv_serve.sh 声明(仅 master bash &,不监听端口)。
+        #   server 的 L1 配置(--l1-size-gb 等)是 server flag,放 daemon 脚本 content;不进 cli_params。
+        #   测试 lmcache 命中时建议关 prefix caching(--no-enable-prefix-caching),避免 prefix cache 干扰。
+        - name: cpu
+          packages:
+            lmcache: v0.3.15
+          cli_params:
+            kv_transfer_config:
+              kv_connector: LMCacheMPConnector
+              kv_role: kv_both
+              kv_connector_extra_config:
+                lmcache.mp.port: 5555
+                lmcache.mp.mq_timeout: 300
+          envs: {}
+          files:
+          - path: start_kv_serve.sh
+            mode: '0755'
+            scope: master
+            content: |
+              #!/usr/bin/env bash
+              # lmcache server daemon(仅 master 起;framework 自动 bash <path> &)。
+              # L1/L2 容量、worker 数、eviction 策略等都是 server flag,按部署调参。
+              lmcache server \
+                --port 5555 \
+                --http-port 7899 \
+                --l1-size-gb {memory_capacity_gb} \
+                --l1-init-size-gb {= memory_capacity_gb // 5} \
+                --max-gpu-workers 1 \
+                --max-cpu-workers 8 \
+                --chunk-size 1024 \
+                --l1-align-bytes 16384 \
+                --eviction-trigger-watermark 0.85 \
+                --eviction-ratio 0.10 \
+                --eviction-policy LRU \
+                --supported-transfer-mode lmcache_driven
+        - name: disk
+          packages:
+            lmcache: v0.3.15
+          cli_params:
+            kv_transfer_config:
+              kv_connector: LMCacheConnectorV1
+              kv_role: kv_both
+              kv_connector_extra_config:
+                local_disk: '{disk_path}'
+                max_local_disk_size: '{disk_capacity_gb}'
+          envs:
+            LMCACHE_CONFIG_FILE: /shared-volume/lmcache_config.yaml
+            LMCACHE_LOCAL_DISK: '{disk_path}'
+            LMCACHE_MAX_LOCAL_DISK_SIZE: '{disk_capacity_gb}'
+          files:
+          - name: lmcache_config.yaml
+            mode: '0755'
+            content: |
+              chunk_size: 256               # yaml 暴露配置,默认 256(MaaS 不传)
+              local_disk: {disk_path}
+              max_local_disk_size: {disk_capacity_gb}
+              extra_config:
+                wings:
+                  qat:                      # disk 命中即给;enabled 随 qat 开关
+                    enabled: {qat_enabled}
+                    module_name: kv_agent
+                    instance_num: {qat_device_count}
+                    loss_level: {qat_compression_level}
+                    log_enabled: 1
+        - name: cpu_disk
+          packages:
+            lmcache: v0.3.15
+          cli_params:
+            kv_transfer_config:
+              kv_connector: LMCacheConnectorV1
+              kv_role: kv_both
+              kv_connector_extra_config:
+                local_cpu: true
+                max_local_cpu_size: '{memory_capacity_gb}'
+                local_disk: '{disk_path}'
+                max_local_disk_size: '{disk_capacity_gb}'
+          envs:
+            LMCACHE_CONFIG_FILE: /shared-volume/lmcache_config.yaml
+            LMCACHE_LOCAL_CPU: 'true'
+            LMCACHE_MAX_LOCAL_CPU_SIZE: '{memory_capacity_gb}'
+            LMCACHE_LOCAL_DISK: '{disk_path}'
+            LMCACHE_MAX_LOCAL_DISK_SIZE: '{disk_capacity_gb}'
+          files:
+          - name: lmcache_config.yaml
+            mode: '0755'
+            content: |
+              chunk_size: 256
+              local_cpu: true
+              max_local_cpu_size: {memory_capacity_gb}
+              local_disk: {disk_path}
+              max_local_disk_size: {disk_capacity_gb}
+              extra_config:
+                wings:
+                  qat:
+                    enabled: {qat_enabled}
+                    module_name: kv_agent
+                    instance_num: {qat_device_count}
+                    loss_level: {qat_compression_level}
+                    log_enabled: 1
+        custom_features:
+        - name: Mamba prefix caching
+          cli_params:
+            mamba_cache: true
+          envs: {}
+  pd_disaggregation:
+    source_ref: smart_accel_all_features_test#pd_cluster
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        default_strategy: true
+        nodes:
+        - role: prefill
+          index: 0
+          sparse:
+          - name: performance_first
+            cli_params:
+              hf_overrides:
+                use_index_cache: true
+                index_topk_freq: 4
+              kv_cache_dtype: fp8
+            envs: {}
+          - name: accuracy_first
+            cli_params:
+              hf_overrides:
+                use_index_cache: true
+                index_topk_freq: 8
+              kv_cache_dtype: fp8
+            envs: {}
+        - role: decode
+          index: 0
+          decoding:
+          - name: draft_model
+            requires_model_path: true
+            cli_params:
+              speculative_config:
+                model: $path
+                num_speculative_tokens: 4
+            envs: {}
+          - name: eagle3
+            requires_model_path: true
+            draft_arch:
+            - eagle3
+            cli_params:
+              speculative_config:
+                method: eagle3
+                model: $path
+                num_speculative_tokens: 3
+                enforce_eager: true
+            envs:
+              EARS_TOLERANCE: '0.3'
+          - name: mtp
+            cli_params:
+              speculative_config:
+                method: mtp
+                num_speculative_tokens: 2
+            envs:
+              EARS_TOLERANCE: '0.3'
+          - name: eagle
+            requires_model_path: true
+            draft_arch:
+            - eagle
+            cli_params:
+              speculative_config:
+                model: $path
+                method: eagle
+                num_speculative_tokens: 3
+                max_model_len: '65536'
+            envs: {}
+          - name: dflash
+            requires_model_path: true
+            draft_arch:
+            - dflash
+            cli_params:
+              speculative_config:
+                model: $path
+                method: dflash
+                num_speculative_tokens: 7
+            envs: {}
+          - name: suffix
+            cli_params:
+              speculative_config:
+                method: suffix
+                num_speculative_tokens: 16
+                suffix_lookup_max_len: 3
+            envs: {}
+          sparse:
+          - name: performance_first
+            cli_params:
+              hf_overrides:
+                use_index_cache: true
+                index_topk_freq: 4
+              kv_cache_dtype: fp8
+            envs: {}
+          - name: accuracy_first
+            cli_params:
+              hf_overrides:
+                use_index_cache: true
+                index_topk_freq: 8
+              kv_cache_dtype: fp8
+            envs: {}

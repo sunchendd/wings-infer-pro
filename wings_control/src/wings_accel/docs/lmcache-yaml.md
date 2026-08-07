@@ -8,29 +8,34 @@
 
 ## 0. 一句话结论
 
-**是。** 方法一 / 方法二 / 方法三在「渲染态」三段模板(`kv_transfer_config` + `envs` + `files`)上**完全统一**,差异只在**字段取值**(connector、介质、`extra_config` 内容、是否带 `files`)。
+**是。** 方法一 / 方法二 / 方法三 / 方法四在「渲染态」三段模板(`kv_transfer_config` + `envs` + `files`)上**完全统一**,差异只在**字段取值**(connector、介质、`extra_config` 内容、是否带 `files`、是否要独立 server daemon)。
 
 - **方法一 ≡ 方法二**:两者都是 vllm 侧 `LMCacheConnectorV1` + disk,只是 `extra_config` 不同(qat vs `use_odirect`)。方法二就是方法一换掉 qat 那段、再补几个 env。**100% 同形**。
 - **方法三同形但异质**:仍是同一三段模板,但 ① connector 换成 vllm-ascend 的 `LMCacheAscendConnectorV1Dynamic`,② 多一个 `kv_connector_module_path`,③ 纯 cpu(无 disk),④ 原始写法是纯 env(无 `files`)。
+- **方法四同形但独立 server**:仍是同一三段模板,但 ① connector 换成 vllm 的 `LMCacheMPConnector`,② 纯 cpu(连独立 lmcache server,L1 GPU/CPU 分层),③ `kv_connector_extra_config.lmcache.mp.{port,mq_timeout}` 给 connector 参数,④ lmcache server 配置(`--port`/`--l1-size-gb`/`--eviction-policy` 等 server flag)走 `files.start_kv_serve.sh` daemon(仅 master `bash &`,同 mooncake),⑤ 不需要 `LMCACHE_CONFIG_FILE`(server 自带配置)。
 
-> 分层提醒(重要):本文说的「归一」指**渲染态**(`--kv-transfer-config` 展开后的 YAML)。在 **smart-accel scheme 层**,当前 `disk`/`cpu_disk` expander 硬编码产出 `kv_connector: LMCacheConnectorV1`(`smart-yaml.md` §4);方法三的 ascend 动态 connector 在 scheme 层**需要平台支持**(渲染态能表达,scheme 层待确认,见 §5.3)。
+> 分层提醒(重要):本文说的「归一」指**渲染态**(`--kv-transfer-config` 展开后的 YAML)。在 **smart-accel scheme 层**:方法一/二走 `disk`/`cpu_disk` scheme(`LMCacheConnectorV1`);方法三不起服务(无 daemon,走三选一 cpu);方法四起独立 server(有 daemon ``start_kv_serve.sh``,走 backend)——判定信号是「有没有 daemon 脚本」,见 §5.3。
 
 ---
 
-## 1. 三种用法对照(来自哪、是什么)
+## 1. 四种用法对照(来自哪、是什么)
 
-| 维度 | 方法一 | 方法二 | 方法三 |
-|---|---|---|---|
-| 来源 | smart-accel `disk` scheme(`smart-yaml.md` §8.2) | vllm upstream recipe | vllm-ascend upstream recipe |
-| 引擎 | vllm | vllm | **vllm-ascend** |
-| `kv_connector` | `LMCacheConnectorV1` | `LMCacheConnectorV1` | **`LMCacheAscendConnectorV1Dynamic`** |
-| `kv_connector_module_path` | — | — | **`lmcache_ascend.integration.vllm.lmcache_ascend_connector_v1`** |
-| `kv_role` | `kv_both` | `kv_both` | `kv_both` |
-| 其它 kv_transfer 字段 | — | `kv_load_failure_policy: recompute` | — |
-| 介质 | disk(+qat) | disk | **cpu**(无 disk) |
-| `extra_config` 内容 | `wings.qat` | `use_odirect: true` | `save_only_first_rank: false` |
-| 配置方式 | `files`(配置文件) | env(可转 `files`) | env |
-| 需要 `files` 块 | 是(disk) | 可选 | 否(cpu) |
+| 维度 | 方法一 | 方法二 | 方法三 | 方法四 |
+|---|---|---|---|---|
+| 来源 | smart-accel `disk` scheme(`smart-yaml.md` §8.2) | vllm upstream recipe | vllm-ascend upstream recipe | vllm lmcache MP 分离部署 |
+| 引擎 | vllm | vllm | **vllm-ascend** | vllm |
+| `kv_connector` | `LMCacheConnectorV1` | `LMCacheConnectorV1` | **`LMCacheAscendConnectorV1Dynamic`** | **`LMCacheMPConnector`** |
+| `kv_connector_module_path` | — | — | **`lmcache_ascend.integration.vllm.lmcache_ascend_connector_v1`** | — |
+| `kv_role` | `kv_both` | `kv_both` | `kv_both` | `kv_both` |
+| 其它 kv_transfer 字段 | — | `kv_load_failure_policy: recompute` | — | `kv_connector_extra_config.lmcache.mp.{port,mq_timeout}` |
+| 介质 | disk(+qat) | disk | **cpu**(无 disk) | **cpu**(连独立 server,L1 GPU/CPU 分层) |
+| `extra_config` 内容 | `wings.qat` | `use_odirect: true` | `save_only_first_rank: false` | —(server 配置走 files 脚本) |
+| 配置方式 | `files`(配置文件) | env(可转 `files`) | env | **files(daemon 脚本)** |
+| 需要 `files` 块 | 是(disk) | 可选 | 否(cpu) | **是(daemon 脚本起 lmcache server)** |
+| 独立 server daemon | 否 | 否 | 否 | **是**(`start_kv_serve.sh`,仅 master `bash &`) |
+| scheme 层支持 | `disk`/`cpu_disk` scheme | `disk`/`cpu_disk` scheme | `cpu` scheme(connector 路由) | `cpu` scheme(connector 路由,§`smart-yaml.md` §4.2) |
+
+> 方法一/二/三是「vllm 内嵌 connector」(vllm 进程内直接走 lmcache);**方法四是「独立 lmcache server + vllm 连过去」**——形态类似 ascend 的 mooncake(独立 `mooncake_master` daemon),但用 lmcache 包 + `LMCacheMPConnector`。
 
 ---
 
@@ -196,6 +201,51 @@ files:
         save_only_first_rank: false
 ```
 
+### 4.4 方法四:LMCacheMPConnector + 独立 lmcache server(vllm lmcache MP 分离部署)
+
+vllm 侧 `LMCacheMPConnector`,**纯 cpu、连独立 lmcache server(L1 GPU/CPU 分层)、daemon 起法同 mooncake**。与前三种最大的不同:**先起独立 `lmcache server`(master daemon),再起 vllm 连过去**(类似 ascend 的 `mooncake_master`)。smart-accel scheme 层已原生支持(scheme 的 ``files`` 含 ``start_kv_serve.sh`` 即被 `_find_backend_scheme` 识别为 backend),无需新代码。
+
+```yaml
+# smart-accel yaml 资产(scenario 子块里的 kv_offload;完整示例见 fixture 的 lmcache_mp 注释块)
+kv_offload:
+  - name: cpu                  # scheme name = 介质 cpu(工具由 connector 区分)
+    packages:
+      lmcache: v0.3.15
+    cli_params:
+      kv_transfer_config:
+        kv_connector: LMCacheMPConnector        # 方法四 connector
+        kv_role: kv_both
+        kv_connector_extra_config:
+          lmcache.mp.port: 5555                  # vllm 侧 connector 参数(mp 协议)
+          lmcache.mp.mq_timeout: 300
+    envs: {}                                     # server 配置走 files,不进 env
+    files:
+      - path: start_kv_serve.sh                  # daemon 脚本(框架按文件名识别,仅 master bash &)
+        mode: "0755"
+        scope: master
+        content: |
+          #!/usr/bin/env bash
+          # lmcache server daemon(L1/L2 容量、worker 数、eviction 策略都是 server flag)。
+          lmcache server \
+            --port 5555 \
+            --http-port 7899 \
+            --l1-size-gb 100 \
+            --l1-init-size-gb 20 \
+            --max-gpu-workers 1 --max-cpu-workers 8 \
+            --chunk-size 1024 \
+            --l1-align-bytes 16384 \
+            --eviction-trigger-watermark 0.85 --eviction-ratio 0.10 --eviction-policy LRU \
+            --supported-transfer-mode lmcache_driven
+```
+
+**字段归属**(别写错位置):
+- `kv_connector_extra_config.lmcache.mp.{port,mq_timeout}` → vllm 侧 connector 参数,放 `cli_params.kv_transfer_config`(随 `--kv-transfer-config` 进 vllm)。
+- `lmcache server` 的 flag(`--port`/`--l1-size-gb`/`--max-cpu-workers`/`--eviction-policy`/`--supported-transfer-mode` …)→ server 启动参数,放 `files.start_kv_serve.sh` 的 `content`;**不进 cli_params/envs**(vllm 不认这些)。
+
+**测试 lmcache 命中**:建议在该模型 engine_config 设 `no_enable_prefix_caching: true`(或 `--no-enable-prefix-caching`),避免 vllm 自带 prefix cache 干扰命中率统计。
+
+> 与方法三的区别:方法三(ascend)是 vllm-ascend 内嵌 connector(`LMCacheAscendConnectorV1Dynamic`),vllm 进程内直接卸载;方法四是独立 server 进程(`lmcache server`),vllm 通过 MP 协议连过去——L1 在 server 侧 GPU/CPU 分层,多 vllm 实例可共享。
+
 ---
 
 ## 5. 归一时必须注意的四件事
@@ -227,9 +277,17 @@ files:
 本文「归一」指**渲染态**(展开后的 YAML)。落到 smart-accel yaml 资产时:
 
 - 方法一/二 → 现有 `disk`/`cpu_disk` scheme;`kv_connector: LMCacheConnectorV1` 由资产 `cli_params` 声明、`offload.py` 透传渲染(`smart-yaml.md` §4/§8.2),**非 expander 硬编码**。
-- 方法三 → ascend 动态 connector。`offload.py::_find_backend_scheme` 已识别 `LMCacheAscendConnectorV1Dynamic`(与 `AscendStoreConnector` 同列),scheme 层**已支持**:在 yaml `kv_offload:` 声明 `name: lmcache` + cli_params(`kv_connector`/`kv_connector_module_path`)+ envs(方法三 `LMCACHE_*`),`ENABLE_KV_MEM_OFFLOAD` 时即路由命中(`_render_kv_store_scheme`)。connector/module_path 由 `cli_params` 透传,非硬编码;纯 cpu、无 `files`。
+- 方法三 → ascend 动态 connector(**不起独立服务**,无 daemon)。scheme 的 ``files`` 不含 ``start_kv_serve.sh`` → 走三选一 cpu(按 name 选)。在 yaml `kv_offload:` 声明 `name: cpu` + cli_params(`kv_connector: LMCacheAscendConnectorV1Dynamic` / `kv_connector_module_path`)+ envs(方法三 `LMCACHE_*`),`ENABLE_KV_MEM_OFFLOAD` 时三选一 cpu 完整渲染 cli_params/envs/packages(connector/module_path 由 `cli_params` 透传,非硬编码)。**注意 name 用 `cpu`(cpu 介质),不是 `lmcache`**(历史遗留错误已修)。
+- 方法四 → vllm MP connector(**起独立服务**,有 daemon)。scheme 的 ``files`` 含 ``start_kv_serve.sh`` → `_find_backend_scheme` 识别为 backend,scheme 层**已支持**:在 yaml `kv_offload:` 声明 `name: cpu` + cli_params(`kv_connector: LMCacheMPConnector` + `kv_connector_extra_config.lmcache.mp.*`)+ files(`start_kv_serve.sh` daemon),`ENABLE_KV_MEM_OFFLOAD` 时即路由命中(`_render_kv_store_scheme`),daemon 自动 master `bash &`。**daemon 判定后加新 backend connector(未来的 XXXConnector)只要声明 daemon 脚本即被识别,无需改代码**。
 
-### 5.4 写死注入项别写进 yaml
+### 5.4 方法四归一注意
+
+- **独立 server daemon**:`lmcache server` 由 `files.start_kv_serve.sh` 声明(框架按文件名识别 `start_kv_serve.sh`,仅 master `bash &`,不监听端口——同 mooncake/memcache)。server flag(`--port`/`--l1-size-gb`/`--max-cpu-workers`/`--eviction-policy` …)全在脚本 `content` 里,**不进 cli_params/envs**。
+- **vllm 侧参数**:`kv_connector_extra_config.lmcache.mp.{port,mq_timeout}` 是 connector 参数,放 `cli_params.kv_transfer_config`(随 `--kv-transfer-config` 进 vllm)。
+- **无 `LMCACHE_CONFIG_FILE`**:方法四不需要 lmcache 配置文件(server 自带配置走 flag);`envs` 通常空。
+- **测试命中关 prefix caching**:lmcache 命中率统计时建议在 engine_config 设 `no_enable_prefix-caching: true`,避免 vllm prefix cache 干扰。
+
+### 5.5 写死注入项别写进 yaml
 
 `LMCACHE_QAT_ENABLED` 仍由代码注入(值随 qat 自动 True/False),**不要**写进 `envs`(`smart-yaml.md` §5)。其余 `LMCACHE_*` 一律走 `envs:`。
 
