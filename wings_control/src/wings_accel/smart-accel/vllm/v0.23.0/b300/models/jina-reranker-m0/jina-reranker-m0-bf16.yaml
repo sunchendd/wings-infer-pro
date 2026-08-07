@@ -1,0 +1,8 @@
+# SmartAccel 加速配置(无 smart-accel 特性(embedding/reranker 模型))
+# 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
+model:
+  name: Jina Reranker m0
+  variant_name: "jina-reranker-m0-bf16"
+  match:
+    - name_pattern: "(?i)jina[-.]?reranker[-.]?m0"
+smart_accel: {}

@@ -7,40 +7,140 @@ model:
   match:
     - name_pattern: "(?i)deepseek[-.]?v4[-.]?flash"
 smart_accel:
-  decoding:
-    - name: mtp
-      cli_params:
-        speculative_config:
-          method: mtp
-          num_speculative_tokens: 1
-      envs: {}
-  sparse:
-    - name: performance_first
-      cli_params:
-        hf_overrides:
-          use_index_cache: true
-          index_topk_freq: 4
-      envs: {}
-    - name: accuracy_first
-      cli_params:
-        hf_overrides:
-          use_index_cache: true
-          index_topk_freq: 8
-      envs: {}
-  kv_offload:
-    - name: lmcache
-      cli_params:
-        kv_transfer_config:
-          kv_connector: LMCacheAscendConnectorV1Dynamic
-          kv_role: kv_both
-          kv_connector_module_path: lmcache_ascend.integration.vllm.lmcache_ascend_connector_v1
-      envs:
-        LMCACHE_TRACK_USAGE: "false"
-        LMCACHE_LOCAL_CPU: "True"
-        LMCACHE_MAX_LOCAL_CPU_SIZE: "{memory_capacity_gb}"
-        LMCACHE_LOG_LEVEL: "INFO"
-        LMCACHE_USE_LAYERWISE: "False"
-        LMCACHE_NUMA_MODE: "auto"
-        LMCACHE_CHUNK_SIZE: "1024"
-        LMCACHE_EXTRA_CONFIG: '{"save_only_first_rank": false}'
-        LMCACHE_LOOKUP_SERVER_WORKER_IDS: "{lookup_server_worker_ids}"
+  standalone:
+    source_ref: smart_accel#standalone
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+        - name: mtp
+          cli_params:
+            speculative_config:
+              method: mtp
+              num_speculative_tokens: 1
+          envs: {}
+        kv_offload:
+        - name: cpu
+          cli_params:
+            kv_transfer_config:
+              kv_connector: LMCacheAscendConnectorV1Dynamic
+              kv_role: kv_both
+              kv_connector_module_path: lmcache_ascend.integration.vllm.lmcache_ascend_connector_v1
+          envs:
+            LMCACHE_TRACK_USAGE: 'false'
+            LMCACHE_LOCAL_CPU: 'True'
+            LMCACHE_MAX_LOCAL_CPU_SIZE: '{memory_capacity_gb}'
+            LMCACHE_LOG_LEVEL: INFO
+            LMCACHE_USE_LAYERWISE: 'False'
+            LMCACHE_NUMA_MODE: auto
+            LMCACHE_CHUNK_SIZE: '1024'
+            LMCACHE_EXTRA_CONFIG: '{"save_only_first_rank": false}'
+            LMCACHE_LOOKUP_SERVER_WORKER_IDS: '{lookup_server_worker_ids}'
+        sparse:
+        - name: performance_first
+          cli_params:
+            hf_overrides:
+              use_index_cache: true
+              index_topk_freq: 4
+          envs: {}
+        - name: accuracy_first
+          cli_params:
+            hf_overrides:
+              use_index_cache: true
+              index_topk_freq: 8
+          envs: {}
+  multi_node:
+    source_ref: smart_accel#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dp:
+        default_strategy: true
+        decoding:
+        - name: mtp
+          cli_params:
+            speculative_config:
+              method: mtp
+              num_speculative_tokens: 1
+          envs: {}
+        kv_offload:
+        - name: cpu
+          cli_params:
+            kv_transfer_config:
+              kv_connector: LMCacheAscendConnectorV1Dynamic
+              kv_role: kv_both
+              kv_connector_module_path: lmcache_ascend.integration.vllm.lmcache_ascend_connector_v1
+          envs:
+            LMCACHE_TRACK_USAGE: 'false'
+            LMCACHE_LOCAL_CPU: 'True'
+            LMCACHE_MAX_LOCAL_CPU_SIZE: '{memory_capacity_gb}'
+            LMCACHE_LOG_LEVEL: INFO
+            LMCACHE_USE_LAYERWISE: 'False'
+            LMCACHE_NUMA_MODE: auto
+            LMCACHE_CHUNK_SIZE: '1024'
+            LMCACHE_EXTRA_CONFIG: '{"save_only_first_rank": false}'
+            LMCACHE_LOOKUP_SERVER_WORKER_IDS: '{lookup_server_worker_ids}'
+        sparse:
+        - name: performance_first
+          cli_params:
+            hf_overrides:
+              use_index_cache: true
+              index_topk_freq: 4
+          envs: {}
+        - name: accuracy_first
+          cli_params:
+            hf_overrides:
+              use_index_cache: true
+              index_topk_freq: 8
+          envs: {}
+  pd_disaggregation:
+    source_ref: smart_accel#pd_cluster
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        default_strategy: true
+        nodes:
+        - role: prefill
+          index: 0
+          sparse:
+          - name: performance_first
+            cli_params:
+              hf_overrides:
+                use_index_cache: true
+                index_topk_freq: 4
+            envs: {}
+          - name: accuracy_first
+            cli_params:
+              hf_overrides:
+                use_index_cache: true
+                index_topk_freq: 8
+            envs: {}
+        - role: decode
+          index: 0
+          decoding:
+          - name: mtp
+            cli_params:
+              speculative_config:
+                method: mtp
+                num_speculative_tokens: 1
+            envs: {}
+          sparse:
+          - name: performance_first
+            cli_params:
+              hf_overrides:
+                use_index_cache: true
+                index_topk_freq: 4
+            envs: {}
+          - name: accuracy_first
+            cli_params:
+              hf_overrides:
+                use_index_cache: true
+                index_topk_freq: 8
+            envs: {}

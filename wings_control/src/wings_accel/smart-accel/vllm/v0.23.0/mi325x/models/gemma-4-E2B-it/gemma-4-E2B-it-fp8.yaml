@@ -7,11 +7,55 @@ model:
   match:
     - name_pattern: "(?i)gemma[-.]?4[-.]?e2b[-.]?it"
 smart_accel:
-  decoding:
-    - name: draft_model
-      requires_model_path: true
-      cli_params:
-        speculative_config:
-          model: $path
-          num_speculative_tokens: 2
-      envs: {}
+  standalone:
+    source_ref: smart_accel#standalone
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+        - name: draft_model
+          requires_model_path: true
+          cli_params:
+            speculative_config:
+              model: $path
+              num_speculative_tokens: 2
+          envs: {}
+  multi_node:
+    source_ref: smart_accel#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dp:
+        default_strategy: true
+        decoding:
+        - name: draft_model
+          requires_model_path: true
+          cli_params:
+            speculative_config:
+              model: $path
+              num_speculative_tokens: 2
+          envs: {}
+  pd_disaggregation:
+    source_ref: smart_accel#pd_cluster
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        default_strategy: true
+        nodes:
+        - role: decode
+          index: 0
+          decoding:
+          - name: draft_model
+            requires_model_path: true
+            cli_params:
+              speculative_config:
+                model: $path
+                num_speculative_tokens: 2
+            envs: {}

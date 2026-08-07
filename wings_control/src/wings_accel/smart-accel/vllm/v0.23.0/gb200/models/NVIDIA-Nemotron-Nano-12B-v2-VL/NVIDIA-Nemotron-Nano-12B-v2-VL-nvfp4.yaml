@@ -1,0 +1,8 @@
+# SmartAccel 加速配置(无 smart-accel 特性(vision 模型))
+# 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
+model:
+  name: NVIDIA Nemotron-Nano-12B-v2-VL
+  variant_name: "NVIDIA-Nemotron-Nano-12B-v2-VL-nvfp4"
+  match:
+    - name_pattern: "(?i)nemotron[-.]?nano[-.]?12b[-.]?v2[-.]?vl"
+smart_accel: {}

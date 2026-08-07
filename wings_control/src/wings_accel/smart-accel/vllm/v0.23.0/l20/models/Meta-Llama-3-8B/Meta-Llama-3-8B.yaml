@@ -1,0 +1,8 @@
+# SmartAccel 加速配置(无 smart-accel 特性(无 spec_decoding))
+# 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
+model:
+  name: Meta-Llama-3-8B
+  variant_name: "Meta-Llama-3-8B"
+  match:
+    - name_pattern: "(?i)Meta[-.]?Llama[-.]?3[-.]?8B"
+smart_accel: {}
