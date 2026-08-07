@@ -7,12 +7,58 @@ model:
   match:
     - name_pattern: "(?i)step[-.]?3.5[-.]?flash"
 smart_accel:
-  decoding:
-    - name: step3p5_mtp
-      cli_params:
-        speculative_config:
-          method: step3p5_mtp
-          num_speculative_tokens: 1
-        hf_overrides:
-          num_nextn_predict_layers: 1
-      envs: {}
+  standalone:
+    source_ref: smart_accel#standalone
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+        - name: step3p5_mtp
+          cli_params:
+            speculative_config:
+              method: step3p5_mtp
+              num_speculative_tokens: 1
+            hf_overrides:
+              num_nextn_predict_layers: 1
+          envs: {}
+  multi_node:
+    source_ref: smart_accel#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dp:
+        default_strategy: true
+        decoding:
+        - name: step3p5_mtp
+          cli_params:
+            speculative_config:
+              method: step3p5_mtp
+              num_speculative_tokens: 1
+            hf_overrides:
+              num_nextn_predict_layers: 1
+          envs: {}
+  pd_disaggregation:
+    source_ref: smart_accel#pd_cluster
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        default_strategy: true
+        nodes:
+        - role: decode
+          index: 0
+          decoding:
+          - name: step3p5_mtp
+            cli_params:
+              speculative_config:
+                method: step3p5_mtp
+                num_speculative_tokens: 1
+              hf_overrides:
+                num_nextn_predict_layers: 1
+            envs: {}

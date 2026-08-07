@@ -1,0 +1,67 @@
+# SmartAccel 加速配置(decoding=eagle3)
+# 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
+# 由开源 recipe(features.spec_decoding on vllm side)推导;ascend config 暂无 spec_decoding,按总规则1以开源 recipe 为基线补 decoding。
+model:
+  name: gpt-oss-120b
+  variant_name: "gpt-oss-120b-BF16"
+  match:
+    - name_pattern: "(?i)gpt[-.]?oss[-.]?120b"
+smart_accel:
+  standalone:
+    source_ref: smart_accel#standalone
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+        - name: eagle3
+          requires_model_path: true
+          cli_params:
+            speculative_config:
+              method: eagle3
+              model: $path
+              num_speculative_tokens: 7
+              draft_tensor_parallel_size: 1
+          envs: {}
+  multi_node:
+    source_ref: smart_accel#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dp:
+        default_strategy: true
+        decoding:
+        - name: eagle3
+          requires_model_path: true
+          cli_params:
+            speculative_config:
+              method: eagle3
+              model: $path
+              num_speculative_tokens: 7
+              draft_tensor_parallel_size: 1
+          envs: {}
+  pd_disaggregation:
+    source_ref: smart_accel#pd_cluster
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        default_strategy: true
+        nodes:
+        - role: decode
+          index: 0
+          decoding:
+          - name: eagle3
+            requires_model_path: true
+            cli_params:
+              speculative_config:
+                method: eagle3
+                model: $path
+                num_speculative_tokens: 7
+                draft_tensor_parallel_size: 1
+            envs: {}

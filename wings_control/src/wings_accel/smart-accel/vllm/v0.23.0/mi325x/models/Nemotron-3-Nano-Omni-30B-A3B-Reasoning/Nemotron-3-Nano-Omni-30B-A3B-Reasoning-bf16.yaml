@@ -1,0 +1,8 @@
+# SmartAccel 加速配置(无 smart-accel 特性(audio/omni 模型))
+# 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
+model:
+  name: Nemotron-3-Nano-Omni-30B-A3B-Reasoning
+  variant_name: "Nemotron-3-Nano-Omni-30B-A3B-Reasoning-bf16"
+  match:
+    - name_pattern: "(?i)nemotron[-.]?3[-.]?nano[-.]?omni[-.]?30b[-.]?a3b[-.]?reasoning"
+smart_accel: {}

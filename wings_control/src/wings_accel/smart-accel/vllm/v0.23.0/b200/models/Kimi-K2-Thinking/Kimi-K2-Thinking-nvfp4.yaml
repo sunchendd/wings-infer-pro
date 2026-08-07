@@ -1,0 +1,8 @@
+# SmartAccel 加速配置(无 smart-accel 特性(无 spec_decoding))
+# 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
+model:
+  name: Kimi-K2-Thinking
+  variant_name: "Kimi-K2-Thinking-nvfp4"
+  match:
+    - name_pattern: "(?i)kimi[-.]?k2[-.]?thinking"
+smart_accel: {}

@@ -6,45 +6,122 @@ model:
   match:
     - name_pattern: "(?i)qwen[-.]?agentworld[-.]?35b[-.]?a3b"
 smart_accel:
-  decoding:
-    - name: suffix
-      cli_params:
-        speculative_config:
-          method: suffix
-          num_speculative_tokens: 32
-      envs: {}
-  kv_offload:
-    - name: cpu_disk
-      packages:
-        lmcache: v0.3.15
-      cli_params:
-        kv_transfer_config:
-          kv_connector: LMCacheConnectorV1
-          kv_role: kv_both
-          kv_connector_extra_config:
-            local_cpu: true
-            max_local_cpu_size: "{memory_capacity_gb}"
-            local_disk: "{disk_path}"
-            max_local_disk_size: "{disk_capacity_gb}"
-      envs:
-        LMCACHE_CONFIG_FILE: /shared-volume/lmcache_config.yaml
-        LMCACHE_LOCAL_CPU: "true"
-        LMCACHE_MAX_LOCAL_CPU_SIZE: "{memory_capacity_gb}"
-        LMCACHE_LOCAL_DISK: "{disk_path}"
-        LMCACHE_MAX_LOCAL_DISK_SIZE: "{disk_capacity_gb}"
-      files:
-        - name: lmcache_config.yaml
-          content: |
-            chunk_size: 256
-            local_cpu: true
-            max_local_cpu_size: {memory_capacity_gb}
-            local_disk: {disk_path}
-            max_local_disk_size: {disk_capacity_gb}
-            extra_config:
-              wings:
-                qat:
-                  enabled: {qat_enabled}
-                  module_name: kv_agent
-                  instance_num: {qat_device_count}
-                  loss_level: {qat_compression_level}
-                  log_enabled: 1
+  standalone:
+    source_ref: smart_accel#standalone
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+        - name: suffix
+          cli_params:
+            speculative_config:
+              method: suffix
+              num_speculative_tokens: 32
+          envs: {}
+        kv_offload:
+        - name: cpu_disk
+          packages:
+            lmcache: v0.3.15
+          cli_params:
+            kv_transfer_config:
+              kv_connector: LMCacheConnectorV1
+              kv_role: kv_both
+              kv_connector_extra_config:
+                local_cpu: true
+                max_local_cpu_size: '{memory_capacity_gb}'
+                local_disk: '{disk_path}'
+                max_local_disk_size: '{disk_capacity_gb}'
+          envs:
+            LMCACHE_CONFIG_FILE: /shared-volume/lmcache_config.yaml
+            LMCACHE_LOCAL_CPU: 'true'
+            LMCACHE_MAX_LOCAL_CPU_SIZE: '{memory_capacity_gb}'
+            LMCACHE_LOCAL_DISK: '{disk_path}'
+            LMCACHE_MAX_LOCAL_DISK_SIZE: '{disk_capacity_gb}'
+          files:
+          - name: lmcache_config.yaml
+            content: |
+              chunk_size: 256
+              local_cpu: true
+              max_local_cpu_size: {memory_capacity_gb}
+              local_disk: {disk_path}
+              max_local_disk_size: {disk_capacity_gb}
+              extra_config:
+                wings:
+                  qat:
+                    enabled: {qat_enabled}
+                    module_name: kv_agent
+                    instance_num: {qat_device_count}
+                    loss_level: {qat_compression_level}
+                    log_enabled: 1
+  multi_node:
+    source_ref: smart_accel#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dp:
+        default_strategy: true
+        decoding:
+        - name: suffix
+          cli_params:
+            speculative_config:
+              method: suffix
+              num_speculative_tokens: 32
+          envs: {}
+        kv_offload:
+        - name: cpu_disk
+          packages:
+            lmcache: v0.3.15
+          cli_params:
+            kv_transfer_config:
+              kv_connector: LMCacheConnectorV1
+              kv_role: kv_both
+              kv_connector_extra_config:
+                local_cpu: true
+                max_local_cpu_size: '{memory_capacity_gb}'
+                local_disk: '{disk_path}'
+                max_local_disk_size: '{disk_capacity_gb}'
+          envs:
+            LMCACHE_CONFIG_FILE: /shared-volume/lmcache_config.yaml
+            LMCACHE_LOCAL_CPU: 'true'
+            LMCACHE_MAX_LOCAL_CPU_SIZE: '{memory_capacity_gb}'
+            LMCACHE_LOCAL_DISK: '{disk_path}'
+            LMCACHE_MAX_LOCAL_DISK_SIZE: '{disk_capacity_gb}'
+          files:
+          - name: lmcache_config.yaml
+            content: |
+              chunk_size: 256
+              local_cpu: true
+              max_local_cpu_size: {memory_capacity_gb}
+              local_disk: {disk_path}
+              max_local_disk_size: {disk_capacity_gb}
+              extra_config:
+                wings:
+                  qat:
+                    enabled: {qat_enabled}
+                    module_name: kv_agent
+                    instance_num: {qat_device_count}
+                    loss_level: {qat_compression_level}
+                    log_enabled: 1
+  pd_disaggregation:
+    source_ref: smart_accel#pd_cluster
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        default_strategy: true
+        nodes:
+        - role: decode
+          index: 0
+          decoding:
+          - name: suffix
+            cli_params:
+              speculative_config:
+                method: suffix
+                num_speculative_tokens: 32
+            envs: {}

@@ -1,0 +1,8 @@
+# SmartAccel 加速配置(无 smart-accel 特性(vision 模型))
+# 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
+model:
+  name: Qwen2.5-VL-72B-Instruct
+  variant_name: "Qwen2.5-VL-72B-Instruct"
+  match:
+    - name_pattern: "(?i)qwen2.5[-.]?vl[-.]?72b[-.]?instruct"
+smart_accel: {}
