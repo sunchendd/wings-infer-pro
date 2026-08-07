@@ -229,7 +229,8 @@ def _synthesize_file_pre_serve(
     files 自描述 → 框架自动生成运行时步骤(资产作者无需写 shell):
     - mkdir:每个文件父目录(放 pre_serve,所有节点含 master;去重保序)。
     - envsubst:写盘内容含 runtime_vars(``${VAR}``)→ ``export VAR="${VAR:-127.0.0.1}"`` 设默认 +
-      ``envsubst '<vars>' < path > path.tmp && mv`` 原地展开。按 ``scope`` 分流:
+      优先 ``envsubst`` 原地展开;容器缺 gettext(envsubst 不存在)时用 ``sed`` 兜底
+      (避免空 .tmp 覆盖原文件 + 占位符残留)。按 ``scope`` 分流:
       all → pre_serve(所有节点);master → pre_serve_master(仅 master);
       client → pre_serve_client(仅 client/非 master 节点)。
     - daemon:名为 ``_KV_DAEMON_SCRIPT``(``start_kv_serve.sh``)的脚本 → ``bash <path> &``
@@ -252,15 +253,24 @@ def _synthesize_file_pre_serve(
         if parent and parent not in made_dirs:
             pre_serve.append(f"mkdir -p {parent}")
             made_dirs.add(parent)
-        # envsubst:runtime 变量(${RANK_IP}/${MASTER_IP})原地展开,按 scope 分流到 all/master/client 桶
+        # envsubst:runtime 变量(${RANK_IP}/${MASTER_IP})原地展开,按 scope 分流到 all/master/client 桶。
+        # 优先 envsubst;容器缺 gettext(envsubst 不存在)时用 sed 兜底,避免 .tmp 空文件覆盖原文件
+        # (真实环境反馈:容器无 envsubst → envsubst 重定向产生空 .tmp → mv 后 conf 被清空,
+        #  且 ${MASTER_IP} 占位符残留未展开)。sed fallback 无外部依赖,把已 export 的变量值
+        # 注入替换串(双引号 shell 展开)。
         runtime_vars = fi.get("runtime_vars") or []
         if runtime_vars:
             exports = " ".join(f'{v}="${{{v}:-127.0.0.1}}"' for v in runtime_vars)
             var_list = " ".join(f"${{{v}}}" for v in runtime_vars)
             tmp = f"{path}.tmp"
+            # sed 兜底:逐变量 sed "s|\${VAR}|$VAR|g"(双引号 → $VAR 由 shell 展开为已 export 的值)。
+            # 用 | 分隔避免路径 / 干扰;${VAR} 的 $ 需转义为 \$ 防止 shell 把 ${VAR} 当展开。
+            sed_chain = ";".join(f's|\\${{{v}}}|${v}|g' for v in runtime_vars)
             cmds = [
                 f"export {exports}",
-                f"envsubst '{var_list}' < {path} > {tmp} && mv {tmp} {path}",
+                # 优先 envsubst;命令不存在或非零退出 → sed 兜底;结果都写 .tmp 再 mv
+                f"if command -v envsubst >/dev/null 2>&1 && envsubst '{var_list}' < {path} > {tmp} 2>/dev/null; then :; else sed \"{sed_chain}\" {path} > {tmp}; fi",
+                f"mv {tmp} {path}",
             ]
             {"all": pre_serve, "master": pre_serve_master, "client": pre_serve_client}.get(
                 scope, pre_serve

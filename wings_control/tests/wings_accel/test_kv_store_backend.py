@@ -116,11 +116,14 @@ def test_mooncake_renders_and_synthesizes_pre_serve(monkeypatch, tmp_path):
     assert '"local_hostname": "${RANK_IP}"' in body
     assert '"master_server_address": "${MASTER_IP}:50088"' in body
     assert '"global_segment_size": "2GB"' in body
-    # pre_serve(all):mkdir + export 默认 + envsubst 原地展开(runtime_vars=MASTER_IP,RANK_IP)
+    # pre_serve(all):mkdir + export 默认 + envsubst 原地展开(runtime_vars=MASTER_IP,RANK_IP) + sed 兜底
     ps = "\n".join(out.pre_serve)
     assert "mkdir -p" in ps
     assert 'export MASTER_IP="${MASTER_IP:-127.0.0.1}" RANK_IP="${RANK_IP:-127.0.0.1}"' in ps
-    assert "envsubst '${MASTER_IP} ${RANK_IP}'" in ps and "mooncake.json.tmp" in ps
+    # envsubst 主路径 + sed fallback(容器缺 gettext 时兜底,避免空 .tmp 覆盖原文件)
+    assert "command -v envsubst" in ps and "envsubst '${MASTER_IP} ${RANK_IP}'" in ps
+    assert "mooncake.json.tmp" in ps
+    assert 'sed "s|\\${MASTER_IP}|$MASTER_IP|g;s|\\${RANK_IP}|$RANK_IP|g"' in ps
     # pre_serve_master:仅 master 后台起 daemon(脚本名 start_kv_serve.sh,不监听端口)
     psm = "\n".join(out.pre_serve_master)
     assert "bash " in psm and "start_kv_serve.sh &" in psm
