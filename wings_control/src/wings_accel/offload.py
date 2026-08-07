@@ -45,24 +45,53 @@ from wings_accel.schemas import EngineParams, SmartKVCacheConfig, _FeatureOutput
 
 logger = logging.getLogger(__name__)
 
-# KV 存储后端 daemon 脚本名(mooncake/memcache 统一):仅 master 执行
+# KV 存储后端 daemon 脚本名(mooncake/memcache/lmcache_mp 统一):仅 master 执行
 # ``bash <path> &``。脚本内容/落盘仍由 scheme 的 ``files:`` 声明(内联 content);框架只硬编码
 # 「master 跑这个脚本」一条,不识别后端、不监听端口(避免 vllm 抢跑靠部署侧重试/保证)。
 _KV_DAEMON_SCRIPT = "start_kv_serve.sh"
 
 
-def _find_backend_scheme(block: List[Any]) -> Optional[Dict[str, Any]]:
-    """在 kv_offload block 中找后端 scheme(``kv_connector`` 为 ``AscendStoreConnector``[mooncake/memcache]
-    或 ``LMCacheAscendConnectorV1Dynamic``[ascend lmcache,方法三])。
+def _scheme_has_daemon(scheme: Dict[str, Any]) -> bool:
+    """判断 scheme 是否声明了 daemon 脚本(``files`` 含名为 ``_KV_DAEMON_SCRIPT`` 的条目)。
 
-    工具选择按 connector 内容路由(不再靠 ``KV_STORE_BACKEND`` env)。一份 yaml 至多声明一个
-    后端 scheme;命中多个取首个。
+    有 daemon → 该 scheme 是「独立 server」形态(mooncake/memcache/lmcache_mp),需要起卸载服务,
+    走 ``_render_kv_store_scheme``(backend 路径,合成 daemon pre_serve)。
+    无 daemon → 走 cpu/disk/cpu_disk 三选一(原生 OffloadingConnector / lmcache disk/cpu_disk /
+    lmcache-ascend 内嵌 connector 等,纯 cli_params + envs 渲染,不起服务)。
+
+    设计(2026-08-06):**完全形态驱动,无 connector 白名单/黑名单**。判定信号 = scheme 的 files 里
+    有没有 daemon 脚本,与 connector 名字、name 取值无关。加新 backend connector(未来的 XXXConnector)
+    只要在 yaml 的 files 里声明 ``start_kv_serve.sh`` 即被识别为 backend,**无需改代码**;纯内嵌的新
+    connector(不起服务)不写 daemon 脚本,自动走三选一,也无需改代码。
+    """
+    files = scheme.get("files") or []
+    if not isinstance(files, list):
+        return False
+    for f in files:
+        if not isinstance(f, dict):
+            continue
+        path = f.get("path") or f.get("name") or ""
+        if Path(path).name == _KV_DAEMON_SCRIPT:
+            return True
+    return False
+
+
+def _find_backend_scheme(block: List[Any]) -> Optional[Dict[str, Any]]:
+    """在 kv_offload block 中找后端 scheme(声明了 daemon 脚本 ``start_kv_serve.sh`` 的 scheme)。
+
+    后端 scheme = 有 daemon 脚本的 scheme → 走 ``_render_kv_store_scheme``(合成 daemon pre_serve +
+    落盘配置文件)。涵盖当前所有「独立 server」backend:AscendStoreConnector(mooncake/memcache)、
+    LMCacheMPConnector(lmcache MP 分离部署),以及未来任何声明了 daemon 脚本的新 connector。
+
+    无 daemon 的 scheme(原生 OffloadingConnector / lmcache disk/cpu_disk / lmcache-ascend 内嵌
+    connector 等)不走 backend,落回 cpu/disk/cpu_disk 三选一。
+
+    一份 yaml 至多声明一个后端 scheme;命中多个取首个。
     """
     for s in block or []:
         if not isinstance(s, dict):
             continue
-        kt = (s.get("cli_params") or {}).get("kv_transfer_config") or {}
-        if (kt.get("kv_connector") or "") in ("AscendStoreConnector", "LMCacheAscendConnectorV1Dynamic"):
+        if _scheme_has_daemon(s):
             return s
     return None
 
@@ -72,6 +101,7 @@ def smart_kv_offload_expander(
     block: Any,
     ctx: PlaceholderContext,
     engine_name: str = "vllm",
+    topology: Optional[str] = None,
 ) -> Optional[_FeatureOutput]:
     """智能 KV 卸载方案选择与渲染。
 
@@ -90,16 +120,23 @@ def smart_kv_offload_expander(
     lmcache_config.yaml)+ 注入派生 env LMCACHE_QAT_ENABLED(随 qat 开关,effective = vllm 且
     cfg.qat_enabled);指向文件的 env(如 LMCACHE_CONFIG_FILE)由 scheme 的 envs: 声明。
 
+    scenario 隔离由 yaml_loader 完成(按 topology 路由出对应 scenario 子块),本函数只消费扁平
+    kv_offload 列表,不感知 topology。PD 场景下 P/D 节点路由到的子块不含 kv_offload 键 →
+    expander 拿到 None → 不产出(PD 的 KV 流转由 config 侧 ``kv_transfer_config`` 的
+    kv_producer/kv_consumer 独立处理,与 smart-accel 的 kv_offload 正交)。``topology`` 参数仅作
+    向后兼容保留(旧调用约定),不再参与过滤。
+
     Args:
         cfg: KV cache 配置(memory_offload_enabled / disk_offload_enabled / qat_*)。
-        block: kv_offload scheme 列表(cpu/disk/cpu_disk 各最多一项)。
+        block: kv_offload scheme 列表(cpu/disk/cpu_disk 各最多一项;已路由到当前 scenario 子块)。
         ctx: 占位符上下文。
         engine_name: 引擎名;仅 vllm 启用 QAT。
+        topology: **已废弃**(scenario 路由在 loader 完成);保留参数向后兼容。
 
     Returns:
         _FeatureOutput(选中 scheme + 渲染后 EngineParams + packages);无可选 → None。
     """
-    # 主开关关 / 未配置 / 非 list → None
+    # 主开关关 / 未配置 / 非 list → None(scenario 子块缺 kv_offload 键时也走这条)
     if not cfg.enabled or not isinstance(block, list) or not block:
         return None
 
@@ -192,7 +229,8 @@ def _synthesize_file_pre_serve(
     files 自描述 → 框架自动生成运行时步骤(资产作者无需写 shell):
     - mkdir:每个文件父目录(放 pre_serve,所有节点含 master;去重保序)。
     - envsubst:写盘内容含 runtime_vars(``${VAR}``)→ ``export VAR="${VAR:-127.0.0.1}"`` 设默认 +
-      ``envsubst '<vars>' < path > path.tmp && mv`` 原地展开。按 ``scope`` 分流:
+      优先 ``envsubst`` 原地展开;容器缺 gettext(envsubst 不存在)时用 ``sed`` 兜底
+      (避免空 .tmp 覆盖原文件 + 占位符残留)。按 ``scope`` 分流:
       all → pre_serve(所有节点);master → pre_serve_master(仅 master);
       client → pre_serve_client(仅 client/非 master 节点)。
     - daemon:名为 ``_KV_DAEMON_SCRIPT``(``start_kv_serve.sh``)的脚本 → ``bash <path> &``
@@ -215,15 +253,24 @@ def _synthesize_file_pre_serve(
         if parent and parent not in made_dirs:
             pre_serve.append(f"mkdir -p {parent}")
             made_dirs.add(parent)
-        # envsubst:runtime 变量(${RANK_IP}/${MASTER_IP})原地展开,按 scope 分流到 all/master/client 桶
+        # envsubst:runtime 变量(${RANK_IP}/${MASTER_IP})原地展开,按 scope 分流到 all/master/client 桶。
+        # 优先 envsubst;容器缺 gettext(envsubst 不存在)时用 sed 兜底,避免 .tmp 空文件覆盖原文件
+        # (真实环境反馈:容器无 envsubst → envsubst 重定向产生空 .tmp → mv 后 conf 被清空,
+        #  且 ${MASTER_IP} 占位符残留未展开)。sed fallback 无外部依赖,把已 export 的变量值
+        # 注入替换串(双引号 shell 展开)。
         runtime_vars = fi.get("runtime_vars") or []
         if runtime_vars:
             exports = " ".join(f'{v}="${{{v}:-127.0.0.1}}"' for v in runtime_vars)
             var_list = " ".join(f"${{{v}}}" for v in runtime_vars)
             tmp = f"{path}.tmp"
+            # sed 兜底:逐变量 sed "s|\${VAR}|$VAR|g"(双引号 → $VAR 由 shell 展开为已 export 的值)。
+            # 用 | 分隔避免路径 / 干扰;${VAR} 的 $ 需转义为 \$ 防止 shell 把 ${VAR} 当展开。
+            sed_chain = ";".join(f's|\\${{{v}}}|${v}|g' for v in runtime_vars)
             cmds = [
                 f"export {exports}",
-                f"envsubst '{var_list}' < {path} > {tmp} && mv {tmp} {path}",
+                # 优先 envsubst;命令不存在或非零退出 → sed 兜底;结果都写 .tmp 再 mv
+                f"if command -v envsubst >/dev/null 2>&1 && envsubst '{var_list}' < {path} > {tmp} 2>/dev/null; then :; else sed \"{sed_chain}\" {path} > {tmp}; fi",
+                f"mv {tmp} {path}",
             ]
             {"all": pre_serve, "master": pre_serve_master, "client": pre_serve_client}.get(
                 scope, pre_serve

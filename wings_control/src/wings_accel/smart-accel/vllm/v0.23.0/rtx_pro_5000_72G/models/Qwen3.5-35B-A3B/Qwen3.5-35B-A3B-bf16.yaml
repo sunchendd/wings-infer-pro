@@ -1,4 +1,4 @@
-# SmartAccel 加速配置(kv_offload=cpu;decoding 不启用,speculative_config=None)
+# SmartAccel 加速配置(decoding=qwen3_5_mtp / kv_offload=cpu)
 # 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
 model:
   name: Qwen3.5-35B-A3B

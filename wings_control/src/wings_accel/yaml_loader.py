@@ -115,21 +115,27 @@ class LoadFlags:
 
 
 def _has_backend_scheme(kv_offload_block) -> bool:
-    """kv_offload 块里是否存在后端 scheme(``kv_connector`` 为 ``AscendStoreConnector``[mooncake/memcache]
-    或 ``LMCacheAscendConnectorV1Dynamic``[ascend lmcache,方法三])。
+    """kv_offload 块里是否存在后端 scheme(声明了 daemon 脚本 ``start_kv_serve.sh`` 的 scheme)。
 
-    工具选择按 connector 内容路由,不再靠 ``KV_STORE_BACKEND`` env。后端 scheme(name=cpu)命中即视为
-    声明了内存卸载工具(cpu 介质下的实现,参与 has_memory_method)。与 ``offload._find_backend_scheme``
-    同列。
+    判定与 ``offload._find_backend_scheme`` 同列(形态驱动,无 connector 白名单):scheme 的 ``files``
+    含名为 ``start_kv_serve.sh`` 的条目 → backend(需要起卸载服务)。后端 scheme 命中即视为声明了
+    内存卸载工具(cpu 介质下的实现,参与 has_memory_method)。**加新 backend connector 无需改本函数**——
+    只要 yaml 的 files 里声明了 daemon 脚本就自动识别。
     """
     if not isinstance(kv_offload_block, list):
         return False
     for s in kv_offload_block:
         if not isinstance(s, dict):
             continue
-        kt = (s.get("cli_params") or {}).get("kv_transfer_config") or {}
-        if (kt.get("kv_connector") or "") in ("AscendStoreConnector", "LMCacheAscendConnectorV1Dynamic"):
-            return True
+        files = s.get("files") or []
+        if not isinstance(files, list):
+            continue
+        for f in files:
+            if not isinstance(f, dict):
+                continue
+            path = f.get("path") or f.get("name") or ""
+            if Path(path).name == "start_kv_serve.sh":
+                return True
     return False
 
 

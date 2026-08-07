@@ -130,12 +130,14 @@ def smart_decoding_expander(
     if not methods:
         return None
 
+    # 草稿路径归一:none/null 字面量当空(MaaS 未填可能下发字面量)
+    model_path = _normalize_optional_path(cfg.model_path)
     # Step [1]: model_based branch(有草稿路径)——按 config.json architectures 匹配
-    if cfg.model_path:
+    if model_path:
         model_based = [m for m in methods if _is_model_based(m) and _eligible(m, cfg)]
         if model_based:
             # 读草稿 config.json architectures → 按 draft_arch 匹配
-            archs = _read_draft_architectures(cfg.model_path)
+            archs = _read_draft_architectures(model_path)
             matched = _match_draft_method(model_based, archs)
             if matched:
                 logger.info("decoding model_based: 草稿 architectures=%s 命中 %s", archs, matched.get("name"))
@@ -180,9 +182,20 @@ def _is_model_based(method: Dict[str, Any]) -> bool:
     return bool(method.get("requires_model_path"))
 
 
+def _normalize_optional_path(raw: str) -> str:
+    """草稿路径归一:空 / none / null(大小写不敏感)→ 空串。
+
+    MaaS 下发 SPECULATIVE_DECODE_MODEL_PATH 时,用户未填可能下发字面量 "none"/"null";
+    若当真实路径,eagle3 等 requires_model_path 方案会产出 model:"none" 致 vllm serve
+    启动失败。在此(消费点)统一判定。
+    """
+    val = (raw or "").strip()
+    return "" if val.lower() in ("none", "null") else val
+
+
 def _eligible(method: Dict[str, Any], cfg: SmartDecodingConfig) -> bool:
     """requires_model_path 的方案仅当草稿路径非空才可选。"""
-    if method.get("requires_model_path") and not cfg.model_path:
+    if method.get("requires_model_path") and not _normalize_optional_path(cfg.model_path):
         return False
     return True
 
