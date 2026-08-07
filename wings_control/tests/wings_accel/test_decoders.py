@@ -1,3 +1,5 @@
+import pytest
+
 from wings_accel.decoders import smart_decoding_expander
 from wings_accel.render import PlaceholderContext
 from wings_accel.schemas import ModelConfig, SmartDecodingConfig
@@ -82,6 +84,24 @@ def test_decoding_requires_model_path_gate():
     cfg, mod = make_input(enabled=True, model_path="", model_arch="eagle")
     out = smart_decoding_expander(cfg, mod, block, make_ctx())
     assert out.scheme == "mtp"  # eagle3 因 requires_model_path 被门挡住
+
+
+@pytest.mark.parametrize("bogus", ["none", "None", "NONE", "null", "Null", " none "])
+def test_decoding_requires_model_path_gate_none_literal(bogus):
+    """requires_model_path 方案在草稿路径为 none/null 字面量时也应被门挡住。
+
+    MaaS 下发 SPECULATIVE_DECODE_MODEL_PATH 未填可能下发字面量 "none"/"null";
+    若当真实路径,eagle3 会产出 model:"none" 致 vllm serve 启动失败。归一在
+    消费点(decoders._normalize_optional_path / _eligible)完成,适配层原样透传。
+    """
+    block = [
+        {"name": "eagle3", "requires_model_path": True,
+         "cli_params": {"speculative_config": {"method": "eagle3", "model": "$path"}}},
+        {"name": "mtp", "cli_params": {"speculative_config": {"method": "mtp"}}},
+    ]
+    cfg, mod = make_input(enabled=True, model_path=bogus, model_arch="eagle")
+    out = smart_decoding_expander(cfg, mod, block, make_ctx())
+    assert out.scheme == "mtp"  # none/null 字面量等同空,model_based 被门挡住
 
 
 def test_decoding_no_method_match_fallback():
