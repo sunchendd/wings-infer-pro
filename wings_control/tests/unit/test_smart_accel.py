@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import types
 
+import pytest
+
 from wings_ctl.accel import smart_accel
 from wings_ctl.accel.smart_accel import (
     AccelResult,
@@ -47,7 +49,7 @@ def test_collect_switches_v3_kv_hierarchy():
     assert s["kv_mem_size_gb"] == 0          # "auto" → 0(交 accel 智能推荐)
     assert s["kv_disk_size_gb"] == 512 and s["kv_disk_path"] == "/lm"
     assert s["kv_qat_compress_level"] == 2 and s["kv_qat_instance_num"] == 4
-    assert s["available_pod_mem_gb"] == 128 and s["pd_role"] == "P"
+    assert s["available_pod_mem_gb"] == 128 and s["pd_role"] == "P"  # PD_ROLE 原样透传(不在此归一)
 
 
 def test_collect_switches_defaults_when_absent():
@@ -70,6 +72,12 @@ def test_collect_switches_no_kv_store_envs():
     s = collect_accel_switches({"KV_STORE_BACKEND": "mooncake", "KV_WORLD_SIZE": "32"})
     for k in ("kv_store_backend", "kv_store_deploy_mode", "kv_store_master_addr", "kv_world_size"):
         assert k not in s
+
+
+def test_collect_switches_speculative_path_passthrough():
+    """SPECULATIVE_DECODE_MODEL_PATH 原样透传;none/null 归一已下放到消费点(decoders._eligible)。"""
+    assert collect_accel_switches({"SPECULATIVE_DECODE_MODEL_PATH": "none"})["speculative_model_path"] == "none"
+    assert collect_accel_switches({})["speculative_model_path"] == ""
 
 
 # ── build_smart_input(switches → schema)────────────────────────────────────
@@ -113,7 +121,7 @@ def test_build_input_maps_switches_to_schema():
     assert si.smart_kv_cache_config.enabled is True
     assert si.smart_kv_cache_config.memory_offload_size_mode == "64"
     assert si.smart_kv_cache_config.qat_device_count == 2
-    assert si.deployment_mode.pd_role == "D"
+    assert si.deployment_mode.pd_role == "D"  # PD_ROLE 原样透传(不在此归一)
     assert not hasattr(si.model_config, "model_arch") or si.model_config.model_arch is None
 
 

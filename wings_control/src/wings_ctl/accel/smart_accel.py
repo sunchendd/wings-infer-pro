@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional
 
 from wings_ctl.utils.env_utils import parse_bool
 
@@ -107,9 +107,9 @@ def collect_accel_switches(env: dict) -> dict[str, Any]:
     memory_size_mode = _kv_mem_size(env.get("KV_MEM_OFFLOAD_SIZE") or env.get("ENABLE_KV_MEM_OFFLOAD"))
     mem_enabled = _as_bool(env, "ENABLE_KV_MEM_OFFLOAD") or bool(memory_size_mode)
     return {
-        # 投机解码
+        # 投机解码;草稿路径原样透传,none/null 字面量的归一在消费点(wings_accel/decoders._eligible)做
         "speculative_enabled": _as_bool(env, "ENABLE_SPECULATIVE_DECODE"),
-        "speculative_model_path": env.get("SPECULATIVE_DECODE_MODEL_PATH", "") or "",
+        "speculative_model_path": env.get("SPECULATIVE_DECODE_MODEL_PATH") or "",
         # KV 稀疏
         "sparse_enabled": _as_bool(env, "ENABLE_SPARSE"),
         "sparse_level": env.get("SPARSE_LEVEL", "performance_first") or "performance_first",
@@ -125,8 +125,11 @@ def collect_accel_switches(env: dict) -> dict[str, Any]:
         "kv_qat_compress_level": _as_int(env.get("KV_QAT_COMPRESS_LEVEL")),
         "kv_qat_instance_num": _as_int(env.get("KV_QAT_INSTANCE_NUM")),
         "available_pod_mem_gb": _as_int(env.get("AVAILABLE_POD_MEM_SIZE")),
+        # PD_ROLE 透传(env_utils 已校验);decoders/offload 内部按需自取。
         "pd_role": env.get("PD_ROLE") or None,
         # KV 存储后端(memcache/mooncake)由 yaml 声明、按 connector 内容路由;不再有 KV_STORE_* env。
+        # 注:topology 不再在此从 env 推导(原 _resolve_topology 滥用 PD_ROLE/DISTRIBUTED/NODE_IPS,
+        # 且 PD_ROLE 与上方重复读)。topology 由上层 config_resolver 传入 apply_smart_accel。
     }
 
 
@@ -221,8 +224,13 @@ def collect_output(output) -> AccelResult:
 def apply_smart_accel(*, hardware_family: str, gpu_count: int | None, model_path: str | None,
                       model_name: str | None, engine: str, engine_version: str | None,
                       config_root: str = "", pd_role: str | None = None,
+                      topology: str | None = None,
                       env: dict | None = None) -> AccelResult:
-    """委托 wings-accel 生成加速产出;模块缺失/异常 → 空 :class:`AccelResult`(不打断启动)。"""
+    """委托 wings-accel 生成加速产出;模块缺失/异常 → 空 :class:`AccelResult`(不打断启动)。
+
+    topology 由上层 ``config_resolver`` 传入(已聚合 PD_ROLE/DISTRIBUTED/NODE_IPS,
+    对齐 wings-control ``Topology`` 枚举值);本适配层不再从 env 推导拓扑。
+    """
     mod = _import_accel()
     if mod is None:
         logger.debug("wings-accel 模块未合入,智能加速委托跳过(no-op)")
@@ -231,6 +239,8 @@ def apply_smart_accel(*, hardware_family: str, gpu_count: int | None, model_path
     try:
         switches = collect_accel_switches(resolved_env)
         if pd_role is not None:
+            # 调用方显式覆盖 pd_role;topology 不再在此重算,
+            # 由上层 config_resolver 一并负责(它已能根据 PD_ROLE 推导 Topology)。
             switches["pd_role"] = pd_role
 
         # MaaS 开关为唯一驱动(框架已无 auto 机制):kv/sparse/decoding 是否启用 100% 由
@@ -249,6 +259,7 @@ def apply_smart_accel(*, hardware_family: str, gpu_count: int | None, model_path
             decoding_model_path=switches["speculative_model_path"],
             sparse_level=switches["sparse_level"],
             pd_role=switches["pd_role"],
+            topology=topology,
             memory_offload_size_mode=switches["kv_mem_size_mode"],
             pod_available_memory_gb=switches["available_pod_mem_gb"],
         )

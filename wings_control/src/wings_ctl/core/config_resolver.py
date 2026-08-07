@@ -1113,6 +1113,9 @@ def resolve_config(
         engine_version=engine_version.requested or engine_version.resolved,
         config_root=str(config_root),
         pd_role=os.getenv("PD_ROLE"),
+        # topology 由大策略层(pre_template)推导(已聚合 PD_ROLE/DISTRIBUTED/NODE_IPS),
+        # 直接传入;适配层不再从 env 重复推导(消除 _resolve_topology 滥用 env.get)。
+        topology=topology.value,
     )
     accel_layer = accel.engine_config  # strategy_accel 合并层(空 dict = 无产出 → trace_merge no-op)
 

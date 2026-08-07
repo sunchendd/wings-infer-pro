@@ -62,12 +62,13 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
     ctx = _build_placeholder_context(smart_input)
 
     # Step 4: run expanders
+    # smart_accel 已在 yaml_loader 按 topology 路由出扁平子块(scenario 嵌套结构,见 smart-yaml.md §1),
+    # expander 直接消费 decoding/kv_offload/sparse,不再感知 scenario / topology。
     decoding = smart_decoding_expander(
         smart_input.smart_decoding_config,
         smart_input.model_config,
         smart_accel.get("decoding"),
         ctx,
-        pd_role=smart_input.deployment_mode.pd_role,
     )
     sparse = smart_sparse_expander(
         smart_input.smart_kv_sparse_config,
