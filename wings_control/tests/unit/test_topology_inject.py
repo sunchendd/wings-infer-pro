@@ -127,38 +127,91 @@ def test_coord_a_raises_non_divisible_no_floor():
 _B = {"tensor_parallel_size": 8, "node_rank": 0}
 
 
-def test_coord_b_dp1_noop():
-    """验证 B 类 world_size==TP → DP=1,no-op(tep:TP=8,cnt=4,P=2)。"""
-    override, notes = coordinate_parallelism(_B, device_count=4, pod_count=2, index=0)
-    assert not override
-    assert notes["multinode_dp_layout"] == "TP_across" and notes["multinode_dp_resolved_dp"] == "1"
+def test_coord_b_uses_world_size_as_tp():
+    """验证 B 类始终使用 world_size 作为 TP，并保持模板 DP。"""
+    override, notes = coordinate_parallelism(
+        {"tensor_parallel_size": 8, "data_parallel_size": 3, "node_rank": 0},
+        device_count=4, pod_count=2, index=0,
+    )
+    assert override == {}
+    assert notes["multinode_dp_resolved_tp"] == "8"
+    assert notes["multinode_dp_resolved_dp"] == "3"
 
 
-def test_coord_b_raises_non_divisible():
-    """验证 B 类 world_size%TP≠0 → raise(不向下取整):TP=8,cnt=5,P=2(=10)。"""
-    with pytest.raises(ValueError, match="整数倍"):
+def test_coord_b_uses_all_cards_when_non_divisible():
+    """验证 B 类 world_size 不整除模板 TP 时使用全部卡并保持模板 DP。"""
+    override, notes = coordinate_parallelism(
+        {"tensor_parallel_size": 6, "data_parallel_size": 3, "node_rank": 0},
+        device_count=4, pod_count=2, index=0,
+    )
+    assert override == {"tensor_parallel_size": 8}
+    assert notes["multinode_dp_status"] == "warning_tp_overridden"
+    assert notes["multinode_dp_resolved_tp"] == "8"
+    assert notes["multinode_dp_resolved_dp"] == "3"
+
+
+def test_coord_b_non_power_of_two_override_is_rejected():
+    """验证 B 类非整除时调整后的 world_size 仍必须是 2 的幂。"""
+    with pytest.raises(ValueError, match="2 的幂"):
         coordinate_parallelism(_B, device_count=5, pod_count=2, index=0)
 
 
-def test_coord_b_raises_dp_gt_1():
-    """验证 B 类算出 DP>1(多 TP 组)→ raise 暂不支持:TP=8,cnt=8,P=4(=32→DP=4)。"""
-    with pytest.raises(ValueError, match="DP=4>1|多 TP 组"):
-        coordinate_parallelism(_B, device_count=8, pod_count=4, index=0)
+def test_coord_b_non_divisible_keeps_template_dp(caplog):
+    """验证 TP 被调整时日志提示下发参数与模板不一致，且 DP 不变。"""
+    ec = {"tensor_parallel_size": 6, "data_parallel_size": 3, "node_rank": 0}
+    with caplog.at_level("WARNING"):
+        override, notes = coordinate_parallelism(ec, device_count=8, pod_count=1, index=0)
+    assert override == {"tensor_parallel_size": 8}
+    assert notes["multinode_dp_resolved_dp"] == "3"
+    assert "下发参数与模板不一致" in caplog.text
 
 
-def test_coord_b_p4_dp1_supported():
-    """T5.x:B 类 P 不限 2 —— TP=8,cnt=2,P=4 → world_size=8=TP → DP=1 支持(一个 TP 组铺满 4 Pod)。"""
-    override, notes = coordinate_parallelism(_B, device_count=2, pod_count=4, index=3)
-    assert not override                                  # DP=1 与模板一致 → no-op,不改 DP
-    assert notes["multinode_dp_layout"] == "TP_across"
-    assert notes["multinode_dp_world_size"] == "8" and notes["multinode_dp_resolved_dp"] == "1"
+def test_coord_b_shrinks_tp_when_world_size_is_smaller():
+    """验证 B 类 world_size<TP 时使用全部卡并保持模板 DP。"""
+    override, notes = coordinate_parallelism(
+        {"tensor_parallel_size": 8, "data_parallel_size": 3, "node_rank": 0},
+        device_count=1, pod_count=2, index=0,
+    )
+    assert override == {"tensor_parallel_size": 2}
+    assert notes["multinode_dp_status"] == "warning_tp_overridden"
+    assert notes["multinode_dp_resolved_tp"] == "2"
+    assert notes["multinode_dp_resolved_dp"] == "3"
 
 
-def test_coord_b_raises_dp_gt_1_more_shapes():
-    """T5.x:B 类只要算出 DP>1(多 TP 组)就 raise,与 P/cnt 具体取值无关:2/8 与 4/4 均 world_size=16→DP=2。"""
-    for cnt, pod in [(2, 8), (4, 4)]:
-        with pytest.raises(ValueError, match="多 TP 组|DP=2>1"):
-            coordinate_parallelism(_B, device_count=cnt, pod_count=pod, index=0)
+def test_coord_b_shrink_keeps_template_dp():
+    """验证 TP 收缩时也保持模板 DP，不改写 DP。"""
+    override, notes = coordinate_parallelism(
+        {"tensor_parallel_size": 8, "data_parallel_size": 3, "node_rank": 0},
+        device_count=1, pod_count=2, index=0,
+    )
+    assert override == {"tensor_parallel_size": 2}
+    assert notes["multinode_dp_resolved_dp"] == "3"
+
+
+def test_coord_b_rejects_non_power_of_two_shrink():
+    """验证 B 类 world_size<TP 且非 2 的幂时失败。"""
+    with pytest.raises(ValueError, match="2 的幂"):
+        coordinate_parallelism(_B, device_count=3, pod_count=2, index=0)
+
+
+def test_coord_b_keeps_dp_when_world_size_equals_tp():
+    """验证 B 类 world_size 等于模板 TP 时也不修改 DP。"""
+    override, notes = coordinate_parallelism(
+        {"tensor_parallel_size": 8, "data_parallel_size": 3, "node_rank": 0},
+        device_count=2, pod_count=4, index=3,
+    )
+    assert override == {}
+    assert notes["multinode_dp_resolved_dp"] == "3"
+
+
+def test_coord_b_warns_multiple_tp_groups_without_changing_dp(caplog):
+    """验证 B 类多 TP 组只告警，TP 使用 world_size，DP 保持模板值。"""
+    ec = {"tensor_parallel_size": 8, "data_parallel_size": 3, "node_rank": 0}
+    with caplog.at_level("WARNING"):
+        override, notes = coordinate_parallelism(ec, device_count=4, pod_count=4, index=0)
+    assert override == {"tensor_parallel_size": 16}
+    assert notes["multinode_dp_resolved_dp"] == "3"
+    assert "下发参数与模板不一致" in caplog.text
 
 
 # ─── coordinate_parallelism · PP 保险 / 非法 ─────────────────────────────────
