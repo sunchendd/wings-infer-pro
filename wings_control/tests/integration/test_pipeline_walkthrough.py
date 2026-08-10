@@ -58,7 +58,7 @@ def test_standalone_pipeline_walkthrough_shows_cli_to_artifacts(
     #    两件脚本产物:start_command.sh(可执行)+ repro.sh(每个参数带来源注释,便于复现/排查)。
     assert start_path.exists() and repro_path.exists()
     start_content = start_path.read_text(encoding="utf-8")
-    assert "exec vllm serve" in start_content           # 命令头:vllm serve <model>
+    assert "vllm serve" in start_content           # 命令头:vllm serve <model>
     repro_content = repro_path.read_text(encoding="utf-8")
     assert "Reproducibility Script" in repro_content     # repro 头
     assert "<-" in repro_content                         # 每个参数标了"来自哪层(哪文件)"

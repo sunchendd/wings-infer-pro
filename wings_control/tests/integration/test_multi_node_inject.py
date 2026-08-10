@@ -77,8 +77,8 @@ def test_inject_worker_start_command_executable_and_safe(config_root_real, tmp_p
     """验证 worker Pod 产可执行脚本:nic 探测 inline 在 env 前、argv 用字面 master IP、bash -n 过。"""
     _, start_path, repro_path, _ = _run(tmp_path, monkeypatch, config_root_real, rank_ip="10.0.0.2")
     text = start_path.read_text(encoding="utf-8")
-    # 可执行(有 exec,无占位横幅)
-    assert "exec vllm serve" in text and "RUNTIME INJECTION PENDING" not in text
+    # 可执行(有引擎命令,无占位横幅)
+    assert "vllm serve" in text and "RUNTIME INJECTION PENDING" not in text
     # nic 运行时探测 inline,且在第一个 export 之前
     assert "nic_name=$(awk" in text
     assert text.index("nic_name=$(awk") < text.index("export ")
@@ -89,7 +89,7 @@ def test_inject_worker_start_command_executable_and_safe(config_root_real, tmp_p
     assert 'GLOO_SOCKET_IFNAME="$nic_name"' in text
     # 语法合法
     subprocess.run(["bash", "-n", str(start_path)], check=True)
-    assert "exec vllm serve" in repro_path.read_text(encoding="utf-8")
+    assert "exec vllm serve" in repro_path.read_text(encoding="utf-8")  # repro.sh 仍用 exec
 
 
 def test_inject_audit_and_startup_log_reflect_injection(config_root_real, tmp_path, monkeypatch):

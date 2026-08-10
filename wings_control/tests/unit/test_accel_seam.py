@@ -118,9 +118,9 @@ def test_build_scripts_wires_pre_serve_and_master_only(tmp_path):
     assert "KV store pre-serve (client only)" in text
     assert 'if [ -n "${MASTER_IP:-}" ] && [ "${RANK_IP:-}" != "${MASTER_IP:-}" ]; then' in text
     assert "    cat > /shared-volume/worker_only.conf <<EOF" in text
-    # pre_serve 段位于 install 段之后、exec 之前
+    # pre_serve 段位于 install 段之后、引擎命令之前(后台化,无 exec 前缀)
     assert text.index("KV store pre-serve") > text.index("install.py --config")
-    assert text.index("exec ") > text.index("KV store pre-serve")
+    assert text.rindex("vllm serve") > text.index("KV store pre-serve")
     # repro.sh 同步渲染(master + client 段)
     repro_text = repro_path.read_text(encoding="utf-8")
     assert "KV store pre-serve (master only)" in repro_text

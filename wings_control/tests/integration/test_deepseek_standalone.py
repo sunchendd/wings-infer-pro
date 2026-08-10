@@ -78,7 +78,7 @@ def test_deepseek_standalone_pipeline(config_root_real, tmp_path):
 
         # ── start_command.sh 可执行 ──
         start_content = start_path.read_text(encoding="utf-8")
-        assert "exec vllm serve" in start_content
+        assert "vllm serve" in start_content
         assert "deepseek-ai/DeepSeek-V4-Flash" in start_content
         assert "--host 0.0.0.0" in start_content
         assert "--port 17000" in start_content

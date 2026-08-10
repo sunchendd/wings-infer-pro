@@ -59,6 +59,12 @@ COPY ./wings_control/pyproject.toml /opt/wings-control/pyproject.toml
 COPY ./wings_control/wings_start.sh /opt/wings-control/wings_start.sh
 RUN chmod +x /opt/wings-control/wings_start.sh
 
+# 拷贝日志解析模块(在 compile_wings.sh 加密 .py → .pyc 之前)
+# log_analyzer 需要在引擎容器(Python 3.11+)中以 .py 格式运行,
+# wings-control 容器(Python 3.10)编译的 .pyc 存在 bad magic number 兼容性问题,
+# 因此必须在加密前单独拷贝到 /opt/log_analyzer,运行时再由 wings_start.sh 拷贝到共享卷。
+COPY ./wings_control/src/wings_ctl/log_analyzer /opt/log_analyzer
+
 RUN mkdir -p /shared-volume /var/log/wings
 
 RUN ln -s /opt/wings-control /opt/wings_control
