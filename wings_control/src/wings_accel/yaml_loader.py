@@ -112,6 +112,10 @@ class LoadFlags:
     memory_offload_size_mode: str = ""
     pod_available_memory_gb: int = 0
     min_offload_threshold_gb: int = 100
+    # TP/DP 用于 auto 内存估算的 worker_count;smart-accel YAML 常无 scenarios.engine_config
+    # (TP/DP 由 wings-control model recipe 提供),此处作为 YAML 缺失时的回落来源。0 = 未下发→兜底 1。
+    tp_size: int = 0
+    dp_size: int = 0
 
 
 def _has_backend_scheme(kv_offload_block) -> bool:
@@ -346,11 +350,14 @@ def load_smart_accel_from_yaml(
     disk_on = flags.disk and enable_kv and has_disk
 
     # 内存卸载容量来源:auto=从 pod 内存 + TP/DP 估算 / 数值字符串=固定 GB 值
-    # tp_size = tensor_parallel_size(yaml 来源),无条件算:供 SmartKVCacheConfig.tp_size + auto 估算共用。
-    tp = int((chosen_ec or {}).get("tensor_parallel_size", 1))
+    # tp_size/dp_size 来源优先级:smart-accel YAML 的 scenarios.engine_config(若存在)> flags(调用方透传,
+    # 通常来自 wings-control model recipe)> 默认 1。smart-accel YAML 常无 scenarios 字段,
+    # 故 flags 回落是生产路径的主来源。
+    # 供 SmartKVCacheConfig.tp_size/dp_size + auto 估算共用(对齐 schemas.SmartKVCacheConfig 字段)。
+    tp = int((chosen_ec or {}).get("tensor_parallel_size") or flags.tp_size or 1)
+    dp = int((chosen_ec or {}).get("data_parallel_size") or flags.dp_size or 1)
     explicit_memory_on = False
     if memory_on and memory_size_mode == "auto":
-        dp = (chosen_ec or {}).get("data_parallel_size", 1)
         est = estimate_offload_memory(
             container_memory_gb=flags.pod_available_memory_gb,
             tp_size=tp,
@@ -390,6 +397,7 @@ def load_smart_accel_from_yaml(
             qat_device_count=flags.qat_devices,
             qat_compression_level=flags.qat_level,
             tp_size=tp,
+            dp_size=dp,
         ),
         smart_kv_sparse_config=SmartKVSparseConfig(enabled=enable_sparse, mode=flags.sparse_level),
         smart_accel=smart_accel,
