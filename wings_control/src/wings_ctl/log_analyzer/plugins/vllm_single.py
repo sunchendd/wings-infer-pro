@@ -133,6 +133,7 @@ class VLLMSingleGPUPlugin(BaseLogPatternPlugin):
         """获取server_checking阶段的日志模式。"""
         return [
             {"pattern": r"init engine.*seconds", "phase_code": "server_checking", "progress_calc": 99},
+            {"pattern": r"init engine.*s", "phase_code": "server_checking", "progress_calc": 99},
             {"pattern": r"Application startup complete", "phase_code": "server_checking", "progress_calc": 99},
             {"pattern": r"health_checking", "phase_code": "server_checking", "progress_calc": 99},
         ]
@@ -141,5 +142,6 @@ class VLLMSingleGPUPlugin(BaseLogPatternPlugin):
         """获取ready阶段的日志模式。"""
         return [
             {"pattern": r"Starting vLLM server on http", "phase_code": "ready", "progress_calc": 100},
+            {"pattern": r"starting OpenAI server bind_address=", "phase_code": "ready", "progress_calc": 100},
             {"pattern": r"Available routes are:", "phase_code": "ready", "progress_calc": 100},
         ]

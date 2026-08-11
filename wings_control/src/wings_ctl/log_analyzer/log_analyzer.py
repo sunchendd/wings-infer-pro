@@ -262,53 +262,52 @@ class LogAnalyzer:
         ]
 
     @staticmethod
-    def _get_accel_injection_patterns() -> List[Dict]:
-        """返回加速特性安装启动/检测阶段的日志模式列表。"""
-        return [
-            {
-                "pattern": r"\[wings-accel\] Installing for engine '.*?' \(extras: \[.*?\]\) \.\.\.",
-                "phase_code": "accel_enabling",
-                "progress_calc": 10,
-            },
-            {
-                "pattern": r"\[wings-accel\] Checking .*?@\d+\.\d+\.\d+ features: .*?",
-                "phase_code": "accel_enabling",
-                "progress_calc": 12,
-            },
-            {
-                "pattern": r"\[wings-accel\] ✅ wings_engine_patch installed",
-                "phase_code": "accel_enabling",
-                "progress_calc": 13,
-            },
-            {
-                "pattern": r"\[wings-accel\] ✅ Engine '.*?' registered in patch registry",
-                "phase_code": "accel_enabling",
-                "progress_calc": 14,
-            },
-            {"pattern": r"\[wings-accel\] ✅ Version '.*?' found", "phase_code": "accel_enabling", "progress_calc": 15},
-        ]
+    def _get_accel_enabling_patterns() -> List[Dict]:
+        """返回 accel_enabling 阶段（加速特性注入）的日志模式列表。
 
-    @staticmethod
-    def _get_accel_status_patterns() -> List[Dict]:
-        """返回加速特性声明/完成状态的日志模式列表。"""
+        模式对齐 wings-accel 的关键日志。
+        本方法覆盖安装启动、逐个操作与收尾/异常全过程。
+
+        进度语义（accel_enabling 阶段内单调递增，10→20）：
+        - 10: 加速安装开始（Installing patches / Installing for engine）
+        - 12: 匹配到引擎补丁版本
+        - 14/16: 包安装进行中 / 单个包安装完成
+        - 18: 引擎补丁已应用
+        - 20: 安装完成（或 install.py 缺失的异常兜底）
+        """
         return [
-            {
-                "pattern": r"\[wings-accel\] ✅ Feature '.*?' declared",
-                "phase_code": "accel_enabling",
-                "progress_calc": 16,
-            },
-            {
-                "pattern": r"\[wings-accel\] ✅ Done\. To enable patches at runtime, set:",
-                "phase_code": "accel_enabling",
-                "progress_calc": 18,
-            },
             {
                 "pattern": r"\[wings-accel\] Installing patches from /accel-volume",
                 "phase_code": "accel_enabling",
                 "progress_calc": 10,
             },
             {
-                "pattern": r"\[wings-accel\] Patch installation complete",
+                "pattern": r"\[wings-accel\] Installing for engine '.*?' \(extras: \[.*?\]\) \.\.\.",
+                "phase_code": "accel_enabling",
+                "progress_calc": 10,
+            },
+            {
+                "pattern": r"\[wings-accel\] Matched engine patch version: \S+",
+                "phase_code": "accel_enabling",
+                "progress_calc": 12,
+            },
+            {
+                "pattern": r"\[wings-accel\] Installing package: \S+",
+                "phase_code": "accel_enabling",
+                "progress_calc": 14,
+            },
+            {
+                "pattern": r"\[wings-accel\] Package installed: \S+",
+                "phase_code": "accel_enabling",
+                "progress_calc": 16,
+            },
+            {
+                "pattern": r"\[wings-accel\] Engine patches applied: engine=\S+",
+                "phase_code": "accel_enabling",
+                "progress_calc": 18,
+            },
+            {
+                "pattern": r"\[wings-accel\] wings-accel installation complete",
                 "phase_code": "accel_enabling",
                 "progress_calc": 20,
             },
@@ -421,17 +420,20 @@ class LogAnalyzer:
     def _handle_timeout(self):
         """处理超时情况。
 
-        当处于 server_checking 阶段（进度 >= 99%）时，日志文件可能
-        因 grep 过滤 health/metrics 请求行而长时间无新内容。此时
-        主动探测后端健康端点，若返回 200 则直接标记为 ready。
+        日志文件长时间无新内容时触发，用于确认引擎是否已实际就绪。
+        日志无更新可能因：引擎已就绪后日志被 grep 过滤（health/metrics
+        请求行被剔除），或引擎处于长时间编译阶段，或当前引擎的
+        server_checking 阶段日志模式未匹配（进度无法到达 99%）。
 
-        超时本身不判定部署失败：日志无更新可能因引擎已就绪后日志被
-        grep 过滤，或引擎处于长时间编译阶段。部署失败由 health_router
-        状态机通过启动宽限期超时（STARTUP_GRACE_MS）返回 502 独立判定。
-        本方法仅写入 warning 级别的信息性记录，继续监控。
+        因此超时后无条件主动探测后端健康端点——后端 /health 返回 200
+        即代表服务已可用，直接标记为 completed 收口，避免反复输出超时
+        告警。探测失败则继续监控，写入 warning 级别信息性记录。
+
+        超时本身不判定部署失败：部署失败由 health_router 状态机通过
+        启动宽限期超时（STARTUP_GRACE_MS）返回 502 独立判定。
         """
         # 引擎启动完成后日志被过滤导致无新内容 → 主动探测后端
-        if self.current_phase == "server_checking" and self.current_progress >= 99 and self._probe_backend_health():
+        if self._probe_backend_health():
             self.is_completed = True
             ready_name = self.stage_definitions.get("ready", {}).get("name", "ready")
             self.stage_progress.write_progress(
@@ -485,10 +487,6 @@ class LogAnalyzer:
 
         for pattern_info in self.error_patterns:
             pattern_info["compiled"] = re.compile(pattern_info["pattern"])
-
-    def _get_accel_enabling_patterns(self) -> List[Dict]:
-        """返回 accel_enabling 阶段（加速特性注入）的日志模式列表。"""
-        return self._get_accel_injection_patterns() + self._get_accel_status_patterns()
 
     def _add_common_patterns(self):
         """添加通用阶段的日志模式（与加速引擎无关）。
