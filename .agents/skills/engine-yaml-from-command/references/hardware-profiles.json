@@ -1,0 +1,22 @@
+{
+  "vllm": {
+    "h100": {"gpu_count": 8, "vram_gb": 640, "multi_node": true},
+    "gb300": {"gpu_count": 4, "vram_gb": 1152, "multi_node": true}
+  },
+  "vllm-ascend": {
+    "ascend-a2": {"gpu_count": 8, "vram_gb": 512, "multi_node": true},
+    "ascend-a3": {"gpu_count": 16, "vram_gb": 1024, "multi_node": true}
+  },
+  "sglang": {
+    "h100": {"gpu_count": 8, "vram_gb": 640, "multi_node": true},
+    "h200": {"gpu_count": 8, "vram_gb": 1128, "multi_node": true},
+    "b200": {"gpu_count": 8, "vram_gb": 1440, "multi_node": true},
+    "gb200": {"gpu_count": 8, "vram_gb": 1536, "multi_node": true},
+    "mi300x": {"gpu_count": 8, "vram_gb": 1536, "multi_node": true},
+    "mi325x": {"gpu_count": 8, "vram_gb": 2048, "multi_node": true},
+    "mi355x": {"gpu_count": 8, "vram_gb": 2304, "multi_node": true},
+    "ascend-a2": {"gpu_count": 8, "vram_gb": 512, "multi_node": true},
+    "ascend-a3": {"gpu_count": 16, "vram_gb": 1024, "multi_node": true},
+    "xeon": {"gpu_count": 1, "vram_gb": 0, "multi_node": false}
+  }
+}

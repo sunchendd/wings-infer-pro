@@ -1,0 +1,87 @@
+# Canonical multi-node reference extracted from:
+# config/engines/sglang/v0.5.14/ascend-a3/models/GLM-5.1/GLM-5.1-w4a8.yaml
+
+# 来源追溯
+upstream_sources:
+  - id: sglang_glm-5.1
+    kind: official_doc
+    repo: sglang
+    file: docs_new/docs/hardware-platforms/ascend-npus/best_practice/glm5_1.mdx
+    url: "https://github.com/sgl-project/sglang/blob/v0.5.14/docs_new/docs/hardware-platforms/ascend-npus/best_practice/glm5_1.mdx"
+    note: SGLang 官方 Cookbook 文档。自动生成。
+
+# 模型基本信息
+model:
+  name: GLM-5.1
+  provider: ""
+  model_id: GLM-5.1
+  min_engine_version: v0.5.14
+  match:
+    - name_pattern: "(?i)glm[-.]?5.1"
+  variant_name: GLM-5.1-w4a8
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 16
+  vram_gb: 1024
+  multi_node: true
+
+# 部署场景
+scenarios:
+  multi_node:
+    source_ref: "sglang_glm-5.1#multi_node_pd-mixed_high_throughput"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_pd-mixed_high_throughput:
+        display_name: GLM-5.1 W4A8 16P IN3K5 OUT1K5 50ms
+        orientation: throughput
+        head:
+          engine_config:
+            model: $MODEL_PATH
+            model_path: $MODEL_PATH
+            host: "${NODE_IPS[0]}"
+            port: 6688
+            nnodes: 2
+            dist_init_addr: "${NODE_IPS[0]}:5000"
+            node_rank: 0
+            attention_backend: ascend
+            device: npu
+            tp_size: 32
+            dp_size: 16
+            enable_dp_attention: true
+            trust_remote_code: true
+            mem_fraction_static: 0.65
+          env:
+            GLOO_SOCKET_IFNAME: "<network-interface>"
+            HCCL_BUFFSIZE: 2500
+            HCCL_SOCKET_IFNAME: "<network-interface>"
+            SGLANG_SET_CPU_AFFINITY: 1
+          system_setup:
+            commands: [MODEL_PATH=/path/to/model-weights, "NODE_IPS=('<your node1 ip>' '<your node2 ip>')", source /usr/local/Ascend/ascend-toolkit/set_env.sh]
+        worker:
+          engine_config:
+            model: $MODEL_PATH
+            model_path: $MODEL_PATH
+            host: "${NODE_IPS[1]}"
+            port: 6688
+            nnodes: 2
+            dist_init_addr: "${NODE_IPS[0]}:5000"
+            node_rank: 1
+            attention_backend: ascend
+            device: npu
+            tp_size: 32
+            dp_size: 16
+            enable_dp_attention: true
+            trust_remote_code: true
+            mem_fraction_static: 0.65
+          env:
+            GLOO_SOCKET_IFNAME: "<network-interface>"
+            HCCL_BUFFSIZE: 2500
+            HCCL_SOCKET_IFNAME: "<network-interface>"
+            SGLANG_SET_CPU_AFFINITY: 1
+          system_setup:
+            commands: [MODEL_PATH=/path/to/model-weights, "NODE_IPS=('<your node1 ip>' '<your node2 ip>')", source /usr/local/Ascend/ascend-toolkit/set_env.sh]
+        default_strategy: true
+

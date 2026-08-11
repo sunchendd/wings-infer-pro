@@ -1,0 +1,56 @@
+# Canonical standalone reference extracted from:
+# config/engines/vllm/h100/models/Qwen3.5-2B/Qwen3.5-2B-bf16.yaml
+
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_qwen3.5-2b
+    kind: official_recipe
+    repo: recipes
+    file: models/Qwen/Qwen3.5-2B.yaml
+    url: "https://recipes.vllm.ai/Qwen/Qwen3.5-2B"
+    date_updated: 2026-04-22
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: Qwen3.5-2B
+  slug: qwen3.5-2b
+  provider: Qwen
+  description: Qwen3.5 mini dense multimodal model with 262K context.
+  model_id: Qwen/Qwen3.5-2B
+  architecture: dense
+  parameter_count: 2B
+  active_parameters: 2B
+  context_length: 262144
+  vram_minimum_gb: 5
+  tasks: [multimodal, text]
+  min_engine_version: "0.17.0"
+  date_updated: 2026-04-22
+  match:
+    - name_pattern: "(?i)qwen3.5[-.]?2b"
+  variant_name: Qwen3.5-2B-bf16
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 640
+  multi_node: true
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_recipe_qwen3.5-2b#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: Qwen/Qwen3.5-2B
+          trust_remote_code: true
+          tensor_parallel_size: 1
+        env: {}
+
