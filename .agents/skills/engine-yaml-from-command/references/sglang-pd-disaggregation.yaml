@@ -1,0 +1,97 @@
+# Canonical PD reference extracted from:
+# config/engines/sglang/v0.5.14/ascend-a3/models/GLM-5.1/GLM-5.1-w4a8.yaml
+
+# 来源追溯
+upstream_sources:
+  - id: sglang_glm-5.1
+    kind: official_doc
+    repo: sglang
+    file: docs_new/docs/hardware-platforms/ascend-npus/best_practice/glm5_1.mdx
+    url: "https://github.com/sgl-project/sglang/blob/v0.5.14/docs_new/docs/hardware-platforms/ascend-npus/best_practice/glm5_1.mdx"
+    note: SGLang 官方 Cookbook 文档。自动生成。
+
+# 模型基本信息
+model:
+  name: GLM-5.1
+  provider: ""
+  model_id: GLM-5.1
+  min_engine_version: v0.5.14
+  match:
+    - name_pattern: "(?i)glm[-.]?5.1"
+  variant_name: GLM-5.1-w4a8
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 16
+  vram_gb: 1024
+  multi_node: true
+
+# 部署场景
+scenarios:
+  pd_disaggregation:
+    source_ref: "sglang_glm-5.1#pd_cluster_low_latency"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster_low_latency:
+        display_name: GLM-5.1 W4A8 1P1D 32P IN128K OUT1K 20ms
+        orientation: latency
+        default_strategy: true
+        nodes:
+          - role: prefill
+            index: 0
+            engine_config:
+              model: "${MODEL_PATH}"
+              model_path: $MODEL_PATH
+              disaggregation_mode: prefill
+              host: "${P_IP[$i]}"
+              port: 8000
+              dist_init_addr: "${P_IP[0]}:5000"
+              disaggregation_bootstrap_port: 8998
+              node_rank: $i
+              tp_size: 4
+              nnodes: 2
+              mem_fraction_static: 0.72
+              attention_backend: ascend
+              device: npu
+              quantization: modelslim
+              disaggregation_transfer_backend: ascend
+              max_running_requests: 16
+              trust_remote_code: true
+            env:
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT: 1200
+              SGLANG_SET_CPU_AFFINITY: 1
+              HCCL_SOCKET_IFNAME: "<network-interface>"
+            system_setup:
+              commands: [source /usr/local/Ascend/ascend-toolkit/set_env.sh, "P_IP=('<your prefill ip1>' '<your prefill ip2>')", "D_IP=('<your decode ip1>' '<your decode ip2>')", MODEL_PATH=/path/to/model-weights]
+          - role: decode
+            index: 0
+            engine_config:
+              model: "${MODEL_PATH}"
+              model_path: $MODEL_PATH
+              disaggregation_mode: decode
+              host: "${D_IP[$i]}"
+              port: 8001
+              dist_init_addr: "${D_IP[0]}:5000"
+              node_rank: $i
+              tp_size: 32
+              nnodes: 2
+              dp_size: 32
+              ep_size: 32
+              enable_dp_attention: true
+              mem_fraction_static: 0.85
+              max_running_requests: 32
+              attention_backend: ascend
+              device: npu
+              quantization: modelslim
+              disaggregation_transfer_backend: ascend
+              trust_remote_code: true
+            env:
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT: 1200
+              SGLANG_SET_CPU_AFFINITY: 1
+              HCCL_SOCKET_IFNAME: "<network-interface>"
+            system_setup:
+              commands: [source /usr/local/Ascend/ascend-toolkit/set_env.sh, "P_IP=('<your prefill ip1>' '<your prefill ip2>')", "D_IP=('<your decode ip1>' '<your decode ip2>')", MODEL_PATH=/path/to/model-weights]

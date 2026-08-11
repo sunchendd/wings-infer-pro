@@ -1,0 +1,122 @@
+# Canonical PD reference extracted from:
+# config/engines/vllm-ascend/v0.21.0rc/ascend-a3/models/DeepSeek-V4-Flash/DeepSeek-V4-Flash.yaml
+
+# 来源追溯
+upstream_sources:
+  - id: vllm_ascend_deepseek-v4-flash
+    kind: official_doc
+    repo: vllm-ascend
+    file: docs/source/tutorials/models/DeepSeek-V4-Flash.md
+    url: "https://github.com/vllm-project/vllm-ascend/blob/releases/v0.21.0rc/docs/source/tutorials/models/DeepSeek-V4-Flash.md"
+    note: vLLM Ascend 官方教程文档。自动生成。
+
+# 模型基本信息
+model:
+  name: DeepSeek-V4-Flash
+  provider: Eco-Tech
+  model_id: Eco-Tech/DeepSeek-V4-Flash-w8a8-mtp
+  min_engine_version: v0.21.0rc
+  match:
+    - name_pattern: "(?i)deepseek[-.]?v4[-.]?flash"
+  variant_name: DeepSeek-V4-Flash-w8a8-mtp
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 16
+  vram_gb: 1024
+  multi_node: true
+
+# 部署场景
+scenarios:
+  pd_disaggregation:
+    source_ref: "vllm_ascend_deepseek-v4-flash#pd_cluster"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        default_strategy: true
+        nodes:
+          - role: prefill
+            index: 0
+            engine_config:
+              model: /root/.cache/modelscope/hub/models/vllm-ascend/DeepSeek-V4-Flash-w8a8-mtp
+              host: "0.0.0.0"
+              port: $2
+              data_parallel_size: $3
+              data_parallel_rank: $4
+              data_parallel_address: $5
+              data_parallel_rpc_port: $6
+              tensor_parallel_size: $7
+              enable_expert_parallel: true
+              seed: 1024
+              served_model_name: dsv4
+              max_model_len: 1048576
+              max_num_batched_tokens: 8192
+              max_num_seqs: 16
+              no_enable_prefix_caching: true
+              trust_remote_code: true
+              gpu_memory_utilization: 0.9
+              quantization: ascend
+              enforce_eager: true
+              kv_transfer_config:
+                kv_connector: MooncakeHybridConnector
+                kv_role: kv_producer
+                kv_port: 30000
+                engine_id: 0
+                kv_connector_extra_config:
+                  prefill:
+                    dp_size: 4
+                    tp_size: 4
+                  decode:
+                    dp_size: 16
+                    tp_size: 1
+            env:
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+              HCCL_OP_EXPANSION_MODE: AIV
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          - role: decode
+            index: 0
+            engine_config:
+              model: /root/.cache/modelscope/hub/models/vllm-ascend/DeepSeek-V4-Flash-w8a8-mtp
+              host: "0.0.0.0"
+              port: $2
+              data_parallel_size: $3
+              data_parallel_rank: $4
+              data_parallel_address: $5
+              data_parallel_rpc_port: $6
+              tensor_parallel_size: $7
+              enable_expert_parallel: true
+              seed: 1024
+              served_model_name: dsv4
+              max_model_len: 1048576
+              max_num_batched_tokens: 120
+              max_num_seqs: 60
+              async_scheduling: true
+              no_enable_prefix_caching: true
+              trust_remote_code: true
+              gpu_memory_utilization: 0.9
+              quantization: ascend
+              compilation_config:
+                cudagraph_mode: FULL_DECODE_ONLY
+              kv_transfer_config:
+                kv_connector: MooncakeHybridConnector
+                kv_role: kv_consumer
+                kv_port: 30100
+                engine_id: 1
+                kv_connector_extra_config:
+                  prefill:
+                    dp_size: 4
+                    tp_size: 4
+                  decode:
+                    dp_size: 16
+                    tp_size: 1
+            env:
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+              HCCL_OP_EXPANSION_MODE: AIV
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"

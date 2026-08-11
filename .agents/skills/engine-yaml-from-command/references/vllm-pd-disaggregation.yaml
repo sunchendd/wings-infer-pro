@@ -1,0 +1,86 @@
+# Canonical PD reference extracted from:
+# config/engines/vllm/gb300/models/DeepSeek-V3/DeepSeek-V3-fp8.yaml
+
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_deepseek-v3
+    kind: official_recipe
+    repo: recipes
+    file: models/deepseek-ai/DeepSeek-V3.yaml
+    url: "https://recipes.vllm.ai/deepseek-ai/DeepSeek-V3"
+    date_updated: 2026-04-17
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: DeepSeek-V3
+  slug: deepseek-v3
+  provider: DeepSeek
+  description: DeepSeek-V3 mixture-of-experts model with native FP8 weights.
+  model_id: deepseek-ai/DeepSeek-V3
+  architecture: moe
+  parameter_count: 671B
+  active_parameters: 37B
+  context_length: 163840
+  vram_minimum_gb: 805
+  tasks: [text]
+  min_engine_version: "0.12.0"
+  date_updated: 2026-04-17
+  match:
+    - name_pattern: "(?i)deepseek[-.]?v3"
+  variant_name: DeepSeek-V3-fp8
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 4
+  vram_gb: 1152
+  multi_node: true
+
+# 部署场景
+scenarios:
+  pd_disaggregation:
+    source_ref: "vllm_recipe_deepseek-v3#pd_cluster"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        orientation: production
+        default_strategy: true
+        nodes:
+          - role: prefill
+            index: 0
+            parallelism: tp
+            engine_config:
+              model: deepseek-ai/DeepSeek-V3
+              trust_remote_code: true
+              enable_expert_parallel: true
+              port: 8001
+              kv_transfer_config:
+                kv_connector: NixlConnector
+                kv_role: kv_producer
+                kv_load_failure_policy: fail
+              enforce_eager: true
+              tensor_parallel_size: 4
+            env:
+              VLLM_NIXL_SIDE_CHANNEL_PORT: 5557
+              VLLM_NIXL_SIDE_CHANNEL_HOST: $PREFILL_NODE_1
+          - role: decode
+            index: 0
+            parallelism: tp
+            engine_config:
+              model: deepseek-ai/DeepSeek-V3
+              trust_remote_code: true
+              enable_expert_parallel: true
+              port: 8002
+              kv_transfer_config:
+                kv_connector: NixlConnector
+                kv_role: kv_consumer
+                kv_load_failure_policy: fail
+              compilation_config:
+                cudagraph_mode: FULL_DECODE_ONLY
+              tensor_parallel_size: 4
+            env:
+              VLLM_NIXL_SIDE_CHANNEL_PORT: 5558
+              VLLM_NIXL_SIDE_CHANNEL_HOST: $DECODE_NODE_1
