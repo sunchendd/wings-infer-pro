@@ -1,45 +1,41 @@
-# Reasoning Parser（思维解析）特性支持表
+# Reasoning Parser 公共能力与对外支持表
+#
+# 本文件是项目对外公布的 reasoning parser 支持范围和公共能力配置表。
+# 它不依赖旧仓库的 _LLM_MODELS，也不要求与某个全局模型注册表一一对应。
+# 当前重构仓库的运行时 resolver 负责读取本表，并在 FeatureOverlay 之前生成标准化
+# features.reasoning；本次实现仅使用 models 中的精确模型配置。
 #
 # 范围: vllm / vllm_ascend。
-#   - sglang 已整体移出 reasoning: nvidia_default.json 的 sglang 段已删除全部 reasoning_parser,
-#     无论开关如何 sglang 都不参与思维解析（见 xuqiu/reasoning_thinking_switch.md「引擎范围」）。
-#     注: reasoning 与 function call 解耦, 剔除 sglang 的 reasoning 不影响其 function call
-#     (tool_call_parser 保留, 见 function_call_support.yaml)。
-#   - mindie 不使用 reasoning_parser, 思维解析为服务端内置。
+#   - vllm_ascend 是运行时 canonical engine 名称；输入 vllm_ascend 时由 resolver 归一化。
+#   - sglang 不纳入本表的 reasoning parser 支持范围；其 function call 配置不受影响。
+#   - mindie 不纳入本表；其思维解析由服务端能力负责。
 #
-# 开关: reasoning_parser 已与 function call 解耦, 由独立开关 --enable-auto-think-choice / ENABLE_AUTO_THINK_CHOICE 驱动
-#   （字段 enable_auto_think_choice, 与 function call 的 enable_auto_tool_choice 并列对齐; 默认关闭, 见 config_loader._set_reasoning_parser）。
-#   - 开关开启 + 模型/引擎默认配置里有 reasoning_parser → 注入启动命令（启用思维解析）。
-#   - 开关开启 但配置无 reasoning_parser → 仅告警, 不凭空注入。
-#   - 开关关闭 → 移除 reasoning_parser, 启动命令不带思维解析（模型仍可能输出 <think>, 只是不被拆解）。
+# 开关: reasoning_parser 与 function call 解耦，由独立开关
+#   --enable-auto-think-choice 驱动。
+#   - 开关开启且模型 YAML override 或本表精确模型配置命中 parser → 注入启动命令。
+#   - 开关开启但未匹配 → 不主动推断 parser，并记录告警。
+#   - 开关关闭 → 运行时移除 reasoning parser 参数；模型仍可能输出 <think>，
+#     但输出不会被 reasoning parser 拆解。
 #
-# 运行时真值:
-#   - reasoning_parser 仅由本文件承载，config_loader 在模型默认配置合并时读取并注入。
-#   - nvidia_default.json / ascend_default.json 不得再存放 reasoning_parser。
-#   - 模型清单与 wings_control/utils/model_utils.py (_LLM_MODELS) 保持严格一致。
-#
-# 每个架构含两块:
-#   models:  本架构在 _LLM_MODELS 中登记的【每个】模型的最终取值；运行时精确命中即生效，
-#            优先于 config。models 清单与 wings_control/utils/model_utils.py (_LLM_MODELS) 严格一一对应。
-#   config:  仅为【未登记到 _LLM_MODELS 但 architectures[0] 命中本架构】的模型兜底，不重复列已登记模型：
-#              default          —— 该架构未知模型的回落值；
-#              <精确模型名>: …  —— 个别未登记模型的专属兜底（如 Qwen3-Coder 系列强制 null、不启用解析）。
-#            ⚠ 已登记模型恒命中 models 块、永远走不到 config，故 config 不再镜像已登记模型（避免死配置漂移）。
+# 数据职责:
+#   - models: 已验证的精确模型名或模型变体配置；大小写不敏感，但不使用子串匹配。
+#   - config: 预留字段；当前 resolver 不读取架构默认或精确例外。
+#   - 模型 YAML 使用 features.reasoning 表达部署级显式 override。
 #
 # 取值约定:
-#   <string>  实际生效的 reasoning_parser
-#   null      不启用思维解析（该引擎下此模型不注入 reasoning_parser）
-#   省略某 engine 键 = 该模型在该引擎不向 models 命中、继续按 config 回落
+#   <string> 或完整对象  表示该引擎下已验证的 parser；完整对象可携带 args/plugin。
+#   null                 表示该模型/架构在该引擎下不支持 reasoning parser；公共表不注入 parser，
+#                        也不删除或覆盖模型 YAML/场景中的已有配置。
+#   省略 engine 键         表示该模型在该引擎下不启用 parser。
 #
-# 命名约定: vllm / vllm_ascend 取值均用下划线: deepseek_r1, deepseek_v3, deepseek_v4, qwen3, glm45, kimi_k2, minimax_m2_append_think。
+# 匹配规则（由新仓库 Reasoning Resolver 实现）:
+#   1) 模型 YAML 的 features.reasoning.args 优先；
+#   2) 未提供模型 YAML override 时，在 models 中按完整模型名精确匹配（忽略大小写）；
+#   3) 无精确匹配时不注入。当前不使用 config[engine] 的 default 或精确例外，
+#      也不使用未经声明的名称子串匹配。
 #
-# 匹配规则(config_loader._resolve_reasoning_parser_support —— 本表的唯一消费者):
-#   1) 先在 models 块按模型名【精确匹配】(忽略大小写)，命中且该 engine 键存在 → 取该值；
-#   2) 否则在 config[engine] 按【精确匹配】命中非 default 专属键 → 取该值；
-#   3) 否则取 config[engine].default；都没有 → 不注入。
-#   全程纯精确匹配，无 token 子串匹配（子串匹配仅存在于 default.json 的 _match_model_engine_config，与本表无关）。
-#   DeepSeek V3/V3.2 架构默认 deepseek_v3；R1 系列在 models 块直接给 deepseek_r1；Coder-V2 给 null（不启用）。
-
+# 解析结果区分 matched、unmatched 和 invalid；null 或省略 engine 键均不生成 parser。
+#
 feature: reasoning_parser
 field: reasoning_parser
 engines: [vllm, vllm_ascend]
@@ -56,21 +52,17 @@ architectures:
       DeepSeek-V3:                     {vllm: deepseek_v3, vllm_ascend: deepseek_v3}
       DeepSeek-V3-0324:                {vllm: deepseek_v3, vllm_ascend: deepseek_v3}
       DeepSeek-V3.1:                   {vllm: deepseek_v3, vllm_ascend: deepseek_v3}
-      DeepSeek-Coder-V2-Instruct:      {vllm: null, vllm_ascend: null}
       DeepSeek-R1-w8a8:                {vllm: deepseek_r1, vllm_ascend: deepseek_r1}
       DeepSeek-R1-0528-w8a8:           {vllm: deepseek_r1, vllm_ascend: deepseek_r1}
       DeepSeek-V3-w8a8:                {vllm: deepseek_v3, vllm_ascend: deepseek_v3}
       DeepSeek-V3-0324-w8a8:           {vllm: deepseek_v3, vllm_ascend: deepseek_v3}
-      DeepSeek-V3.1-w8a8:              {vllm: deepseek_v3, vllm_ascend: deepseek_v3}
-      DeepSeek-Coder-V2-Instruct-w8a8: {vllm: null, vllm_ascend: null}
+      DeepSeek-V3.1-w8a8-mtp-QuaRot:              {vllm: deepseek_v3, vllm_ascend: deepseek_v3}
 
   - name: DeepseekV4ForCausalLM
     config:
       vllm:        {default: deepseek_v4}
       vllm_ascend: {default: deepseek_v4}
     models:
-      DeepSeek-V4:                {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
-      DeepSeek-V4-w8a8:           {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
       DeepSeek-V4-Flash:          {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
       DeepSeek-V4-Flash-w8a8-mtp: {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
       DeepSeek-V4-Pro:            {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
@@ -107,10 +99,8 @@ architectures:
       GLM-5-FP8:    {vllm: glm45, vllm_ascend: glm45}
       GLM-5-w4a8:   {vllm: glm45, vllm_ascend: glm45}
       GLM-5.1:      {vllm: glm45, vllm_ascend: glm45}
-      GLM5.1:       {vllm: glm45, vllm_ascend: glm45}
       GLM-5.1-w8a8: {vllm: glm45, vllm_ascend: glm45}
       GLM-5.1-FP8:  {vllm: glm45, vllm_ascend: glm45}
-      GLM5.1-FP8:   {vllm: glm45, vllm_ascend: glm45}
       GLM-5.2:      {vllm: glm45, vllm_ascend: glm45}
       GLM-5.2-w8a8: {vllm: glm45, vllm_ascend: glm45}
 
@@ -121,9 +111,7 @@ architectures:
     models:
       GLM-4.7:      {vllm: glm45, vllm_ascend: glm45}
       GLM-4.7-FP8: {vllm: glm45, vllm_ascend: glm45}
-      GLM4.7:       {vllm: glm45, vllm_ascend: glm45}
-      GLM4.7-FP8:   {vllm: glm45, vllm_ascend: glm45}
-      GLM-4.7-w8a8: {vllm: glm45, vllm_ascend: glm45}
+      GLM-4.7-W8A8-floatmtp: {vllm: glm45, vllm_ascend: glm45}
 
   - name: Qwen3ForCausalLM
     config:
@@ -131,13 +119,11 @@ architectures:
       vllm_ascend: {default: qwen3}
     models:
       Qwen3-32B:                  {vllm: qwen3, vllm_ascend: qwen3}
-      Qwen3-Embedding-0.6B:      {vllm: null, vllm_ascend: null}
-      Qwen/Qwen3-Embedding-0.6B: {vllm: null, vllm_ascend: null}
 
   - name: Qwen3MoeForCausalLM
     config:
       # Qwen3-Coder-* 未登记到 _LLM_MODELS，但其 architectures[0]=Qwen3MoeForCausalLM；
-      # 显式置 null 以免回落 default(qwen3) 而误启用思维解析（Coder 为非思考模型）。
+      # 显式置 null 表示该模型不支持 reasoning parser，避免回落 default(qwen3) 而误注入。
       vllm:        {default: qwen3, Qwen3-Coder-480B-A35B-Instruct: null, Qwen3-Coder-30B-A3B-Instruct: null}
       vllm_ascend: {default: qwen3, Qwen3-Coder-480B-A35B-Instruct: null, Qwen3-Coder-30B-A3B-Instruct: null}
     models:
@@ -157,7 +143,7 @@ architectures:
       vllm_ascend: {default: qwen3}
     models:
       Qwen3.5-27B:      {vllm: qwen3, vllm_ascend: qwen3}
-      Qwen3.5-27B-w8a8: {vllm: qwen3, vllm_ascend: qwen3}
+      Qwen3.5-27B-w8a8-mtp: {vllm: qwen3, vllm_ascend: qwen3}
       Qwen3.6-27B:      {vllm: qwen3, vllm_ascend: qwen3}
       Qwen3.6-27B-w8a8: {vllm: qwen3, vllm_ascend: qwen3}
 
@@ -167,7 +153,7 @@ architectures:
       vllm_ascend: {default: qwen3}
     models:
       Qwen3.5-397B-A17B-NVFP4: {vllm: qwen3, vllm_ascend: qwen3}
-      Qwen3.5-397B-A17B-w8a8: {vllm: qwen3, vllm_ascend: qwen3}
+      Qwen3.5-397B-A17B-w8a8-mtp: {vllm: qwen3, vllm_ascend: qwen3}
       Qwen3.5-35B-A3B:        {vllm: qwen3, vllm_ascend: qwen3}
       Qwen3.5-122B-A10B:      {vllm: qwen3, vllm_ascend: qwen3}
       Qwen3.5-397B-A17B:      {vllm: qwen3, vllm_ascend: qwen3}
@@ -188,12 +174,140 @@ architectures:
       MiniMax-M2.7-w8a8: {vllm: minimax_m2_append_think, vllm_ascend: minimax_m2_append_think}
       MiniMax-M2.7-w8a8-QuaRot: {vllm: minimax_m2_append_think, vllm_ascend: minimax_m2_append_think}
 
-  # ── 以下架构在两引擎 default 段均未配 reasoning_parser, 全部模型 null（不启用思维解析）──
-  #  其中 DeepSeek-R1-Distill-* 与 QwQ-32B 属推理型模型, 当前未配 reasoning_parser, 如需可补。
-  - name: Glm4ForCausalLM
+  # 以下模型使用模型 YAML 中的 variant_name，并声明对应的 reasoning parser。
+  - name: ReasoningParserModels
     config: {}
     models:
-      GLM-4-9B-0414: {vllm: null, vllm_ascend: null}
+      diffusiongemma-26B-A4B-it: {vllm: gemma4, vllm_ascend: gemma4}
+      diffusiongemma-26B-A4B-it-fp8: {vllm: gemma4, vllm_ascend: gemma4}
+      diffusiongemma-26B-A4B-it-nvfp4: {vllm: gemma4, vllm_ascend: gemma4}
+      gemma-4-12B-it: {vllm: gemma4, vllm_ascend: gemma4}
+      gemma-4-12B-it-int4: {vllm: gemma4, vllm_ascend: gemma4}
+      gemma-4-26B-A4B-it: {vllm: gemma4, vllm_ascend: gemma4}
+      gemma-4-26B-A4B-it-fp8: {vllm: gemma4, vllm_ascend: gemma4}
+      gemma-4-26B-A4B-it-nvfp4: {vllm: gemma4, vllm_ascend: gemma4}
+      gemma-4-31B-it: {vllm: gemma4, vllm_ascend: gemma4}
+      gemma-4-31B-it-fp8: {vllm: gemma4, vllm_ascend: gemma4}
+      gemma-4-31B-it-int4: {vllm: gemma4, vllm_ascend: gemma4}
+      gemma-4-31B-it-nvfp4: {vllm: gemma4, vllm_ascend: gemma4}
+      gemma-4-E2B-it: {vllm: gemma4, vllm_ascend: gemma4}
+      gemma-4-E2B-it-fp8: {vllm: gemma4, vllm_ascend: gemma4}
+      gemma-4-E2B-it-int2-4-8: {vllm: gemma4, vllm_ascend: gemma4}
+      gemma-4-E2B-it-int4: {vllm: gemma4, vllm_ascend: gemma4}
+      gemma-4-E4B-it: {vllm: gemma4, vllm_ascend: gemma4}
+      gemma-4-E4B-it-fp8: {vllm: gemma4, vllm_ascend: gemma4}
+      gemma-4-E4B-it-int2-4-8: {vllm: gemma4, vllm_ascend: gemma4}
+      gemma-4-E4B-it-int4: {vllm: gemma4, vllm_ascend: gemma4}
+      GLM-4.5: {vllm: glm45, vllm_ascend: glm45}
+      GLM-4.5-fp8: {vllm: glm45, vllm_ascend: glm45}
+      GLM-4.5-W8A8-floatmtp: {vllm: glm45, vllm_ascend: glm45}
+      GLM-4.5V: {vllm: glm45, vllm_ascend: glm45}
+      GLM-4.5V-fp8: {vllm: glm45, vllm_ascend: glm45}
+      GLM-4.6: {vllm: glm45, vllm_ascend: glm45}
+      GLM-4.6-fp8: {vllm: glm45, vllm_ascend: glm45}
+      GLM-4.6-W8A8-floatmtp: {vllm: glm45, vllm_ascend: glm45}
+      GLM-4.6V: {vllm: glm45, vllm_ascend: glm45}
+      GLM-4.6V-fp8: {vllm: glm45, vllm_ascend: glm45}
+      Glyph: {vllm: glm45, vllm_ascend: glm45}
+      Hy3-preview: {vllm: hy_v3, vllm_ascend: hy_v3}
+      Intern-S1: {vllm: deepseek_r1, vllm_ascend: deepseek_r1}
+      Intern-S1-fp8: {vllm: deepseek_r1, vllm_ascend: deepseek_r1}
+      Intern-S2-Preview: {vllm: qwen3, vllm_ascend: qwen3}
+      Intern-S2-Preview-fp8: {vllm: qwen3, vllm_ascend: qwen3}
+      Kimi-K2-Thinking-int4: {vllm: kimi_k2, vllm_ascend: kimi_k2}
+      Kimi-K2-Thinking-nvfp4: {vllm: kimi_k2, vllm_ascend: kimi_k2}
+      Laguna-M.1: {vllm: poolside_v1, vllm_ascend: poolside_v1}
+      Laguna-M.1-fp8: {vllm: poolside_v1, vllm_ascend: poolside_v1}
+      Laguna-M.1-nvfp4: {vllm: poolside_v1, vllm_ascend: poolside_v1}
+      Laguna-XS-2.1: {vllm: poolside_v1, vllm_ascend: poolside_v1}
+      Laguna-XS.2: {vllm: poolside_v1, vllm_ascend: poolside_v1}
+      LFM2.5-1.2B-Thinking: {vllm: qwen3, vllm_ascend: qwen3}
+      LFM2.5-8B-A1B: {vllm: qwen3, vllm_ascend: qwen3}
+      Mellum2-12B-A2.5B-Thinking: {vllm: qwen3, vllm_ascend: qwen3}
+      MiMo-V2-Flash-fp8: {vllm: qwen3, vllm_ascend: qwen3}
+      MiMo-V2.5-fp8: {vllm: mimo, vllm_ascend: mimo}
+      MiMo-V2.5-Pro-fp8: {vllm: mimo, vllm_ascend: mimo}
+      MiniMax-M2: {vllm: minimax_m2_append_think, vllm_ascend: minimax_m2_append_think}
+      MiniMax-M2-fp8: {vllm: minimax_m2, vllm_ascend: minimax_m2}
+      MiniMax-M2-nvfp4: {vllm: minimax_m2, vllm_ascend: minimax_m2}
+      MiniMax-M2.1-fp8: {vllm: minimax_m2, vllm_ascend: minimax_m2}
+      Ministral-3-8B-Reasoning-2512-14b: {vllm: mistral, vllm_ascend: mistral}
+      Ministral-3-8B-Reasoning-2512-3b: {vllm: mistral, vllm_ascend: mistral}
+      Ministral-3-8B-Reasoning-2512: {vllm: mistral, vllm_ascend: mistral}
+      Mistral-Medium-3.5-128B-fp8: {vllm: mistral, vllm_ascend: mistral}
+      Mistral-Small-4-119B-2603-fp8: {vllm: mistral, vllm_ascend: mistral}
+      Mistral-Small-4-119B-2603-nvfp4: {vllm: mistral, vllm_ascend: mistral}
+      Nemotron-3-Nano-Omni-30B-A3B-Reasoning: {vllm: nemotron_v3, vllm_ascend: nemotron_v3}
+      Nemotron-3-Nano-Omni-30B-A3B-Reasoning-fp8: {vllm: nemotron_v3, vllm_ascend: nemotron_v3}
+      Nemotron-3-Nano-Omni-30B-A3B-Reasoning-nvfp4: {vllm: nemotron_v3, vllm_ascend: nemotron_v3}
+      NVIDIA-Nemotron-3-Nano-30B-A3B: {vllm: nano_v3, vllm_ascend: nano_v3}
+      NVIDIA-Nemotron-3-Nano-30B-A3B-fp8: {vllm: nano_v3, vllm_ascend: nano_v3}
+      NVIDIA-Nemotron-3-Nano-4B: {vllm: nano_v3, vllm_ascend: nano_v3}
+      NVIDIA-Nemotron-3-Nano-4B-fp8: {vllm: nano_v3, vllm_ascend: nano_v3}
+      NVIDIA-Nemotron-3-Super-120B-A12B-base: {vllm: nemotron_v3, vllm_ascend: nemotron_v3}
+      NVIDIA-Nemotron-3-Super-120B-A12B: {vllm: nemotron_v3, vllm_ascend: nemotron_v3}
+      NVIDIA-Nemotron-3-Super-120B-A12B-fp8: {vllm: nemotron_v3, vllm_ascend: nemotron_v3}
+      NVIDIA-Nemotron-3-Super-120B-A12B-nvfp4: {vllm: nemotron_v3, vllm_ascend: nemotron_v3}
+      NVIDIA-Nemotron-3-Ultra-550B-A55B: {vllm: nemotron_v3, vllm_ascend: nemotron_v3}
+      NVIDIA-Nemotron-3-Ultra-550B-A55B-nvfp4: {vllm: nemotron_v3, vllm_ascend: nemotron_v3}
+      Qwen3-4B: {vllm: qwen3, vllm_ascend: qwen3}
+      Qwen3-4B-fp8: {vllm: qwen3, vllm_ascend: qwen3}
+      Qwen3.5-0.8B: {vllm: qwen3, vllm_ascend: qwen3}
+      Qwen3.5-2B: {vllm: qwen3, vllm_ascend: qwen3}
+      Qwen3.5-397B-A17B-int4: {vllm: qwen3, vllm_ascend: qwen3}
+      Qwen3.5-4B: {vllm: qwen3, vllm_ascend: qwen3}
+      Qwen3.5-9B: {vllm: qwen3, vllm_ascend: qwen3}
+      Step-3.5-Flash: {vllm: step3p5, vllm_ascend: step3p5}
+      Step-3.5-Flash-fp8: {vllm: step3p5, vllm_ascend: step3p5}
+      Step-3.5-Flash-int4: {vllm: step3p5, vllm_ascend: step3p5}
+      Step-3.5-Flash-int8: {vllm: step3p5, vllm_ascend: step3p5}
+      Step-3.7-Flash: {vllm: step3p5, vllm_ascend: step3p5}
+      Step-3.7-Flash-fp8: {vllm: step3p5, vllm_ascend: step3p5}
+      Step-3.7-Flash-nvfp4: {vllm: step3p5, vllm_ascend: step3p5}
+      DeepSeek-R1-fp8: {vllm: deepseek_r1, vllm_ascend: deepseek_r1}
+      DeepSeek-R1-nvfp4: {vllm: deepseek_r1, vllm_ascend: deepseek_r1}
+      DeepSeek-R1-r1_0528: {vllm: deepseek_r1, vllm_ascend: deepseek_r1}
+      DeepSeek-V3-fp4: {vllm: deepseek_v3, vllm_ascend: deepseek_v3}
+      DeepSeek-V3-fp8: {vllm: deepseek_v3, vllm_ascend: deepseek_v3}
+      DeepSeek-V3.1-fp8: {vllm: deepseek_v3, vllm_ascend: deepseek_v3}
+      DeepSeek-V3.1-nvfp4: {vllm: deepseek_v3, vllm_ascend: deepseek_v3}
+      DeepSeek-V3.2-Exp-fp8: {vllm: deepseek_v3, vllm_ascend: deepseek_v3}
+      DeepSeek-V3.2-fp8: {vllm: deepseek_v3, vllm_ascend: deepseek_v3}
+      DeepSeek-V3.2-nvfp4: {vllm: deepseek_v3, vllm_ascend: deepseek_v3}
+      DeepSeek-V4-Flash-fp8: {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
+      DeepSeek-V4-Flash-nvfp4: {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
+      DeepSeek-V4-Pro-dspark: {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
+      DeepSeek-V4-Pro-fp8: {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
+      DeepSeek-V4-Pro-nvfp4: {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
+      GLM-4.7-nvfp4: {vllm: glm45, vllm_ascend: glm45}
+      GLM-5-nvfp4: {vllm: glm45, vllm_ascend: glm45}
+      GLM-5-w8a8: {vllm: glm45, vllm_ascend: glm45}
+      GLM-5.1-nvfp4: {vllm: glm45, vllm_ascend: glm45}
+      GLM-5.2-fp8: {vllm: glm45, vllm_ascend: glm45}
+      GLM-5.2-nvfp4: {vllm: glm45, vllm_ascend: glm45}
+      Kimi-K2.5-int4: {vllm: kimi_k2, vllm_ascend: kimi_k2}
+      Kimi-K2.5-nvfp4: {vllm: kimi_k2, vllm_ascend: kimi_k2}
+      Kimi-K2.6-int4: {vllm: kimi_k2, vllm_ascend: kimi_k2}
+      Kimi-K2.6-nvfp4: {vllm: kimi_k2, vllm_ascend: kimi_k2}
+      Kimi-K2.7-Code-int4: {vllm: kimi_k2, vllm_ascend: kimi_k2}
+      MiniMax-M2.5-fp8: {vllm: minimax_m2, vllm_ascend: minimax_m2}
+      MiniMax-M2.5-w8a8-QuaRot: {vllm: minimax_m2_append_think, vllm_ascend: minimax_m2_append_think}
+      MiniMax-M2.7-fp8: {vllm: minimax_m2, vllm_ascend: minimax_m2}
+      MiniMax-M3-mxfp4: {vllm: minimax_m3, vllm_ascend: minimax_m3}
+      Qwen3-32B-fp8: {vllm: qwen3, vllm_ascend: qwen3}
+      Qwen3-32B-int4: {vllm: qwen3, vllm_ascend: qwen3}
+      Qwen3.5-122B-A10B-fp8: {vllm: qwen3, vllm_ascend: qwen3}
+      Qwen3.5-122B-A10B-int4: {vllm: qwen3, vllm_ascend: qwen3}
+      Qwen3.5-27B-fp8: {vllm: qwen3, vllm_ascend: qwen3}
+      Qwen3.5-27B-int4: {vllm: qwen3, vllm_ascend: qwen3}
+      Qwen3.5-35B-A3B-fp8: {vllm: qwen3, vllm_ascend: qwen3}
+      Qwen3.5-35B-A3B-int4: {vllm: qwen3, vllm_ascend: qwen3}
+      Qwen3.6-27B-fp8: {vllm: qwen3, vllm_ascend: qwen3}
+      Qwen3.6-27B-nvfp4: {vllm: qwen3, vllm_ascend: qwen3}
+      Qwen3.6-35B-A3B-fp8: {vllm: qwen3, vllm_ascend: qwen3}
+      Qwen3.6-35B-A3B-nvfp4: {vllm: qwen3, vllm_ascend: qwen3}
+      Trinity-Large-Thinking: {vllm: deepseek_r1, vllm_ascend: deepseek_r1}
+      Trinity-Large-Thinking-nvfp4: {vllm: deepseek_r1, vllm_ascend: deepseek_r1}
 
   # MiniMax-M3 (GQA+MSA, 多模态): vLLM 官方 recipe/blog/docs 均确认
   # --tool-call-parser / --reasoning-parser 使用 minimax_m3；但本文件是启动命令
@@ -203,40 +317,10 @@ architectures:
   # 注意不要把 MXFP8 的证据泛化到下面两个方向：
   #   1. MiniMax-M3 base 名称：页面/模型路径可能只给短名，无法证明对应权重就是
   #      MXFP8 recipe；若直接注入，会影响未验证权重的 parser 命中。
-  #   2. vLLM-Ascend：当前 DAY0 没有对应启动命令证据，保持 null，避免 Ascend
+  #   2. vLLM-Ascend：当前 DAY0 没有对应启动命令证据，保持 null，表示该引擎暂不支持，避免 Ascend
   #      场景因为 parser 字段提前下发而产生不可控差异。
   - name: MiniMaxM3SparseForConditionalGeneration
     config: {}
     models:
       MiniMax-M3:       {vllm: minimax_m3, vllm_ascend: minimax_m3}
       MiniMax-M3-MXFP8: {vllm: minimax_m3, vllm_ascend: minimax_m3}
-
-  - name: Qwen2ForCausalLM
-    config: {}
-    models:
-      DeepSeek-R1-Distill-Qwen-1.5B: {vllm: null, vllm_ascend: null}
-      DeepSeek-R1-Distill-Qwen-7B:   {vllm: null, vllm_ascend: null}
-      DeepSeek-R1-Distill-Qwen-14B:  {vllm: null, vllm_ascend: null}
-      DeepSeek-R1-Distill-Qwen-32B:  {vllm: null, vllm_ascend: null}
-      Qwen2.5-32B-Instruct:          {vllm: null, vllm_ascend: null}
-      QwQ-32B:                       {vllm: null, vllm_ascend: null}
-
-  - name: LlamaForCausalLM
-    config: {}
-    models:
-      LLaMA3-8B:                     {vllm: null, vllm_ascend: null}
-      LLaMA3.1-70B:                  {vllm: null, vllm_ascend: null}
-      LLaMA3.1-70B-Instruct:         {vllm: null, vllm_ascend: null}
-      Meta-Llama-3.1-70B-Instruct:   {vllm: null, vllm_ascend: null}
-      DeepSeek-R1-Distill-Llama-8B:  {vllm: null, vllm_ascend: null}
-      DeepSeek-R1-Distill-Llama-70B: {vllm: null, vllm_ascend: null}
-
-  - name: BertModel
-    config: {}
-    models:
-      bge-large-zh-v1.5: {vllm: null, vllm_ascend: null}
-
-  - name: XLMRobertaForSequenceClassification
-    config: {}
-    models:
-      bge-reranker-large: {vllm: null, vllm_ascend: null}
