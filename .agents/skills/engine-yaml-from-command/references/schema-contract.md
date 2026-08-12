@@ -23,7 +23,7 @@
 
 ## 输入契约
 
-生成前必须得到以下确定信息：
+普通模型 YAML 生成前必须得到以下确定信息：
 
 | 输入 | 要求 |
 |---|---|
@@ -35,6 +35,8 @@
 | model_id | 可确认的 HF/ModelScope ID；无法确认时明确为 null |
 | variant | bf16、w8a8、w4a8、fp8 等；无法判断时询问 |
 | commands | 每种节点角色的完整命令和前置 Shell 设置 |
+
+`default_model.yaml` 是例外：它只需要 `engine`、`engine_version`、`hardware_profile`（包括卡数和单卡显存），不需要 `model_name`、`model_id`、`variant` 或 `commands`。生成路径必须是 `{engine}/{version}/{hardware_profile}/models/default_model.yaml`。写入前先检查目标文件：已存在时不得覆盖；不存在时才能从同引擎/版本的相邻硬件模板创建。总显存为 `gpu_count * vram_per_gpu_gb`。创建后必须执行 `check_dry_run.py --default-model`，检查顶层结构、版本、硬件规格、三个场景和默认策略。
 
 版本字符串只做可选前导 `v` 的格式检查，不做猜测性别名转换。`0.21.rc1` 缺 patch 段，应报错而不是转换成 `v0.21.0rc`。
 
@@ -187,6 +189,7 @@ JSON/dict 参数优先转为 YAML mapping。进入 `features.*.args` 时保留�
 
 1. 运行 `scripts/normalize_input.py`，输入无错误和待确认警告。
 2. 运行 `scripts/validate_yaml.py --engine ... --scenario ... --reasoning-registry wings_control/docs/features/reasoning_parser/reason_parser.yaml`；存在 `features.reasoning` 时必须提供 registry。
-3. 重建每个策略/节点命令，并把 `features` 合并回命令进行 normalized diff；没有原始命令时不得声称完成 round-trip 验证。
-4. 仅运行 skill 自带的结构校验和可用的 round-trip 校验；本 skill 不要求不存在的项目级验证器。
-5. 校验结果必须说明是否完成参数白名单检查。
+3. 执行 `scripts/check_dry_run.py`，重建每个策略/节点命令，并把 `features`（至少包括 `tool_calling` 和 `reasoning`）合并回命令进行 normalized diff。用户直接粘贴 inline 命令时，必须先将原始命令原样物化为临时 command file 再执行；不能因为没有现成脚本文件而跳过。只有用户没有提供完整原始命令时，才可报告 round-trip 未完成。
+4. dry-run 比较必须报告缺失参数、额外参数、值不一致和节点数量不一致；任一项存在都必须失败。
+5. 仅运行 skill 自带的结构校验和 dry-run 校验；本 skill 不要求不存在的项目级验证器。
+6. 校验结果必须说明是否完成参数白名单检查以及 dry-run 参数一致性检查。
