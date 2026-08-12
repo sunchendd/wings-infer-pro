@@ -59,7 +59,7 @@ def estimate_offload_memory(
     worker_overhead_gb: float = 7.0,
     base_overhead_gb: float = 3.0,
     margin_ratio: float = 0.10,
-    min_threshold_gb: int = 100,
+    min_threshold_gb: int = 20,
 ) -> MemoryEstimate:
     """估算 KV 卸载可用 CPU 内存(单常数最坏值模型)。
 
@@ -74,7 +74,7 @@ def estimate_offload_memory(
             coordinator,默认 3
         margin_ratio: 容器安全余量比例(0~1),默认 0.10;margin = container × margin_ratio,
             吸收 OS 预留与 RSS/PSS 波动,取代旧 os_reserved 固定值
-        min_threshold_gb: 启用阈值(GB),available 低于此值则关闭卸载,默认 100
+        min_threshold_gb: 启用阈值(GB),available 低于此值则关闭卸载,默认 20
 
     Returns:
         MemoryEstimate: 含 available_gb / enabled / disable_reason

@@ -111,7 +111,7 @@ class LoadFlags:
     # KV_MEM_OFFLOAD_SIZE: "auto" 或数值字符串(GB);空字符串/false 表示不显式下发。
     memory_offload_size_mode: str = ""
     pod_available_memory_gb: int = 0
-    min_offload_threshold_gb: int = 100
+    min_offload_threshold_gb: int = 20
     # TP/DP 用于 auto 内存估算的 worker_count;smart-accel YAML 常无 scenarios.engine_config
     # (TP/DP 由 wings-control model recipe 提供),此处作为 YAML 缺失时的回落来源。0 = 未下发→兜底 1。
     tp_size: int = 0

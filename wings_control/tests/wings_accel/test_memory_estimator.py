@@ -22,15 +22,15 @@ class TestEstimateOffloadMemory:
         assert est.available_gb == int(256 - 59 - 25.6)  # 171
 
     def test_disable_below_threshold(self):
-        """128G 容器, TP=8 → available=56.2 < 100G,disabled"""
+        """50G 容器, TP=4 → available=14 < 20G(默认阈值),disabled"""
         est = estimate_offload_memory(
-            container_memory_gb=128, tp_size=8, dp_size=1,
+            container_memory_gb=50, tp_size=4, dp_size=1,
         )
         assert est.enabled is False
-        assert est.available_gb == 56  # int(128 - 59 - 12.8)
-        assert est.min_threshold_gb == 100
-        assert "56" in est.disable_reason
-        assert "threshold 100GB" in est.disable_reason
+        assert est.available_gb == 14  # int(50 - 31 - 5)
+        assert est.min_threshold_gb == 20
+        assert "14" in est.disable_reason
+        assert "threshold 20GB" in est.disable_reason
 
     def test_dp_doubles_worker_count(self):
         """DP=2 → worker_count 翻倍,engine_self 翻倍(每 worker 7G)"""
@@ -77,7 +77,7 @@ class TestEstimateOffloadMemory:
 
     def test_custom_min_threshold(self):
         """覆盖启用阈值"""
-        # 默认阈值 100 → enabled,改为 250 → disabled
+        # 默认阈值 20 → enabled(available=199 远超阈值),改为 250 → disabled
         est_default = estimate_offload_memory(
             container_memory_gb=256, tp_size=4, dp_size=1,
         )
@@ -111,12 +111,13 @@ class TestEstimateOffloadMemory:
 
     def test_disable_reason_contains_breakdown(self):
         """disable_reason 含完整调试信息(container/engine_self/margin/workers)"""
+        # 60G/TP8 → available=clamp(60-59-6)=0 < 20(默认阈值) → disabled
         est = estimate_offload_memory(
-            container_memory_gb=100, tp_size=8, dp_size=1,
+            container_memory_gb=60, tp_size=8, dp_size=1,
         )
         assert est.enabled is False
         reason = est.disable_reason
-        assert "container=100" in reason
+        assert "container=60" in reason
         assert "engine_self=" in reason
         assert "margin=" in reason
         assert "workers=8=tp8" in reason
