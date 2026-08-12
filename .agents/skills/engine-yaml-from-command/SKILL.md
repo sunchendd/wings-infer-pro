@@ -1,6 +1,6 @@
 ---
 name: engine-yaml-from-command
-description: 当用户给出 vLLM、vLLM-Ascend 或 SGLang 启动命令，要求生成 Wings Control 或兼容 schema 的模型 YAML 时使用。支持单节点、多节点和 Prefill/Decode 分离；包含可移植的真实 YAML 参考、输入规范化和结构校验。Use when converting vLLM, vLLM-Ascend, or SGLang launch commands into Wings Control-compatible YAML for standalone, multi-node, or prefill/decode disaggregation deployments.
+description: 当用户要求根据 vLLM、vLLM-Ascend 或 SGLang 的引擎版本、硬件规格、卡数/显存生成或更新 Wings Control/兼容 schema 的模型 YAML 时使用，包括 default_model.yaml；也用于将启动命令转换为模型 YAML。支持单节点、多节点和 Prefill/Decode 分离，并包含输入规范化、canonical reference 和结构校验。Use when generating or updating Wings Control-compatible model YAML or default_model.yaml from vLLM, vLLM-Ascend, or SGLang engine version and hardware specifications, GPU count/memory, or launch commands, including standalone, multi-node, and prefill/decode deployments.
 ---
 
 # 从启动命令生成引擎 YAML
@@ -163,6 +163,31 @@ python3 <skill-dir>/scripts/validate_yaml.py \
   /path/to/generated.yaml
 ```
 
+结构校验通过后，**必须执行 dry-run 参数一致性校验**。该校验从 YAML 的
+`engine_config` 和 `features.*.args` 重建引擎命令，并与生成 YAML 所依据的每个原始
+启动命令比较。
+
+用户可能直接在消息中粘贴多行命令，而不是提供脚本文件。此时必须先将命令原样写入
+临时 command file（保留续行、引号和 JSON 参数），再执行 dry-run；“没有现成的脚本
+文件”不能作为跳过校验的理由。只有用户确实没有提供完整原始命令时，才能报告 dry-run
+未完成，且不能声称参数已验证：
+
+```bash
+python3 <skill-dir>/scripts/check_dry_run.py \
+  --engine vllm-ascend \
+  --scenario standalone \
+  --command-file /path/to/materialized-start.sh \
+  /path/to/generated.yaml
+```
+
+multi-node/PD 对每个节点重复 `--command-file`，顺序必须与 YAML 中的节点顺序一致。
+inline 命令物化后，必须检查 command file 内容与用户消息逐项一致，再运行校验。
+校验失败（缺失参数、额外参数、参数值不一致或节点数量不一致）时停止并修正 YAML。
+脚本会打印每个节点的 YAML 重建命令、原始启动命令和逐项比较结果：`OK` 表示匹配，
+`缺失`、`多余`、`不一致` 会分别列出参数及 YAML/command 的值；异常报告输出到 stderr，
+并以退出码 1 结束。成功报告输出到 stdout 并以退出码 0 结束，便于日志和 CI 查看。
+尤其必须确认 `features.tool_calling` 和 `features.reasoning` 中的参数分别出现在
+最终 dry-run 命令中；不能只验证 YAML 能解析。
 
 验证必须覆盖：
 
@@ -177,7 +202,21 @@ python3 <skill-dir>/scripts/validate_yaml.py \
 
 ## default_model.yaml
 
-`default_model.yaml` 不是普通模型配置。它只包含 `hardware`、`engine`、`scenarios`，并且三个场景都必须存在；不要套用本 skill 的普通模型 YAML reference。目标仓库存在 default 文件时以其为模板。
+用户只提供引擎版本、硬件 profile、卡数和单卡显存，并要求生成 `default_model.yaml` 时，也必须触发本 skill；这类请求不需要模型名、variant 或启动命令。应先查找目标路径 `{engine}/{version}/{hardware_profile}/models/default_model.yaml`：
+
+1. 文件已存在时，只提示已存在及其路径，禁止自动覆盖；用户明确要求更新时再单独确认覆盖范围。
+2. 文件不存在时，提示目标目录缺少默认文件，并根据同引擎/版本的相邻 hardware profile 模板自动创建。总显存按 `gpu_count * vram_per_gpu_gb` 计算，所有默认 TP、PD 的 `tp_size` 等与模板保持一致，仅替换硬件相关值。
+3. 创建后必须执行 default 专用 dry-run；不能使用要求启动命令的普通模型 dry-run。
+
+```bash
+python3 <skill-dir>/scripts/check_dry_run.py \
+  --default-model --engine vllm-ascend --engine-version v0.23.0 \
+  --hardware-profile ascend910b-x86_64 --gpu-count 16 \
+  --vram-per-gpu-gb 64 \
+  wings_control/config/engines/vllm-ascend/v0.23.0/ascend910b-x86_64/models/default_model.yaml
+```
+
+若目标仓库没有模板，读取 `references/default-model-contract.md`（如存在），不得套用普通模型 YAML reference。`default_model.yaml` 只包含 `hardware`、`engine`、`scenarios`，并且三个场景都必须存在。default dry-run 必须检查 YAML 可解析、顶层结构、版本、硬件卡数/总显存、三个场景、唯一默认策略以及 standalone/multi-node/PD 的节点结构；失败时停止并修正，不能声称创建成功。
 
 ## 禁止事项
 
