@@ -220,8 +220,6 @@ smart_accel:
         #   server 的 L1 配置(--l1-size-gb 等)是 server flag,放 daemon 脚本 content;不进 cli_params。
         #   测试 lmcache 命中时建议关 prefix caching(--no-enable-prefix-caching),避免 prefix cache 干扰。
         - name: cpu
-          packages:
-            lmcache: v0.3.15
           cli_params:
             kv_transfer_config:
               kv_connector: LMCacheMPConnector
@@ -252,8 +250,6 @@ smart_accel:
                 --eviction-policy LRU \
                 --supported-transfer-mode lmcache_driven
         - name: disk
-          packages:
-            lmcache: v0.3.15
           cli_params:
             kv_transfer_config:
               kv_connector: LMCacheConnectorV1
@@ -281,8 +277,6 @@ smart_accel:
                     loss_level: {qat_compression_level}
                     log_enabled: 1
         - name: cpu_disk
-          packages:
-            lmcache: v0.3.15
           cli_params:
             kv_transfer_config:
               kv_connector: LMCacheConnectorV1
@@ -485,8 +479,6 @@ smart_accel:
         #   server 的 L1 配置(--l1-size-gb 等)是 server flag,放 daemon 脚本 content;不进 cli_params。
         #   测试 lmcache 命中时建议关 prefix caching(--no-enable-prefix-caching),避免 prefix cache 干扰。
         - name: cpu
-          packages:
-            lmcache: v0.3.15
           cli_params:
             kv_transfer_config:
               kv_connector: LMCacheMPConnector
@@ -517,8 +509,6 @@ smart_accel:
                 --eviction-policy LRU \
                 --supported-transfer-mode lmcache_driven
         - name: disk
-          packages:
-            lmcache: v0.3.15
           cli_params:
             kv_transfer_config:
               kv_connector: LMCacheConnectorV1
@@ -546,8 +536,6 @@ smart_accel:
                     loss_level: {qat_compression_level}
                     log_enabled: 1
         - name: cpu_disk
-          packages:
-            lmcache: v0.3.15
           cli_params:
             kv_transfer_config:
               kv_connector: LMCacheConnectorV1

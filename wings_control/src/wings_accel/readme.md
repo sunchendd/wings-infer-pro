@@ -443,7 +443,7 @@ margin         = container_memory_gb × margin_ratio       (默认 10%)
 available      = container_memory_gb − engine_self − margin
 swap_space     = 0   (启动设 swap_space=0,无 beam search 前提)
 
-available < min_threshold_gb(默认 100) → enabled=False(关闭卸载)
+available < min_threshold_gb(默认 20) → enabled=False(关闭卸载)
 ```
 
 - `worker_overhead_gb=7` 取自实测最坏值(MiniMax-M2.5 TP16 full graph 均摊 ≈ 6.2G/worker)+ 一档头;一个常数覆盖全部配置。
@@ -490,7 +490,7 @@ class LoadFlags:
     pd_role: Optional[str] = None            # PD_ROLE
     memory_offload_size_mode: str = ""       # KV_MEM_OFFLOAD_SIZE("auto"/数值 GB)
     pod_available_memory_gb: int = 0         # AVAILABLE_POD_MEM_SIZE
-    min_offload_threshold_gb: int = 100
+    min_offload_threshold_gb: int = 20
 ```
 
 **全字段默认 False / 空 → 裸 `LoadFlags()` = 全关真 no-op**(`docs/48` D2)。
