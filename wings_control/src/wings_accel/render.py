@@ -78,6 +78,7 @@ class PlaceholderContext:
     # IP 用 {rank_ip}/{master_ip} → ${RANK_IP}/${MASTER_IP},运行时 envsubst 展开。
     gpu_count: int = 1 # 卡数(= device_count);mooncake global_segment_size / memcache dram.size 按卡均分用
     tp_size: int = 0 # 张量并行度;lmcache {lookup_server_worker_ids} → "0,..,tp_size-1"
+    dp_size: int = 0 # 数据并行度;对齐 tp_size,供 {= expr } 算术用(如 per-pod 段大小派生)
     config_root: str = "" # smart-accel 根目录;files 条目 src 解析基准(_resolve_smart_accel_root 结果)
 
 
@@ -160,6 +161,7 @@ def _expr_namespace(ctx: PlaceholderContext) -> Dict[str, int]:
         "qat_compression_level": ctx.qat_compression_level,
         "gpu_count": ctx.gpu_count,
         "tp_size": ctx.tp_size,
+        "dp_size": ctx.dp_size,
     }
 
 

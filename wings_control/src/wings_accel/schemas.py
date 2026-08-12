@@ -140,6 +140,7 @@ class SmartKVCacheConfig:
     # 作为 cpu 内存方法参与 (memory_on, disk_on) 选择(工具由 connector + kv_connector_extra_config.backend 区分)。
 
     tp_size: int = 0 # TP SIZE大小。通过recipe解析微调后传递
+    dp_size: int = 0 # DP SIZE大小。通过recipe解析微调后传递(对齐 tp_size;供下游 PlaceholderContext/模板渲染用)
 
 
 @dataclass

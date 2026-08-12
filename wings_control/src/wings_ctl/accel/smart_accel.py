@@ -225,11 +225,15 @@ def apply_smart_accel(*, hardware_family: str, gpu_count: int | None, model_path
                       model_name: str | None, engine: str, engine_version: str | None,
                       config_root: str = "", pd_role: str | None = None,
                       topology: str | None = None,
+                      tp_size: int = 0, dp_size: int = 0,
                       env: dict | None = None) -> AccelResult:
     """委托 wings-accel 生成加速产出;模块缺失/异常 → 空 :class:`AccelResult`(不打断启动)。
 
     topology 由上层 ``config_resolver`` 传入(已聚合 PD_ROLE/DISTRIBUTED/NODE_IPS,
     对齐 wings-control ``Topology`` 枚举值);本适配层不再从 env 推导拓扑。
+
+    tp_size/dp_size 由调用方从 model recipe 的 scenarios.engine_config 透传,供 KV 内存
+    auto 估算 worker_count;smart-accel YAML 常无 scenarios 字段,故需上游注入。0 = 未下发。
     """
     mod = _import_accel()
     if mod is None:
@@ -262,6 +266,8 @@ def apply_smart_accel(*, hardware_family: str, gpu_count: int | None, model_path
             topology=topology,
             memory_offload_size_mode=switches["kv_mem_size_mode"],
             pod_available_memory_gb=switches["available_pod_mem_gb"],
+            tp_size=tp_size,
+            dp_size=dp_size,
         )
         output = mod.resolve_smart_accel_from_config(
             config_root=config_root,

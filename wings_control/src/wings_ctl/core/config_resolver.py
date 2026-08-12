@@ -454,6 +454,195 @@ def _select_scenario(
     )
 
 
+def _peek_recipe_parallelism(
+    model_data: Dict[str, Any] | None,
+    topology: Topology,
+    *,
+    rank_ip: str | None = None,
+    node_ips: List[str] | None = None,
+    master_ip: str | None = None,
+) -> tuple[int, int]:
+    """轻量预读 recipe 的 TP/DP,供 accel KV 内存 auto 估算使用(不走 _select_scenario 的强校验)。
+
+    覆盖所有 scenario 形态(对齐 ``_select_scenario`` / ``normalize_nodes`` 的形态识别):
+    - 旧格式 ``scenarios.{topo}.engine_config``(直接平铺)→ 直接读
+    - 新格式单段 ``strategies.{default}.engine_config`` → 选 default_strategy(无则取首个)后读
+    - 新格式 ``nodes[]``(multi_node/ascend)→ 按 IP 选本 Pod node;无 IP → 取 head(index=0)
+    - 新格式 ``head``/``worker``(multi_node/nvidia)→ 按 IP 判 head/worker 取对应;无 IP → 取 head
+
+    本 Pod 角色判定(轻量复刻 ``select_node``,**不走强校验**):有 ``rank_ip+node_ips+master_ip``
+    且 ``rank_ip in node_ips`` 时,``index = node_ips.index(rank_ip)``,head iff index==0;
+    否则退化取 head(保守代表值,与 multi_node 占位加载语义一致)。
+
+    recipe 缺失/scenario 缺失/字段缺失/类型异常 → ``(0, 0)``(accel 内部兜底 1×1)。
+    不影响 fallback / 异常 recipe 路径(apply_smart_accel 自身有 try/except 兜底)。
+
+    Args:
+        model_data: recipe dict;None/非 dict → ``(0, 0)``。
+        topology: 当前部署拓扑。
+        rank_ip / node_ips / master_ip: 运行时集群上下文(可选);用于 multi_node 形态选本 Pod node。
+            缺失/不一致时退化为取 head(index=0)。
+
+    Returns:
+        ``(tp, dp)``:从命中的 engine_config 读 ``tensor_parallel_size``/``data_parallel_size``。
+    """
+    if not isinstance(model_data, dict) or not model_data:
+        return 0, 0
+    scenarios = model_data.get("scenarios")
+    if not isinstance(scenarios, dict):
+        return 0, 0
+    scenario = scenarios.get(topology.value)
+    if not isinstance(scenario, dict):
+        return 0, 0
+
+    # 1) 旧格式:scenarios.{topo}.engine_config 直接平铺
+    ec = scenario.get("engine_config") if isinstance(scenario.get("engine_config"), dict) else None
+
+    # 2) 新格式:scenarios.{topo}.strategies.{name}.*
+    if ec is None:
+        strategies = scenario.get("strategies")
+        if isinstance(strategies, dict) and strategies:
+            chosen = _pick_default_strategy(strategies)
+            if isinstance(chosen, dict):
+                ec = _pick_node_engine_config(
+                    chosen,
+                    rank_ip=rank_ip, node_ips=node_ips, master_ip=master_ip,
+                )
+
+    if not isinstance(ec, dict):
+        return 0, 0
+
+    def _to_int(v: Any) -> int:
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return 0
+
+    return _to_int(ec.get("tensor_parallel_size")), _to_int(ec.get("data_parallel_size"))
+
+
+def _pick_default_strategy(strategies: Dict[str, Any]) -> Dict[str, Any] | None:
+    """从 strategies 选默认策略(对齐 ``_select_scenario`` 选取规则,但**不打 warning 日志**)。
+
+    - 取 ``default_strategy: true`` 的首个;无 → 取首个 dict 形态的 strategy。
+
+    Args:
+        strategies: ``{name: strategy_dict}`` 映射(非空)。
+
+    Returns:
+        选中的 strategy dict;无 dict 形态 → None。
+    """
+    for _name, strat in strategies.items():
+        if isinstance(strat, dict) and strat.get("default_strategy") is True:
+            return strat
+    for _name, strat in strategies.items():
+        if isinstance(strat, dict):
+            return strat
+    return None
+
+
+def _pick_node_engine_config(
+    strategy: Dict[str, Any],
+    *,
+    rank_ip: str | None,
+    node_ips: List[str] | None,
+    master_ip: str | None,
+) -> Dict[str, Any] | None:
+    """从 multi_node 形态 strategy 取本 Pod 的 engine_config(轻量,**不走 normalize_nodes/选 node 强校验**)。
+
+    覆盖三种形态:
+    - ``strategy.engine_config`` 直接平铺(单段 strategy)→ 直接返回
+    - ``strategy.nodes[]`` → 按 IP 选 node;无 IP/不一致 → 取 index=0
+    - ``strategy.head``/``worker`` → 按 IP 判 head/worker;无 IP → 取 head
+
+    本 Pod 角色判定(复刻 ``select_node`` 的不变量,**失败时退化而非抛**):
+    有 ``rank_ip+node_ips+master_ip`` 且 ``node_ips`` 非空且 ``rank_ip in node_ips`` 时:
+        ``index = node_ips.index(rank_ip)``;``is_head = (index == 0) 或 (rank_ip == master_ip)``
+    否则:退化为 head(取 index=0,保守代表值)。
+
+    Args:
+        strategy: 选定策略 dict(可能含 engine_config / nodes / head / worker)。
+        rank_ip / node_ips / master_ip: 运行时上下文(可选)。
+
+    Returns:
+        本 Pod node 的 engine_config dict;strategy 无任何形态 → None。
+    """
+    # 单段 strategy.engine_config 优先
+    direct_ec = strategy.get("engine_config")
+    if isinstance(direct_ec, dict):
+        return direct_ec
+
+    # nodes[] 形态:按 IP 选 index,无 IP 取 0
+    nodes_raw = strategy.get("nodes")
+    if isinstance(nodes_raw, list) and nodes_raw:
+        index = _resolve_pod_index(
+            rank_ip=rank_ip, node_ips=node_ips, master_ip=master_ip,
+            fallback=len(nodes_raw),  # 越界时退化取 0(下方 clamp)
+        )
+        if index is None or index >= len(nodes_raw):
+            index = 0
+        node = nodes_raw[index]
+        ec = node.get("engine_config") if isinstance(node, dict) else None
+        return ec if isinstance(ec, dict) else None
+
+    # head/worker 形态:按 IP 判 head/worker,无 IP 取 head
+    if "head" in strategy or "worker" in strategy:
+        is_head = _resolve_is_head(
+            rank_ip=rank_ip, node_ips=node_ips, master_ip=master_ip,
+        )
+        role_block = strategy.get("head") if is_head else strategy.get("worker")
+        ec = role_block.get("engine_config") if isinstance(role_block, dict) else None
+        return ec if isinstance(ec, dict) else None
+
+    return None
+
+
+def _resolve_pod_index(
+    *,
+    rank_ip: str | None,
+    node_ips: List[str] | None,
+    master_ip: str | None,
+    fallback: int = 0,
+) -> int | None:
+    """轻量按 IP 解析本 Pod 在集群中的下标(复刻 ``select_node`` 不变量,**失败返回 None 而非抛**)。
+
+    成功条件(任一不满足 → None,调用方退化取 head):
+    - ``rank_ip`` 非空
+    - ``node_ips`` 非空 list
+    - ``rank_ip in node_ips``
+
+    成功 → ``node_ips.index(rank_ip)``(head=0)。
+
+    Args:
+        rank_ip: 本 Pod IP。
+        node_ips: 全集群 IP 列表(按序,首位须为 master)。
+        master_ip: master IP(当前判定里仅作冗余校验,index=0 即 head,与 master 等价)。
+        fallback: 不传(默认 0);保留参数以兼容未来"无 IP 但已知 index"场景。
+
+    Returns:
+        本 Pod 下标;无法判定 → None。
+    """
+    if not rank_ip or not node_ips or rank_ip not in node_ips:
+        return None
+    return node_ips.index(rank_ip)
+
+
+def _resolve_is_head(
+    *,
+    rank_ip: str | None,
+    node_ips: List[str] | None,
+    master_ip: str | None,
+) -> bool:
+    """轻量判定本 Pod 是否为 head(复刻 ``select_node`` 不变量,**失败时保守返回 True 取 head 配置**)。
+
+    判定:``rank_ip in node_ips`` 且 ``node_ips[0] == rank_ip``(与 master 等价,index 0 即 head)。
+    无 IP 上下文/不一致 → True(退化取 head,与 multi_node 占位加载语义一致)。
+    """
+    if not rank_ip or not node_ips or rank_ip not in node_ips:
+        return True  # 退化:取 head
+    return node_ips.index(rank_ip) == 0
+
+
 def _deep_merge(base: dict, override: dict) -> dict:
     """递归深合并两个 dict:同为 dict 的键递归合并,其余 override 整体覆盖。
 
@@ -1205,6 +1394,14 @@ def resolve_config(
     # 复用 _deep_merge 深合并 + 同名去重 + 每参带 trace。模块未接通/关闭/无资产 → 空 AccelResult
     # (层为空 dict,trace_merge 遍历零 key,non-accel 路径零影响)。
     # model 定位以 model_name 为准(accel 内部定位 yaml),model_path 仅兜底,故传 None。
+    # 预读 recipe 的 TP/DP 透传给 accel:smart-accel YAML 常无 scenarios(KV 内存 auto 估算需要 TP/DP,
+    # 否则 worker_count 退化为 1,available 估算偏大)。覆盖所有 scenario 形态(单段/nodes[]/head·worker):
+    # - multi_node 形态按 rank_ip+node_ips+master_ip 选本 Pod node 的 TP/DP(head 与 worker 可不同);
+    # - 无运行时 IP 上下文(占位加载)退化取 head;recipe 缺失/字段缺失 → 0(accel 内部兜底 1)。
+    recipe_tp, recipe_dp = _peek_recipe_parallelism(
+        model_data, topology,
+        rank_ip=rank_ip, node_ips=node_ips, master_ip=master_ip,
+    )
     accel = apply_smart_accel(
         hardware_family=resolved_family_dir,
         gpu_count=device_count,
@@ -1219,6 +1416,8 @@ def resolve_config(
         # topology 由大策略层(pre_template)推导(已聚合 PD_ROLE/DISTRIBUTED/NODE_IPS),
         # 直接传入;适配层不再从 env 重复推导(消除 _resolve_topology 滥用 env.get)。
         topology=topology.value,
+        tp_size=recipe_tp,
+        dp_size=recipe_dp,
     )
     accel_layer = accel.engine_config  # strategy_accel 合并层(空 dict = 无产出 → trace_merge no-op)
 

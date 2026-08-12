@@ -180,5 +180,6 @@ def _build_placeholder_context(smart_input: SmartAccelInput) -> PlaceholderConte
         draft_model_path=smart_input.smart_decoding_config.model_path,
         gpu_count=smart_input.hardware_config.gpu_count,
         tp_size=kv.tp_size,
+        dp_size=kv.dp_size,
         config_root=smart_input.config_root,
     )
