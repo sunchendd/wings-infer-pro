@@ -123,15 +123,13 @@ smart_accel:
           cli_params:
             hf_overrides:
               use_index_cache: true
-              index_topk_freq: 4
-            kv_cache_dtype: fp8
+              index_topk_freq: 8
           envs: {}
         - name: accuracy_first
           cli_params:
             hf_overrides:
               use_index_cache: true
-              index_topk_freq: 8
-            kv_cache_dtype: fp8
+              index_topk_freq: 4
           envs: {}
         kv_offload:
         - name: cpu
@@ -390,15 +388,13 @@ smart_accel:
           cli_params:
             hf_overrides:
               use_index_cache: true
-              index_topk_freq: 4
-            kv_cache_dtype: fp8
+              index_topk_freq: 8
           envs: {}
         - name: accuracy_first
           cli_params:
             hf_overrides:
               use_index_cache: true
-              index_topk_freq: 8
-            kv_cache_dtype: fp8
+              index_topk_freq: 4
           envs: {}
         kv_offload:
         - name: cpu
@@ -606,15 +602,13 @@ smart_accel:
             cli_params:
               hf_overrides:
                 use_index_cache: true
-                index_topk_freq: 4
-              kv_cache_dtype: fp8
+                index_topk_freq: 8
             envs: {}
           - name: accuracy_first
             cli_params:
               hf_overrides:
                 use_index_cache: true
-                index_topk_freq: 8
-              kv_cache_dtype: fp8
+                index_topk_freq: 4
             envs: {}
         - role: decode
           index: 0
@@ -678,13 +672,11 @@ smart_accel:
             cli_params:
               hf_overrides:
                 use_index_cache: true
-                index_topk_freq: 4
-              kv_cache_dtype: fp8
+                index_topk_freq: 8
             envs: {}
           - name: accuracy_first
             cli_params:
               hf_overrides:
                 use_index_cache: true
-                index_topk_freq: 8
-              kv_cache_dtype: fp8
+                index_topk_freq: 4
             envs: {}

@@ -8,12 +8,12 @@ def make_block():
     return [
         {
             "name": "performance_first",
-            "cli_params": {"hf_overrides": {"use_index_cache": True, "index_topk_freq": 4}},
+            "cli_params": {"hf_overrides": {"use_index_cache": True, "index_topk_freq": 8}},
             "envs": {},
         },
         {
             "name": "accuracy_first",
-            "cli_params": {"hf_overrides": {"use_index_cache": True, "index_topk_freq": 8}},
+            "cli_params": {"hf_overrides": {"use_index_cache": True, "index_topk_freq": 4}},
             "envs": {},
         },
     ]
@@ -29,7 +29,7 @@ def test_sparse_performance_hit():
     out = smart_sparse_expander(cfg, make_block(), PlaceholderContext())
     assert out.scheme == "performance_first"
     assert out.degraded is False
-    assert out.engine_params.engine_config["hf_overrides"]["index_topk_freq"] == 4
+    assert out.engine_params.engine_config["hf_overrides"]["index_topk_freq"] == 8
 
 
 def test_sparse_accuracy_hit():
@@ -37,7 +37,7 @@ def test_sparse_accuracy_hit():
     out = smart_sparse_expander(cfg, make_block(), PlaceholderContext())
     assert out.scheme == "accuracy_first"
     assert out.degraded is False
-    assert out.engine_params.engine_config["hf_overrides"]["index_topk_freq"] == 8
+    assert out.engine_params.engine_config["hf_overrides"]["index_topk_freq"] == 4
 
 
 def test_sparse_performance_miss_degrade_to_accuracy():

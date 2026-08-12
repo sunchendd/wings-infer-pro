@@ -16,9 +16,8 @@
 {
   "hf_overrides": {
     "use_index_cache": true,
-    "index_topk_freq": 8
-  },
-  "kv_cache_dtype": "fp8"
+    "index_topk_freq": 4
+  }
 }
 ```
 
@@ -35,9 +34,8 @@
 {
   "hf_overrides": {
     "use_index_cache": true,
-    "index_topk_freq": 4
-  },
-  "kv_cache_dtype": "fp8"
+    "index_topk_freq": 8
+  }
 }
 ```
 

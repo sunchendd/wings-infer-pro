@@ -632,13 +632,11 @@ num_speculative_tokens_per_batch_size: [[1, 64, 3], [65, 128, 1], [129, 512, 0]]
 sparse:
   - name: performance_first         # name = mode 门键
     cli_params:
-      hf_overrides: { use_index_cache: true, index_topk_freq: 4 }
-      kv_cache_dtype: fp8
+      hf_overrides: { use_index_cache: true, index_topk_freq: 8 }
     envs: {}
   - name: accuracy_first
     cli_params:
-      hf_overrides: { use_index_cache: true, index_topk_freq: 8 }
-      kv_cache_dtype: fp8
+      hf_overrides: { use_index_cache: true, index_topk_freq: 4 }
     envs: {}
 ```
 
