@@ -23,8 +23,6 @@ smart_accel:
           envs: {}
         kv_offload:
         - name: cpu_disk
-          packages:
-            lmcache: v0.3.15
           cli_params:
             kv_transfer_config:
               kv_connector: LMCacheConnectorV1
@@ -73,8 +71,6 @@ smart_accel:
           envs: {}
         kv_offload:
         - name: cpu_disk
-          packages:
-            lmcache: v0.3.15
           cli_params:
             kv_transfer_config:
               kv_connector: LMCacheConnectorV1

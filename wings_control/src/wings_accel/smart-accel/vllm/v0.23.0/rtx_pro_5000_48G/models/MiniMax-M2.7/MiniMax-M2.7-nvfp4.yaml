@@ -23,8 +23,6 @@ smart_accel:
           envs: {}
         kv_offload:
         - name: cpu_disk
-          packages:
-            lmcache: v0.3.15
           cli_params:
             kv_transfer_config:
               kv_connector: LMCacheConnectorV1
@@ -32,7 +30,7 @@ smart_accel:
               kv_load_failure_policy: recompute
           envs:
             LMCACHE_LOCAL_CPU: 'True'
-            LMCACHE_MAX_LOCAL_CPU_SIZE: '15'
+            LMCACHE_MAX_LOCAL_CPU_SIZE: '{= memory_capacity_gb // tp_size}'
             LMCACHE_CHUNK_SIZE: '256'
             LMCACHE_EXTRA_CONFIG: '{"use_odirect": true}'
             LMCACHE_PRE_CACHING_HASH_ALGORITHM: sha256_cbor_64bit
@@ -55,8 +53,6 @@ smart_accel:
           envs: {}
         kv_offload:
         - name: cpu_disk
-          packages:
-            lmcache: v0.3.15
           cli_params:
             kv_transfer_config:
               kv_connector: LMCacheConnectorV1
@@ -64,7 +60,7 @@ smart_accel:
               kv_load_failure_policy: recompute
           envs:
             LMCACHE_LOCAL_CPU: 'True'
-            LMCACHE_MAX_LOCAL_CPU_SIZE: '15'
+            LMCACHE_MAX_LOCAL_CPU_SIZE: '{= memory_capacity_gb // tp_size}'
             LMCACHE_CHUNK_SIZE: '256'
             LMCACHE_EXTRA_CONFIG: '{"use_odirect": true}'
             LMCACHE_PRE_CACHING_HASH_ALGORITHM: sha256_cbor_64bit
