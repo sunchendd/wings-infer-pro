@@ -1,0 +1,37 @@
+# SmartAccel 三特性加速配置
+# 模型身份(docs/48:variant_name 精确优先 + name_pattern 加速兜底;variant_name = MaaS 下发的完整 --model-name)
+model:
+  name: DeepSeek-V4-Flash
+  variant_name: "DeepSeek-V4-Flash-0731"
+  match:
+    - name_pattern: "(?i)deepseek[-.]?v4[-.]?flash-0731"
+smart_accel:
+  standalone:
+    source_ref: smart_accel#standalone
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+        - name: dspark
+          cli_params:
+            speculative_config:
+              method: dspark
+              num_speculative_tokens: 5
+              draft_sample_method: greedy
+          envs: {}
+        sparse:
+        - name: performance_first
+          cli_params:
+            hf_overrides:
+              use_index_cache: true
+              index_topk_freq: 8
+          envs: {}
+        - name: accuracy_first
+          cli_params:
+            hf_overrides:
+              use_index_cache: true
+              index_topk_freq: 4
+          envs: {}
