@@ -18,13 +18,14 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, List, NamedTuple
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 from wings_ctl import __version__ as WINGS_CTL_VERSION
 from wings_ctl.accel.smart_accel import AccelResult, apply_smart_accel, collect_accel_switches
 from wings_ctl.core.constants import DEFAULT_ENGINE_PORT
 from wings_ctl.core.models import (
     ClusterPlacement,
+    CustomConfigFile,
     EngineProcessPlan,
     HardwareContext,
     ListenerPlan,
@@ -57,6 +58,7 @@ from wings_ctl.core.models import (
     UserInput,
 )
 from wings_ctl.core.topology import Topology
+from wings_ctl.engines.vllm_adapter import resolve_model_traced
 from wings_ctl.engines.version_resolver import _parse_version_tuple
 from wings_ctl.engines.vllm_adapter import build_argv
 from wings_ctl.loaders.locator import load_model_config, load_platform_config, resolve_family_dir
@@ -72,6 +74,8 @@ from wings_ctl.strategy.reasoning_resolver import (
     resolve_reasoning,
 )
 from wings_ctl.strategy.post_merge import apply_post_merge_strategy
+from wings_ctl.strategy.legacy_json_adapter import adapt_legacy_config_params
+from wings_ctl.strategy.multinode_custom import MultinodeCtx, multinode_custom_derive
 from wings_ctl.strategy.topology_inject import (
     LAYOUT_TP_ACROSS,
     coordinate_parallelism,
@@ -138,6 +142,93 @@ def _prepare_feature_context(
         raise ValueError(f"reasoning parser table is invalid: {exc}") from exc
     # 返回补全后的特性集合，供 FeatureOverlay 处理。
     return features, reasoning_resolution, reasoning_table_source
+
+
+# ─── config-file 黑名单(§4.1,实现层内部规则,不对用户强调)──────────────
+# 走自定义传参方式(--config-file)时,user_params 里命中黑名单的 key 被静默忽略,
+# 采用框架派生/CLI 侧的值,记 audit(config_file_dropped) + debug 日志,不阻断启动。
+# params 与 env **分开两张表**(可行性分析 §3.2:二者走独立 merge 链);
+# 且按 engine **分引擎**叠加(不同引擎框架派生的参数不同,§阶段0 拍板 §3)。
+#
+# params 黑名单(engine_config canonical 键,下划线形态):
+#   - 归 CLI(第 1/2 页):host/port/model/model_path/served_model_name 由 CLI 侧提供
+#     (model_path→model、model_name→served_model_name 经 CLITranslator 归一进 user_cli)。
+#   - 框架权威派生键:per-node 位置参数由多机策略层派生,用户填不出。
+#
+# 注:data_parallel_rpc_port **不在**黑名单——各节点该值一致(仅 data_parallel_address
+# 按节点不同),用户可填;未填时由引擎默认(若引擎无默认则需框架兜底,见 resolve_custom_config)。
+CONFIG_FILE_PARAMS_BLACKLIST_COMMON: frozenset = frozenset({
+    # 归 CLI 第 1/2 页(抢占保护):引擎启动 model/地址/端口由 CLI 决定
+    "model", "model_path", "served_model_name", "host", "port",
+    # 框架权威派生键(多机拓扑由框架按 index/device_count/TP/rank_ip 派生)
+    "nnodes", "node_rank",
+})
+
+# 引擎级 params 黑名单增量(叠加在 common 之上):该引擎 **custom 路径下 framework 权威派生**
+# 的键。注意:不是 recipe 路径的坐标注入键(custom 不调用 coordinate_parallelism,§4.4)。
+# 全局 data_parallel_size 由用户自管(并行度决策,未填默认 DP=1)→ 两引擎都不拦;
+# 派生层据用户填的 data_parallel_size 判布局,DP_across 时派生 size_local/start_rank/address。
+# vllm 与 vllm-ascend 派生逻辑一致(nvidia 同样注册 --data-parallel-size-local/-start-rank/-address,
+# 见 arg_utils.py:1012-1025;用户配 DP 时框架派生这些 per-node 键)→ 两引擎黑名单相同。
+_CONFIG_FILE_PARAMS_BLACKLIST_BY_ENGINE: Dict[str, frozenset] = {
+    "vllm": frozenset({
+        # data_parallel_size_local/start_rank:DP_across 时由框架按 index/device_count/TP 派生。
+        # data_parallel_address:per-node 通信用 master IP(各节点一致),框架权威。
+        # data_parallel_rank:不传引擎(§5.1.5 交引擎从 start_rank+size_local 推断)。
+        # headless 仅 vllm/ascend 存在(cli_args --headless)。master_addr 用 --master-addr。
+        "data_parallel_size_local", "data_parallel_start_rank",
+        "data_parallel_address", "data_parallel_rank", "headless", "master_addr",
+    }),
+    "vllm-ascend": frozenset({
+        # 与 vllm 相同(见上);ascend 额外有 HCCL env 黑名单(env 侧)。
+        "data_parallel_size_local", "data_parallel_start_rank",
+        "data_parallel_address", "data_parallel_rank", "headless", "master_addr",
+    }),
+    # sglang:nnodes/node_rank 已在 common(不重复);TP/DP 用户可填,不拦。
+    # dist_init_addr **不在黑名单**(设计 §5.1.3 端口用户可填):端口由用户 config-file 填,
+    # host(master IP)由 multinode_custom 派生层覆盖(层序高于 config_file,自动覆盖用户 host)。
+    "sglang": frozenset(),
+}
+
+# env 黑名单(环境变量名):通信/身份类键由框架派生(网卡探测 / rank IP),用户填不出。
+CONFIG_FILE_ENV_BLACKLIST_COMMON: frozenset = frozenset({
+    "RANK_IP", "MASTER_IP", "NODE_IPS",
+})
+
+_CONFIG_FILE_ENV_BLACKLIST_BY_ENGINE: Dict[str, frozenset] = {
+    "vllm": frozenset({"GLOO_SOCKET_IFNAME", "NCCL_SOCKET_IFNAME", "TP_SOCKET_IFNAME"}),
+    "vllm-ascend": frozenset({
+        "HCCL_IF_IP", "HCCL_SOCKET_IFNAME",
+        "GLOO_SOCKET_IFNAME", "NCCL_SOCKET_IFNAME", "TP_SOCKET_IFNAME",
+    }),
+    "sglang": frozenset({"GLOO_SOCKET_IFNAME", "NCCL_SOCKET_IFNAME"}),
+}
+
+
+def _config_file_params_blacklist(engine: str) -> frozenset:
+    """按引擎返回 params 黑名单(common ∪ engine 增量);未知引擎只走 common。"""
+    return CONFIG_FILE_PARAMS_BLACKLIST_COMMON | _CONFIG_FILE_PARAMS_BLACKLIST_BY_ENGINE.get(
+        engine, frozenset()
+    )
+
+
+def _config_file_env_blacklist(engine: str) -> frozenset:
+    """按引擎返回 env 黑名单(common ∪ engine 增量);未知引擎只走 common。"""
+    return CONFIG_FILE_ENV_BLACKLIST_COMMON | _CONFIG_FILE_ENV_BLACKLIST_BY_ENGINE.get(
+        engine, frozenset()
+    )
+
+
+# 层名/来源文件常量(custom 路径 merge 用)。
+CONFIG_FILE_LAYER_NAME = "config_file"           # engine params 层
+CONFIG_FILE_ENV_LAYER_NAME = "config_file_env"   # env 层
+CONFIG_FILE_SOURCE_FILE = "<config-file>"        # trace 溯源
+CONFIG_FILE_ENV_ALLOW_UNSAFE = True              # config_file env 层放行 $(...) 渲染
+
+# multi_node custom 派生层名(§5.1.5 strategy_multinode_custom):排 config_file 后,
+# 框架权威派生键覆盖用户误传值;env 派生层另名(排 config_file_env 后)。
+MULTINODE_CUSTOM_LAYER = "strategy_multinode_custom"
+MULTINODE_CUSTOM_ENV_LAYER = "strategy_multinode_custom_env"
 
 
 def _evaluate_min_engine_version(
@@ -741,6 +832,9 @@ class MergeLayer(NamedTuple):
         source_path_prefix: 该层来源路径前缀(拼 source_path 用;空串 = 无前缀)。
         source_overrides: 可选的逐参数 ``(source_file, source_path)``，用于同一合并层内
             参数来自不同配置位置的场景。
+        allow_unsafe: 该层产出的 TracedValue 是否置 ``allow_unsafe=True``(默认 False)。
+            仅用于 env 的 config_file_env 层(见 resolve_custom_config):渲染层据此跳过
+            _validate_dollar_value 安全校验、双引号放行 $(...)。
     """
 
     name: str
@@ -748,6 +842,7 @@ class MergeLayer(NamedTuple):
     source_file: str
     source_path_prefix: str
     source_overrides: Dict[str, tuple[str, str]] | None = None
+    allow_unsafe: bool = False
 
 
 def trace_merge(layers: List[MergeLayer]) -> Dict[str, TracedValue]:
@@ -772,6 +867,7 @@ def trace_merge(layers: List[MergeLayer]) -> Dict[str, TracedValue]:
 
     for layer in layers:
         layer_name, src_file, path_prefix = layer.name, layer.source_file, layer.source_path_prefix
+        allow_unsafe = layer.allow_unsafe
         for key, value in layer.data.items():
             override_source = (layer.source_overrides or {}).get(key)
             event_file, event_path = override_source or (src_file, f"{path_prefix}.{key}" if path_prefix else key)
@@ -783,9 +879,15 @@ def trace_merge(layers: List[MergeLayer]) -> Dict[str, TracedValue]:
                 source_file=event_file,
                 source_path=source_path,
             )
-
+            # env 层专用:config_file_env 层置 allow_unsafe=True,渲染时双引号放行 $(...)。
+            # 只透传胜出层的标志;若被更高层(非 config_file env)覆盖,allow_unsafe 归 False 更安全。
+            final_allow_unsafe = allow_unsafe
             if key in merged:
                 existing = merged[key]
+                # 更高层覆盖时:保留新层的标志。config_file env 层下面若有普通 env 层,
+                # 其 final_layer 会变(非 config_file_env),allow_unsafe 也应随之关闭。
+                if existing.final_layer == "config_file_env" and layer_name != "config_file_env":
+                    final_allow_unsafe = False
                 # dict 值递归深合并:嵌套内层键逐层合并,不再第二层整块替换
                 if isinstance(existing.final_value, dict) and isinstance(value, dict):
                     deep_merged = _deep_merge(existing.final_value, value)
@@ -795,6 +897,7 @@ def trace_merge(layers: List[MergeLayer]) -> Dict[str, TracedValue]:
                         source_file=event_file,
                         source_path=source_path,
                         events=existing.events + [event],
+                        allow_unsafe=final_allow_unsafe,
                     )
                 else:
                     # 标量/list: 整体替换
@@ -804,6 +907,7 @@ def trace_merge(layers: List[MergeLayer]) -> Dict[str, TracedValue]:
                         source_file=event_file,
                         source_path=source_path,
                         events=existing.events + [event],
+                        allow_unsafe=final_allow_unsafe,
                     )
             else:
                 merged[key] = TracedValue(
@@ -812,6 +916,7 @@ def trace_merge(layers: List[MergeLayer]) -> Dict[str, TracedValue]:
                     source_file=event_file,
                     source_path=source_path,
                     events=[event],
+                    allow_unsafe=final_allow_unsafe,
                 )
 
     return merged
@@ -2313,6 +2418,419 @@ def resolve_config(
         user_cli_params=user_cli_audit_entries,
         nodes=nodes,
         accel=accel,
+    )
+
+
+# ─── 自定义传参方式(--config-file)路径 ─────────────────────────────────
+# 走 resolve_custom_config:跳过 recipe/YAML 匹配与依赖它的环节(场景选择/feature_overlay/
+# device_count_transform/coordinate_parallelism),参数主源是 config-file 的 params;
+# 与 recipe 解耦的下游(渲染/审计/argv/env/校验、feature_inject/accel)全部复用。
+
+
+def _to_snake(key: str) -> str:
+    """把 config-file 的 kebab-case key 归一 snake_case(内部 engine_config 键形态)。
+
+    仅做命名规范化,不做引擎字段映射(用户对参数内容负责)。
+    """
+    return key.strip().replace("-", "_").replace(" ", "_")
+
+
+# config-file params 的 canonical 别名归并(§4.4.1,open_engines 核实)。
+# 用户可能写引擎原生 flag 的长名 / 简写 / sglang 双长名;统一归一到 canonical 键,
+# 使黑名单、派生层 cfg.get、渲染 key_to_flag 三处都用 canonical 键,不遗漏不透传。
+# 结构:engine -> {alias_key: canonical_key}。canonical 键即黑名单/派生层认的键。
+_CONFIG_FILE_PARAM_ALIASES: Dict[str, Dict[str, str]] = {
+    # vllm/vllm-ascend: -n/-r/-tp/-dp/-dpn/-dpr/-dpl/-dpa/-dpp 简写 → canonical(full) 键。
+    # 注:-dpp(rpc_port)不在黑名单(用户可填),归并后正常透传。
+    "vllm": {
+        "n": "nnodes",
+        "r": "node_rank",
+        "tp": "tensor_parallel_size",
+        "dp": "data_parallel_size",
+        "dpn": "data_parallel_rank",
+        "dpr": "data_parallel_start_rank",
+        "dpl": "data_parallel_size_local",
+        "dpa": "data_parallel_address",
+        "dpp": "data_parallel_rpc_port",
+    },
+    # vllm-ascend 与 vllm 共用同一套简写(引擎共用 arg 注册)。
+    "vllm-ascend": {
+        "n": "nnodes",
+        "r": "node_rank",
+        "tp": "tensor_parallel_size",
+        "dp": "data_parallel_size",
+        "dpn": "data_parallel_rank",
+        "dpr": "data_parallel_start_rank",
+        "dpl": "data_parallel_size_local",
+        "dpa": "data_parallel_address",
+        "dpp": "data_parallel_rpc_port",
+    },
+    # sglang: 双长名 --tp-size/--dp-size 同义归并;--nccl-init-addr 是 --dist-init-addr
+    # 的向后兼容别名(将废弃),统一归一到 dist_init_addr。无单字母简写(-tp/-dp 不存在)。
+    "sglang": {
+        "tp_size": "tensor_parallel_size",
+        "dp_size": "data_parallel_size",
+        # --nccl-init-addr 是 --dist-init-addr 的向后兼容别名(将废弃);统一归一到 dist_init_addr。
+        "nccl_init_addr": "dist_init_addr",
+    },
+}
+
+
+def _canonicalize_config_file_params(
+    params: Dict[str, Any], *, engine: str
+) -> Dict[str, Any]:
+    """将 config-file params 的 key 按 engine 归一到 canonical 键(在 _to_snake 之后)。
+
+    用户可写引擎原生 flag 的长名/简写/双长名;此处映射到黑名单与派生层统一认的
+    canonical 键(如 ``dp``→``data_parallel_size``、``n``→``nnodes``、
+    ``nccl_init_addr``→``dist_init_addr``)。未知引擎/未命中别名 → 原样透传。
+
+    Args:
+        params: 已 _to_snake 归一后的 params dict。
+        engine: 引擎名,决定别名表。
+
+    Returns:
+        归并后的 params dict(原 dict 不被改写)。
+    """
+    aliases = _CONFIG_FILE_PARAM_ALIASES.get(engine, {})
+    out: Dict[str, Any] = {}
+    for key, value in params.items():
+        out[aliases.get(key, key)] = value
+    return out
+
+
+def _filter_config_file_blacklist(
+    params: Dict[str, Any],
+    *,
+    engine: str,
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    """过滤 config-file params 黑名单(§4.1):命中的 key 静默弃用,记 dropped 条目。
+
+    黑名单内键无论用户怎么填,都采用框架派生/CLI 侧值;此处只收集弃用审计,
+    不修改最终参数、不阻断启动。黑名单按 engine 分引擎叠加(不同引擎框架派生的参数不同)。
+
+    Args:
+        params: snake_case 归一后的 config-file params dict。
+        engine: 引擎名,用于取该引擎的 params 黑名单(common ∪ engine 增量)。
+
+    Returns:
+        ``(kept, dropped)``:kept 为可进入 merge 的 params;dropped 为黑名单弃用条目
+        (含 key/value/reason),拼进 config_file_dropped 审计。
+    """
+    blacklist = _config_file_params_blacklist(engine)
+    kept: Dict[str, Any] = {}
+    dropped: List[Dict[str, Any]] = []
+    for key, value in params.items():
+        if key in blacklist:
+            dropped.append({
+                "key": key, "value": value,
+                "reason": "config_file_blacklist=框架权威派生键,采用派生值",
+            })
+            continue
+        kept[key] = value
+    return kept, dropped
+
+
+def _filter_config_file_env_blacklist(
+    env: Dict[str, Any],
+    *,
+    engine: str,
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    """过滤 config-file env 黑名单(§4.1 + 可行性分析 §3.2):命中的 env key 静默弃用。
+
+    env 与 params 走独立 merge 链,故单独一张(按引擎叠加)的 env 黑名单。
+    黑名单内 env key 由框架派生(网卡/rank IP 等),用户填不出;此处只收集弃用审计。
+
+    Args:
+        env: config-file 的 env dict。
+        engine: 引擎名,用于取该引擎的 env 黑名单(common ∪ engine 增量)。
+
+    Returns:
+        ``(kept, dropped)``:kept 为可进入 env merge 的项;dropped 为黑名单弃用条目。
+    """
+    blacklist = _config_file_env_blacklist(engine)
+    kept: Dict[str, Any] = {}
+    dropped: List[Dict[str, Any]] = []
+    for key, value in env.items():
+        if key in blacklist:
+            dropped.append({
+                "key": key, "value": value,
+                "reason": "config_file_env_blacklist=框架派生键,采用派生值",
+            })
+            continue
+        kept[key] = value
+    return kept, dropped
+
+
+def resolve_custom_config(
+    env: ResolvedEnv,
+    target: Target,
+    config_file: CustomConfigFile,
+    user_input: UserInput = UserInput(),
+    device_count: int | None = None,
+    placement: ClusterPlacement | None = None,
+) -> ResolvedConfig:
+    """自定义传参方式(--config-file)的配置解析。
+
+    与 ``resolve_config`` 的根本差异(custom 支线):
+    - **不匹配 recipe/YAML**:跳过场景选择 / feature_overlay / device_count_transform /
+      coordinate_parallelism。引擎参数原则以 config-file params 为准(用户负责),仅黑名单
+      拦截($4.1)。**model 供给依赖本函数显式复用第 1/2 页 CLI 的 translator**,
+      经 user_cli 层落入最高优先级(见下),防被"纯 json 旁路"重构打断。
+    - **除 recipe 参数外最大化复用**:feature_inject/accel、渲染/审计/argv/env/validator 全复用。
+
+    层序(低→高):``builtin_default < strategy_feature_inject < strategy_accel
+    < config_file < user_cli``(user_cli 含 model/served_model_name/host/port,§阶段0拍板 §1/§5)。
+    env 层序:``strategy_feature_env < strategy_accel_env < config_file_env``。
+
+    本阶段(阶段 1)仅 standalone;multi_node / PD 明确降级出本次范围
+    (阶段0拍板 §3/§4:multi_node 为阶段 2,PD 单独立项)。
+
+    Args:
+        env: 已解析环境(config_root / hardware / engine_version)。
+        target: 解析目标(model_name / topology / engine)。
+        config_file: 已加载并校验的 config-file(params + env)。
+        user_input: 用户 CLI 意图(含 user_cli 覆盖层——custom 对第 1/2 页 CLI 复用,
+            保证 model/served_model_name 落入最高层)。
+        device_count: 下发卡数(仅记录到 notes;standalone 无并行协调语义)。
+        placement: 分布式集群寻址(本阶段 standalone 恒 None)。
+
+    Returns:
+        ResolvedConfig(含 config_file 审计;渲染/审计/validator 可直接复用)。
+
+    Raises:
+        NotImplementedError: topology 非 STANDALONE(custom 仅支持 standalone)。
+        ValueError: config-file 未提供 model(经 CLI 第 1 页)时,缺 model 直接报错。
+    """
+    engine = target.engine
+    topology = target.topology
+
+    # custom 支线:STANDALONE 与 MULTI_NODE 支持;PD(阶段0拍板 §3/§4 单独立项)不支持。
+    if topology not in (Topology.STANDALONE, Topology.MULTI_NODE):
+        raise NotImplementedError(
+            f"config-file 自定义传参方式暂不支持 topology '{topology.value}'"
+            "(仅 standalone / multi_node)"
+        )
+    # multi_node custom 派生身份键强依赖运行时 placement(rank_ip/node_ips/master_ip)。
+    if topology == Topology.MULTI_NODE and (
+        placement is None or not placement.node_ips or not placement.rank_ip
+    ):
+        raise ValueError(
+            "config-file multi_node 需提供分布式运行时上下文(placement):"
+            "缺 NODE_IPS / RANK_IP / MASTER_IP 无法派生 per-node 身份参数"
+        )
+
+    user_cli_overrides = user_input.cli_overrides or {}
+    user_cli_dropped = user_input.cli_dropped
+    feature_switches = user_input.feature_switches
+    _placement = placement or ClusterPlacement()
+
+    # 1. config-file params:_to_snake + 引擎 canonical 别名归并 + 黑名单过滤(§4.1/§4.4.1,
+    #    静默弃用记审计)。别名归并保证用户写简写/双长名(tp/dp/n/r/tp-size/nccl_init_addr)
+    #    也能命中黑名单与派生层 cfg.get,不遗漏不透传。
+    raw_params = {_to_snake(k): v for k, v in (config_file.params or {}).items()}
+    # 1a. FOAI 旧版前端模板过渡适配(临时;过渡完成后连同 legacy_json_adapter 一起删除):
+    #     在 canonical/黑名单**之前**、_to_snake **之后**单点接入。把旧版键映射/丢弃、
+    #     tensor-parallel-size 未填默认补=device_count,输出可直接进后续 canonical。
+    raw_params, legacy_dropped = adapt_legacy_config_params(
+        raw_params, engine=engine, device_count=device_count
+    )
+    snake_params = _canonicalize_config_file_params(raw_params, engine=engine)
+    config_file_layer, config_file_dropped = _filter_config_file_blacklist(
+        snake_params, engine=engine
+    )
+    config_file_dropped = legacy_dropped + config_file_dropped
+
+    # 1b. config-file env:也按 engine 黑名单过滤(env 黑名单 key 由框架派生,用户填不出)。
+    config_file_env_layer, config_file_env_dropped = _filter_config_file_env_blacklist(
+        dict(config_file.env or {}), engine=engine
+    )
+
+    # 1c. multi_node custom 派生层(strategy_multinode_custom):按 engine × 节点身份主动派生
+    #     per-node 参数/ENV(nnodes/node_rank/master_addr/headless + DP 通信 + 网卡/IP env),
+    #     与 config-file 是否填了派生行无关(§4.4/§5.1.5)。STANDALONE 跳过(无派生)。
+    mn_engine_config: Dict[str, Any] = {}
+    mn_env: Dict[str, str] = {}
+    mn_notes: Dict[str, str] = {}
+    mn_system_commands: List[str] = []
+    if topology == Topology.MULTI_NODE:
+        _placement = placement or ClusterPlacement()
+        mn = multinode_custom_derive(
+            engine,
+            MultinodeCtx(
+                engine=engine,
+                device_count=device_count,
+                rank_ip=_placement.rank_ip or "",
+                node_ips=list(_placement.node_ips or []),
+                master_ip=_placement.master_ip,
+            ),
+            config_file_engine_config=snake_params,
+        )
+        mn_engine_config = mn.engine_config
+        mn_env = mn.env
+        mn_notes = mn.notes
+        mn_system_commands = mn.system_setup_commands
+
+
+    # 2. 复用特性注入层(SmartQoS/Trace/Metrics:只依赖 feature_switches + engine,与 recipe 解耦)。
+    strategy_feature_inject_overrides, strategy_env_layer, feature_inject_notes = feature_inject_transform(
+        feature_switches or {}, engine
+    )
+
+    # 3. 复用 wings-accel。**仅当用户开启任一加速特性时才调用**:custom 路径参数由用户自管,
+    #    未开启加速特性时不需要 accel_layer(空 no-op),也不做硬件资产定位(resolved_family_dir_str
+    #    对缺资产是 fail-fast;未开启时不应触发,否则无该硬件资产时会误报)。
+    #    开启加速特性时调用(apply_smart_accel 含 guard 降级,缺资产 raise 与配置路径一致)。
+    accel_layer: Dict[str, Any] = {}
+    accel_env: Dict[str, str] = {}
+    accel = AccelResult()
+    accel_switches = collect_accel_switches(os.environ)
+    accel_enabled = any(
+        v is True for k, v in accel_switches.items() if k.endswith("_enabled")
+    )
+    if accel_enabled:
+        accel = apply_smart_accel(
+            hardware_family=resolved_family_dir_str(env, engine),
+            gpu_count=device_count,
+            model_path=None,
+            model_name=target.model_name,
+            engine=engine,
+            engine_version=env.engine_version.requested or env.engine_version.resolved,
+            config_root=str(env.config_root),
+            pd_role=os.getenv("PD_ROLE"),
+            topology=topology.value,
+        )
+        accel_layer = accel.engine_config
+        accel_env = accel.env
+
+    # 4. env 层序(低→高):strategy_feature_env < strategy_accel_env < config_file_env。
+    env_layers: List[MergeLayer] = []
+    if strategy_env_layer:
+        env_layers.append(MergeLayer(
+            "strategy_feature_env", strategy_env_layer,
+            "<strategy:feature_env_inject>", "strategy.feature_env_inject",
+        ))
+    if accel_env:
+        env_layers.append(MergeLayer(
+            "strategy_accel_env", dict(accel_env), "<wings-accel>", "strategy.accel_env",
+        ))
+    if config_file_env_layer:
+        # config_file_env 层:allow_unsafe=True → 渲染时跳过 $() 安全校验(用户自管)。
+        env_layers.append(MergeLayer(
+            CONFIG_FILE_ENV_LAYER_NAME, config_file_env_layer,
+            CONFIG_FILE_SOURCE_FILE, "config_file.env",
+            allow_unsafe=CONFIG_FILE_ENV_ALLOW_UNSAFE,
+        ))
+    # multi_node 派生 env 层:排 config_file_env 后(最高),框架权威派生键覆盖用户误传值。
+    # 值含 $IFACE_NAME(运行时探测),须 allow_unsafe=True 双引号渲染。
+    if mn_env:
+        env_layers.append(MergeLayer(
+            MULTINODE_CUSTOM_ENV_LAYER, dict(mn_env),
+            "<strategy:multinode_custom>", "strategy.multinode_custom_env",
+            allow_unsafe=CONFIG_FILE_ENV_ALLOW_UNSAFE,
+        ))
+    env_traces = trace_merge(env_layers)
+
+    # 5. engine_config 层序(低→高):builtin_default < strategy_feature_inject < strategy_accel
+    #    < config_file < user_cli。user_cli 含 model/served_model_name(第 1/2 页 CLI 经 translator
+    #    归一),故 **model 供给依赖 user_cli 层**——勿把 custom 改成"纯 json 旁路"而丢掉此层。
+    ec_layers: List[MergeLayer] = [
+        MergeLayer("builtin_default", _BUILTIN_DEFAULTS, "<builtin_default>", "builtin_default"),
+    ]
+    if strategy_feature_inject_overrides:
+        ec_layers.append(MergeLayer(
+            "strategy_feature_inject", strategy_feature_inject_overrides,
+            "<strategy:feature_inject>", "strategy.feature_inject",
+        ))
+    if accel_layer:
+        ec_layers.append(MergeLayer(
+            "strategy_accel", accel_layer, "<wings-accel>", "strategy.accel",
+        ))
+    if config_file_layer:
+        ec_layers.append(MergeLayer(
+            CONFIG_FILE_LAYER_NAME, config_file_layer, CONFIG_FILE_SOURCE_FILE, "config_file.params",
+        ))
+    # multi_node 派生 params 层:排 config_file 后(高于用户值)。框架权威派生键
+    # (nnodes/node_rank/master_addr/headless/data_parallel_*)即使 config-file 误传也被覆盖;
+    # 用户可填的 data_parallel_rpc_port 不在派生集,用户值仍有效。
+    if mn_engine_config:
+        ec_layers.append(MergeLayer(
+            MULTINODE_CUSTOM_LAYER, dict(mn_engine_config),
+            "<strategy:multinode_custom>", "strategy.multinode_custom",
+        ))
+    ec_layers.append(MergeLayer("user_cli", user_cli_overrides, "<user_cli>", "user_cli"))
+    engine_config_traces = trace_merge(ec_layers)
+
+    # 6. model 兜底校验:config-file/custom 路径下 model 仅供 CLI 第 1 页提供(--model-path/--model-name
+    #    → model/served_model_name);缺失时已无 recipe 可兜底,直接爆(对齐 build_argv 语义,早点报)。
+    if resolve_model_traced(engine_config_traces) is None:
+        raise ValueError(
+            "config-file 自定义传参方式下 model 缺失:需通过 --model-path 或 --model-name "
+            "(第 1 页 CLI)提供模型,config-file 的 params 不受 model/model_path 键"
+        )
+
+    # 7. 审计条目:user_cli(applied+dropped,复用骨架)+ config_file(applied + 黑名单 dropped,
+    #    params 与 env 的 dropped 汇成同一条 config_file_params 数组,status=dropped 项带 reason)。
+    user_cli_audit_entries = _build_user_cli_audit_entries(user_cli_overrides, user_cli_dropped)
+    config_file_audit_entries = [
+        {"key": k, "value": v, "status": "applied"}
+        for k, v in config_file_layer.items()
+    ]
+    config_file_audit_entries.extend(
+        {"key": d["key"], "value": d["value"], "status": "dropped", "reason": d["reason"]}
+        for d in config_file_dropped + config_file_env_dropped
+    )
+
+    # 8. resolution_notes(custom 专属 + 常规轨迹)。
+    resolution_notes: Dict[str, str] = {
+        "config_file": "custom",
+        "config_file_params_count": str(len(config_file_layer)),
+        "config_file_env_count": str(len(config_file_env_layer)),
+        "config_file_dropped_count": str(len(config_file_dropped) + len(config_file_env_dropped)),
+        "device_count": str(device_count) if device_count is not None else "unset",
+        "device_count_source": "provided" if device_count is not None else "unset",
+        "matched_model_yaml": "<config-file>",
+        "fallback": "false",
+        "wings_ctl_version": WINGS_CTL_VERSION,
+    }
+    resolution_notes.update(feature_inject_notes)
+    resolution_notes.update(mn_notes)
+
+    # multi_node custom 的运行时网卡探测:system_setup.commands 注入 NIC_DETECT_CMD,
+    # 使 derived env 里的 $IFACE_NAME 在 env export 前定义(STANDALONE 为空)。
+    system_setup: Optional[SystemSetup] = None
+    if mn_env:
+        system_setup = SystemSetup(
+            commands=mn_system_commands,
+            source_file="<strategy:multinode_custom>",
+            source_path="strategy.multinode_custom",
+        )
+
+    return ResolvedConfig(
+        topology=topology,
+        hardware=env.hardware,
+        engine=engine,
+        engine_version=env.engine_version,
+        engine_config_traces=engine_config_traces,
+        env_traces=env_traces,
+        source_files=[CONFIG_FILE_SOURCE_FILE],
+        system_setup=system_setup,
+        resolution_notes=resolution_notes,
+        user_cli_params=user_cli_audit_entries,
+        config_file_params=config_file_audit_entries,
+        nodes=None,
+        accel=accel,
+    )
+
+
+def resolved_family_dir_str(env: ResolvedEnv, engine: str) -> str:
+    """custom 路径下把硬件族解析为落地目录名(供 accel 定位,不用于参数)。"""
+    return resolve_family_dir(
+        env.config_root,
+        engine,
+        env.hardware.hardware_family,
+        env.engine_version.resolved,
+        has_version_dir=env.engine_version.has_version_dir,
     )
 
 

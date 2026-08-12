@@ -11,8 +11,8 @@ from typing import Tuple
 
 from wings_ctl.audit.emitter import emit_audit
 from wings_ctl.audit.startup_log import emit_startup_summary
-from wings_ctl.core.config_resolver import resolve_config
-from wings_ctl.core.models import PipelineRequest, ResolvedConfig, ResolvedEnv
+from wings_ctl.core.config_resolver import resolve_config, resolve_custom_config
+from wings_ctl.core.models import CustomConfigFile, PipelineRequest, ResolvedConfig, ResolvedEnv
 from wings_ctl.engines.version_resolver import resolve_engine_version
 from wings_ctl.hardware.resolver import resolve_hardware
 from wings_ctl.loaders.config_root import resolve_config_root
@@ -58,6 +58,66 @@ def resolve_pipeline(request: PipelineRequest) -> ResolvedConfig:
     # 参数支持校验:只写审计结果,不修改最终参数。
     validate_engine_params(resolved, resolved_root)
     return resolved
+
+
+def resolve_pipeline_custom(
+    request: PipelineRequest,
+    config_file: CustomConfigFile,
+) -> ResolvedConfig:
+    """resolve 阶段(custom config-file 路径):config_root → hardware → version → custom 解析。
+
+    复用 ``resolve_pipeline`` 的 hardware/version 解析(纯上游,与 recipe 无关),config 解析走
+    ``resolve_custom_config``(跳过 recipe,参数主源是 config-file);下游 validator 复用。
+    """
+    resolved_root = resolve_config_root(request.config_root)
+    hardware = resolve_hardware(request.hardware_info_path)
+    engine_version = resolve_engine_version(
+        resolved_root, hardware.hardware_family, engine=request.target.engine
+    )
+    env = ResolvedEnv(config_root=resolved_root, hardware=hardware, engine_version=engine_version)
+    resolved = resolve_custom_config(
+        env,
+        request.target,
+        config_file=config_file,
+        user_input=request.user_input,
+        device_count=request.device_count,
+        placement=request.placement,
+    )
+    # 参数支持校验:只写审计结果,不修改最终参数(与 resolve_pipeline 一致)。
+    validate_engine_params(resolved, resolved_root)
+    return resolved
+
+
+def run_pipeline_custom(
+    request: PipelineRequest,
+    config_file: CustomConfigFile,
+    output_dir: Path,
+) -> Tuple[ResolvedConfig, Path, Path, Path]:
+    """执行完整 resolve → render → audit 流水线(custom config-file 路径)。
+
+    复用 ``run_pipeline`` 的三件产物落盘与启动摘要(build_scripts / emit_audit /
+    emit_startup_summary 均纯消费 ResolvedConfig,零改动复用)。
+    """
+    resolved = resolve_pipeline_custom(request, config_file)
+
+    start_path, repro_path = build_scripts(resolved, output_dir)
+    audit_path = emit_audit(resolved, output_dir)
+    env_log = os.environ.get("WINGS_START_LOG")
+    startup_log_target = Path(env_log) if env_log else Path("/var/log/wings/wings_start.log")
+    emit_startup_summary(
+        resolved=resolved,
+        artifact_paths={
+            "start": start_path,
+            "repro": repro_path,
+            "audit": audit_path,
+            "output_dir": output_dir,
+            "model_name": request.target.model_name,
+        },
+        log_path=startup_log_target,
+        log_path_is_explicit=bool(env_log),
+    )
+
+    return resolved, start_path, repro_path, audit_path
 
 
 def run_pipeline(request: PipelineRequest, output_dir: Path) -> Tuple[ResolvedConfig, Path, Path, Path]:

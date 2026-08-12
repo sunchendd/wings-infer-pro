@@ -34,11 +34,18 @@ logger = logging.getLogger(__name__)
 
 
 def _render_env_section(env_traces: Dict[str, TracedValue]) -> List[str]:
-    """渲染 env export 段。"""
+    """渲染 env export 段。
+
+    逐项读 ``TracedValue.allow_unsafe``:config_file env 层(allow_unsafe=True)跳过
+    _validate_dollar_value 安全校验,双引号放行 ``$(hostname)`` 等命令替换
+    (用户对自己的输入负责,见 resolve_custom_config)。
+    """
     lines: List[str] = []
     for env_key, traced in env_traces.items():
         if traced.final_value is not None:
-            lines.append(render_env_export(env_key, traced.final_value))
+            lines.append(
+                render_env_export(env_key, traced.final_value, allow_unsafe=traced.allow_unsafe)
+            )
     return lines
 
 
@@ -521,7 +528,9 @@ def _render_repro_sh(
         for env_key, traced in resolved.env_traces.items():
             if traced.final_value is not None:
                 lines.append(f"# source: {traced.source_file} @ {traced.source_path}")
-                lines.append(render_env_export(env_key, traced.final_value))
+                lines.append(
+                    render_env_export(env_key, traced.final_value, allow_unsafe=traced.allow_unsafe)
+                )
         lines.append("")
 
     # KV 存储后端 pre-serve 段(memcache/mooncake);与 start_command.sh 同款渲染。

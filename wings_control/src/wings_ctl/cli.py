@@ -29,6 +29,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import shlex
@@ -37,10 +38,10 @@ from typing import Any, Dict, List
 
 from wings_ctl.common.log_config import LOGGER_LAUNCHER, setup_root_logging
 from wings_ctl.core.config_resolver import DEFAULT_ENGINE_PORT
-from wings_ctl.core.models import ClusterPlacement, PipelineRequest, Target, UserInput
+from wings_ctl.core.models import ClusterPlacement, CustomConfigFile, PipelineRequest, Target, UserInput
 from wings_ctl.engines.vllm_adapter import build_argv
 from wings_ctl.pd.input_contract import parse_pd_runtime_input
-from wings_ctl.pipeline import resolve_pipeline, run_pipeline
+from wings_ctl.pipeline import resolve_pipeline, resolve_pipeline_custom, run_pipeline, run_pipeline_custom
 from wings_ctl.strategy.pre_template import pre_template_strategy
 from wings_ctl.translators.cli_translator import CLITranslator
 from wings_ctl.utils.env_utils import parse_node_ips
@@ -379,6 +380,39 @@ def _collect_subsystem_switches(args: argparse.Namespace) -> List[str]:
     return [name for name, enabled in switches if enabled]
 
 
+def _load_config_file(path: Path) -> CustomConfigFile:
+    """加载并校验 config-file JSON,分离 params 和 env。
+
+    结构校验失败(文件缺失 / JSON 语法错误 / 非 dict / params・env 非 dict)→ 友好报错。
+    params 的 key 不做字段映射(用户自管),snake_case 归一在 resolve_custom_config 内完成。
+
+    Args:
+        path: --config-file 传入的 JSON 文件路径。
+
+    Returns:
+        CustomConfigFile(params=..., env=...)。两字段均可选(dict 缺失视为空)。
+
+    Raises:
+        ValueError: 文件缺失、JSON 解析失败、或结构非法(供 main 友好报错)。
+    """
+    if not path.exists():
+        raise ValueError(f"config-file 不存在: {path}")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"config-file JSON 解析失败({path}): {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"config-file 必须是 JSON 对象,得到 {type(data).__name__}({path})")
+    params = data.get("params", {})
+    env = data.get("env", {})
+    if not isinstance(params, dict):
+        raise ValueError(f"config-file.params 必须是 JSON 对象,得到 {type(params).__name__}({path})")
+    if not isinstance(env, dict):
+        raise ValueError(f"config-file.env 必须是 JSON 对象,得到 {type(env).__name__}({path})")
+    return CustomConfigFile(params=dict(params), env=dict(env))
+
+
 def _parse_runtime_context_from_env() -> tuple[str | None, str | None, list[str] | None]:
     """读取 multi_node 运行时上下文环境变量。
 
@@ -440,12 +474,17 @@ def _print_multi_node_summary(engine: str, nodes: List[Any]) -> None:
         logger.info("  [%s] argv: %s", node.role, shlex.join(node_argv))
 
 
-def _run_dry_mode(parser: argparse.ArgumentParser, request: PipelineRequest) -> None:
+def _run_dry_mode(
+    parser: argparse.ArgumentParser,
+    request: PipelineRequest,
+    config_file: CustomConfigFile | None = None,
+) -> None:
     """执行 dry-run 分支:解析后打印 argv,不落盘。
 
     Args:
         parser: CLI parser(用于友好报错)。
         request: 流水线请求(dry-run 与正常路径共用同一请求对象)。
+        config_file: 自定义传参方式(--config-file)的已加载产物;None=常规路径。
 
     Returns:
         None。
@@ -455,7 +494,10 @@ def _run_dry_mode(parser: argparse.ArgumentParser, request: PipelineRequest) -> 
     """
     engine = request.target.engine
     try:
-        resolved = resolve_pipeline(request)
+        if config_file is not None:
+            resolved = resolve_pipeline_custom(request, config_file)
+        else:
+            resolved = resolve_pipeline(request)
 
         if resolved.nodes:
             _print_multi_node_dry_run(engine, resolved.nodes)
@@ -596,6 +638,17 @@ def _build_parser() -> argparse.ArgumentParser:
         default="full",
         help="Specify gpu usage mode (default: full)",
     )
+    parser.add_argument(
+        "--config-file",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "自定义 JSON 配置文件路径(自定义传参方式)。传入后走 resolve_custom_config 路径:"
+            "参数以 JSON 的 `params` 为准,不匹配 recipe/YAML;`env` 在 engine 启动前注入。"
+            "JSON 结构: {\\\"params\\\": {...}, \\\"env\\\": {...}};两字段均可选。"
+        ),
+    )
     return parser
 
 
@@ -726,14 +779,31 @@ def main() -> None:
         pd_role_missing_legacy=pd_role_missing_legacy,
     )
 
+    # 自定义传参方式(--config-file)分派:有 → 走独立 custom 支线(跳过 recipe);
+    # 无 → 走现有 resolve_pipeline(完全不变,§2.3 支线 A)。
+    # 贯彻"用户自管":params 与 env 均未传时**仍走 custom 支线**,不等价于 --config-file 未传
+    # (用户显式传入 --config-file 即表达"走自定义、参数以我为准、由我负责"的意图)。
+    config_file: CustomConfigFile | None = None
+    if args.config_file is not None:
+        try:
+            config_file = _load_config_file(args.config_file)
+        except ValueError as exc:
+            parser.error(str(exc))
+            return
+
     if args.dry_run:
-        _run_dry_mode(parser, request)
+        _run_dry_mode(parser, request, config_file=config_file)
         return
 
     try:
-        resolved, start_path, repro_path, audit_path = run_pipeline(
-            request, output_dir=_resolve_output_dir(args.output_dir)
-        )
+        if config_file is not None:
+            resolved, start_path, repro_path, audit_path = run_pipeline_custom(
+                request, config_file, output_dir=_resolve_output_dir(args.output_dir)
+            )
+        else:
+            resolved, start_path, repro_path, audit_path = run_pipeline(
+                request, output_dir=_resolve_output_dir(args.output_dir)
+            )
     except (ValueError, FileNotFoundError, NotImplementedError) as exc:
         # 配置缺失(硬件/engine 无资产)/ 未支持的 topology / 强校验失败 → 友好报错,不抛 traceback
         parser.error(str(exc))
