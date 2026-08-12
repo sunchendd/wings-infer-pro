@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+import platform
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -98,7 +99,22 @@ def resolve_family_dir(
     if hardware_family.casefold() in candidates:
         return candidates[hardware_family.casefold()]
 
-    # ② 别名:完整 hardware_family 精确未命中后,按去后缀的裸卡型查映射。
+    # ② 仅在 x86_64 环境且当前版本包含专属目录时使用 910B 配置;
+    # 其他环境继续沿用原有 ascend-a2 映射。
+    if (
+        card.casefold() == "ascend910b"
+        and platform.machine().casefold() in {"x86_64", "amd64"}
+    ):
+        x86_family = "ascend910b-x86_64"
+        if x86_family.casefold() in candidates:
+            logger.info(
+                "resolve_family_dir: '%s' on x86_64 → %s",
+                hardware_family,
+                candidates[x86_family.casefold()],
+            )
+            return candidates[x86_family.casefold()]
+
+    # ③ 别名:完整 hardware_family 精确未命中后,按去后缀的裸卡型查映射。
     # 这样 h20_141G 已在 ① 精确命中,不会被 h20 默认档吞掉;而 Ascend910B_64G 等
     # "带显存后缀 + 卡名与目录名不同"的既有别名仍能落到对应架构目录。
     aliased = _ALIAS.get(card.casefold())
