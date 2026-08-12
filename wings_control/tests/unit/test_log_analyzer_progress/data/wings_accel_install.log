@@ -1,0 +1,9 @@
+2026-08-10 18:05:24.101 [INFO] [wings-accel#main:291] [wings-accel] Installing patches from /accel-volume
+2026-08-10 18:05:24.102 [INFO] [wings-accel#main:294] [wings-accel] Installing for engine 'deepseek' (extras: [sparse, lmcache]) ...
+2026-08-10 18:05:24.110 [INFO] [wings-accel#install:0] [wings-accel] Matched engine patch version: 0.4.2.post1
+2026-08-10 18:05:24.201 [INFO] [wings-accel#install:0] [wings-accel] Installing package: lmcache@0.2.1
+2026-08-10 18:05:25.310 [INFO] [wings-accel#install:0] [wings-accel] Package installed: lmcache@0.2.1
+2026-08-10 18:05:25.412 [INFO] [wings-accel#install:0] [wings-accel] Installing package: sparse-accel@1.4.0.post2
+2026-08-10 18:05:26.033 [INFO] [wings-accel#install:0] [wings-accel] Package installed: sparse-accel@1.4.0.post2
+2026-08-10 18:05:26.150 [INFO] [wings-accel#install:0] [wings-accel] Engine patches applied: engine=deepseek, version=0.4.2.post1
+2026-08-10 18:05:26.160 [INFO] [wings-accel#main:309] [wings-accel] wings-accel installation complete
