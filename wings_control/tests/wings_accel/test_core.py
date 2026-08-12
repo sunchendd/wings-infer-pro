@@ -41,9 +41,9 @@ def make_smart_accel():
         ],
         "sparse": [
             {"name": "performance_first",
-             "cli_params": {"hf_overrides": {"use_index_cache": True, "index_topk_freq": 4}}},
-            {"name": "accuracy_first",
              "cli_params": {"hf_overrides": {"use_index_cache": True, "index_topk_freq": 8}}},
+            {"name": "accuracy_first",
+             "cli_params": {"hf_overrides": {"use_index_cache": True, "index_topk_freq": 4}}},
         ],
         "kv_offload": [
             {"name": "cpu",

@@ -26,15 +26,13 @@ smart_accel:
           cli_params:
             hf_overrides:
               use_index_cache: true
-              index_topk_freq: 4
-            kv_cache_dtype: fp8
+              index_topk_freq: 8
           envs: {}
         - name: accuracy_first
           cli_params:
             hf_overrides:
               use_index_cache: true
-              index_topk_freq: 8
-            kv_cache_dtype: fp8
+              index_topk_freq: 4
           envs: {}
   multi_node:
     source_ref: smart_accel#multi_node
@@ -56,15 +54,13 @@ smart_accel:
           cli_params:
             hf_overrides:
               use_index_cache: true
-              index_topk_freq: 4
-            kv_cache_dtype: fp8
+              index_topk_freq: 8
           envs: {}
         - name: accuracy_first
           cli_params:
             hf_overrides:
               use_index_cache: true
-              index_topk_freq: 8
-            kv_cache_dtype: fp8
+              index_topk_freq: 4
           envs: {}
   pd_disaggregation:
     source_ref: smart_accel#pd_cluster
@@ -83,15 +79,13 @@ smart_accel:
             cli_params:
               hf_overrides:
                 use_index_cache: true
-                index_topk_freq: 4
-              kv_cache_dtype: fp8
+                index_topk_freq: 8
             envs: {}
           - name: accuracy_first
             cli_params:
               hf_overrides:
                 use_index_cache: true
-                index_topk_freq: 8
-              kv_cache_dtype: fp8
+                index_topk_freq: 4
             envs: {}
         - role: decode
           index: 0
@@ -107,13 +101,11 @@ smart_accel:
             cli_params:
               hf_overrides:
                 use_index_cache: true
-                index_topk_freq: 4
-              kv_cache_dtype: fp8
+                index_topk_freq: 8
             envs: {}
           - name: accuracy_first
             cli_params:
               hf_overrides:
                 use_index_cache: true
-                index_topk_freq: 8
-              kv_cache_dtype: fp8
+                index_topk_freq: 4
             envs: {}

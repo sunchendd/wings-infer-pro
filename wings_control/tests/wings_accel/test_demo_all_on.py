@@ -64,8 +64,9 @@ def test_all_on_real_output(model):
         assert out.smart_kv_cache_scheme is None
         assert out.smart_kv_sparse_scheme == "performance_first"
         assert "speculative_config" in ec and "kv_transfer_config" not in ec
-        assert ec["hf_overrides"]["index_topk_freq"] == 4
-        assert ec["kv_cache_dtype"] == "fp8"
+        assert ec["hf_overrides"]["index_topk_freq"] == 8
+        # kv_cache_dtype 由 engine_config baseline 提供,smart-accel sparse 块不再重复声明
+        assert "kv_cache_dtype" not in ec
     elif model == "MiniMax-M2.7":
         # decoding=suffix(features.spec_decoding method=suffix;无 kv_offload/sparse 块)
         assert out.smart_decoding_scheme == "suffix"
