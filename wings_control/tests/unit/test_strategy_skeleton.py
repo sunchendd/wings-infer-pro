@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from wings_ctl.core.models import PdRole
 from wings_ctl.core.topology import Topology
 from wings_ctl.strategy.post_template import (
     TRANSFORMS,
@@ -34,10 +35,31 @@ def test_pre_template_distributed_missing_master_ip_raises_valueerror() -> None:
         pre_template_strategy("vllm", distributed=True, master_ip=None)
 
 
-def test_pre_template_pd_role_is_reserved_not_implemented() -> None:
-    """pd_role 置位 → 预留 NotImplementedError(PD 分离本期不实现)。"""
-    with pytest.raises(NotImplementedError, match="PD"):
-        pre_template_strategy("vllm", pd_role="P")
+@pytest.mark.parametrize(
+    ("role", "expected"),
+    [
+        (PdRole.PREFILL, Topology.PD_PREFILL),
+        (PdRole.DECODE, Topology.PD_DECODE),
+    ],
+)
+def test_pre_template_pd_role_selects_role_topology(role: PdRole, expected: Topology) -> None:
+    """验证规范化 P/D role 映射到对应 runtime topology。"""
+    assert pre_template_strategy("vllm", pd_role=role) == ("vllm", expected)
+
+
+@pytest.mark.parametrize(
+    ("role", "expected"),
+    [
+        (PdRole.PREFILL, Topology.PD_PREFILL),
+        (PdRole.DECODE, Topology.PD_DECODE),
+    ],
+)
+def test_pre_template_pd_role_with_distributed_selects_role_topology(
+    role: PdRole, expected: Topology
+) -> None:
+    """验证 PD + --distributed 不再冲突：PD_ROLE 仍是唯一 PD 入口，distributed 不改 PD 判断。"""
+    assert pre_template_strategy("vllm", pd_role=role, distributed=True) == ("vllm", expected)
+    assert pre_template_strategy("vllm", pd_role=role, distributed=False) == ("vllm", expected)
 
 
 def test_post_template_strategy_returns_overrides_and_notes_tuple() -> None:

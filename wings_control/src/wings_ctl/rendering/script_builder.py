@@ -58,14 +58,9 @@ def _render_system_setup_comments(
         return []
     lines: List[str] = []
 
-    has_any = system_setup.sysctls or system_setup.sysfs_writes or (
-        include_commands and system_setup.commands
-    )
+    has_any = system_setup.sysctls or system_setup.sysfs_writes or (include_commands and system_setup.commands)
     if has_any:
-        lines.append(
-            f"# ─── System Setup (source: {system_setup.source_file} "
-            f"@ {system_setup.source_path}) ───"
-        )
+        lines.append(f"# ─── System Setup (source: {system_setup.source_file} @ {system_setup.source_path}) ───")
 
     if system_setup.sysctls:
         lines.append("# sysctls:")
@@ -105,8 +100,7 @@ def _render_runtime_commands_inline(system_setup: Optional[SystemSetup]) -> List
     if system_setup is None or not system_setup.commands:
         return []
     lines = [
-        f"# ─── runtime commands (inline; source: {system_setup.source_file} "
-        f"@ {system_setup.source_path}) ───",
+        f"# ─── runtime commands (inline; source: {system_setup.source_file} @ {system_setup.source_path}) ───",
     ]
     lines.extend(system_setup.commands)
     lines.append("")
@@ -188,17 +182,13 @@ def _render_accel_pre_serve_section(
         lines.append("")
     if pre_serve_master:
         lines.append("# ─── KV store pre-serve (master only) ───")
-        lines.append(
-            'if [ -z "${MASTER_IP:-}" ] || [ "${RANK_IP:-}" = "${MASTER_IP:-}" ]; then'
-        )
+        lines.append('if [ -z "${MASTER_IP:-}" ] || [ "${RANK_IP:-}" = "${MASTER_IP:-}" ]; then')
         lines.extend(f"    {cmd}" for cmd in pre_serve_master)
         lines.append("fi")
         lines.append("")
     if pre_serve_client:
         lines.append("# ─── KV store pre-serve (client only) ───")
-        lines.append(
-            'if [ -n "${MASTER_IP:-}" ] && [ "${RANK_IP:-}" != "${MASTER_IP:-}" ]; then'
-        )
+        lines.append('if [ -n "${MASTER_IP:-}" ] && [ "${RANK_IP:-}" != "${MASTER_IP:-}" ]; then')
         lines.extend(f"    {cmd}" for cmd in pre_serve_client)
         lines.append("fi")
         lines.append("")
@@ -467,9 +457,7 @@ def _render_repro_sh(
         lines.extend(pre_serve_lines)
 
     # system_setup (注释形式,含来源;commands 若已 inline 则不重复)
-    setup_lines = _render_system_setup_comments(
-        resolved.system_setup, include_commands=not execute_commands
-    )
+    setup_lines = _render_system_setup_comments(resolved.system_setup, include_commands=not execute_commands)
     if setup_lines:
         lines.extend(setup_lines)
 
@@ -486,9 +474,7 @@ def _render_repro_sh(
     if model_traced:
         model_file = Path(model_traced.source_file).name
         model_cmd = shlex.join(command_tokens)
-        lines.append(
-            f"#   {model_cmd}   <- {model_traced.final_layer} ({model_file})"
-        )
+        lines.append(f"#   {model_cmd}   <- {model_traced.final_layer} ({model_file})")
 
     # 收集参数(命令 token + 来源注释)
     for key, traced in resolved.engine_config_traces.items():
@@ -504,9 +490,7 @@ def _render_repro_sh(
         else:
             rendered_for_comment = f"{tokens[0]} {shlex.quote(tokens[1])}"
         source_file_name = Path(traced.source_file).name
-        lines.append(
-            f"#   {rendered_for_comment}   <- {traced.final_layer} ({source_file_name})"
-        )
+        lines.append(f"#   {rendered_for_comment}   <- {traced.final_layer} ({source_file_name})")
 
     # 注:accel.engine_config 已作为 strategy_accel 合并层进 engine_config_traces,
     # 上方主循环已渲染并标来源,这里无需重复追加。
@@ -564,13 +548,84 @@ def _render_multi_node_placeholder(resolved: ResolvedConfig) -> str:
     return "\n".join(lines)
 
 
+def _render_pd_process_plan(resolved: ResolvedConfig) -> str:
+    """从唯一 ``ProcessPlan`` 渲染 single 或 fail-together 脚本。
+
+    Args:
+        resolved: ``process_plan`` 非空的 PD 解析结果。
+
+    Returns:
+        可执行 bash 脚本文本；每条命令来自结构化 argv 并经 ``shlex.join``。
+
+    Raises:
+        ValueError: plan 为空、layout/lifecycle 不受支持或进程集合为空。
+    """
+    plan = resolved.process_plan
+    if plan is None or not plan.processes:
+        raise ValueError("PD rendering 要求非空 process_plan。")
+    lines = ["#!/usr/bin/env bash", "set -euo pipefail", ""]
+    runtime_commands = _render_runtime_commands_inline(resolved.system_setup)
+    if runtime_commands:
+        lines.extend(runtime_commands)
+    if plan.lifecycle == "single":
+        process = plan.processes[0]
+        lines.extend(_render_env_section(process.env_traces))
+        if process.env_traces:
+            lines.append("")
+        lines.append("exec " + shlex.join(process.argv))
+        lines.append("")
+        return "\n".join(lines)
+    if plan.lifecycle != "fail_together":
+        raise ValueError(f"未知 PD lifecycle：{plan.lifecycle!r}。")
+
+    lines.extend(
+        [
+            "pids=()",
+            "terminate_children() {",
+            "  local pid",
+            '  for pid in "${pids[@]}"; do',
+            '    kill -TERM "$pid" 2>/dev/null || true',
+            "  done",
+            "}",
+            "trap terminate_children TERM INT",
+            "",
+        ]
+    )
+    for process in plan.processes:
+        lines.append(f"# process[{process.process_index}] rank={process.dp_rank}")
+        lines.append("(")
+        lines.extend(f"  {line}" for line in _render_env_section(process.env_traces))
+        lines.append("  exec " + shlex.join(process.argv))
+        lines.append(") &")
+        lines.append('pids+=("$!")')
+        lines.append("")
+    lines.extend(
+        [
+            "status=0",
+            "set +e",
+            'wait -n "${pids[@]}"',
+            "status=$?",
+            "set -e",
+            "terminate_children",
+            'for pid in "${pids[@]}"; do',
+            '  wait "$pid" 2>/dev/null || true',
+            "done",
+            "if (( status == 0 )); then status=1; fi",
+            'exit "$status"',
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def build_scripts(
     resolved: ResolvedConfig,
     output_dir: Path,
 ) -> Tuple[Path, Path]:
     """生成 start_command.sh 和 repro.sh 并写入 output_dir。
 
-    三条路径:
+    四条路径:
+    - PD ``process_plan`` 非空 → 按 single/fail-together 生命周期渲染可执行脚本。
     - multi_node 占位(``resolved.nodes`` 非空,无运行时上下文)→ 占位脚本(无 exec,exit 3)。
     - multi_node 已注入(topology==MULTI_NODE 且已选 node)→ 可执行,commands inline。
     - standalone → 可执行,commands 维持注释。
@@ -581,6 +636,14 @@ def build_scripts(
     output_dir.mkdir(parents=True, exist_ok=True)
     start_path = output_dir / "start_command.sh"
     repro_path = output_dir / "repro.sh"
+
+    if resolved.process_plan:
+        pd_script = _render_pd_process_plan(resolved)
+        start_path.write_text(pd_script, encoding="utf-8")
+        start_path.chmod(0o755)
+        repro_path.write_text(pd_script, encoding="utf-8")
+        repro_path.chmod(0o755)
+        return start_path, repro_path
 
     if resolved.nodes:
         # multi_node 占位:两件产物同为占位脚本,显式阻断误执行。

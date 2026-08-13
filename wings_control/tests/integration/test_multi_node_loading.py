@@ -84,12 +84,12 @@ def test_placeholder_audit_has_nodes(config_root_real, tmp_path, monkeypatch):
     assert audit["nodes"][0]["engine_config"]["data_parallel_address"]["final_value"] == "$local_ip"
 
 
-def test_pd_topology_still_not_implemented(config_root_real, tmp_path, monkeypatch):
-    """验证 PD 分离拓扑仍被守卫分类拦截(明确往后做)。"""
+def test_pd_topology_requires_pd_input(config_root_real, tmp_path, monkeypatch):
+    """验证 PD 分离拓扑缺规范化 pd_input 时 fail-fast(ValueError,而非静默走 standard)。"""
     monkeypatch.setenv("ENGINE_VERSION", _ENGINE_VERSION)
     hardware = resolve_hardware(_hw(tmp_path))
     ev = resolve_engine_version(config_root_real, hardware.hardware_family, engine=_ENGINE)
-    with pytest.raises(NotImplementedError, match="PD disaggregation"):
+    with pytest.raises(ValueError, match="pd_input"):
         resolve_config(
             ResolvedEnv(config_root=config_root_real, hardware=hardware, engine_version=ev),
             Target(model_name=_MODEL, topology=Topology.PD_PREFILL, engine=_ENGINE),
