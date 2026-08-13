@@ -66,3 +66,5 @@ scenarios:
           enable_prefix_caching: true
         env:
           VLLM_USE_V1: "1"
+          NCCL_P2P_LEVEL: SYS
+          NCCL_SHM_DISABLE: 1

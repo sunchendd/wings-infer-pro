@@ -75,4 +75,6 @@ scenarios:
           enable_expert_parallel: true
           attention_backend: FLASHINFER_MLA_SPARSE_DSV4
           all2all_backend: deepep_high_throughput
-        env: {}
+        env:
+          NCCL_P2P_LEVEL: SYS
+          NCCL_SHM_DISABLE: 1

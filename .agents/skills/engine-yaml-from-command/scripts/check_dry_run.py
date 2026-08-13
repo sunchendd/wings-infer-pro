@@ -99,6 +99,63 @@ def parse_tokens(tokens: list[str], engine: str) -> dict[str, str]:
     return result
 
 
+def command_env(text: str) -> dict[str, str]:
+    """Parse explicit ``export KEY=value`` assignments from a launch script."""
+    result: dict[str, str] = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line.startswith("export "):
+            continue
+        assignment = line[len("export ") :].strip()
+        try:
+            tokens = shlex.split(assignment, comments=True, posix=True)
+        except ValueError as exc:
+            raise DryRunMismatch(f"invalid environment export: {line!r}") from exc
+        for token in tokens:
+            if "=" not in token:
+                raise DryRunMismatch(f"environment export lacks a value: {token!r}")
+            key, value = token.split("=", 1)
+            if not key:
+                raise DryRunMismatch(f"environment export has an empty name: {token!r}")
+            result[key] = value
+    return result
+
+
+def yaml_environment(config: dict[str, Any]) -> dict[str, str]:
+    """Return YAML ``env`` values in the same scalar form as shell exports."""
+    env = config.get("env", {})
+    if env is None:
+        return {}
+    if not isinstance(env, dict):
+        raise DryRunMismatch("engine_config.env must be a mapping")
+    return {str(key): scalar(value) for key, value in env.items()}
+
+
+def compare_environment(expected: dict[str, str], actual: dict[str, str], label: str) -> list[str]:
+    """Compare YAML environment variables with explicit command exports."""
+    missing = sorted(set(expected) - set(actual))
+    extra = sorted(set(actual) - set(expected))
+    different = sorted(
+        key for key in set(expected) & set(actual)
+        if normalize_value(expected[key]) != normalize_value(actual[key])
+    )
+    details = [f"{label} env: {'OK' if not (missing or extra or different) else '异常'}"]
+    for key in sorted(set(expected) & set(actual)):
+        if key not in different:
+            details.append(f"  OK       {key}: {expected[key]!r}")
+    for key in missing:
+        details.append(f"  缺失     {key}: YAML={expected[key]!r}")
+    for key in extra:
+        details.append(f"  多余     {key}: command={actual[key]!r}")
+    for key in different:
+        details.append(
+            f"  不一致   {key}: YAML={expected[key]!r}, command={actual[key]!r}"
+        )
+    if missing or extra or different:
+        raise DryRunMismatch("\\n".join(details))
+    return details
+
+
 def command_tokens(text: str) -> list[str]:
     logical_lines: list[str] = []
     current = ""
@@ -125,21 +182,22 @@ def command_tokens(text: str) -> list[str]:
     raise DryRunMismatch("no supported engine launch command found")
 
 
-def iter_engine_configs(strategy: dict[str, Any]) -> list[dict[str, Any]]:
-    configs: list[dict[str, Any]] = []
+def iter_engine_configs(strategy: dict[str, Any]) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    configs: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    strategy_env = strategy.get("env", {})
     if isinstance(strategy.get("engine_config"), dict):
-        configs.append(strategy["engine_config"])
+        configs.append((strategy["engine_config"], strategy_env))
     for role in ("head", "worker"):
         node = strategy.get(role)
         if isinstance(node, dict) and isinstance(node.get("engine_config"), dict):
-            configs.append(node["engine_config"])
+            configs.append((node["engine_config"], node.get("env", strategy_env)))
     for node in strategy.get("nodes", []) or []:
         if isinstance(node, dict) and isinstance(node.get("engine_config"), dict):
-            configs.append(node["engine_config"])
+            configs.append((node["engine_config"], node.get("env", strategy_env)))
     return configs
 
 
-def yaml_arguments(data: dict[str, Any], scenario: str) -> list[dict[str, str]]:
+def yaml_configs(data: dict[str, Any], scenario: str) -> list[dict[str, Any]]:
     scenarios = data.get("scenarios", {})
     scenario_data = scenarios.get(scenario, {})
     strategies = scenario_data.get("strategies", {})
@@ -156,16 +214,19 @@ def yaml_arguments(data: dict[str, Any], scenario: str) -> list[dict[str, str]]:
         if not isinstance(args, list):
             continue
         feature_args.update(parse_tokens(["sglang", *args], "sglang"))
-    result: list[dict[str, str]] = []
-    for config in iter_engine_configs(strategy):
+    result: list[dict[str, Any]] = []
+    for config, strategy_env in iter_engine_configs(strategy):
         values: dict[str, str] = {}
         for key, value in config.items():
+            if key == "env":
+                continue
             flag = kebab(key)
             if key in {"model_path", "model"}:
                 flag = "--model" if key == "model" else "--model-path"
             add_argument(values, flag, value)
         values.update(feature_args)
-        result.append(values)
+        environment = config.get("env", strategy_env)
+        result.append({"arguments": values, "env": yaml_environment({"env": environment})})
     return result
 
 
@@ -274,27 +335,32 @@ def check_default_model(
 
 def check(yaml_path: Path, command_paths: list[Path], engine: str, scenario: str) -> list[str]:
     data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
-    configs = yaml_arguments(data, scenario)
+    configs = yaml_configs(data, scenario)
     if not configs:
         raise DryRunMismatch("YAML contains no engine_config for the requested scenario")
-    commands = [parse_tokens(command_tokens(path.read_text(encoding="utf-8")), engine) for path in command_paths]
+    command_texts = [path.read_text(encoding="utf-8") for path in command_paths]
+    commands = [parse_tokens(command_tokens(text), engine) for text in command_texts]
+    environments = [command_env(text) for text in command_texts]
     if len(configs) != len(commands):
         raise DryRunMismatch(
             f"YAML has {len(configs)} engine configs but commands provide {len(commands)}"
         )
     report: list[str] = []
-    for index, (expected, actual) in enumerate(zip(configs, commands)):
+    for index, (expected, actual, environment) in enumerate(zip(configs, commands, environments)):
         label = f"node[{index}]"
+        expected_arguments = expected["arguments"]
+        expected_environment = expected["env"]
         report.extend(
             [
                 f"[{label}] YAML 重建命令:",
-                f"  {render_command(expected)}",
+                f"  {render_command(expected_arguments)}",
                 f"[{label}] 原始启动命令:",
                 f"  {render_command(actual)}",
             ]
         )
         try:
-            report.extend(compare(expected, actual, label))
+            report.extend(compare(expected_arguments, actual, label))
+            report.extend(compare_environment(expected_environment, environment, label))
         except DryRunMismatch as exc:
             raise DryRunMismatch("\n".join(report + [str(exc)])) from exc
     return report

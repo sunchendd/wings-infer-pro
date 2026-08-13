@@ -68,6 +68,39 @@ def test_tool_calling_and_reasoning_are_included_in_dry_run(tmp_path: Path) -> N
     assert "OK       --reasoning-parser" in output
 
 
+def test_environment_matches_explicit_exports(tmp_path: Path) -> None:
+    yaml_path, command_path = write_case(
+        tmp_path,
+        feature_args="""  tool_calling:
+    args: [--enable-auto-tool-choice]
+  reasoning:
+    args: [--reasoning-parser, deepseek]""",
+        command_args="--enable-auto-tool-choice --reasoning-parser deepseek",
+    )
+    yaml_text = yaml_path.read_text(encoding="utf-8")
+    yaml_path.write_text(yaml_text.replace("          tensor_parallel_size: 1\n", "          tensor_parallel_size: 1\n          env: {NCCL_P2P_LEVEL: SYS, NCCL_SHM_DISABLE: 1}\n"), encoding="utf-8")
+    command_path.write_text(
+        "export NCCL_P2P_LEVEL=SYS\nexport NCCL_SHM_DISABLE=1\n"
+        + command_path.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    report = module.check(yaml_path, [command_path], "vllm", "standalone")
+    assert "node[0] env: OK" in "\n".join(report)
+
+
+def test_environment_mismatch_fails(tmp_path: Path) -> None:
+    yaml_path, command_path = write_case(tmp_path, feature_args="", command_args="")
+    yaml_text = yaml_path.read_text(encoding="utf-8")
+    yaml_path.write_text(yaml_text.replace("          tensor_parallel_size: 1\n", "          tensor_parallel_size: 1\n          env: {NCCL_P2P_LEVEL: SYS}\n"), encoding="utf-8")
+    try:
+        module.check(yaml_path, [command_path], "vllm", "standalone")
+    except module.DryRunMismatch as exc:
+        assert "NCCL_P2P_LEVEL" in str(exc)
+        assert "缺失" in str(exc)
+    else:
+        raise AssertionError("missing environment export was accepted")
+
+
 def test_missing_reasoning_parameter_fails(tmp_path: Path) -> None:
     yaml_path, command_path = write_case(
         tmp_path,

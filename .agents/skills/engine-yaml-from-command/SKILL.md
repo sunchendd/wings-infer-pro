@@ -98,6 +98,12 @@ upstream_sources -> model -> hardware_profile -> features(可选) -> scenarios
 - `vllm serve <model>` 的位置参数写成 `engine_config.model`。
 - `--flag-name value` 写成 `flag_name: value`；裸 flag 写 `true`。
 - `export KEY=value` 写入对应策略或节点的 `env`，保持顺序。
+- 对硬件 profile `rtx_pro_5000`（包括任意显存后缀，如 `rtx_pro_5000_48G`、`rtx_pro_5000_72G`）生成 YAML 时，必须在每个部署策略/节点的 `env` 中加入以下性能环境变量；不区分显存规格，也不要求用户在启动命令中重复提供：
+  ```yaml
+  NCCL_P2P_LEVEL: SYS
+  NCCL_SHM_DISABLE: 1
+  ```
+  如果对应 `env` 已有其它变量，追加到现有键之后；如果是空环境，改为上述映射。该规则适用于 standalone、multi-node 和 PD 的所有策略/节点，包括 `default_model.yaml`。
 - `source`、`unset` 和普通准备命令写入 `system_setup.commands`。`commands` 必须是字符串列表，并统一使用 canonical flow-style；禁止省略列表符号或改成裸缩进文本：
 
 ```yaml

@@ -78,3 +78,5 @@ scenarios:
         env:
           VLLM_USE_V1: "1"
           PYTHONHASHSEED: "0"
+          NCCL_P2P_LEVEL: SYS
+          NCCL_SHM_DISABLE: 1
