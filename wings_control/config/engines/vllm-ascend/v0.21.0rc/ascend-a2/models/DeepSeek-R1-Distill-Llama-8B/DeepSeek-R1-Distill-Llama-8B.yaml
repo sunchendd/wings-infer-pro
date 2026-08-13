@@ -56,6 +56,5 @@ scenarios:
           port: 17000
           served_model_name: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
           tensor_parallel_size: 1
-          tokenizer_mode: deepseek_v32
-          tokenizer: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+          tokenizer_mode: deepseek_v32 # Llama 模型必须要配置，tokenizer不配置 默认取 model路径
         env: {}
