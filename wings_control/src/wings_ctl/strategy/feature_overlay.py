@@ -10,11 +10,22 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from wings_ctl.engines.param_names import flag_to_key
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class FeatureOverlayResult:
+    """特性参数覆盖、来源链和处理说明。"""
+
+    overrides: dict[str, Any]
+    trace_sources: dict[str, tuple[str, str]]
+    notes: dict[str, str]
+
 
 # 开关(engine_config canonical key) -> yaml features key
 # 这里只处理 tool_calling / reasoning。spec_decoding 由 wings-accel 处理。
@@ -63,7 +74,7 @@ def parse_feature_args(args: list[str]) -> dict[str, Any]:
     return result
 
 
-def feature_overlay_transform(engine_config: dict, ctx: dict[str, Any]) -> tuple[dict, dict]:
+def feature_overlay_transform(engine_config: dict, ctx: dict[str, Any]) -> FeatureOverlayResult:
     """根据开关生成特性覆盖层。
 
     判定逻辑:
@@ -86,6 +97,7 @@ def feature_overlay_transform(engine_config: dict, ctx: dict[str, Any]) -> tuple
     features = ctx.get("features") or {}
     switches = ctx.get("feature_switches") or {}
     override: dict[str, Any] = {}
+    trace_sources: dict[str, tuple[str, str]] = {}
     notes: dict[str, str] = {}
 
     for switch_key, feature_key in _SWITCH_TO_FEATURE.items():
@@ -106,6 +118,15 @@ def feature_overlay_transform(engine_config: dict, ctx: dict[str, Any]) -> tuple
 
         parsed = parse_feature_args(args)
         override.update(parsed)
+        source_file = str(ctx.get("reasoning_source_file") or "<strategy:feature>") if feature_key == "reasoning" else "<strategy:feature>"
+        source_prefix = str(ctx.get("reasoning_source_path") or "strategy.feature.reasoning") if feature_key == "reasoning" else "strategy.feature"
+        for key in parsed:
+            trace_path = (
+                source_prefix
+                if feature_key == "reasoning" and ctx.get("reasoning_source_path")
+                else f"{source_prefix}.{key}"
+            )
+            trace_sources[key] = (source_file, trace_path)
         notes[f"feature_overlay.{feature_key}"] = "applied: " + " ".join(str(a) for a in args)
         logger.info(
             "特性覆盖生效:%s(开关 %s)→ 附加 %s",
@@ -114,4 +135,8 @@ def feature_overlay_transform(engine_config: dict, ctx: dict[str, Any]) -> tuple
             parsed,
         )
 
-    return override, notes
+    return FeatureOverlayResult(
+        overrides=override,
+        trace_sources=trace_sources,
+        notes=notes,
+    )

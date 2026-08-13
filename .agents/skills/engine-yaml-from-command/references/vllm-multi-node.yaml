@@ -1,0 +1,74 @@
+# Canonical multi-node reference extracted from:
+# config/engines/vllm/trillium/models/gemma-4-31B-it/gemma-4-31B-it-bf16.yaml
+
+# 来源追溯
+upstream_sources:
+  - id: vllm_recipe_gemma-4-31b-it
+    kind: official_recipe
+    repo: recipes
+    file: models/Google/gemma-4-31B-it.yaml
+    url: "https://recipes.vllm.ai/Google/gemma-4-31B-it"
+    date_updated: 2026-05-11
+    note: vLLM 官方 recipe。自动生成。
+
+# 模型基本信息
+model:
+  name: Gemma 4 31B IT
+  slug: gemma-4-31b-it
+  provider: Google
+  description: Google's unified multimodal Gemma 4 dense model.
+  model_id: google/gemma-4-31B-it
+  architecture: dense
+  parameter_count: 31B
+  active_parameters: 31B
+  context_length: 262144
+  vram_minimum_gb: 75
+  tasks: [multimodal, text]
+  min_engine_version: "0.19.1"
+  date_updated: 2026-05-11
+  match:
+    - name_pattern: "(?i)gemma[-.]?4[-.]?31b[-.]?it"
+  variant_name: gemma-4-31B-it-bf16
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 256
+  multi_node: true
+
+# 部署场景
+scenarios:
+  multi_node:
+    source_ref: "vllm_recipe_gemma-4-31b-it#multi_node_tp"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        head:
+          engine_config:
+            model: google/gemma-4-31B-it
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:
+          engine_config:
+            model: google/gemma-4-31B-it
+            cc_pass_config_fuse_allreduce_rms: false
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+

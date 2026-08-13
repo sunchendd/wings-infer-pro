@@ -52,53 +52,53 @@ _FEATURES = {
 
 def test_overlay_tool_switch_on() -> None:
     """验证开 tool 开关 → 附加 tool_calling 的完整 args(parser + flag)。"""
-    override, notes = feature_overlay_transform(
+    result = feature_overlay_transform(
         {}, {"features": _FEATURES, "feature_switches": {"enable_auto_tool_choice": True}}
     )
-    assert override == {"tool_call_parser": "glm45", "enable_auto_tool_choice": True}
-    assert notes["feature_overlay.tool_calling"].startswith("applied")
+    assert result.overrides == {"tool_call_parser": "glm45", "enable_auto_tool_choice": True}
+    assert result.notes["feature_overlay.tool_calling"].startswith("applied")
 
 
 def test_overlay_reasoning_switch_on() -> None:
     """验证开 think 开关 → 附加 reasoning 的 --reasoning-parser。"""
-    override, _ = feature_overlay_transform(
+    result = feature_overlay_transform(
         {}, {"features": _FEATURES, "feature_switches": {"enable_auto_think_choice": True}}
     )
-    assert override == {"reasoning_parser": "glm45"}
+    assert result.overrides == {"reasoning_parser": "glm45"}
 
 
 def test_overlay_both_switches() -> None:
     """验证 tool + think 同开 → 两特性 args 合并。"""
-    override, _ = feature_overlay_transform(
+    result = feature_overlay_transform(
         {},
         {
             "features": _FEATURES,
             "feature_switches": {"enable_auto_tool_choice": True, "enable_auto_think_choice": True},
         },
     )
-    assert override["tool_call_parser"] == "glm45"
-    assert override["reasoning_parser"] == "glm45"
+    assert result.overrides["tool_call_parser"] == "glm45"
+    assert result.overrides["reasoning_parser"] == "glm45"
 
 
 def test_overlay_no_switch_is_noop() -> None:
     """验证无开关 → no-op(特性默认随 model.yaml,D2)。"""
-    override, notes = feature_overlay_transform({}, {"features": _FEATURES, "feature_switches": {}})
-    assert not override
-    assert not notes
+    result = feature_overlay_transform({}, {"features": _FEATURES, "feature_switches": {}})
+    assert not result.overrides
+    assert not result.notes
 
 
 def test_overlay_no_features_block_is_noop() -> None:
     """验证无 features 块(如未迁移 ascend)+ 开关开 → warn-skip,不 raise、不附加。"""
-    override, notes = feature_overlay_transform(
+    result = feature_overlay_transform(
         {}, {"feature_switches": {"enable_auto_tool_choice": True}}
     )
-    assert not override
-    assert "switch_on_but_absent" in notes["feature_overlay.tool_calling"]
+    assert not result.overrides
+    assert "switch_on_but_absent" in result.notes["feature_overlay.tool_calling"]
 
 
 def test_overlay_spec_decoding_not_handled() -> None:
     """验证 spec_decoding 不归本层:即便 features 有它,也不会被附加(转 wings-accel)。"""
-    override, notes = feature_overlay_transform(
+    result = feature_overlay_transform(
         {},
         {
             "features": _FEATURES,
@@ -106,6 +106,6 @@ def test_overlay_spec_decoding_not_handled() -> None:
             "feature_switches": {"enable_auto_tool_choice": True},
         },
     )
-    assert "speculative_config" not in override
-    assert "method" not in override
-    assert "feature_overlay.spec_decoding" not in notes
+    assert "speculative_config" not in result.overrides
+    assert "method" not in result.overrides
+    assert "feature_overlay.spec_decoding" not in result.notes
