@@ -45,6 +45,8 @@ scenarios:
           env:
             GLOO_SOCKET_IFNAME: $IFACE_NAME
             NCCL_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_P2P_LEVEL: SYS
+            NCCL_SHM_DISABLE: 1
         worker:
           engine_config:
             trust_remote_code: true
@@ -58,6 +60,8 @@ scenarios:
             GLOO_SOCKET_IFNAME: $IFACE_NAME
             NCCL_SOCKET_IFNAME: $IFACE_NAME
 
+            NCCL_P2P_LEVEL: SYS
+            NCCL_SHM_DISABLE: 1
   pd_disaggregation:
     source_ref: default#pd_cluster
     match:
@@ -84,6 +88,8 @@ scenarios:
               VLLM_NIXL_SIDE_CHANNEL_HOST: $PREFILL_NODE_1
               GLOO_SOCKET_IFNAME: $IFACE_NAME
               NCCL_SOCKET_IFNAME: $IFACE_NAME
+              NCCL_P2P_LEVEL: SYS
+              NCCL_SHM_DISABLE: 1
           - role: decode
             index: 0
             engine_config:
@@ -101,3 +107,5 @@ scenarios:
               VLLM_NIXL_SIDE_CHANNEL_HOST: $DECODE_NODE_1
               GLOO_SOCKET_IFNAME: $IFACE_NAME
               NCCL_SOCKET_IFNAME: $IFACE_NAME
+              NCCL_P2P_LEVEL: SYS
+              NCCL_SHM_DISABLE: 1

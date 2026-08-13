@@ -82,4 +82,6 @@ scenarios:
           eplb_config:
             num_redundant_experts: 2
             use_async: true
-        env: {}
+        env:
+          NCCL_P2P_LEVEL: SYS
+          NCCL_SHM_DISABLE: 1

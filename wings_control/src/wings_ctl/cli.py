@@ -365,6 +365,17 @@ def _parse_runtime_context_from_env() -> tuple[str | None, str | None, list[str]
     return rank_ip, master_ip, node_ips
 
 
+def _print_env_dry_run(env_traces: dict[str, Any]) -> None:
+    """打印 dry-run 解析后的环境变量。"""
+    if not env_traces:
+        return
+    print("# Environment Variables")
+    for env_key, traced in env_traces.items():
+        value = traced.final_value
+        if value is not None:
+            print(f"export {env_key}={shlex.quote(str(value))}")
+
+
 def _print_multi_node_dry_run(engine: str, nodes: List[Any]) -> None:
     """打印 dry-run 下的 multi_node 占位 argv 列表。
 
@@ -378,6 +389,7 @@ def _print_multi_node_dry_run(engine: str, nodes: List[Any]) -> None:
     for node in nodes:
         node_argv = build_argv(node.engine_config_traces, engine=engine)
         print(f"# node[{node.role}] (multi_node 占位,未注入 $占位符)")
+        _print_env_dry_run(node.env_traces)
         print(shlex.join(node_argv))
 
 
@@ -428,6 +440,7 @@ def _run_dry_mode(parser: argparse.ArgumentParser, request: PipelineRequest) -> 
         parser.error(str(exc))
         return
 
+    _print_env_dry_run(resolved.env_traces)
     print(shlex.join(argv))
 
 

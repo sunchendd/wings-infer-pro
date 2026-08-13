@@ -79,3 +79,5 @@ scenarios:
           LMCACHE_PRE_CACHING_HASH_ALGORITHM: "sha256_cbor_64bit"
           LMCACHE_LOCAL_DISK: "/mnt/kvcache_offload/kvcache"
           LMCACHE_MAX_LOCAL_DISK_SIZE: "600.0"
+          NCCL_P2P_LEVEL: SYS
+          NCCL_SHM_DISABLE: 1
