@@ -145,7 +145,7 @@ class SmartAccelInput:
 | 子配置 | 字段 | MaaS 来源 |
 |---|---|---|
 | `SystemConfig` | `gpu_count` | `--device-count`(int,必填) |
-| | `pod_available_memory_gb` | `AVAILABLE_POD_MEM_SIZE`(int GB,必填) |
+| | `pod_available_memory_gb` | `AVAILABLE_POD_MEM_SIZE`(int **MiB**,必填;入口 /1024 换算为 GB) |
 | | `gpu_type` | 硬件族目录名(非 MaaS 直传,yaml 定位键) |
 | `ModelConfig` | `model_path` | `--model-path`(主模型路径) |
 | | `model_name` | `--model`/`-m`(yaml 定位键) |

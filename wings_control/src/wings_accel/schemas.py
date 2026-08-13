@@ -39,13 +39,13 @@ class SystemConfig:
 
     MaaS 对齐:
       - `--device-count`:必填,int,卡数。
-      - `AVAILABLE_POD_MEM_SIZE`:必填,int,pod 可用内存大小,单位 GB;当前消费方为 KV 卸载,
+      - `AVAILABLE_POD_MEM_SIZE`:必填,int,pod 可用内存大小,单位 **MiB**(如 65536 表示 64GB);当前消费方为 KV 卸载,
         后续也可被其他特性消费。
     """
 
     gpu_type: str = "A100" # 硬件族(= hardware_family,如 rtx_pro_5000_72G / h200);yaml 定位键,非 MaaS 直接入参
     gpu_count: int = 1 # 卡数;MaaS 必填 `--device-count`(int;不参与 yaml 定位)
-    pod_available_memory_gb: int = 0 # pod 可用内存(GB);MaaS 必填 `AVAILABLE_POD_MEM_SIZE`(int)
+    pod_available_memory_gb: int = 0 # pod 可用内存(GB);MaaS 必填 `AVAILABLE_POD_MEM_SIZE`(int MiB,入口 /1024 换算)
 
 
 @dataclass

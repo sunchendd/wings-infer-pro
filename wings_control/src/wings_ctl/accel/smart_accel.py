@@ -92,6 +92,18 @@ def _as_int(value: Any) -> int:
         return 0
 
 
+def _pod_mem_mib_to_gb(value: Any) -> int:
+    """AVAILABLE_POD_MEM_SIZE 由 MaaS 以 MiB 下发(如 65536 表示 64GB),转成 GB int。
+
+    与老仓库 resolve_offload_cpu_capacity_gb 对齐:float(mib)/1024 后向下取整;
+    空/非法 → 0(关闭 auto 估算,避免误判)。
+    """
+    try:
+        return int(int(value) // 1024)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _kv_mem_size(value: Any) -> str:
     """KV_MEM_OFFLOAD_SIZE 原样归一:auto / 数值 GB / 空。"""
     raw = str(value or "").strip().lower()
@@ -124,7 +136,7 @@ def collect_accel_switches(env: dict) -> dict[str, Any]:
         "kv_qat_enabled": _as_bool(env, "ENABLE_KV_QAT"),
         "kv_qat_compress_level": _as_int(env.get("KV_QAT_COMPRESS_LEVEL")),
         "kv_qat_instance_num": _as_int(env.get("KV_QAT_INSTANCE_NUM")),
-        "available_pod_mem_gb": _as_int(env.get("AVAILABLE_POD_MEM_SIZE")),
+        "available_pod_mem_gb": _pod_mem_mib_to_gb(env.get("AVAILABLE_POD_MEM_SIZE")),
         # PD_ROLE 透传(env_utils 已校验);decoders/offload 内部按需自取。
         "pd_role": env.get("PD_ROLE") or None,
         # KV 存储后端(memcache/mooncake)由 yaml 声明、按 connector 内容路由;不再有 KV_STORE_* env。

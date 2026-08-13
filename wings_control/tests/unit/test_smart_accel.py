@@ -37,7 +37,7 @@ def test_collect_switches_v3_kv_hierarchy():
         "ENABLE_KV_QAT": "true",
         "KV_QAT_COMPRESS_LEVEL": "2",
         "KV_QAT_INSTANCE_NUM": "4",
-        "AVAILABLE_POD_MEM_SIZE": "128",
+        "AVAILABLE_POD_MEM_SIZE": "131072",  # 131072 MiB = 128 GB(验证 MiB→GB 换算)
         "PD_ROLE": "P",
     }
     s = collect_accel_switches(env)
@@ -47,7 +47,7 @@ def test_collect_switches_v3_kv_hierarchy():
     assert s["kv_mem_size_gb"] == 0          # "auto" → 0(交 accel 智能推荐)
     assert s["kv_disk_size_gb"] == 512 and s["kv_disk_path"] == "/lm"
     assert s["kv_qat_compress_level"] == 2 and s["kv_qat_instance_num"] == 4
-    assert s["available_pod_mem_gb"] == 128 and s["pd_role"] == "P"  # PD_ROLE 原样透传(不在此归一)
+    assert s["available_pod_mem_gb"] == 128 and s["pd_role"] == "P"  # 131072 MiB→128 GB;PD_ROLE 原样透传
 
 
 def test_collect_switches_defaults_when_absent():
