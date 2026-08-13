@@ -135,8 +135,7 @@ def _collect_and_warn(
         if node_label is not None:
             item["node"] = node_label
         logger.warning(
-            "EngineParamValidator: %s参数 '%s'(渲染为 %s)不在 %s 支持清单中"
-            "(warn-only,不删参);来源 %s#%s",
+            "EngineParamValidator: %s参数 '%s'(渲染为 %s)不在 %s 支持清单中(warn-only,不删参);来源 %s#%s",
             node_hint,
             item["param"],
             item["rendered_as"],
@@ -167,8 +166,7 @@ def validate_engine_params(resolved: ResolvedConfig, config_root: Path) -> None:
     if supported is None:
         # 缺清单时只告警并跳过,不阻塞启动。
         logger.warning(
-            "EngineParamValidator: supported_params 清单缺失/为空(%s);"
-            "按 warn-skip 跳过参数校验,不阻塞启动。",
+            "EngineParamValidator: supported_params 清单缺失/为空(%s);按 warn-skip 跳过参数校验,不阻塞启动。",
             path,
         )
         resolved.param_validation = ParamValidationResult(
@@ -176,9 +174,41 @@ def validate_engine_params(resolved: ResolvedConfig, config_root: Path) -> None:
             status="skipped_missing_file",
             unsupported=[],
         )
+        if resolved.process_plan:
+            for process in resolved.process_plan.processes:
+                process.param_validation = ParamValidationResult(
+                    supported_params_file=None,
+                    status="skipped_missing_file",
+                    unsupported=[],
+                )
         return
 
-    if resolved.nodes:  # multi_node:顶层空,逐 node 校验(全 node 共用同一份清单)
+    if resolved.process_plan:  # PD:逐 process 校验最终 native flags。
+        unsupported = []
+        for process in resolved.process_plan.processes:
+            process_unsupported = _collect_and_warn(
+                process.engine_config_traces,
+                supported,
+                resolved.engine,
+                node_label=f"process[{process.process_index}] rank={process.dp_rank}",
+            )
+            for item in process_unsupported:
+                item["process_index"] = process.process_index
+                item["dp_rank"] = process.dp_rank
+            process.param_validation = ParamValidationResult(
+                supported_params_file=str(path),
+                status="checked",
+                unsupported=process_unsupported,
+            )
+            unsupported.extend(process_unsupported)
+        logger.info(
+            "EngineParamValidator: 校验完成(PD) engine=%s file=%s processes=%d unsupported=%d",
+            resolved.engine,
+            path,
+            len(resolved.process_plan.processes),
+            len(unsupported),
+        )
+    elif resolved.nodes:  # multi_node:顶层空,逐 node 校验(全 node 共用同一份清单)
         unsupported: List[Dict[str, Any]] = []
         for node in resolved.nodes:
             unsupported.extend(

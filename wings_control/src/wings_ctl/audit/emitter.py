@@ -82,11 +82,7 @@ def _build_audit_dict(resolved: ResolvedConfig) -> Dict[str, Any]:
     audit["version"] = version_info
 
     # 硬件信息
-    extra_details = {
-        k: v
-        for k, v in resolved.hardware.raw.items()
-        if k not in {"hardware_family", "device"}
-    }
+    extra_details = {k: v for k, v in resolved.hardware.raw.items() if k not in {"hardware_family", "device"}}
     hardware_entry = {
         "hardware_family": resolved.hardware.hardware_family,
         "device": resolved.hardware.device,
@@ -103,15 +99,11 @@ def _build_audit_dict(resolved: ResolvedConfig) -> Dict[str, Any]:
 
     # engine_config 完整追踪
     audit["engine_config"] = {
-        key: _serialize_traced_value(traced)
-        for key, traced in resolved.engine_config_traces.items()
+        key: _serialize_traced_value(traced) for key, traced in resolved.engine_config_traces.items()
     }
 
     # env 完整追踪
-    audit["env"] = {
-        key: _serialize_traced_value(traced)
-        for key, traced in resolved.env_traces.items()
-    }
+    audit["env"] = {key: _serialize_traced_value(traced) for key, traced in resolved.env_traces.items()}
 
     # user_cli_params: 单数组含全量(status∈{applied,dropped},dropped 带 reason)。
     # 不另开 dropped_user_params 数组——dropped 项可由 status 过滤得出,避免双写漂移。
@@ -137,17 +129,87 @@ def _build_audit_dict(resolved: ResolvedConfig) -> Dict[str, Any]:
                 "index": node.index,
                 "source_prefix": node.source_prefix,
                 "engine_config": {
-                    key: _serialize_traced_value(traced)
-                    for key, traced in node.engine_config_traces.items()
+                    key: _serialize_traced_value(traced) for key, traced in node.engine_config_traces.items()
                 },
-                "env": {
-                    key: _serialize_traced_value(traced)
-                    for key, traced in node.env_traces.items()
-                },
+                "env": {key: _serialize_traced_value(traced) for key, traced in node.env_traces.items()},
                 "system_setup": _serialize_system_setup(node.system_setup),
             }
             for node in resolved.nodes
         ]
+
+    # PD 只消费 ProcessPlan；顶层 engine/env 留空，逐 process 保留完整 trace/argv/validation。
+    if resolved.pd_topology and resolved.process_plan:
+        topology = resolved.pd_topology
+        placement = topology.placement
+        audit["pd"] = {
+            "role": topology.role.value,
+            "input_policy": topology.input_policy,
+            "instance_index": topology.instance_index,
+            "prefill": {
+                "dp_size": topology.prefill.dp_size,
+                "tp_size": topology.prefill.tp_size,
+            },
+            "decode": {
+                "dp_size": topology.decode.dp_size,
+                "tp_size": topology.decode.tp_size,
+            },
+            "placement": {
+                "master_ip": placement.master_ip,
+                "rank_ip": placement.rank_ip,
+                "node_ips": placement.node_ips,
+            },
+            "local_allocation": {
+                "member_index": topology.member_index,
+                "dp_size_local": topology.dp_size_local,
+                "rank_start": topology.rank_start,
+                "rank_end_exclusive": topology.rank_end_exclusive,
+            },
+            "maas_assertions": {
+                "pd_index_unique": "maas_asserted_not_locally_observable",
+                "all_prefill_before_decode": "maas_asserted_not_locally_observable",
+            },
+            "process_plan": {
+                "layout": resolved.process_plan.layout,
+                "lifecycle": resolved.process_plan.lifecycle,
+                "endpoints": resolved.process_plan.endpoints,
+                "listeners": [
+                    {
+                        "name": listener.name,
+                        "host": listener.host,
+                        "port_start": listener.port_start,
+                        "port_end": listener.port_end,
+                        "owner": listener.owner,
+                        "status": listener.status,
+                    }
+                    for listener in resolved.process_plan.listeners
+                ],
+                "processes": [
+                    {
+                        "process_index": process.process_index,
+                        "local_index": process.local_index,
+                        "dp_rank": process.dp_rank,
+                        "visible_devices": list(process.visible_devices),
+                        "advertised_endpoint": process.advertised_endpoint,
+                        "argv": process.argv,
+                        "engine_config": {
+                            key: _serialize_traced_value(traced) for key, traced in process.engine_config_traces.items()
+                        },
+                        "env": {key: _serialize_traced_value(traced) for key, traced in process.env_traces.items()},
+                        "param_validation": (
+                            {
+                                "policy": process.param_validation.policy,
+                                "supported_params_file": process.param_validation.supported_params_file,
+                                "status": process.param_validation.status,
+                                "unsupported": process.param_validation.unsupported,
+                            }
+                            if process.param_validation
+                            else None
+                        ),
+                    }
+                    for process in resolved.process_plan.processes
+                ],
+            },
+        }
 
     # wings-accel(智能加速)诊断:非空时写入,供排查"加速产出了什么"。
     # 内容为各 OutputParams 的 wings_accel_params + 顶层汇总;空(未接通/关闭)→ 不写。

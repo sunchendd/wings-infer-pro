@@ -36,13 +36,13 @@ _ALIAS: Dict[str, str] = {
     #   "ascend910b": "ascend-a3",         # 下发 "Ascend910B_64G" → 命中 ascend-a3 目录
     #
     # 缺省不入表:去后缀+casefold 后 == 目录名者(h100 / b200 / mi300x 等)走精确/剥后缀直通,不占本表。
-    "ascend910b": "ascend-a2",    # Ascend910B
-    "ascend910": "ascend-a3",     # Ascend910
-    "ascend910c": "ascend-a3",    # Ascend910C
-    "h20": "h20_96G",             # H20
-    "h20-3e": "h20_141G",         # H20-3e
-    "rtx-pro-5000-48gb-blackwell": "rtx_pro_5000_48G",    # RTX-PRO-5000-48GB-Blackwell
-    "rtx-pro-5000-72gb-blackwell": "rtx_pro_5000_72G",    # RTX-PRO-5000-72GB-Blackwell
+    "ascend910b": "ascend-a2",  # Ascend910B
+    "ascend910": "ascend-a3",  # Ascend910
+    "ascend910c": "ascend-a3",  # Ascend910C
+    "h20": "h20_96G",  # H20
+    "h20-3e": "h20_141G",  # H20-3e
+    "rtx-pro-5000-48gb-blackwell": "rtx_pro_5000_48G",  # RTX-PRO-5000-48GB-Blackwell
+    "rtx-pro-5000-72gb-blackwell": "rtx_pro_5000_72G",  # RTX-PRO-5000-72GB-Blackwell
 }
 
 
@@ -125,7 +125,9 @@ def resolve_family_dir(
         # 别名命中但目标目录不存在 = _ALIAS 配错(填表时目录名写错);不静默,记 warn 再回落剥后缀。
         logger.warning(
             "resolve_family_dir: 别名 '%s' → '%s' 但该目录在 engine='%s' 下不存在(_ALIAS 配置可能有误);回落剥后缀",
-            card.casefold(), aliased, engine,
+            card.casefold(),
+            aliased,
+            engine,
         )
 
     # ③ 剥后缀:普通卡带冗余显存后缀,去掉后用裸卡名命中普通目录(如 H100_80G → h100)。
@@ -197,13 +199,9 @@ def load_platform_config(
 
     若文件不存在,返回 ({}, None) 而不是抛出异常。
     """
-    path = build_models_dir(
-        config_root, engine, hardware_family, version, has_version_dir
-    ) / "default_model.yaml"
+    path = build_models_dir(config_root, engine, hardware_family, version, has_version_dir) / "default_model.yaml"
     if not path.is_file():
-        logger.warning(
-            "ConfigLoader: platform default not found: %s; using empty defaults", path
-        )
+        logger.warning("ConfigLoader: platform default not found: %s; using empty defaults", path)
         return {}, None
     data = load_yaml(path)
     logger.info("ConfigLoader: loaded platform config from %s", path)
@@ -217,6 +215,8 @@ def load_model_config(
     version: str,
     model_name: str,
     has_version_dir: bool = True,
+    *,
+    exact_variant_only: bool = False,
 ) -> Tuple[Optional[Dict[str, Any]], Optional[Path], str]:
     """扫描 models/ 目录,按 match 规则匹配模型 yaml。
 
@@ -231,6 +231,7 @@ def load_model_config(
         has_version_dir: 由上游 version_resolver 目录自判得出的开关。
                  True → 路径含版本层;False → 完全跳过版本目录拼接。
                  注意:有/无版本层由"目录名像不像版本号"决定,不由引擎名决定。
+        exact_variant_only: 只接受 ``model.variant_name`` 精确命中；PD 使用，禁止家族回退。
 
     目录:
     - 有版本层: config_root/engines/{engine}/(版本目录)/{hw}/models/{ModelDir}/*.yaml
@@ -246,9 +247,7 @@ def load_model_config(
         (data, yaml_path, matched_pattern) — 命中时返回模型数据与路径。
         无命中时返回 (None, None, "") 供上层走 default_model 默认路径。
     """
-    models_dir = build_models_dir(
-        config_root, engine, hardware_family, version, has_version_dir
-    )
+    models_dir = build_models_dir(config_root, engine, hardware_family, version, has_version_dir)
     if not models_dir.is_dir():
         raise FileNotFoundError(
             f"engine='{engine}' hardware_family='{hardware_family}' 下无配置资产"
@@ -261,8 +260,8 @@ def load_model_config(
     # variant_name = MaaS 下发的【完整变体名】,显式声明、不推断(model_id/engine_config.model/
     # 文件名后缀均被证明不可靠)。缺 variant_name 的文件不入 ① 层,靠 ② 回退
     # (单变体容错 + 向后兼容:存量未铺 variant_name 时行为不变)。
-    exact_matches: List[Tuple[Dict[str, Any], Path, str]] = []      # (data, path, variant_name)
-    pattern_matches: List[Tuple[Dict[str, Any], Path, str]] = []    # (data, path, hit_pattern)
+    exact_matches: List[Tuple[Dict[str, Any], Path, str]] = []  # (data, path, variant_name)
+    pattern_matches: List[Tuple[Dict[str, Any], Path, str]] = []  # (data, path, hit_pattern)
     yaml_errors: List[Tuple[Path, str]] = []
     model_name_norm = model_name.strip().lower()
     for model_dir in sorted(models_dir.iterdir()):
@@ -276,7 +275,9 @@ def load_model_config(
             except Exception as exc:
                 yaml_errors.append((yaml_file, str(exc)))
                 logger.warning(
-                    "ConfigLoader: YAML parse failed %s: %s", yaml_file, exc,
+                    "ConfigLoader: YAML parse failed %s: %s",
+                    yaml_file,
+                    exc,
                 )
                 continue
             if not isinstance(data, dict):
@@ -309,7 +310,9 @@ def load_model_config(
                     yaml_errors.append((yaml_file, f"invalid name_pattern {pattern!r}: {exc}"))
                     logger.warning(
                         "ConfigLoader: invalid name_pattern %r in %s: %s (skip this rule)",
-                        pattern, yaml_file, exc,
+                        pattern,
+                        yaml_file,
+                        exc,
                     )
                     continue
                 if hit:
@@ -324,11 +327,15 @@ def load_model_config(
     if len(exact_matches) > 1:
         paths = ", ".join(str(p) for _, p, _ in exact_matches)
         raise ValueError(
-            f"variant_name 冲突:多个文件声明 variant_name='{model_name}': {paths}。"
-            "请确保同目录 variant_name 唯一。"
+            f"variant_name 冲突:多个文件声明 variant_name='{model_name}': {paths}。请确保同目录 variant_name 唯一。"
         )
 
     # ── ② name_pattern 模糊匹配回退 ──
+    if exact_variant_only:
+        raise FileNotFoundError(
+            f"PD exact model variant 未命中：model_name={model_name!r}，models_dir={models_dir}。"
+            "PD 不允许 name_pattern 或 default_model 回退。"
+        )
     if len(pattern_matches) == 1:
         data, yaml_file, pattern = pattern_matches[0]
         logger.info("ConfigLoader: model '%s' matched in %s", model_name, yaml_file)
@@ -337,10 +344,7 @@ def load_model_config(
         msg = f"No model yaml matched model_name='{model_name}' under {models_dir}"
         if yaml_errors:
             details = "; ".join(f"{p}: {e}" for p, e in yaml_errors)
-            msg += (
-                f"\n  YAML parse errors encountered "
-                f"(may contain the intended config): {details}"
-            )
+            msg += f"\n  YAML parse errors encountered (may contain the intended config): {details}"
             raise FileNotFoundError(msg)
         logger.warning(msg)
         return None, None, ""

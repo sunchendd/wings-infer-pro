@@ -12,14 +12,31 @@ from wings_ctl.core.models import (
     ConnectorProfile,
     KvPortPolicy,
     ParallelShape,
+    PD_DP_LAUNCH_EXTERNAL_RANK,
+    PD_DP_LAUNCH_NONE,
+    PD_ENDPOINT_PER_PROCESS,
+    PD_ENGINE_ID_FROM_INDEX,
+    PD_ENGINE_ID_OMIT,
+    PD_KV_LISTENER_DEVICE_COUNT_PLUS_ONE,
+    PD_KV_PORT_FROM_INDEX,
+    PD_LISTENER_OWNER_PER_POD_CONNECTOR_GROUP,
+    PD_PROCESS_LAYOUT_PER_LOCAL_RANK,
+    PD_PROCESS_LAYOUT_SINGLE,
+    PD_TOPOLOGY_DERIVED_1P1D,
+    PD_TOPOLOGY_EXPLICIT_ALLOCATION,
+    PdEngineIdPolicy,
     PdRole,
     PdRuntimeSpec,
+    PdTopologyInputPolicy,
 )
 from wings_ctl.core.topology import Topology
 
 logger = logging.getLogger(__name__)
 
-_ALLOWED_INPUT_POLICIES = {"derived_1p1d", "explicit_allocation"}
+_ALLOWED_INPUT_POLICIES = {
+    PD_TOPOLOGY_DERIVED_1P1D,
+    PD_TOPOLOGY_EXPLICIT_ALLOCATION,
+}
 _ROLE_NAMES = {"prefill": PdRole.PREFILL, "decode": PdRole.DECODE}
 _RUNTIME_OWNED_ENGINE_FIELDS = {
     "port",
@@ -68,7 +85,7 @@ class _NormalizedNode:
 class _IdentityProfile:
     """从所有 P/D node identity 推导出的全局 Instance profile。"""
 
-    engine_id_policy: str
+    engine_id_policy: PdEngineIdPolicy
     kv_base: int
     kv_stride: int
 
@@ -244,7 +261,7 @@ def _derive_identity_profile(grouped: Dict[PdRole, list[_NormalizedNode]]) -> _I
     identities = [identity for identity, _ in groups]
     engine_ids = [engine_id for (engine_id, _) in identities]
     if all(engine_id is None for engine_id in engine_ids):
-        engine_id_policy = "omit"
+        engine_id_policy = PD_ENGINE_ID_OMIT
     elif all(engine_id is not None for engine_id in engine_ids):
         expected = list(range(len(engine_ids)))
         if engine_ids != expected:
@@ -252,7 +269,7 @@ def _derive_identity_profile(grouped: Dict[PdRole, list[_NormalizedNode]]) -> _I
                 "PD recipe engine_id 必须按 logical Instance 以 P 在前、D 在后的顺序从 0 连续递增，"
                 f"当前为 {engine_ids}。"
             )
-        engine_id_policy = "from_pd_index"
+        engine_id_policy = PD_ENGINE_ID_FROM_INDEX
     else:
         raise ValueError("PD recipe P/D node 的 engine_id 必须全部省略或全部显式声明。")
 
@@ -280,7 +297,9 @@ def _validate_role_nodes(nodes: list[_NormalizedNode], role: PdRole) -> _Normali
     return first
 
 
-def select_pd_recipe_pair(model_data: Dict[str, Any], topology_input_policy: str) -> Dict[PdRole, PdRoleRecipe]:
+def select_pd_recipe_pair(
+    model_data: Dict[str, Any], topology_input_policy: PdTopologyInputPolicy
+) -> Dict[PdRole, PdRoleRecipe]:
     """从正式 ``pd_disaggregation.nodes[]`` recipe 生成内部 P/D role pair。
 
     外部 YAML 保留官方命令可直接表达的参数；rank、local DP、backend port、placement 和
@@ -298,41 +317,41 @@ def select_pd_recipe_pair(model_data: Dict[str, Any], topology_input_policy: str
         raise ValueError("PD recipe P/D 节点必须描述同一份 P/D parallel shape。")
     identity = _derive_identity_profile(grouped)
     shape_policy = (
-        "derived_1p1d"
+        PD_TOPOLOGY_DERIVED_1P1D
         if first[PdRole.PREFILL].prefill_shape.dp_size == 1 and first[PdRole.PREFILL].decode_shape.dp_size == 1
-        else "explicit_allocation"
+        else PD_TOPOLOGY_EXPLICIT_ALLOCATION
     )
     if topology_input_policy != shape_policy:
         raise ValueError(f"PD recipe 只接受 {shape_policy!r}，当前输入为 {topology_input_policy!r}。")
-    if shape_policy == "explicit_allocation":
+    if shape_policy == PD_TOPOLOGY_EXPLICIT_ALLOCATION:
         missing_rpc_roles = [role.value for role, node in first.items() if node.rpc_port is None]
         if missing_rpc_roles:
             raise ValueError(f"PD explicit_allocation recipe 缺少实际 DP RPC 端口：roles={missing_rpc_roles}。")
     pair: Dict[PdRole, PdRoleRecipe] = {}
     for role, topology in ((PdRole.PREFILL, Topology.PD_PREFILL), (PdRole.DECODE, Topology.PD_DECODE)):
         node = first[role]
-        ordinary_1p1d = shape_policy == "derived_1p1d"
+        ordinary_1p1d = shape_policy == PD_TOPOLOGY_DERIVED_1P1D
         runtime = PdRuntimeSpec(
             topology_input_policy=shape_policy,
             prefill_shape=node.prefill_shape,
             decode_shape=node.decode_shape,
             instance_member_count=_identity_groups(grouped[role])[0][1],
-            process_layout="single_process" if ordinary_1p1d else "per_local_dp_rank",
-            dp_launch_policy="none" if ordinary_1p1d else "external_rank",
-            endpoint_policy="per_process",
+            process_layout=PD_PROCESS_LAYOUT_SINGLE if ordinary_1p1d else PD_PROCESS_LAYOUT_PER_LOCAL_RANK,
+            dp_launch_policy=PD_DP_LAUNCH_NONE if ordinary_1p1d else PD_DP_LAUNCH_EXTERNAL_RANK,
+            endpoint_policy=PD_ENDPOINT_PER_PROCESS,
             backend_port_base=DEFAULT_ENGINE_PORT,
             data_parallel_rpc_port=None if ordinary_1p1d else node.rpc_port,
             connector_profile=ConnectorProfile(
                 connector_name=node.connector_name,
                 engine_id_policy=identity.engine_id_policy,
                 kv_port_policy=KvPortPolicy(
-                    mode="from_pd_index",
+                    mode=PD_KV_PORT_FROM_INDEX,
                     base=identity.kv_base,
                     instance_stride=identity.kv_stride,
                     process_stride=0,
-                    listener_span="device_count_plus_one",
+                    listener_span=PD_KV_LISTENER_DEVICE_COUNT_PLUS_ONE,
                 ),
-                listener_owner_scope="per_pod_connector_group",
+                listener_owner_scope=PD_LISTENER_OWNER_PER_POD_CONNECTOR_GROUP,
             ),
         )
         pair[role] = PdRoleRecipe(
