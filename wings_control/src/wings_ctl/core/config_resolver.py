@@ -21,13 +21,34 @@ import os
 from typing import Any, Dict, List, NamedTuple
 
 from wings_ctl import __version__ as WINGS_CTL_VERSION
-from wings_ctl.accel.smart_accel import apply_smart_accel
+from wings_ctl.accel.smart_accel import AccelResult, apply_smart_accel, collect_accel_switches
 from wings_ctl.core.constants import DEFAULT_ENGINE_PORT
 from wings_ctl.core.models import (
     ClusterPlacement,
+    EngineProcessPlan,
     HardwareContext,
+    ListenerPlan,
+    PD_DP_LAUNCH_EXTERNAL_RANK,
+    PD_DP_LAUNCH_NONE,
+    PD_ENDPOINT_PER_PROCESS,
+    PD_ENGINE_ID_FROM_INDEX,
+    PD_ENGINE_ID_OMIT,
+    PD_KV_LISTENER_DEVICE_COUNT_PLUS_ONE,
+    PD_KV_LISTENER_SINGLE,
+    PD_KV_PORT_FROM_INDEX,
+    PD_LISTENER_OWNER_PER_PROCESS,
+    PD_LISTENER_OWNER_PER_POD_CONNECTOR_GROUP,
+    PD_PROCESS_LAYOUT_PER_LOCAL_RANK,
+    PD_PROCESS_LAYOUT_SINGLE,
+    PD_TOPOLOGY_DERIVED_1P1D,
+    PD_TOPOLOGY_EXPLICIT_ALLOCATION,
+    PdRole,
+    PdRuntimeInput,
+    PdRuntimeSpec,
+    ProcessPlan,
     ResolvedConfig,
     ResolvedEnv,
+    ResolvedPdTopology,
     ResolvedNode,
     SourceEvent,
     SystemSetup,
@@ -37,17 +58,19 @@ from wings_ctl.core.models import (
 )
 from wings_ctl.core.topology import Topology
 from wings_ctl.engines.version_resolver import _parse_version_tuple
+from wings_ctl.engines.vllm_adapter import build_argv
 from wings_ctl.loaders.locator import load_model_config, load_platform_config, resolve_family_dir
 from wings_ctl.loaders.reasoning_table import ReasoningTableError, load_reasoning_table
+from wings_ctl.pd.planner import resolve_pd_topology
+from wings_ctl.pd.recipe import select_pd_recipe_pair
+from wings_ctl.strategy.feature_inject import feature_inject_transform
+from wings_ctl.strategy.feature_overlay import feature_overlay_transform
+from wings_ctl.strategy.parallelism import check_capacity, dp_start_rank
+from wings_ctl.strategy.post_template import post_template_strategy
 from wings_ctl.strategy.reasoning_resolver import (
     build_model_identity,
     resolve_reasoning,
 )
-from wings_ctl.strategy.parallelism import check_capacity, dp_start_rank
-from wings_ctl.strategy.feature_overlay import feature_overlay_transform
-from wings_ctl.strategy.feature_inject import feature_inject_transform
-from wings_ctl.strategy.post_template import post_template_strategy
-from wings_ctl.weight.reader import read_num_attention_heads, resolve_weight_bytes
 from wings_ctl.strategy.topology_inject import (
     LAYOUT_TP_ACROSS,
     coordinate_parallelism,
@@ -56,6 +79,7 @@ from wings_ctl.strategy.topology_inject import (
     select_node,
     substitute_literal_placeholders,
 )
+from wings_ctl.weight.reader import read_num_attention_heads, resolve_weight_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -200,10 +224,12 @@ class NodeSpec(NamedTuple):
         engine_config: 该节点引擎参数模板(只读基线,后续按层合并)。
         env: 该节点 env 模板。
         system_setup: 该节点 system_setup 原始块(dict 或 None)。
-        engine_config_source_prefix / env_source_prefix / system_setup_source_prefix:
-            各块在 yaml 中的来源路径前缀(trace 溯源用)。
+        engine_config_source_prefix: engine_config 在 YAML 中的来源路径前缀。
+        env_source_prefix: env 在 YAML 中的来源路径前缀。
+        system_setup_source_prefix: system_setup 在 YAML 中的来源路径前缀。
         source_prefix: 该节点段的来源路径前缀(role/index 摘要溯源用)。
     """
+
     role: str
     index: int | None
     engine_config: Dict[str, Any]
@@ -263,9 +289,7 @@ def _from_nodes_list(nodes_raw: List[Any], strategy_prefix: str) -> List[NodeSpe
     return specs
 
 
-def _from_head_worker(
-    strategy: Dict[str, Any], strategy_prefix: str, pod_count: int | None
-) -> List[NodeSpec]:
+def _from_head_worker(strategy: Dict[str, Any], strategy_prefix: str, pod_count: int | None) -> List[NodeSpec]:
     """``head``/``worker`` 形态 → ``NodeSpec`` 列表(模板复用展开)。
 
     worker 是**单模板**,复用展开为 (pod_count-1) 个 worker;每个 worker 按 index 写 per-Pod 身份键,
@@ -298,20 +322,22 @@ def _from_head_worker(
     specs = [_make_node_spec(head, role="head", index=0, node_prefix=f"{strategy_prefix}.head")]
     for i in range(1, pod_count):
         ec = dict(worker.get("engine_config") or {})
-        if detect_layout(ec) == LAYOUT_TP_ACROSS:       # TP 跨 Pod
+        if detect_layout(ec) == LAYOUT_TP_ACROSS:  # TP 跨 Pod
             ec["node_rank"] = i
-        elif "data_parallel_start_rank" in ec:          # DP 跨 Pod(start_rank 公式复用公共函数)
+        elif "data_parallel_start_rank" in ec:  # DP 跨 Pod(start_rank 公式复用公共函数)
             ec["data_parallel_start_rank"] = dp_start_rank(i, ec.get("data_parallel_size_local") or 1)
-        specs.append(_make_node_spec(
-            {"engine_config": ec, "env": worker.get("env"), "system_setup": worker.get("system_setup")},
-            role="worker", index=i, node_prefix=f"{strategy_prefix}.worker",
-        ))
+        specs.append(
+            _make_node_spec(
+                {"engine_config": ec, "env": worker.get("env"), "system_setup": worker.get("system_setup")},
+                role="worker",
+                index=i,
+                node_prefix=f"{strategy_prefix}.worker",
+            )
+        )
     return specs
 
 
-def normalize_nodes(
-    strategy: Dict[str, Any], strategy_prefix: str, pod_count: int | None
-) -> List[NodeSpec] | None:
+def normalize_nodes(strategy: Dict[str, Any], strategy_prefix: str, pod_count: int | None) -> List[NodeSpec] | None:
     """multi_node 形态归一的**唯一入口**:任意形态 → ``list[NodeSpec]``。
 
     这里按 strategy 的数据形态集中分发,不把节点形态判断散落到调用方。新增
@@ -330,19 +356,17 @@ def normalize_nodes(
         ValueError: 形态像多机(有 ``worker`` 却无 ``head`` 等)但无法归一时,列出 strategy 键 fail-fast。
     """
     nodes_raw = strategy.get("nodes")
-    if isinstance(nodes_raw, list):                     # nodes[] 形态:逐项枚举(ascend 及大量 nvidia recipe)
+    if isinstance(nodes_raw, list):  # nodes[] 形态:逐项枚举(ascend 及大量 nvidia recipe)
         specs = _from_nodes_list(nodes_raw, strategy_prefix)
         logger.info("multi_node 形态归一:nodes[] → %d 节点", len(specs))
         return specs
-    if "head" in strategy or "worker" in strategy:      # head/worker 形态:复用展开(当前见于 nvidia)
+    if "head" in strategy or "worker" in strategy:  # head/worker 形态:复用展开(当前见于 nvidia)
         if "head" not in strategy:
-            raise ValueError(
-                f"multi_node 形态含 'worker' 但缺 'head',无法确定主节点:strategy 键={sorted(strategy)}"
-            )
+            raise ValueError(f"multi_node 形态含 'worker' 但缺 'head',无法确定主节点:strategy 键={sorted(strategy)}")
         specs = _from_head_worker(strategy, strategy_prefix, pod_count)
         logger.info("multi_node 形态归一:head/worker → %d 节点", len(specs))
         return specs
-    return None                                         # 非多段形态 → 交调用方按单段处理
+    return None  # 非多段形态 → 交调用方按单段处理
 
 
 def _select_scenario(
@@ -480,8 +504,9 @@ def _peek_recipe_parallelism(
     Args:
         model_data: recipe dict;None/非 dict → ``(0, 0)``。
         topology: 当前部署拓扑。
-        rank_ip / node_ips / master_ip: 运行时集群上下文(可选);用于 multi_node 形态选本 Pod node。
-            缺失/不一致时退化为取 head(index=0)。
+        rank_ip: 当前 Pod IP；与其余 placement 字段闭合时用于选择本 Pod node。
+        node_ips: 有序集群成员 IP；缺失或与 ``rank_ip`` 不一致时退化为 head。
+        master_ip: 集群 master IP；用于 head/worker 形态判定。
 
     Returns:
         ``(tp, dp)``:从命中的 engine_config 读 ``tensor_parallel_size``/``data_parallel_size``。
@@ -562,7 +587,9 @@ def _pick_node_engine_config(
 
     Args:
         strategy: 选定策略 dict(可能含 engine_config / nodes / head / worker)。
-        rank_ip / node_ips / master_ip: 运行时上下文(可选)。
+        rank_ip: 当前 Pod IP；与 ``node_ips`` 闭合时用于选择本 Pod node。
+        node_ips: 有序集群成员 IP；缺失或不包含 ``rank_ip`` 时退化为 head。
+        master_ip: 集群 master IP；用于 head/worker 形态判定。
 
     Returns:
         本 Pod node 的 engine_config dict;strategy 无任何形态 → None。
@@ -711,7 +738,10 @@ class MergeLayer(NamedTuple):
         data: 该层参数 dict(key→value)。
         source_file: 该层来源文件路径(trace 溯源;如 ``"<user_cli>"`` 或真实 yaml 路径)。
         source_path_prefix: 该层来源路径前缀(拼 source_path 用;空串 = 无前缀)。
+        source_overrides: 可选的逐参数 ``(source_file, source_path)``，用于同一合并层内
+            参数来自不同配置位置的场景。
     """
+
     name: str
     data: Dict[str, Any]
     source_file: str
@@ -820,10 +850,15 @@ def _resolve_multi_node(
         model_path: 命中的 model.yaml 路径(trace 溯源)。
         user_layer: user_cli 覆盖层(对每个节点统一应用)。
         feature_overrides: FeatureOverlay 产出的特性覆盖层(模型级,对每个节点统一应用;空=无特性)。
+        feature_trace_sources: FeatureOverlay 每个参数的真实来源文件和路径。
         accel_overrides: wings-accel 产出的 engine_config 合并层(模型级,对每个节点统一应用;
             排 strategy_feature 后、user_cli 前 → recipe < accel < user_cli;空=无加速产出)。
         device_count: 本 Pod 卡数(None 不触发多机 DP 协调)。
-        rank_ip / node_ips / master_ip: 运行时上下文;``rank_ip and node_ips`` 在场时走注入路径。
+        rank_ip: 当前 Pod IP；与 ``node_ips`` 同时存在时进入运行时注入路径。
+        node_ips: 有序集群成员 IP；用于选择当前 Pod 对应的 node recipe。
+        master_ip: 集群 master IP；用于 head 判定和 DP 协调地址注入。
+        hardware: TP 跨机收缩显存闸使用的硬件上下文；其它路径可为 ``None``。
+        weights_path: TP 跨机收缩显存闸读取模型权重信息的路径。
         strategy_env_layer: 特性注入层（SmartQoS/EnableTrace/Metrics）产出的环境变量覆盖层，
             由调用方在 resolve_config 中统一计算后传入。
         strategy_feature_inject_overrides: 特性注入层产出的引擎参数覆盖层，
@@ -861,13 +896,20 @@ def _resolve_multi_node(
         if override:
             merge_layers.append(
                 MergeLayer(
-                    "strategy_topology_inject", override,
-                    "<strategy:topology_inject>", "strategy.topology_inject",
+                    "strategy_topology_inject",
+                    override,
+                    "<strategy:topology_inject>",
+                    "strategy.topology_inject",
                 )
             )
         if strategy_env_layer:
             merge_layers.append(
-                MergeLayer("strategy_feature_env", strategy_env_layer, "<strategy:feature_env_inject>", "strategy.feature_env_inject"),
+                MergeLayer(
+                    "strategy_feature_env",
+                    strategy_env_layer,
+                    "<strategy:feature_env_inject>",
+                    "strategy.feature_env_inject",
+                ),
             )
         return trace_merge(merge_layers)
 
@@ -885,29 +927,48 @@ def _resolve_multi_node(
                 weights_path,
             )
         dp_override, dp_notes = coordinate_parallelism(
-            spec.engine_config, device_count=device_count, pod_count=pod_count, index=sel.index,
+            spec.engine_config,
+            device_count=device_count,
+            pod_count=pod_count,
+            index=sel.index,
         )
         # 字面占位替换($local_ip/$node0_ip → 真实 IP),单独记一层 trace。
         # argv 里需要是字面值;$nic_name 这类运行时变量保留给 shell 展开。
         ec_inject = substitute_literal_placeholders(spec.engine_config, rank_ip=rank_ip, master_ip=master_ip)
         env_inject = substitute_literal_placeholders(spec.env, rank_ip=rank_ip, master_ip=master_ip)
-        ec_traces = _ec_traces(spec, extra_layers=[
-            MergeLayer("strategy_multinode_dp", dp_override, "<strategy:multinode_dp>", "strategy.multinode_dp"),
-            MergeLayer("strategy_topology_inject", ec_inject, "<strategy:topology_inject>", "strategy.topology_inject"),
-            MergeLayer(
-                "strategy_feature", feature_overrides, "<strategy:feature>", "strategy.feature",
-                feature_trace_sources,
-            ),
-            MergeLayer("strategy_feature_inject", strategy_feature_inject_overrides or {}, "<strategy:feature_inject>", "strategy.feature_inject"),
-            MergeLayer("strategy_accel", accel_overrides, "<wings-accel>", "strategy.accel"),
-        ])
+        ec_traces = _ec_traces(
+            spec,
+            extra_layers=[
+                MergeLayer("strategy_multinode_dp", dp_override, "<strategy:multinode_dp>", "strategy.multinode_dp"),
+                MergeLayer(
+                    "strategy_topology_inject", ec_inject, "<strategy:topology_inject>", "strategy.topology_inject"
+                ),
+                MergeLayer(
+                    "strategy_feature",
+                    feature_overrides,
+                    "<strategy:feature>",
+                    "strategy.feature",
+                    feature_trace_sources,
+                ),
+                MergeLayer(
+                    "strategy_feature_inject",
+                    strategy_feature_inject_overrides or {},
+                    "<strategy:feature_inject>",
+                    "strategy.feature_inject",
+                ),
+                MergeLayer("strategy_accel", accel_overrides, "<wings-accel>", "strategy.accel"),
+            ],
+        )
         env_traces = _env_traces(spec, override=env_inject)
 
         # system_setup:commands 仅保留运行时 nic 探测(若被 env 引用);特权 sysctls/sysfs 原样(渲染层注释)。
         raw_ss = spec.system_setup
         nic_cmds = runtime_var_commands(spec.engine_config, spec.env)
         system_setup = _build_system_setup(
-            raw_ss, model_path_str, spec.system_setup_source_prefix, commands_override=nic_cmds,
+            raw_ss,
+            model_path_str,
+            spec.system_setup_source_prefix,
+            commands_override=nic_cmds,
         )
 
         notes = {
@@ -926,16 +987,26 @@ def _resolve_multi_node(
     for spec in node_specs:
         extra_layers = [
             MergeLayer(
-                "strategy_feature", feature_overrides, "<strategy:feature>", "strategy.feature",
+                "strategy_feature",
+                feature_overrides,
+                "<strategy:feature>",
+                "strategy.feature",
                 feature_trace_sources,
             ),
-            MergeLayer("strategy_feature_inject", strategy_feature_inject_overrides or {}, "<strategy:feature_inject>", "strategy.feature_inject"),
+            MergeLayer(
+                "strategy_feature_inject",
+                strategy_feature_inject_overrides or {},
+                "<strategy:feature_inject>",
+                "strategy.feature_inject",
+            ),
             MergeLayer("strategy_accel", accel_overrides, "<wings-accel>", "strategy.accel"),
         ]
         engine_config_traces = _ec_traces(spec, extra_layers=extra_layers)
         env_traces = _env_traces(spec)
         system_setup = _build_system_setup(
-            spec.system_setup, model_path_str, spec.system_setup_source_prefix,
+            spec.system_setup,
+            model_path_str,
+            spec.system_setup_source_prefix,
         )
         resolved_nodes.append(
             ResolvedNode(
@@ -954,7 +1025,8 @@ def _resolve_multi_node(
     }
     logger.info(
         "multi_node 占位加载(无运行时上下文):nodes=%d roles=%s",
-        len(resolved_nodes), notes["multi_node_roles"],
+        len(resolved_nodes),
+        notes["multi_node_roles"],
     )
     return {}, {}, None, resolved_nodes, notes
 
@@ -1008,7 +1080,9 @@ def _preflight_shrink_gate(
         )
     logger.info(
         "TP 收缩前置闸通过:cnt=%d gpu_mem=%dG weight_bytes=%d",
-        device_count, int(gpu_mem_gb), weight_bytes,
+        device_count,
+        int(gpu_mem_gb),
+        weight_bytes,
     )
 
 
@@ -1025,10 +1099,7 @@ def _build_user_cli_audit_entries(
     Returns:
         条目列表:applied 项 ``status="applied"``;dropped 项带 ``status="dropped"`` + reason。
     """
-    entries: List[Dict[str, Any]] = [
-        {"key": k, "value": v, "status": "applied"}
-        for k, v in user_layer.items()
-    ]
+    entries: List[Dict[str, Any]] = [{"key": k, "value": v, "status": "applied"} for k, v in user_layer.items()]
     for item in user_cli_dropped or []:
         entries.append(
             {
@@ -1064,6 +1135,7 @@ def _merge_engine_config_traces(
         scenario_engine_config: recipe/平台基线的 engine_config(model 层)。
         strategy_overrides: 小策略层 device_count 覆盖层。
         feature_overrides: FeatureOverlay 覆盖层。
+        feature_trace_sources: FeatureOverlay 每个参数的真实来源文件和路径。
         accel_layer: wings-accel 结构化 engine_config(空 dict = 无产出,合并 no-op)。
         user_layer: user_cli 最高优先覆盖层。
         model_layer_name: model 层名——standalone 命中为 ``"model_scenario"``,
@@ -1091,12 +1163,19 @@ def _merge_engine_config_traces(
     ]
     if feature_inject_overrides:
         layers.append(
-            MergeLayer("strategy_feature_inject", feature_inject_overrides, "<strategy:feature_inject>", "strategy.feature_inject"),
+            MergeLayer(
+                "strategy_feature_inject",
+                feature_inject_overrides,
+                "<strategy:feature_inject>",
+                "strategy.feature_inject",
+            ),
         )
-    layers.extend([
-        MergeLayer("strategy_accel", accel_layer, "<wings-accel>", "strategy.accel"),
-        MergeLayer("user_cli", user_layer, "<user_cli>", "user_cli"),
-    ])
+    layers.extend(
+        [
+            MergeLayer("strategy_accel", accel_layer, "<wings-accel>", "strategy.accel"),
+            MergeLayer("user_cli", user_layer, "<user_cli>", "user_cli"),
+        ]
+    )
     return trace_merge(layers)
 
 
@@ -1255,12 +1334,565 @@ def _resolve_platform_fallback(
     )
 
 
+_PD_OWNED_PARAMS = {
+    "data_parallel_size",
+    "data_parallel_rank",
+    "data_parallel_start_rank",
+    "data_parallel_size_local",
+    "data_parallel_address",
+    "data_parallel_rpc_port",
+    "data_parallel_external_lb",
+    "port",
+    "kv_transfer_config",
+}
+
+
+def _overlay_pd_process_traces(
+    base: Dict[str, TracedValue], overrides: Dict[str, Any], local_index: int
+) -> Dict[str, TracedValue]:
+    """在保留静态 recipe/user 完整 events 前提下追加 process 动态层。
+
+    Args:
+        base: role recipe 合并完成后的静态 traces。
+        overrides: 当前 process 的 PD-owned 动态参数。
+        local_index: 当前 Pod 内 process 序号。
+
+    Returns:
+        独立的 per-process traces。
+    """
+    result = {
+        key: TracedValue(
+            final_value=traced.final_value,
+            final_layer=traced.final_layer,
+            source_file=traced.source_file,
+            source_path=traced.source_path,
+            events=list(traced.events),
+        )
+        for key, traced in base.items()
+    }
+    for key, value in overrides.items():
+        source_path = f"pd.processes[{local_index}].{key}"
+        event = SourceEvent(
+            action="override" if key in result else "set",
+            layer="strategy_pd_process",
+            value=value,
+            source_file="<strategy:pd_process>",
+            source_path=source_path,
+        )
+        final_value = value
+        events = [event]
+        if key in result:
+            previous = result[key]
+            if isinstance(previous.final_value, dict) and isinstance(value, dict):
+                final_value = _deep_merge(previous.final_value, value)
+            events = previous.events + [event]
+        result[key] = TracedValue(
+            final_value=final_value,
+            final_layer="strategy_pd_process",
+            source_file="<strategy:pd_process>",
+            source_path=source_path,
+            events=events,
+        )
+    return result
+
+
+def _validate_pd_listener_conflicts(listeners: List[ListenerPlan]) -> None:
+    """校验本 Pod 已知 listener 区间不重叠。
+
+    Args:
+        listeners: 已去除合法 share-group 重复项的 listener inventory。
+
+    Raises:
+        ValueError: 任一端口越界或不同 listener 区间相交。
+    """
+    occupied: List[tuple[int, int, str]] = []
+    for listener in listeners:
+        if listener.port_start is None or listener.port_end is None:
+            continue
+        if not 1 <= listener.port_start <= listener.port_end <= 65535:
+            raise ValueError(f"PD listener {listener.name} 端口越界：{listener.port_start}..{listener.port_end}。")
+        for start, end, name in occupied:
+            if listener.port_start <= end and start <= listener.port_end:
+                raise ValueError(
+                    f"PD listener 冲突：{name}={start}..{end} 与 "
+                    f"{listener.name}={listener.port_start}..{listener.port_end}。"
+                )
+        occupied.append((listener.port_start, listener.port_end, listener.name))
+
+
+def _validate_pd_runtime_spec(runtime: PdRuntimeSpec, topology: ResolvedPdTopology) -> int:
+    """校验 exact recipe 的闭集策略，并返回当前 Pod 进程数。
+
+    静态类型只能帮助开发期检查；运行边界仍需 fail-fast，避免内部配置拼写错误
+    静默关闭 endpoint、KV listener 或 connector identity。
+
+    Raises:
+        ValueError: 任一策略值未知、策略组合冲突或 KV port profile 不完整。
+    """
+    allowed_values = (
+        (
+            "topology_input_policy",
+            runtime.topology_input_policy,
+            {PD_TOPOLOGY_DERIVED_1P1D, PD_TOPOLOGY_EXPLICIT_ALLOCATION},
+        ),
+        ("process_layout", runtime.process_layout, {PD_PROCESS_LAYOUT_SINGLE, PD_PROCESS_LAYOUT_PER_LOCAL_RANK}),
+        ("dp_launch_policy", runtime.dp_launch_policy, {PD_DP_LAUNCH_NONE, PD_DP_LAUNCH_EXTERNAL_RANK}),
+        ("endpoint_policy", runtime.endpoint_policy, {PD_ENDPOINT_PER_PROCESS}),
+        ("engine_id_policy", runtime.connector_profile.engine_id_policy, {PD_ENGINE_ID_OMIT, PD_ENGINE_ID_FROM_INDEX}),
+        ("kv_port_policy.mode", runtime.connector_profile.kv_port_policy.mode, {PD_KV_PORT_FROM_INDEX}),
+        (
+            "kv_port_policy.listener_span",
+            runtime.connector_profile.kv_port_policy.listener_span,
+            {PD_KV_LISTENER_SINGLE, PD_KV_LISTENER_DEVICE_COUNT_PLUS_ONE},
+        ),
+        (
+            "listener_owner_scope",
+            runtime.connector_profile.listener_owner_scope,
+            {PD_LISTENER_OWNER_PER_PROCESS, PD_LISTENER_OWNER_PER_POD_CONNECTOR_GROUP},
+        ),
+    )
+    for field, value, allowed in allowed_values:
+        if value not in allowed:
+            raise ValueError(f"未知 PD {field}：{value!r}；允许值={sorted(allowed)}。")
+    if runtime.topology_input_policy != topology.input_policy:
+        raise ValueError(
+            "PD runtime topology_input_policy 与 resolved topology 不一致："
+            f"runtime={runtime.topology_input_policy!r}，resolved={topology.input_policy!r}。"
+        )
+    if runtime.connector_profile.kv_port_policy.base is None:
+        raise ValueError("PD kv_port_policy.mode=from_pd_index 时必须提供 base。")
+    if runtime.process_layout == PD_PROCESS_LAYOUT_SINGLE:
+        if topology.dp_size_local != 1:
+            raise ValueError("single_process layout 只接受 dp_size_local=1。")
+        if runtime.dp_launch_policy != PD_DP_LAUNCH_NONE:
+            raise ValueError("single_process layout 首期只接受 dp_launch_policy=none。")
+        return 1
+    if runtime.dp_launch_policy != PD_DP_LAUNCH_EXTERNAL_RANK:
+        raise ValueError("per_local_dp_rank 首期只支持 external_rank。")
+    return topology.dp_size_local
+
+
+def _validate_pd_ambient_port(expected_ports: List[int]) -> None:
+    """拒绝 ambient ENGINE_PORT 改写 exact endpoint profile。"""
+    ambient_port = os.getenv("ENGINE_PORT")
+    if ambient_port is None:
+        return
+    try:
+        ambient_port_value = int(ambient_port, 10)
+    except ValueError as exc:
+        raise ValueError(f"PD ENGINE_PORT 必须是整数，当前值为 {ambient_port!r}。") from exc
+    if ambient_port_value not in expected_ports or len(expected_ports) != 1:
+        raise ValueError(f"PD ENGINE_PORT={ambient_port_value} 与 exact endpoint profile {expected_ports} 冲突。")
+
+
+def _build_pd_process_overrides(
+    topology: ResolvedPdTopology,
+    runtime: PdRuntimeSpec,
+    local_index: int,
+    port: int,
+) -> tuple[Dict[str, Any], int]:
+    """构造一个 local process 的 PD-owned 参数覆盖和 KV listener 起始端口。"""
+    role_shape = topology.prefill if topology.role is PdRole.PREFILL else topology.decode
+    rank = topology.rank_start + local_index
+    overrides: Dict[str, Any] = {"port": port}
+    if topology.input_policy == PD_TOPOLOGY_DERIVED_1P1D:
+        overrides["tensor_parallel_size"] = role_shape.tp_size
+    if runtime.dp_launch_policy == PD_DP_LAUNCH_EXTERNAL_RANK:
+        overrides.update(
+            {
+                "data_parallel_size": role_shape.dp_size,
+                "data_parallel_rank": rank,
+                "data_parallel_size_local": 1,
+                "data_parallel_address": topology.placement.master_ip,
+                "data_parallel_rpc_port": runtime.data_parallel_rpc_port,
+                "data_parallel_external_lb": True,
+            }
+        )
+
+    kv_policy = runtime.connector_profile.kv_port_policy
+    assert kv_policy.base is not None
+    kv_port = (
+        kv_policy.base + topology.instance_index * kv_policy.instance_stride + local_index * kv_policy.process_stride
+    )
+    kv_overrides: Dict[str, Any] = {
+        "kv_connector_extra_config": {
+            "prefill": {"dp_size": topology.prefill.dp_size, "tp_size": topology.prefill.tp_size},
+            "decode": {"dp_size": topology.decode.dp_size, "tp_size": topology.decode.tp_size},
+        },
+        "kv_port": kv_port,
+    }
+    if runtime.connector_profile.engine_id_policy == PD_ENGINE_ID_FROM_INDEX:
+        kv_overrides["engine_id"] = str(topology.instance_index)
+    overrides["kv_transfer_config"] = kv_overrides
+    return overrides, kv_port
+
+
+def _build_pd_process_env_traces(
+    resolved: ResolvedConfig,
+    local_index: int,
+    visible_devices: tuple[int, ...],
+) -> Dict[str, TracedValue]:
+    """为一个 local process 追加可见设备环境变量 trace。"""
+    visible_env_name = {"ascend": "ASCEND_RT_VISIBLE_DEVICES", "nvidia": "CUDA_VISIBLE_DEVICES"}.get(
+        resolved.hardware.device
+    )
+    env_override = {visible_env_name: ",".join(str(item) for item in visible_devices)} if visible_env_name else {}
+    return trace_merge(
+        [
+            MergeLayer(
+                "model_scenario",
+                {name: traced.final_value for name, traced in resolved.env_traces.items()},
+                resolved.source_files[0],
+                "pd_role_recipe.env",
+            ),
+            MergeLayer(
+                "strategy_pd_process",
+                env_override,
+                "<strategy:pd_process>",
+                f"pd.processes[{local_index}].env",
+            ),
+        ]
+    )
+
+
+def _build_pd_process_listeners(
+    topology: ResolvedPdTopology,
+    runtime: PdRuntimeSpec,
+    local_index: int,
+    rank: int,
+    port: int,
+    kv_port: int,
+    device_count: int,
+    shared_kv_added: bool,
+) -> tuple[List[ListenerPlan], bool]:
+    """构造一个 local process 的 API、DP RPC 和 KV listener inventory。"""
+    listeners = [ListenerPlan("api", "0.0.0.0", port, port, f"process[{local_index}]")]
+    if runtime.data_parallel_rpc_port is not None and rank == 0:
+        listeners.append(
+            ListenerPlan(
+                "dp_rpc",
+                str(topology.placement.master_ip),
+                runtime.data_parallel_rpc_port,
+                runtime.data_parallel_rpc_port,
+                "instance_master",
+            )
+        )
+    connector = runtime.connector_profile
+    add_kv = connector.listener_owner_scope == PD_LISTENER_OWNER_PER_PROCESS or not shared_kv_added
+    if not add_kv:
+        return listeners, shared_kv_added
+    span_end = kv_port
+    if connector.kv_port_policy.listener_span == PD_KV_LISTENER_DEVICE_COUNT_PLUS_ONE:
+        # 官方定义为闭区间 kv_port..kv_port+num_chips，因此共预留 device_count + 1 个端口。
+        span_end = kv_port + device_count
+    listeners.append(ListenerPlan("kv", "0.0.0.0", kv_port, span_end, connector.listener_owner_scope))
+    return listeners, True
+
+
+def _build_pd_process_plan(
+    resolved: ResolvedConfig,
+    runtime: PdRuntimeSpec,
+    device_count: int,
+) -> ProcessPlan:
+    """从规范 topology 构造当前 Pod 唯一有序进程计划。
+
+    Args:
+        resolved: 已含 PD topology 和静态 role traces 的解析结果。
+        runtime: exact role recipe 的固定 runtime spec。
+        device_count: 当前 Pod 显式卡数。
+
+    Returns:
+        每进程独立 trace/env/argv/endpoint 与本 Pod listener inventory。
+
+    Raises:
+        ValueError: layout/policy 不兼容、ambient port 冲突或 listener 重叠。
+    """
+    # topology 已完成 role、Instance 成员、global/local DP closure 和卡数容量校验；
+    # 本函数只把这份规范结果展开成当前 Pod 真正要启动的进程，不再推导并行策略。
+    topology = resolved.pd_topology
+    assert topology is not None
+    role_shape = topology.prefill if topology.role is PdRole.PREFILL else topology.decode
+
+    # exact runtime spec 决定“一个 Pod 启几条命令”。每条命令使用独立 backend port，
+    # 因此 ambient ENGINE_PORT 不能再覆盖或模糊这份 endpoint profile。
+    local_count = _validate_pd_runtime_spec(runtime, topology)
+    expected_ports = [runtime.backend_port_base + index for index in range(local_count)]
+    _validate_pd_ambient_port(expected_ports)
+
+    listeners: List[ListenerPlan] = []
+    processes: List[EngineProcessPlan] = []
+    endpoints: List[str] = []
+    shared_kv_added = False
+    for local_index, port in enumerate(expected_ports):
+        # local_index 同时确定 global DP rank、API endpoint、设备切片和 process trace 路径，
+        # 这些值共同描述同一条 engine 命令，必须在一个循环中保持同序生成。
+        rank = topology.rank_start + local_index
+        host = topology.placement.rank_ip
+        assert host is not None
+        endpoint = f"{host}:{port}"
+
+        # 静态 role trace 保留 recipe/feature/user 来源；PD-owned rank、端口和 connector
+        # identity 作为 strategy_pd_process 追加，形成该进程专属的最终参数真相源。
+        process_overrides, kv_port = _build_pd_process_overrides(topology, runtime, local_index, port)
+        traces = _overlay_pd_process_traces(resolved.engine_config_traces, process_overrides, local_index)
+
+        # 一个 local DP rank 独占连续 TP 卡组。例如 TP=4 时，local rank 1 使用 4..7。
+        visible_start = local_index * role_shape.tp_size
+        visible_devices = tuple(range(visible_start, visible_start + role_shape.tp_size))
+        env_traces = _build_pd_process_env_traces(resolved, local_index, visible_devices)
+
+        # listener inventory 是静态冲突模型，不负责真正 bind；DP rank 0 和共享 KV 组
+        # 的 owner 规则在 helper 内收敛，避免每个 process 都伪造同一个 listener。
+        process_listeners, shared_kv_added = _build_pd_process_listeners(
+            topology, runtime, local_index, rank, port, kv_port, device_count, shared_kv_added
+        )
+        listeners.extend(process_listeners)
+        endpoints.append(endpoint)
+        processes.append(
+            EngineProcessPlan(
+                process_index=local_index,
+                local_index=local_index,
+                dp_rank=rank if runtime.dp_launch_policy != PD_DP_LAUNCH_NONE else None,
+                visible_devices=visible_devices,
+                advertised_endpoint=endpoint,
+                engine_config_traces=traces,
+                env_traces=env_traces,
+                argv=build_argv(traces, engine=resolved.engine),
+                listeners=process_listeners,
+            )
+        )
+
+    # 先汇总再统一检查，才能发现 API、DP RPC 与 KV 预留区间之间的跨类型冲突。
+    _validate_pd_listener_conflicts(listeners)
+    return ProcessPlan(
+        layout=runtime.process_layout,
+        lifecycle="single" if local_count == 1 else "fail_together",
+        processes=processes,
+        endpoints=endpoints,
+        listeners=listeners,
+    )
+
+
+def _resolve_pd_config(
+    env: ResolvedEnv,
+    target: Target,
+    user_input: UserInput,
+    device_count: int | None,
+    pd_input: PdRuntimeInput,
+) -> ResolvedConfig:
+    """解析 exact PD recipe 并产出规范 topology。
+
+    Args:
+        env: 已解析配置根、硬件与 strict engine version。
+        target: exact model variant、role topology 与 engine。
+        user_input: 用户覆盖和特性开关。
+        device_count: MaaS 显式卡数。
+        pd_input: 当前 Pod 已规范化 PD 输入。
+
+    Returns:
+        已展开唯一 ``ProcessPlan`` 的 PD ``ResolvedConfig``；顶层 traces 已清空，执行方按 process 消费。
+
+    Raises:
+        ValueError: topology/role 不一致、accel 开启、PD-owned 用户覆盖或 recipe 非法。
+        FileNotFoundError: exact model variant/config asset 缺失。
+    """
+    # PD_ROLE 是当前 Pod 的事实，Target.topology 是大策略层的判定结果；两者必须一致，
+    # 否则后续可能加载错误 role recipe 并生成方向相反的 KV connector。
+    expected_topology = {
+        "P": Topology.PD_PREFILL,
+        "D": Topology.PD_DECODE,
+    }[pd_input.role.value]
+    if target.topology is not expected_topology:
+        raise ValueError(f"PD role/topology 不一致：role={pd_input.role.value}，topology={target.topology.value}。")
+
+    # 首期 PD 的 rank、卡组和 connector identity 由 ProcessPlan 独占。禁止 accel 再次
+    # 改写这些字段，也禁止 user_cli 绕过 trace ownership 覆盖 PD-owned 参数。
+    accel_switches = collect_accel_switches(os.environ)
+    enabled_accel = sorted(
+        name for name, value in accel_switches.items() if name.endswith("_enabled") and value is True
+    )
+    if enabled_accel:
+        raise ValueError(f"PD 首期不支持 wings-accel 开关：{enabled_accel}。")
+
+    user_layer = user_input.cli_overrides or {}
+    conflicts = sorted(_PD_OWNED_PARAMS.intersection(user_layer))
+    if conflicts:
+        raise ValueError(f"PD-owned 参数不允许 user_cli 覆盖：{conflicts}。")
+
+    # PD 只接受 exact engine version 和 exact model variant。recipe 是已验收的命令形状，
+    # 不能像标准推理一样通过版本或模型 fallback 换成另一份拓扑配置。
+    family_dir = resolve_family_dir(
+        env.config_root,
+        target.engine,
+        env.hardware.hardware_family,
+        env.engine_version.resolved,
+        has_version_dir=env.engine_version.has_version_dir,
+    )
+    model_data, model_path, matched = load_model_config(
+        env.config_root,
+        family_dir,
+        target.engine,
+        env.engine_version.resolved,
+        target.model_name,
+        has_version_dir=env.engine_version.has_version_dir,
+        exact_variant_only=True,
+    )
+    assert model_data is not None and model_path is not None
+    # FeatureOverlay 沿用标准推理语义，但必须在 per-process runtime 层之前进入静态
+    # role trace，确保每条进程命令都继承同一份 feature 决策与来源事件。
+    normalized_features, reasoning_resolution, reasoning_table_source = _prepare_feature_context(
+        env.config_root,
+        target.model_name,
+        target.engine,
+        model_data,
+        bool((user_input.feature_switches or {}).get("enable_auto_think_choice")),
+    )
+    reasoning_source_file = ""
+    reasoning_source_path = ""
+    if reasoning_resolution is not None and reasoning_resolution.spec:
+        reasoning_source_file = reasoning_resolution.source
+        reasoning_source_path = reasoning_resolution.spec.source
+    elif isinstance(normalized_features.get("reasoning"), dict):
+        reasoning_source_file = str(model_path)
+        reasoning_source_path = "features.reasoning.args"
+    feature_result = feature_overlay_transform(
+        {},
+        {
+            "features": normalized_features,
+            "feature_switches": user_input.feature_switches or {},
+            "reasoning_source_file": reasoning_source_file,
+            "reasoning_source_path": reasoning_source_path,
+        },
+    )
+    feature_overrides = feature_result.overrides
+    feature_trace_sources = feature_result.trace_sources
+    feature_notes = feature_result.notes
+    # 输入是否携带 MaaS 六字段决定 topology policy；recipe 选择器会反向校验该 policy
+    # 是否与 YAML 的 P/D parallel shape 相符，planner 再完成 placement/rank/容量闭合。
+    input_policy = "explicit_allocation" if pd_input.explicit_topology is not None else "derived_1p1d"
+    pair = select_pd_recipe_pair(model_data, input_policy)
+    role_recipe = pair[pd_input.role]
+    pd_topology = resolve_pd_topology(pd_input, pair, device_count)
+    rank_ip = pd_topology.placement.rank_ip
+    assert rank_ip is not None
+    # recipe env 保留可审计的字面占位符，只有当前 Pod placement 明确后才注入真实 IP。
+    network_env_overrides = substitute_literal_placeholders(
+        role_recipe.env,
+        rank_ip=rank_ip,
+        master_ip=pd_topology.placement.master_ip,
+    )
+
+    # 先形成 role 级静态 trace。这里不写 local rank、backend/KV port 或设备可见性；
+    # 这些随进程变化的值只能由 _build_pd_process_plan 追加 strategy_pd_process 层。
+    engine_layers = [
+        MergeLayer("builtin_default", _BUILTIN_DEFAULTS, "<builtin>", "engine_config"),
+        MergeLayer(
+            "model_scenario",
+            role_recipe.engine_config,
+            str(model_path),
+            f"{role_recipe.source_prefix}.engine_config",
+        ),
+        MergeLayer(
+            "strategy_feature",
+            feature_overrides,
+            "<strategy:feature>",
+            "strategy.feature",
+            feature_trace_sources,
+        ),
+    ]
+    if user_layer:
+        engine_layers.append(MergeLayer("user_cli", user_layer, "<user_cli>", "user_cli"))
+    engine_traces = trace_merge(engine_layers)
+    env_layers = [
+        MergeLayer(
+            "model_scenario",
+            role_recipe.env,
+            str(model_path),
+            f"{role_recipe.source_prefix}.env",
+        )
+    ]
+    if network_env_overrides:
+        env_layers.append(
+            MergeLayer(
+                "strategy_topology_inject",
+                network_env_overrides,
+                "<strategy:pd_network>",
+                "pd.network.env",
+            )
+        )
+    env_traces = trace_merge(env_layers)
+    runtime_commands = runtime_var_commands(role_recipe.engine_config, role_recipe.env)
+    notes = {
+        "matched_model_yaml": str(model_path),
+        "matched_name_pattern": matched,
+        "fallback": "false",
+        "pd_recipe": role_recipe.strategy_name,
+        "pd_topology_input_policy": input_policy,
+        "pd_accel": "disabled",
+        "device_count": str(device_count),
+    }
+    if input_policy == "derived_1p1d":
+        notes.update(
+            {
+                "pd_tp_source": "device_count",
+                "pd_peer_device_count_validation": "maas_asserted_not_locally_observable",
+            }
+        )
+    notes.update(feature_notes)
+    if reasoning_resolution is not None:
+        notes["reasoning.status"] = reasoning_resolution.status
+        notes["reasoning.source"] = reasoning_resolution.source
+        notes["reasoning.match_level"] = reasoning_resolution.match_level
+        notes["reasoning.reason"] = reasoning_resolution.reason or ""
+    if reasoning_table_source:
+        notes["reasoning.table_source"] = reasoning_table_source
+    if env.engine_version.has_version_dir:
+        notes.update(
+            {
+                "requested_version": env.engine_version.requested or "<none>",
+                "resolved_version": env.engine_version.resolved,
+                "version_is_fallback": "false",
+            }
+        )
+    # 临时 ResolvedConfig 承载 role 级 trace 和规范 topology，作为 ProcessPlan 的输入。
+    # 生成计划后，执行、渲染和审计都切换到 process_plan 中的 per-process 数据。
+    resolved = ResolvedConfig(
+        topology=target.topology,
+        hardware=env.hardware,
+        engine=target.engine,
+        engine_version=env.engine_version,
+        engine_config_traces=engine_traces,
+        env_traces=env_traces,
+        source_files=[str(model_path), *([reasoning_table_source] if reasoning_table_source else [])],
+        system_setup=SystemSetup(
+            commands=runtime_commands,
+            source_file="<strategy:pd_network>",
+            source_path="pd.network.runtime_commands",
+        )
+        if runtime_commands
+        else None,
+        resolution_notes=notes,
+        user_cli_params=_build_user_cli_audit_entries(user_layer, user_input.cli_dropped),
+        accel=AccelResult(),
+        pd_topology=pd_topology,
+    )
+    if device_count is None:
+        raise ValueError("PD 场景必须显式提供 device_count。")
+    resolved.process_plan = _build_pd_process_plan(resolved, role_recipe.runtime, device_count)
+    # 顶层 trace 描述的是展开前的 role 公共配置，不对应任何一条完整命令。清空后可强制
+    # 所有消费者读取 process_plan，避免误把 processes[0] 的 rank/端口当成整个 Pod 的配置。
+    resolved.engine_config_traces = {}
+    resolved.env_traces = {}
+    return resolved
+
+
 def resolve_config(
     env: ResolvedEnv,
     target: Target,
     user_input: UserInput = UserInput(),
     device_count: int | None = None,
     placement: ClusterPlacement | None = None,
+    pd_input: PdRuntimeInput | None = None,
 ) -> ResolvedConfig:
     """端到端配置解析主入口。
 
@@ -1272,7 +1904,9 @@ def resolve_config(
     5. 记录 device_count 到 resolution_notes;单节点 DeviceCountTransform 协调 DP
     6. multi_node:逐节点深合并;有运行时上下文(rank_ip+node_ips)时选本 Pod 节点
        升顶层可执行 + DP 调整 + 占位填充,否则产全集群占位视图
-    7. 组装 ResolvedConfig
+    7. PD 分离(pd_prefill/pd_decode):需规范化 pd_input,进入 ``_resolve_pd_config``
+       (exact recipe → 规范 topology → ProcessPlan);standalone / multi_node 走原路径。
+    8. 组装 ResolvedConfig
 
     Args:
         env: 已解析环境 —— config_root(已定位真实根)/ hardware / engine_version。
@@ -1282,13 +1916,16 @@ def resolve_config(
         device_count: 下发卡数(全程规模:并行协调 / 单机 TP 收缩;None=不触发)。
         placement: 分布式集群寻址(multi_node/PD 选 node、判定 head、替换占位符;
             None=单机/无运行时上下文→占位)。
+        pd_input: PD 场景规范化输入(role / topology / placement);仅
+            ``Topology.PD_PREFILL`` / ``PD_DECODE`` 需要,缺失则 fail-fast。
 
     Returns:
         ``ResolvedConfig``:包含最终 traces、resolution_notes、多机场景信息与审计附加字段。
 
     Raises:
-        NotImplementedError: topology 为 PD 分离(pd_prefill/pd_decode)时(往后做)。
-        ValueError: multi_node 选 node 强校验失败 / DP 协调越界(详见 strategy.topology_inject)。
+        ValueError: PD topology 缺规范化 ``pd_input`` / 标准 multi_node 选 node 强校验失败 /
+            DP 协调越界(详见 strategy.topology_inject / ``_resolve_pd_config``)。
+        NotImplementedError: 除 standalone / multi_node / PD 之外其余 topology(往后做)。
     """
     # 解包成局部变量:下方主体逻辑沿用既有命名,签名收口为请求对象但行为不变。
     config_root = env.config_root
@@ -1307,13 +1944,12 @@ def resolve_config(
     master_ip = _placement.master_ip
 
     # topology 由大策略层(pre_template_strategy,cli 入口)推导后传入;此处纯消费。
-    # STANDALONE 全流程;MULTI_NODE 走 per-node 加载(+ 有运行时上下文则选 node 注入);
-    # PD 分离仍未实现(明确往后做)。
+    if topology in (Topology.PD_PREFILL, Topology.PD_DECODE):
+        if pd_input is None:
+            raise ValueError(f"Topology '{topology.value}' 缺少规范化 pd_input。")
+        return _resolve_pd_config(env, target, user_input, device_count, pd_input)
     if topology not in (Topology.STANDALONE, Topology.MULTI_NODE):
-        raise NotImplementedError(
-            f"Topology '{topology.value}' not yet implemented. "
-            "Only 'standalone' and 'multi_node' are supported; PD disaggregation is deferred."
-        )
+        raise NotImplementedError(f"Topology '{topology.value}' not implemented.")
 
     # 把下发的 hardware_family(资源域词汇,可能带显存后缀 / 大小写不一)解析成实际 config 目录名。
     # 单一判定点:目录定位(platform / model)与 accel gpu_type 都用这个落地目录名;
@@ -1469,9 +2105,7 @@ def resolve_config(
         )
     else:
         # pod_count 供 head/worker 形态展开:有运行时 NODE_IPS 用其长度,否则交 _select_scenario 兜底(nnodes/2)
-        scenario = _select_scenario(
-            model_data, topology, pod_count=(len(node_ips) if node_ips else None)
-        )
+        scenario = _select_scenario(model_data, topology, pod_count=(len(node_ips) if node_ips else None))
         selected_strategy = scenario.get("selected_strategy")
         strategy_selection_source = scenario.get("strategy_selection_source", "")
         strategy_default_candidates = scenario.get("strategy_default_candidates", [])
@@ -1508,8 +2142,12 @@ def resolve_config(
 
             # 命中 model:builtin_default + model_scenario + strategy + accel + user_cli(不叠 default_model)
             engine_config_traces = _merge_engine_config_traces(
-                scenario_engine_config, strategy_overrides, feature_overrides,
-                feature_trace_sources, accel_layer, user_layer,
+                scenario_engine_config,
+                strategy_overrides,
+                feature_overrides,
+                feature_trace_sources,
+                accel_layer,
+                user_layer,
                 model_layer_name="model_scenario",
                 model_source_file=str(model_path),
                 scenario_prefix=scenario_engine_config_source_prefix,
@@ -1522,7 +2160,12 @@ def resolve_config(
             ]
             if strategy_env_layer:
                 env_layers.append(
-                    MergeLayer("strategy_feature_env", strategy_env_layer, "<strategy:feature_env_inject>", "strategy.feature_env_inject"),
+                    MergeLayer(
+                        "strategy_feature_env",
+                        strategy_env_layer,
+                        "<strategy:feature_env_inject>",
+                        "strategy.feature_env_inject",
+                    ),
                 )
             env_traces = trace_merge(env_layers)
 
@@ -1550,9 +2193,7 @@ def resolve_config(
 
     # 查找轨迹 — 版本解析结果
     if engine_version.has_version_dir:
-        resolution_notes["resolved_version_dir"] = (
-            str(config_root / "engines" / engine / f"v{engine_version.resolved}")
-        )
+        resolution_notes["resolved_version_dir"] = str(config_root / "engines" / engine / f"v{engine_version.resolved}")
         resolution_notes["version_is_fallback"] = "true" if engine_version.is_fallback else "false"
         resolution_notes["requested_version"] = engine_version.requested or "<none>"
         resolution_notes["resolved_version"] = engine_version.resolved
@@ -1591,9 +2232,7 @@ def resolve_config(
     resolution_notes["engine_version_for_min_check"] = min_engine_check["engine_version_for_min_check"]
     resolution_notes["engine_version_for_min_check_source"] = min_check_version_source
     resolution_notes["min_engine_version_check"] = min_engine_check["min_engine_version_check"]
-    resolution_notes["min_engine_version_check_reason"] = min_engine_check[
-        "min_engine_version_check_reason"
-    ]
+    resolution_notes["min_engine_version_check_reason"] = min_engine_check["min_engine_version_check_reason"]
     if selected_strategy:
         resolution_notes["selected_strategy"] = selected_strategy
         resolution_notes["strategy_selection_source"] = strategy_selection_source

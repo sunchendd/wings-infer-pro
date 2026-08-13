@@ -27,7 +27,8 @@ def resolve_pipeline(request: PipelineRequest) -> ResolvedConfig:
     确保两条路径使用同一套解析逻辑。
 
     Args:
-        request: 流水线请求(target / hardware_info_path / config_root / user_input / device_count / placement)。
+        request: 流水线请求，包含解析目标、配置与硬件路径、用户输入、卡数和 placement；
+            PD 场景还携带规范化 ``pd_input``，迁移期可携带 ``pd_role_missing_legacy``。
 
     Returns:
         ResolvedConfig(已含 accel 合并层 + param_validation,warn-only)。
@@ -38,24 +39,33 @@ def resolve_pipeline(request: PipelineRequest) -> ResolvedConfig:
     resolved_root = resolve_config_root(request.config_root)
     hardware = resolve_hardware(request.hardware_info_path)
     engine_version = resolve_engine_version(
-        resolved_root, hardware.hardware_family, engine=request.target.engine
+        resolved_root,
+        hardware.hardware_family,
+        engine=request.target.engine,
+        require_exact=request.pd_input is not None,
     )
     env = ResolvedEnv(config_root=resolved_root, hardware=hardware, engine_version=engine_version)
     resolved = resolve_config(
-        env, request.target, request.user_input, request.device_count, request.placement
+        env,
+        request.target,
+        request.user_input,
+        request.device_count,
+        request.placement,
+        request.pd_input,
     )
+    if request.pd_role_missing_legacy:
+        resolved.resolution_notes["pd_role_input"] = "missing_legacy_standard"
     # 参数支持校验:只写审计结果,不修改最终参数。
     validate_engine_params(resolved, resolved_root)
     return resolved
 
 
-def run_pipeline(
-    request: PipelineRequest, output_dir: Path
-) -> Tuple[ResolvedConfig, Path, Path, Path]:
+def run_pipeline(request: PipelineRequest, output_dir: Path) -> Tuple[ResolvedConfig, Path, Path, Path]:
     """执行完整 resolve → render → audit 流水线。
 
     Args:
-        request: 流水线请求(target / hardware_info_path / config_root / user_input / device_count / placement)。
+        request: 流水线请求；字段语义与 :func:`resolve_pipeline` 一致，PD 场景包含
+            ``pd_input`` 和 ``pd_role_missing_legacy``。
         output_dir: 输出目录(start_command.sh / repro.sh / audit.json)。
 
     Returns:
