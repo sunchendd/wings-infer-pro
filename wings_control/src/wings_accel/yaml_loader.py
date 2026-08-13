@@ -45,44 +45,54 @@ from wings_accel.schemas import (
 
 logger = logging.getLogger(__name__)
 
-# 匹配运行时传入的版本,提取基础版本+预发布渠道,用于把构建版本归一化成渠道目录。
-# 与 wings_ctl/engines/version_resolver.py 的 _REQUESTED_VERSION_RE 保持一致(自闭环,不反向依赖)。
-# 示例:v0.21.0rc1-20260709144216 → base=0.21.0 + channel=rc → v0.21.0rc
-# 注:本正则只认"字母紧贴版本号"的预发布(rc/m);连字符变体(如 v0.23.0-cu130-...)由
-# _candidate_version_dirs 的"剥构建/变体段"步骤处理(见下),不走本正则。
-_SMART_ACCEL_PRERELEASE_RE = re.compile(
-    r"^v?(\d+\.\d+\.\d+)([A-Za-z]+)(?:\d+)?(?:[-+].*)?$"
+# 提取运行时传入版本的"开头版本号段"(基础版本 + 可选渠道),用于归一化构建元数据。
+# 只看开头,任何分隔符(- + _ . ~ 空白)之后的内容(cu130/时间戳/架构等)一律当构建元数据丢弃。
+# 示例:
+#   v0.21.0rc1-20260709144216 → base=0.21.0 + channel=rc1
+#   v0.23.0-cu130-...         → base=0.23.0 + channel=""
+#   v0.26.0_cu130_..._x86_64  → base=0.26.0 + channel=""
+# 基础版本 = (\d+\.\d+\.\d+);渠道段 = ([A-Za-z]+\d*) 且必须紧贴基础版本(字母开头),
+# 渠道段遇到分隔符立即停止(防 "0.23.0-cu130" 错把 cu130 当渠道)。
+_SMART_ACCEL_VERSION_HEAD_RE = re.compile(
+    r"^v?(\d+\.\d+\.\d+)([A-Za-z]+\d*)?"
 )
 
 
 def _candidate_version_dirs(engine_version: str) -> list[str]:
     """把传入的版本号展开成候选目录名列表(带 v 前缀),按精确优先排序。
 
-    - "0.23.0"                        → ["v0.23.0"]
-    - "v0.21.0rc"                     → ["v0.21.0rc"]
-    - "v0.21.0rc1-20260709144216"     → ["v0.21.0rc1-20260709144216", "v0.21.0rc1", "v0.21.0rc"]
-    - "0.21.0rc1-20260709144216"      → ["v0.21.0rc1-20260709144216", "v0.21.0rc1", "v0.21.0rc"]
-    - "v0.23.0-cu130-20260727055844"  → ["v0.23.0-cu130-20260727055844", "v0.23.0"]
+    策略:**正则提取开头的版本号段**,不依赖后续分隔符是什么。任何 `- + _ . ~` 之类
+    的分隔符和构建元数据(cu130、时间戳、架构标识等)都被一并丢弃,只保留基础版本(+ 渠道)。
 
-    优先级:原样(精确)→ 剥构建/变体段(首个 -/+ 截断,如 cu130→v0.23.0)→ 渠道归一化(rc1→rc)。
+    - "0.23.0"                                → ["v0.23.0"]
+    - "v0.21.0rc"                             → ["v0.21.0rc"]
+    - "v0.21.0rc1-20260709144216"             → ["v0.21.0rc1-20260709144216", "v0.21.0rc1", "v0.21.0rc"]
+    - "v0.23.0-cu130-20260727055844"          → ["v0.23.0-cu130-20260727055844", "v0.23.0"]
+    - "v0.26.0_cu130_202608091354_x86_64"     → ["v0.26.0_cu130_202608091354_x86_64", "v0.26.0"]
+
+    优先级:原样(精确)→ 基础版本(剥所有构建元数据)→ 渠道归一化(rc1→rc)。
     """
     raw = str(engine_version).strip()
     if not raw:
         return []
     version_dir_name = raw if raw.startswith("v") else f"v{raw}"
     candidates = [version_dir_name]
-    # 剥首个 -/+ 后的构建元数据/变体段(cu130、时间戳等),保留 rc 序号 → v0.23.0 / v0.21.0rc1。
-    # 兼容 NVIDIA 构建版本号(如 v0.23.0-cu130-20260727055844)。
-    base = re.split(r"[-+]", raw, 1)[0]
-    base_with_v = base if base.startswith("v") else f"v{base}"
-    if base_with_v != version_dir_name:
-        candidates.append(base_with_v)
-    # 渠道归一化:rc1-时间戳 → rc(配置目录用渠道形式)。
-    m = _SMART_ACCEL_PRERELEASE_RE.match(raw)
+    # 正则提取开头版本号段:v?(\d+\.\d+\.\d+) 抓基础版本(0.26.0 的 . 在 \d+ 之间,
+    # 不会被当作分隔符,基础版本完整保留);后面可选的 ([A-Za-z]+\d*)? 抓渠道段(rc1、m),
+    # 必须字母开头、紧贴基础版本。
+    # 一旦遇到非字母数字字符(_ - + . ~ 空白等),正则立即停止 —— 后面的内容
+    # (cu130/时间戳/架构标识等)全部当作构建元数据丢弃,不参与目录名拼接。
+    # 命中 → 拿"基础版本 + 渠道"拼出基础目录名(如 v0.26.0、v0.21.0rc1)。
+    m = _SMART_ACCEL_VERSION_HEAD_RE.match(raw)
     if m:
-        normalized = f"v{m.group(1)}{m.group(2)}"
-        if normalized != version_dir_name and normalized not in candidates:
-            candidates.append(normalized)
+        base_with_v = f"v{m.group(1)}{m.group(2) or ''}"
+        if base_with_v != version_dir_name:
+            candidates.append(base_with_v)
+        # 渠道归一化:rc1 → rc(配置目录用渠道形式)。
+        if m.group(2):
+            normalized = f"v{m.group(1)}{re.match(r'[A-Za-z]+', m.group(2)).group(0)}"
+            if normalized != version_dir_name and normalized not in candidates:
+                candidates.append(normalized)
     return candidates
 
 
