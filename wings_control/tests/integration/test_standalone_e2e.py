@@ -171,7 +171,7 @@ class TestStandaloneE2E:
         assert "--some-none-param" not in argv
 
     def test_e_non_standalone_raises(self, config_root, hardware_info_path):
-        """(e) 非 standalone 的 topology 调用时 raise NotImplementedError。"""
+        """(e) PD topology 缺规范化 pd_input 时 fail-fast(不再 NotImplementedError)。"""
         os.environ["ENGINE_VERSION"] = "0.19.0"
         try:
             hardware = resolve_hardware(hardware_info_path)
@@ -179,13 +179,7 @@ class TestStandaloneE2E:
                 config_root, hardware.hardware_family, engine="vllm"
             )
 
-            with pytest.raises(NotImplementedError, match="multi_node"):
-                resolve_config(
-                    ResolvedEnv(config_root=config_root, hardware=hardware, engine_version=engine_version),
-                    Target(model_name="Qwen3.5-0.8B", topology=Topology.MULTI_NODE, engine="vllm"),
-                )
-
-            with pytest.raises(NotImplementedError, match="pd_prefill"):
+            with pytest.raises(ValueError, match="pd_input"):
                 resolve_config(
                     ResolvedEnv(config_root=config_root, hardware=hardware, engine_version=engine_version),
                     Target(model_name="Qwen3.5-0.8B", topology=Topology.PD_PREFILL, engine="vllm"),
