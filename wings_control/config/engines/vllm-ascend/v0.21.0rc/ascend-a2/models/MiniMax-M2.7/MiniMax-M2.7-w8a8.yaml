@@ -71,7 +71,6 @@ scenarios:
           max_model_len: 40690
           max_num_batched_tokens: 16384
           gpu_memory_utilization: 0.9
-          kv_cache_memory_bytes: 4G
         env:
           HCCL_OP_EXPANSION_MODE: AIV
           HCCL_BUFFSIZE: 1024
