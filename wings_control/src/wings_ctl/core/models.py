@@ -8,10 +8,36 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from wings_ctl.accel.smart_accel import AccelResult
 from wings_ctl.core.topology import Topology
+
+# PD 策略是 exact recipe 与运行时规划器之间的闭集契约。常量供运行时比较，
+# 对应的 Literal 供类型检查；新增取值时必须同步 recipe 归一化、运行时校验和测试。
+PD_TOPOLOGY_DERIVED_1P1D = "derived_1p1d"  # 六字段缺失，由当前 Pod 卡数派生普通 1P1D。
+PD_TOPOLOGY_EXPLICIT_ALLOCATION = "explicit_allocation"  # MaaS 六字段完整下发显式拓扑。
+PD_PROCESS_LAYOUT_SINGLE = "single_process"  # 当前 Pod 只生成一条引擎命令。
+PD_PROCESS_LAYOUT_PER_LOCAL_RANK = "per_local_dp_rank"  # 每个 local DP rank 生成一条命令。
+PD_DP_LAUNCH_NONE = "none"  # 命令不携带外部 DP rank 参数。
+PD_DP_LAUNCH_EXTERNAL_RANK = "external_rank"  # 每条命令显式携带自己的 global DP rank。
+PD_ENDPOINT_PER_PROCESS = "per_process"  # 每条引擎命令拥有独立 API endpoint。
+PD_ENGINE_ID_OMIT = "omit"  # connector 命令不生成 engine_id。
+PD_ENGINE_ID_FROM_INDEX = "from_pd_index"  # connector engine_id 取 logical Instance 的 PD_INDEX。
+PD_KV_PORT_FROM_INDEX = "from_pd_index"  # KV port 由 base、PD_INDEX 和本地进程序号确定。
+PD_KV_LISTENER_SINGLE = "single"  # KV listener 只占用计算出的单个端口。
+PD_KV_LISTENER_DEVICE_COUNT_PLUS_ONE = "device_count_plus_one"  # 按 connector 约定预留闭区间。
+PD_LISTENER_OWNER_PER_PROCESS = "per_process"  # 当前 Pod 的每个进程各自登记 KV listener。
+PD_LISTENER_OWNER_PER_POD_CONNECTOR_GROUP = "per_pod_connector_group"  # 同 Pod connector 组只登记一次。
+
+PdTopologyInputPolicy = Literal["derived_1p1d", "explicit_allocation"]
+PdProcessLayout = Literal["single_process", "per_local_dp_rank"]
+PdDpLaunchPolicy = Literal["none", "external_rank"]
+PdEndpointPolicy = Literal["per_process"]
+PdEngineIdPolicy = Literal["omit", "from_pd_index"]
+PdKvPortMode = Literal["from_pd_index"]
+PdKvListenerSpan = Literal["single", "device_count_plus_one"]
+PdListenerOwnerScope = Literal["per_process", "per_pod_connector_group"]
 
 
 @dataclass(frozen=True)
@@ -98,7 +124,7 @@ class UserInput:
 class ClusterPlacement:
     """分布式集群寻址:本 Pod / 全集群 / master 的运行时 IP。
 
-    仅分布式拓扑(multi_node + 未来 PD 分离)使用;单机 / 无运行时上下文时整个 placement 为 None。
+    仅分布式拓扑(multi_node + PD 分离)使用;单机 / 无运行时上下文时整个 placement 为 None。
     名字拓扑无关(不叫 MultiNodePlacement),便于 multi_node 与 PD 复用同一概念。
 
     Attributes:
@@ -129,7 +155,14 @@ class ParallelShape:
 
 @dataclass(frozen=True)
 class ExplicitPdTopology:
-    """MaaS 原子下发的场景 B topology。"""
+    """MaaS 原子下发的大 EP topology。
+
+    Attributes:
+        pd_index: logical Instance 在 P 在前、D 在后顺序中的全局序号。
+        prefill: 所有 P Instance 共用的 global DP/TP 形状。
+        decode: 所有 D Instance 共用的 global DP/TP 形状。
+        dp_size_local: 当前 role 每个成员 Pod 承载的 local DP rank 数。
+    """
 
     pd_index: int
     prefill: ParallelShape
@@ -154,10 +187,18 @@ class PdRuntimeInput:
 
 @dataclass(frozen=True)
 class KvPortPolicy:
-    """Exact connector profile 的 KV listener 派生规则。"""
+    """Exact connector profile 的 KV listener 派生规则。
 
-    mode: str
-    listener_span: str
+    Attributes:
+        mode: KV port 的闭集计算策略。
+        listener_span: 从计算出的 KV port 起需要登记的 listener 区间规则。
+        base: 第一个 logical Instance 的 KV port。
+        instance_stride: 相邻 logical Instance 的 KV port 步长。
+        process_stride: 同一 Pod 相邻本地进程的 KV port 步长。
+    """
+
+    mode: PdKvPortMode
+    listener_span: PdKvListenerSpan
     base: Optional[int] = None
     instance_stride: int = 0
     process_stride: int = 0
@@ -165,25 +206,48 @@ class KvPortPolicy:
 
 @dataclass(frozen=True)
 class ConnectorProfile:
-    """Exact recipe 冻结的 connector identity 与 listener 策略。"""
+    """Exact recipe 冻结的 connector identity 与 listener 策略。
+
+    Attributes:
+        connector_name: recipe 中已验收的 KV connector 名称。
+        engine_id_policy: 是否生成 engine_id，以及它与 PD_INDEX 的关系。
+        kv_port_policy: KV port 与预留区间的派生规则。
+        listener_owner_scope: KV listener 按进程登记还是按 Pod connector 组登记。
+    """
 
     connector_name: str
-    engine_id_policy: str
+    engine_id_policy: PdEngineIdPolicy
     kv_port_policy: KvPortPolicy
-    listener_owner_scope: str
+    listener_owner_scope: PdListenerOwnerScope
 
 
 @dataclass(frozen=True)
 class PdRuntimeSpec:
-    """从 exact nodes recipe 归一化的固定 PD 规划元数据。"""
+    """从 exact nodes recipe 归一化的固定 PD 规划元数据。
 
-    topology_input_policy: str
+    这里保存 recipe 已经确定、但不应直接留在静态 engine_config 中的执行策略。planner
+    只消费这些闭集值，不根据模型名或硬件重新选择并行方案。
+
+    Attributes:
+        topology_input_policy: 接受普通 1P1D 派生输入或 MaaS 显式 topology。
+        prefill_shape: recipe 验收的 P global DP/TP 形状。
+        decode_shape: recipe 验收的 D global DP/TP 形状。
+        instance_member_count: 当前 role 每个 logical Instance 固定包含的 Pod 数。
+        process_layout: 当前 Pod 内引擎进程如何展开。
+        dp_launch_policy: 是否由每条命令显式携带 external DP rank。
+        endpoint_policy: backend endpoint 与进程的对应规则。
+        backend_port_base: 当前 Pod 第一条引擎命令使用的 API backend port。
+        data_parallel_rpc_port: logical Instance 的 DP 协调端口；普通单进程 PD 为 ``None``。
+        connector_profile: engine_id、KV port 和 listener owner 的固定策略。
+    """
+
+    topology_input_policy: PdTopologyInputPolicy
     prefill_shape: ParallelShape
     decode_shape: ParallelShape
     instance_member_count: int
-    process_layout: str
-    dp_launch_policy: str
-    endpoint_policy: str
+    process_layout: PdProcessLayout
+    dp_launch_policy: PdDpLaunchPolicy
+    endpoint_policy: PdEndpointPolicy
     backend_port_base: int
     data_parallel_rpc_port: Optional[int]
     connector_profile: ConnectorProfile
@@ -191,9 +255,22 @@ class PdRuntimeSpec:
 
 @dataclass(frozen=True)
 class ResolvedPdTopology:
-    """Recipe 匹配并完成本 Pod 强校验后的 PD topology。"""
+    """Recipe 匹配并完成本 Pod 强校验后的 PD topology。
 
-    input_policy: str
+    Attributes:
+        input_policy: 实际采用的 topology 输入策略。
+        role: 当前 Pod 是 Prefill 还是 Decode。
+        instance_index: 当前 logical Instance 的 PD_INDEX；普通 1P1D 固定 P=0、D=1。
+        prefill: 已闭合的 P global DP/TP 形状。
+        decode: 已闭合的 D global DP/TP 形状。
+        dp_size_local: 当前 Pod 要展开的 local DP rank 数。
+        placement: 当前 Instance 的 master、成员顺序和本 Pod IP。
+        member_index: 当前 Pod 在 ``placement.node_ips`` 中的位置。
+        rank_start: 当前 Pod 第一个 global DP rank。
+        rank_end_exclusive: 当前 Pod global DP rank 半开区间的右边界。
+    """
+
+    input_policy: PdTopologyInputPolicy
     role: PdRole
     instance_index: int
     prefill: ParallelShape
@@ -207,7 +284,18 @@ class ResolvedPdTopology:
 
 @dataclass(frozen=True)
 class ListenerPlan:
-    """本 Pod 可静态验证的 listener 或预留区间。"""
+    """本 Pod 可静态验证的 listener 或预留区间。
+
+    该对象用于冲突检查和审计，不执行 socket bind。
+
+    Attributes:
+        name: listener 类型，例如 API、DP RPC 或 KV。
+        host: 计划 bind 或接受连接的地址。
+        port_start: 预留区间起点；未知时为 ``None``。
+        port_end: 预留区间终点，区间两端都包含。
+        owner: 拥有该 listener 的进程或共享 connector 组。
+        status: 计划状态；当前只生成 ``planned``。
+    """
 
     name: str
     host: str
@@ -219,7 +307,25 @@ class ListenerPlan:
 
 @dataclass
 class EngineProcessPlan:
-    """一个最终 engine process 的结构化执行计划。"""
+    """一条 engine 启动命令的最终结构化执行计划。
+
+    PD 的一个 Pod 可以启动多条 ``vllm serve``。每个对象只描述其中一条命令，渲染、
+    参数校验和审计都应消费这里的 per-process trace/argv，不能回退读取 Pod 顶层 trace。
+
+    Attributes:
+        process_index: 当前 Pod 内稳定的进程顺序，同时决定脚本中的启动顺序。
+        local_index: 当前 Pod 内 local DP rank 序号；目前与 ``process_index`` 相同，
+            单独保留以表达 DP 语义。
+        dp_rank: logical Instance 内 global DP rank；普通单进程 PD 不启用 external DP 时为
+            ``None``。
+        visible_devices: 分配给该进程的 Pod 内设备序号切片。
+        advertised_endpoint: 路由层访问该进程的 ``RANK_IP:backend_port``。
+        engine_config_traces: 该进程最终 engine 参数及完整来源事件。
+        env_traces: 该进程最终环境变量及完整来源事件。
+        argv: 由 ``engine_config_traces`` 渲染出的结构化启动参数。
+        listeners: 该进程拥有或代表的 API、DP RPC、KV listener 计划。
+        param_validation: 该进程的引擎参数 warn-only 校验结果。
+    """
 
     process_index: int
     local_index: int
@@ -235,7 +341,15 @@ class EngineProcessPlan:
 
 @dataclass
 class ProcessPlan:
-    """当前 Pod 的有序 engine process 集合。"""
+    """当前 Pod 的有序 engine process 集合，也是 PD 渲染与审计的真相源。
+
+    Attributes:
+        layout: exact recipe 归一化出的进程布局，例如单进程或每 local DP rank 一进程。
+        lifecycle: 多进程失败联动策略；``fail_together`` 表示任一进程退出时整组退出。
+        processes: 按 local rank 排序的最终进程计划。
+        endpoints: 与 ``processes`` 同序的对外 backend endpoint。
+        listeners: 当前 Pod 汇总后的 listener inventory，用于端口冲突校验和审计。
+    """
 
     layout: str
     lifecycle: str
@@ -255,8 +369,10 @@ class PipelineRequest:
             解析后的真实根见 ResolvedEnv.config_root(勿混淆二者的生命周期)。
         user_input: 用户 CLI 意图。
         device_count: 下发卡数(全程规模:单机驱动 DP、多机参与协调;None=不触发)。
-        placement: 分布式集群寻址(仅 multi_node;单机/无运行时上下文为 None)。
+        placement: multi_node 或 PD 的集群寻址;单机/无运行时上下文为 None。
         pd_input: PD 当前 Pod 的原子输入；标准推理为 None。
+        pd_role_missing_legacy: ``PD_ROLE`` 完全缺失时的迁移标记；仅写入解析说明，
+            不把标准推理改判为 PD。
     """
 
     target: Target
