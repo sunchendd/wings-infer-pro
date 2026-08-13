@@ -233,6 +233,27 @@ def test_find_smart_accel_yaml_path_matches_cu130_variant(tmp_path):
     ) == yaml_path
 
 
+def test_find_smart_accel_yaml_path_matches_underscore_build_variant(tmp_path):
+    """下划线分隔的构建变体(xfusion 镜像流水线格式)→ 剥变体段命中基础版本目录。
+
+    生产环境 MaaS 下发的 ENGINE_VERSION 用下划线拼构建元数据
+    (如 v0.26.0_cu130_202608091354_x86_64),与连字符 v0.23.0-cu130-... 同样需归一化命中。
+    回归保护:覆盖 DeepSeek-V4-Flash-0731 实测场景(下划线导致 smart-accel 整条链路 no-op 的根因)。
+    """
+    yaml_path = tmp_path / "smart-accel" / "vllm" / "v0.26.0" / "rtx_pro_5000_72G" / "models" / "M" / "M.yaml"
+    yaml_path.parent.mkdir(parents=True)
+    yaml_path.write_text(YAML_TEMPLATE, encoding="utf-8")
+
+    # 下划线分隔的构建变体(生产 0731 部署实测场景)
+    assert find_smart_accel_yaml_path(
+        tmp_path, "vllm", "v0.26.0_cu130_202608091354_x86_64", "rtx_pro_5000_72G", "M"
+    ) == yaml_path
+    # 不带 v 前缀
+    assert find_smart_accel_yaml_path(
+        tmp_path, "vllm", "0.26.0_cu130_202608091354_x86_64", "rtx_pro_5000_72G", "M"
+    ) == yaml_path
+
+
 def test_load_smart_accel_from_config_missing_returns_none(tmp_path):
     """硬件目录或模型 YAML 缺失 → 返回 None,调用方 no-op。"""
     assert load_smart_accel_from_yaml(str(tmp_path / "missing.yaml")) is None
