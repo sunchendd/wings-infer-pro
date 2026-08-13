@@ -44,7 +44,7 @@ def test_sugar_host_port_model_path_collected(monkeypatch):
     monkeypatch.delenv("ENGINE_PORT", raising=False)
     out = cli._collect_user_cli_overrides(
         host="0.0.0.0",
-        port=18000,          # 用户传的是 proxy 端口
+        port=18000,  # 用户传的是 proxy 端口
         model_path="/weights",
     )
     assert out == {"host": "0.0.0.0", "port": 17000, "model_path": "/weights"}  # engine 监听 backend 17000
@@ -55,6 +55,7 @@ def test_export_proxy_port_sets_env(monkeypatch):
     monkeypatch.delenv("PORT", raising=False)
     cli._export_proxy_port(18000)
     import os
+
     assert os.environ.get("PORT") == "18000"
 
 
@@ -63,7 +64,33 @@ def test_export_proxy_port_none_no_write(monkeypatch):
     monkeypatch.delenv("PORT", raising=False)
     cli._export_proxy_port(None)
     import os
+
     assert os.environ.get("PORT") is None
+
+
+def test_pd_drops_standard_backend_port_compat_but_keeps_audit():
+    """PD 的 backend 由 exact recipe 规划，MaaS --port 只保留 proxy 语义。"""
+    overrides, dropped = cli._drop_pd_backend_port_compat(
+        {"port": 17000, "max_num_seqs": 16},
+        [],
+    )
+
+    assert overrides == {"max_num_seqs": 16}
+    assert dropped == [
+        {
+            "key": "port",
+            "value": 17000,
+            "reason": "PD engine backend port is owned by the exact recipe; --port remains proxy PORT",
+        }
+    ]
+
+
+def test_pd_port_compat_drop_is_noop_without_generated_port():
+    """未传 --port 时不制造 dropped 记录。"""
+    overrides = {"max_num_seqs": 16}
+    dropped = [{"key": "input_length", "value": 8, "reason": "unsupported"}]
+
+    assert cli._drop_pd_backend_port_compat(overrides, dropped) == (overrides, dropped)
 
 
 def test_model_flag_not_part_of_overrides():
@@ -91,23 +118,26 @@ def test_named_flags_translation_to_engine_keys_and_drop():
     assert translated["max_num_seqs"] == 256
     assert translated["trust_remote_code"] is True
     assert translated["host"] == "0.0.0.0"
-    assert translated["port"] == 17000   # proxy 迁移:engine 监听 backend 端口(用户 proxy 端口入 env PORT)
+    assert translated["port"] == 17000  # proxy 迁移:engine 监听 backend 端口(用户 proxy 端口入 env PORT)
     # 评审定:gpu_memory_utilization / seed 现在直通(user_cli 覆盖 recipe)
     assert translated["gpu_memory_utilization"] == 0.9
     assert translated["seed"] == 42
     dropped_keys = {entry["key"] for entry in dropped}
-    assert "input_length" in dropped_keys                       # 仅 input_length 仍丢弃(vllm 无对应)
+    assert "input_length" in dropped_keys  # 仅 input_length 仍丢弃(vllm 无对应)
     assert "seed" not in dropped_keys and "gpu_memory_utilization" not in dropped_keys
 
 
 def test_max_num_batched_tokens_passthrough_to_engine_native():
     """验证 --max-num-batched-tokens 收集为 user_cli 并同名直通译为 vllm 原生键(覆盖 recipe)。"""
     raw = cli._collect_user_cli_overrides(
-        host=None, port=None, model_path=None, max_num_batched_tokens=4096,
+        host=None,
+        port=None,
+        model_path=None,
+        max_num_batched_tokens=4096,
     )
     assert raw["max_num_batched_tokens"] == 4096
     translated, dropped = CLITranslator.translate_overrides(raw, "vllm")
-    assert translated["max_num_batched_tokens"] == 4096            # 同名直通,未被丢弃
+    assert translated["max_num_batched_tokens"] == 4096  # 同名直通,未被丢弃
     assert "max_num_batched_tokens" not in {d["key"] for d in dropped}
 
 
@@ -115,17 +145,25 @@ def test_parser_accepts_maas_named_flags():
     parser = cli._build_parser()
     args = parser.parse_args(
         [
-            "--model-name", "X",
-            "--max-num-seqs", "256",
-            "--max-num-batched-tokens", "4096",
-            "--input-length", "4096",
-            "--output-length", "4096",
+            "--model-name",
+            "X",
+            "--max-num-seqs",
+            "256",
+            "--max-num-batched-tokens",
+            "4096",
+            "--input-length",
+            "4096",
+            "--output-length",
+            "4096",
             "--trust-remote-code",
             "--enable-auto-think-choice",
             "--enable-auto-tool-choice",
-            "--dtype", "float16",
-            "--gpu-memory-utilization", "0.9",
-            "--seed", "42",
+            "--dtype",
+            "float16",
+            "--gpu-memory-utilization",
+            "0.9",
+            "--seed",
+            "42",
         ]
     )
     assert args.model_name == "X"
@@ -172,7 +210,6 @@ def test_store_true_none_not_in_overrides():
     assert "enable_expert_parallel" not in out
 
 
-
 def test_nonexistent_hardware_friendly_error_not_crash(config_root_real, tmp_path, monkeypatch, capsys):
     """验证选不存在的硬件 → 友好报错(SystemExit 2)而非 FileNotFoundError 崩溃(回归:tester 上报)。"""
     hw = tmp_path / "bad_hw.json"
@@ -184,9 +221,17 @@ def test_nonexistent_hardware_friendly_error_not_crash(config_root_real, tmp_pat
     monkeypatch.setattr(
         "sys.argv",
         [
-            "wings-ctl", "--engine", "vllm", "--model-name", "Qwen3.5-397B-A17B-NVFP4",
-            "--config-root", str(config_root_real), "--hardware-info", str(hw),
-            "--output-dir", str(tmp_path / "out"),
+            "wings-ctl",
+            "--engine",
+            "vllm",
+            "--model-name",
+            "Qwen3.5-397B-A17B-NVFP4",
+            "--config-root",
+            str(config_root_real),
+            "--hardware-info",
+            str(hw),
+            "--output-dir",
+            str(tmp_path / "out"),
         ],
     )
     with pytest.raises(SystemExit) as exc:  # parser.error → SystemExit(2),不应是 FileNotFoundError
@@ -230,7 +275,7 @@ def test_output_dir_cli_value_wins(tmp_path):
 
 def test_output_dir_defaults_to_shared_volume_when_present(tmp_path, monkeypatch):
     """未传 --output-dir 且共享卷存在 → 三件产物落共享卷(engine 从此读 start_command.sh)。"""
-    monkeypatch.setattr(cli, "SHARED_VOLUME_DIR", tmp_path)   # 模拟共享卷已挂载(存在)
+    monkeypatch.setattr(cli, "SHARED_VOLUME_DIR", tmp_path)  # 模拟共享卷已挂载(存在)
     assert cli._resolve_output_dir(None) == tmp_path
 
 
@@ -262,9 +307,7 @@ def test_known_non_contract_cli_params_are_collected_but_dropped_before_merge(
     assert getattr(args, canonical_key) is not None
 
     # 2. _collect_user_cli_overrides 收成对应 canonical key(进 raw override dict)
-    raw = cli._collect_user_cli_overrides(
-        host=None, port=None, model_path=None, **collect_kwargs
-    )
+    raw = cli._collect_user_cli_overrides(host=None, port=None, model_path=None, **collect_kwargs)
     assert canonical_key in raw
 
     # 3. filter_maas_contract_overrides 在 merge 前把它 dropped、不在 allowed
@@ -298,5 +341,5 @@ def test_env_feature_gates_do_not_leak_into_user_cli_layer(monkeypatch):
     assert "WINGS_ROUTE_ENABLE" not in out
     assert "PD_ROLE" not in out
     assert out["host"] == "0.0.0.0"
-    assert out["port"] == 17000   # proxy 迁移:engine override 取 backend 端口
+    assert out["port"] == 17000  # proxy 迁移:engine override 取 backend 端口
     assert out["model_name"] == "X"
