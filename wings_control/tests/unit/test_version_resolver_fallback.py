@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from wings_ctl.engines.version_resolver import (
     _find_latest_version_dir,
     _parse_version_tuple,
@@ -14,6 +16,7 @@ from wings_ctl.engines.version_resolver import (
 
 
 # ─── _parse_version_tuple(版本字符串解析,含两段式/非法)──────────────────────
+
 
 def test_parse_version_three_part():
     """三段式 vX.Y.Z → (X,Y,Z)。"""
@@ -32,11 +35,12 @@ def test_parse_version_invalid_returns_none():
 
 # ─── _find_latest_version_dir(扫版本目录取最高)──────────────────────────────
 
+
 def test_find_latest_skips_non_version_children(tmp_path):
     """混入非版本子目录/文件 → 跳过,只在 vX.Y.Z 里取最高。"""
     (tmp_path / "v0.1.0").mkdir()
     (tmp_path / "v0.2.0").mkdir()
-    (tmp_path / "not-a-version").mkdir()   # 跳过(正则不匹配)
+    (tmp_path / "not-a-version").mkdir()  # 跳过(正则不匹配)
     (tmp_path / "afile.txt").write_text("x")  # 跳过(非目录)
     assert _find_latest_version_dir(tmp_path) == "v0.2.0"
 
@@ -66,7 +70,7 @@ def test_no_engine_version_uses_latest_not_fallback(tmp_path, monkeypatch):
     root = _make_engine_dirs(tmp_path, "vllm-ascend", ["v0.17.0", "v0.18.0"])
     ev = resolve_engine_version(root, "ascend-a3", engine="vllm-ascend")
     assert ev.resolved == "0.18.0"
-    assert ev.is_fallback is False     # 关键:未请求 → 不算 fallback
+    assert ev.is_fallback is False  # 关键:未请求 → 不算 fallback
     assert ev.requested is None
 
 
@@ -111,3 +115,42 @@ def test_prerelease_build_version_without_v_prefix_matches_channel_directory(tmp
 
     assert ev.resolved == "0.21.0rc"
     assert ev.is_fallback is False
+
+
+def test_require_exact_rejects_missing_engine_version(tmp_path, monkeypatch):
+    """验证 PD strict 模式拒绝缺失 ENGINE_VERSION，不走 latest。"""
+    monkeypatch.delenv("ENGINE_VERSION", raising=False)
+    root = _make_engine_dirs(tmp_path, "vllm-ascend", ["v0.21.0rc"])
+
+    with pytest.raises(ValueError, match="ENGINE_VERSION"):
+        resolve_engine_version(root, "ascend-a3", engine="vllm-ascend", require_exact=True)
+
+
+def test_require_exact_rejects_unmatched_engine_version(tmp_path, monkeypatch):
+    """验证 PD strict 模式拒绝未命中版本，不回退 latest。"""
+    monkeypatch.setenv("ENGINE_VERSION", "9.9.9")
+    root = _make_engine_dirs(tmp_path, "vllm-ascend", ["v0.21.0rc"])
+
+    with pytest.raises(FileNotFoundError, match="exact"):
+        resolve_engine_version(root, "ascend-a3", engine="vllm-ascend", require_exact=True)
+
+
+def test_require_exact_v023_matches_release_config_directory(tmp_path, monkeypatch):
+    """PD 目标组合下发 v0.23.0 时精确命中同名配置目录。"""
+    monkeypatch.setenv("ENGINE_VERSION", "v0.23.0")
+    root = _make_engine_dirs(tmp_path, "vllm-ascend", ["v0.23.0"])
+
+    ev = resolve_engine_version(root, "ascend-a3", engine="vllm-ascend", require_exact=True)
+
+    assert ev.requested == "v0.23.0"
+    assert ev.resolved == "0.23.0"
+    assert ev.is_fallback is False
+
+
+def test_require_exact_rejects_rc_alias_for_v023_release_directory(tmp_path, monkeypatch):
+    """配置目录只有 v0.23.0 时，不把 MaaS 的 v0.23.0rc 猜测映射到 release。"""
+    monkeypatch.setenv("ENGINE_VERSION", "v0.23.0rc")
+    root = _make_engine_dirs(tmp_path, "vllm-ascend", ["v0.23.0"])
+
+    with pytest.raises(FileNotFoundError, match="v0.23.0rc"):
+        resolve_engine_version(root, "ascend-a3", engine="vllm-ascend", require_exact=True)
