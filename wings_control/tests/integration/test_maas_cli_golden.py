@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
 import pytest
 
+from tests.script_test_utils import run_vllm_command_as_echo
 from wings_ctl import cli
 
 
@@ -129,21 +129,9 @@ def _run_cli(
     assert start_path.exists(), f"missing start_command.sh: {start_path}"
     assert audit_path.exists(), f"missing audit.json: {audit_path}"
 
-    _content = start_path.read_text(encoding="utf-8")
-    # 替换引擎命令行(后台化后的 "vllm serve ..." 行)为 echo,用于实际执行验证
-    _lines = _content.splitlines()
-    _engine_idx = next((i for i, ln in enumerate(_lines) if ln.startswith("vllm serve ")), -1)
-    if _engine_idx != -1:
-        _lines[_engine_idx] = "echo " + _lines[_engine_idx]
-    patched = "\n".join(_lines) + "\n"
-    patched_path = scene_out / "echo_start_command.sh"
-    patched_path.write_text(patched, encoding="utf-8")
-    proc = subprocess.run(["bash", str(patched_path)], check=True, capture_output=True, text=True)
-    cmd_lines = [line for line in proc.stdout.splitlines() if line.startswith("vllm serve ")]
-    assert len(cmd_lines) == 1, f"expected 1 vllm serve line, got {len(cmd_lines)}"
-
+    command = run_vllm_command_as_echo(start_path)
     audit = json.loads(audit_path.read_text(encoding="utf-8"))
-    return cmd_lines[0], audit
+    return command, audit
 
 
 def _assert_recipe_agnostic_invariants(argv: str, audit: dict) -> None:

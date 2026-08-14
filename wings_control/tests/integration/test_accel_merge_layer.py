@@ -10,30 +10,41 @@ accel 侧用 monkeypatch stub(不依赖真 wings-accel 资产;真资产端到端
 
 from __future__ import annotations
 
+import json
 import os
 
 from wings_ctl.accel.smart_accel import AccelResult
+from wings_ctl.audit.emitter import emit_audit
 from wings_ctl.core import config_resolver
 from wings_ctl.core.config_resolver import MergeLayer, resolve_config, trace_merge
 from wings_ctl.core.models import ResolvedEnv, Target, UserInput
 from wings_ctl.core.topology import Topology
 from wings_ctl.engines.version_resolver import resolve_engine_version
 from wings_ctl.hardware.resolver import resolve_hardware
+from wings_ctl.rendering.script_builder import build_scripts
 
 
 def _resolve_with_accel(config_root, hardware_info_path, monkeypatch, *,
-                        accel_engine_config: dict, user_cli: dict | None = None):
+                        accel_engine_config: dict, accel_env: dict | None = None,
+                        user_cli: dict | None = None):
     """用 stub accel 跑一遍 resolve_config,返回 ResolvedConfig。
 
     Args:
         accel_engine_config: stub AccelResult.engine_config(充当 strategy_accel 层)。
+        accel_env: stub AccelResult.env(充当 env 的 strategy_accel 层)。
         user_cli: 可选 user_cli 覆盖层(测 accel < user_cli 优先级)。
 
     Returns:
         resolve_config 的 ResolvedConfig 结果。
     """
+
     def _stub(**kwargs):
-        return AccelResult(engine_config=dict(accel_engine_config), enabled=bool(accel_engine_config))
+        resolved_accel_env = dict(accel_env or {})
+        return AccelResult(
+            engine_config=dict(accel_engine_config),
+            env=resolved_accel_env,
+            enabled=bool(accel_engine_config or resolved_accel_env),
+        )
 
     monkeypatch.setattr(config_resolver, "apply_smart_accel", _stub)
     os.environ["ENGINE_VERSION"] = "0.19.0"
@@ -108,3 +119,45 @@ def test_accel_deep_merges_nested_with_recipe():
     assert cc.final_value == {"mode": 0, "cudagraph_mode": "FULL_DECODE_ONLY"}  # 深合并:两字段都保留
     assert cc.final_layer == "strategy_accel"
     assert len(merged) == 1                                                # 单一 key,不重复
+
+
+def test_accel_env_overrides_existing_env_once(config_root, hardware_info_path, monkeypatch, tmp_path):
+    """验证 accel env 覆盖 recipe env，保留事件链且脚本只导出最终值一次。"""
+    original_select_scenario = config_resolver._select_scenario
+
+    def _select_with_recipe_env(*args, **kwargs):
+        """在既有 fixture 场景中注入一个待覆盖的 recipe 环境变量。"""
+        scenario = original_select_scenario(*args, **kwargs)
+        if scenario.get("nodes"):
+            return scenario
+        return {**scenario, "env": {**scenario["env"], "WINGS_ACCEL_KV": "recipe"}}
+
+    monkeypatch.setattr(config_resolver, "_select_scenario", _select_with_recipe_env)
+
+    resolved = _resolve_with_accel(
+        config_root,
+        hardware_info_path,
+        monkeypatch,
+        accel_engine_config={},
+        accel_env={"WINGS_ACCEL_KV": "accel"},
+    )
+    traced = resolved.env_traces["WINGS_ACCEL_KV"]
+    assert traced.final_layer == "strategy_accel"
+    assert traced.final_value == "accel"
+    assert traced.source_file == "<wings-accel>"
+    assert traced.source_path == "strategy.accel.env.WINGS_ACCEL_KV"
+    assert [event.layer for event in traced.events] == ["model_scenario", "strategy_accel"]
+    assert [event.action for event in traced.events] == ["set", "override"]
+
+    start_path, repro_path = build_scripts(resolved, tmp_path)
+    start_text = start_path.read_text(encoding="utf-8")
+    repro_text = repro_path.read_text(encoding="utf-8")
+    assert start_text.count("export WINGS_ACCEL_KV=accel") == 1
+    assert repro_text.count("export WINGS_ACCEL_KV=accel") == 1
+    assert "Environment Variables (wings-accel)" not in repro_text
+
+    audit_path = emit_audit(resolved, tmp_path)
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    audited = audit["env"]["WINGS_ACCEL_KV"]
+    assert audited["final_value"] == "accel"
+    assert [event["layer"] for event in audited["events"]] == ["model_scenario", "strategy_accel"]

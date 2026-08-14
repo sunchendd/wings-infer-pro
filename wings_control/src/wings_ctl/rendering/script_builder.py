@@ -137,22 +137,6 @@ def _render_accel_install_preamble(engine: str, engine_version: str, packages: L
     ]
 
 
-def _render_accel_env_section(accel_env: Dict[str, str]) -> List[str]:
-    """渲染 wings-accel 注入的 env export 段。
-
-    Args:
-        accel_env: ``AccelResult.env``(智能加速产出的环境变量;空 → 返回空)。
-
-    Returns:
-        ``export K=V`` 行列表(空 dict → 空列表,调用方据此决定是否插入空行/注释)。
-    """
-    lines: List[str] = []
-    for env_key, value in accel_env.items():
-        if value is not None:
-            lines.append(render_env_export(env_key, value))
-    return lines
-
-
 def _render_accel_pre_serve_section(
     pre_serve: Optional[List[str]],
     pre_serve_master: Optional[List[str]],
@@ -291,7 +275,6 @@ def _render_start_command_sh(
     engine_version: str,
     packages: List[str],
     execute_commands: bool = False,
-    accel_env: Optional[Dict[str, str]] = None,
     accel_enabled: bool = False,
     accel_pre_serve: Optional[List[str]] = None,
     accel_pre_serve_master: Optional[List[str]] = None,
@@ -310,7 +293,6 @@ def _render_start_command_sh(
         execute_commands: multi_node 已完成运行时注入时为 True;runtime commands 需要
             在 env export 之前执行,使 ``$local_ip`` 等变量先定义。standalone 为 False,
             系统设置命令只作为注释渲染。
-        accel_env: wings-accel 注入的环境变量,并入 env export 段;None/空 → 不变。
         accel_enabled: wings-accel 是否真启用(``AccelResult.enabled``)。仅 True 时渲染
             runtime patch 安装段;False(未开/模块缺席)→ 不加,非 accel 路径零影响。
         accel_pre_serve: KV 存储后端 pre-serve 段(所有节点);None/空 → 不渲染。
@@ -362,9 +344,8 @@ def _render_start_command_sh(
             "",
         ]
 
-    # env exports(trace 段 + wings-accel 注入段)
+    # recipe、特性和 wings-accel 环境变量均已由 resolver 合并进 env_traces。
     env_lines = _render_env_section(env_traces)
-    env_lines.extend(_render_accel_env_section(accel_env or {}))
     if env_lines:
         lines.extend(env_lines)
         lines.append("")
@@ -440,13 +421,6 @@ def _render_repro_sh(
             if traced.final_value is not None:
                 lines.append(f"# source: {traced.source_file} @ {traced.source_path}")
                 lines.append(render_env_export(env_key, traced.final_value))
-        lines.append("")
-
-    # wings-accel 注入的 env(与 trace 解耦,单独标注来源)
-    accel_env_lines = _render_accel_env_section(resolved.accel.env)
-    if accel_env_lines:
-        lines.append("# ─── Environment Variables (wings-accel) ───")
-        lines.extend(accel_env_lines)
         lines.append("")
 
     # KV 存储后端 pre-serve 段(memcache/mooncake);与 start_command.sh 同款渲染。
@@ -671,7 +645,6 @@ def build_scripts(
         engine_version=resolved.engine_version.requested or resolved.engine_version.resolved,
         packages=resolved.accel.packages,
         execute_commands=execute_commands,
-        accel_env=resolved.accel.env,
         accel_enabled=resolved.accel.enabled,
         accel_pre_serve=resolved.accel.pre_serve,
         accel_pre_serve_master=resolved.accel.pre_serve_master,
