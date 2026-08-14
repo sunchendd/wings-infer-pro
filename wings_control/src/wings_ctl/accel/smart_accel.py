@@ -43,6 +43,10 @@ class AccelResult:
     audit: dict[str, Any] = field(default_factory=dict)
     packages: list[str] = field(default_factory=list)
     enabled: bool = False
+    # KV 内存卸载最终容量(GB,页面回显口径):auto 估算值或数值模式解析值;生效 → int,
+    # auto 请求但估算不足被关 → 0,KV 卸载未请求 → None。供 script_builder 写
+    # advanced_features.json 的 others.kv_mem_offload_size(health 接口 /v1/startup/accel 透出)。
+    kv_mem_offload_size_gb: int | None = None
     # KV 存储后端(memcache/mooncake)pre-serve 命令:script_builder 在 vllm serve 前渲染。
     # pre_serve=所有节点(生成配置文件);pre_serve_master=仅 master 节点起 daemon;
     # pre_serve_client=仅 client 节点(非 master)。
@@ -209,6 +213,8 @@ def collect_output(output) -> AccelResult:
             pre_serve=list(getattr(output, "pre_serve", []) or []),
             pre_serve_master=list(getattr(output, "pre_serve_master", []) or []),
             pre_serve_client=list(getattr(output, "pre_serve_client", []) or []),
+            # KV 内存卸载页面回显容量(auto 估算/数值 GB);getattr 兜底旧/stub 输出无该字段 → None
+            kv_mem_offload_size_gb=getattr(output, "kv_mem_offload_size_gb", None),
             # enabled = 真有产出(对齐 docstring"成功产出";模块跑了但产空 → False,不触发 install 段)
             enabled=bool(engine_config or env),
         )

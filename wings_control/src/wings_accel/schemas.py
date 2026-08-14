@@ -267,6 +267,11 @@ class SmartAccelOutput:
     smart_kv_sparse_scheme: Optional[str] = None # KV 稀疏化选中方案,如 indexcache;未产出 → None
     smart_kv_cache_scheme: Optional[str] = None # KV 卸载选中方案,如 cpu/disk/cpu_disk;未产出 → None
     engine_params: EngineParams = field(default_factory=EngineParams) # 合并后的 env + engine_config;产出侧,无 MaaS 来源
+    # KV 内存卸载最终容量(GB,页面回显口径):auto 估算值或数值模式解析值;生效 → int,
+    # auto 请求但估算不足被关 → 0(推荐值低于下限),未请求内存卸载(一级关/仅disk) → None。
+    # 由 core 从 smart_kv_cache_config(loader 已解析 _memory_capacity_gb)推导,供
+    # wings-control 写 advanced_features.json 的 others.kv_mem_offload_size。
+    kv_mem_offload_size_gb: Optional[int] = None
     diagnostics: Dict[str, Dict[str, Any]] = field(default_factory=dict) # 降级诊断;只写 degraded 特性,原样落 audit
     packages: List[str] = field(default_factory=list) # 各选中 scheme 声明的 pip 依赖汇总(name:version);供 install 段 --config
     pre_serve: List[str] = field(default_factory=list) # 聚合:所有节点 pre-serve 命令(去重保序);script_builder 在 vllm serve 前渲染

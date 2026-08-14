@@ -24,6 +24,8 @@ SmartAccel 总入口 — func_smart_accel() 主流水线。
 """
 
 import logging
+from typing import Optional
+
 from wings_accel.conflict import resolve_conflicts
 from wings_accel.custom import smart_custom_features_expander
 from wings_accel.decoders import smart_decoding_expander
@@ -120,6 +122,7 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
         smart_kv_cache_scheme=offload.scheme if offload else None,
         smart_kv_sparse_scheme=sparse.scheme if sparse else None,
         engine_params=engine_params,
+        kv_mem_offload_size_gb=_resolve_kv_mem_offload_size_gb(smart_input.smart_kv_cache_config),
         diagnostics=diagnostics,
         packages=packages,
         pre_serve=pre_serve,
@@ -161,6 +164,24 @@ def _memory_capacity_gb(kv) -> int:
         return int(raw)
     except ValueError:
         return 0
+
+
+def _resolve_kv_mem_offload_size_gb(kv) -> Optional[int]:
+    """推导 KV 内存卸载页面回显容量(GB)。
+
+    语义对齐老仓库 resolve_effective_kv_mem_offload_size 的页面口径:
+      - KV 卸载一级关 / 仅磁盘 → None(当前场景无有效容量);
+      - 请求过内存卸载(auto/数值)但未生效(auto 估算不足 / YAML 无内存方法)→ 0
+        (推荐结果低于生效下限);
+      - 内存卸载生效 → 渲染容量(loader 已解析:auto=估算值 / 数值=固定 GB)。
+    """
+    if not getattr(kv, "enabled", False):
+        return None
+    if not getattr(kv, "memory_offload_enabled", False):
+        mode = str(getattr(kv, "memory_offload_size_mode", "") or "").strip().lower()
+        return 0 if mode else None
+    capacity = _memory_capacity_gb(kv)
+    return capacity if capacity > 0 else 0
 
 
 def _build_placeholder_context(smart_input: SmartAccelInput) -> PlaceholderContext:

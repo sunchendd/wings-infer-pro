@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import shlex
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -28,6 +29,8 @@ from wings_ctl.engines.vllm_adapter import (
     resolve_model_traced,
 )
 from wings_ctl.rendering.env_renderer import render_env_export
+
+logger = logging.getLogger(__name__)
 
 
 def _render_env_section(env_traces: Dict[str, TracedValue]) -> List[str]:
@@ -157,6 +160,72 @@ def _render_accel_env_section(accel_env: Dict[str, str]) -> List[str]:
         if value is not None:
             lines.append(render_env_export(env_key, value))
     return lines
+
+
+def _write_advanced_features_json(resolved: ResolvedConfig) -> None:
+    """写 advanced_features.json(加速特性使能状态,页面回显的单一真相源)。
+
+    对齐老仓库 wings_entry._write_advanced_features_json:在脚本生成阶段写入共享卷,
+    health 接口 ``/v1/startup/accel``(读 ``settings.ADVANCED_FEATURES_FILE``)透出给页面。
+    字段语义(接口文档):
+      - features:4 个特性最终使能布尔(页面开关唯一回显依据);
+      - variants:实际策略字符串(features[x]=false 时为 null,仅诊断用);
+      - others.kv_mem_offload_size:智能推荐容量(auto 估算的最终推荐值,GB;0=低于下限,
+        null=无有效容量),来自 ``accel.kv_mem_offload_size_gb``;
+      - others.speculative_decode:投机推理详情(method/num_speculative_tokens 等),未产出 → null。
+    写失败只 WARN 不抛(状态文件缺失时 health 接口按空对象兜底)。
+
+    Args:
+        resolved: 配置解析最终产物(``resolved.accel`` 承载 wings-accel 产出)。
+    """
+    accel = resolved.accel
+    # features:有选中 scheme 即该特性最终生效(scheme 名即 variants 策略)
+    decoding_scheme = accel.audit.get("smart_decoding_scheme") if accel.audit else None
+    sparse_scheme = accel.audit.get("smart_kv_sparse_scheme") if accel.audit else None
+    offload_scheme = accel.audit.get("smart_kv_cache_scheme") if accel.audit else None
+
+    features = {
+        "speculative_decode": bool(decoding_scheme),
+        "sparse_kv": bool(sparse_scheme),
+        "kv_offload": bool(offload_scheme),
+        "rag_acc": False,  # RAG 加速不走 wings-accel(proxy 子系统按 RAG_ACC_ENABLED 自行判定)
+    }
+    variants = {
+        "speculative_decode": decoding_scheme or None,
+        "sparse_kv": sparse_scheme or None,
+        "kv_offload": offload_scheme or None,
+    }
+    spec_details = None
+    if decoding_scheme:
+        spec_config = (
+            resolved.engine_config_traces.get("speculative_config").final_value
+            if "speculative_config" in resolved.engine_config_traces
+            else None
+        )
+        if isinstance(spec_config, dict):
+            spec_details = dict(spec_config)
+
+    data = {
+        "engine": resolved.engine,
+        "features": features,
+        "variants": variants,
+        "others": {
+            "kv_mem_offload_size": accel.kv_mem_offload_size_gb,
+            "speculative_decode": spec_details,
+        },
+    }
+    path = Path(settings.ADVANCED_FEATURES_FILE)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(path)
+        logger.info(
+            "Wrote advanced_features.json: features=%s variants=%s others=%s",
+            features, variants, data["others"],
+        )
+    except OSError as exc:
+        logger.warning("Failed to write advanced_features.json: %s", exc)
 
 
 def _render_accel_pre_serve_section(
@@ -594,6 +663,10 @@ def build_scripts(
 
     # multi_node 已注入 → commands inline 执行;standalone → 注释(现状)。
     execute_commands = resolved.topology == Topology.MULTI_NODE
+
+    # advanced_features.json(使能状态单一真相源)在脚本生成阶段写入共享卷,
+    # health 接口 /v1/startup/accel 读它回显页面(对齐老仓库 wings_entry 时机)。
+    _write_advanced_features_json(resolved)
 
     # accel.engine_config 已作为 strategy_accel 合并层并入 engine_config_traces,
     # build_argv 自动渲染(深合并 + 去重 + 带 trace),无需在此 append。

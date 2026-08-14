@@ -133,6 +133,52 @@ def test_empty_accel_no_pre_serve_section(tmp_path):
     assert "KV store pre-serve" not in start_path.read_text(encoding="utf-8")
 
 
+# ── advanced_features.json 写入(使能状态单一真相源,health /v1/startup/accel 读它)──
+
+def _accel_full(size_gb: int) -> AccelResult:
+    """构造 auto 生效的 accel stub(投机+卸载选中,kv 容量=估算值)。"""
+    return AccelResult(
+        enabled=True,
+        kv_mem_offload_size_gb=size_gb,
+        audit={"smart_decoding_scheme": "mtp", "smart_kv_cache_scheme": "cpu"},
+    )
+
+
+def test_build_scripts_writes_advanced_features_auto_size(tmp_path, monkeypatch):
+    """auto 生效 → advanced_features.json 的 others.kv_mem_offload_size 填估算值(页面回显口径)。"""
+    import json as _json
+    from wings_ctl.common.settings import settings
+
+    target = tmp_path / "advanced_features.json"
+    monkeypatch.setattr(settings, "ADVANCED_FEATURES_FILE", str(target))
+    build_scripts(_make_resolved(_accel_full(401)), tmp_path)
+
+    data = _json.loads(target.read_text(encoding="utf-8"))
+    assert data["engine"] == "vllm"
+    assert data["features"] == {
+        "speculative_decode": True, "sparse_kv": False, "kv_offload": True, "rag_acc": False,
+    }
+    assert data["variants"]["speculative_decode"] == "mtp"
+    assert data["variants"]["kv_offload"] == "cpu"
+    assert data["others"]["kv_mem_offload_size"] == 401  # auto 估算值(512-59-51.2→401)
+
+
+def test_build_scripts_writes_advanced_features_disabled(tmp_path, monkeypatch):
+    """全关 accel → features 全 false,kv_mem_offload_size=null(无有效容量)。"""
+    import json as _json
+    from wings_ctl.common.settings import settings
+
+    target = tmp_path / "advanced_features.json"
+    monkeypatch.setattr(settings, "ADVANCED_FEATURES_FILE", str(target))
+    build_scripts(_make_resolved(AccelResult()), tmp_path)
+
+    data = _json.loads(target.read_text(encoding="utf-8"))
+    assert data["features"]["kv_offload"] is False
+    assert data["variants"]["kv_offload"] is None
+    assert data["others"]["kv_mem_offload_size"] is None  # 未请求 → null
+    assert data["others"]["speculative_decode"] is None
+
+
 def test_emit_audit_writes_wings_accel(tmp_path):
     """验证非空 accel.audit → audit.json 写入 wings_accel 诊断块。"""
     audit_path = emit_audit(_make_resolved(_STUB), tmp_path)

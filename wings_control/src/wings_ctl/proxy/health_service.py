@@ -22,7 +22,7 @@ import uvicorn
 from fastapi import FastAPI, Response, Request
 from fastapi.responses import JSONResponse
 
-from wings_ctl.core.version_util import normalize_engine_version
+from wings_ctl.common.log_config import setup_root_logging, LOGGER_HEALTH
 from wings_ctl.proxy.health_router import (
     _jittered_sleep_base,
     build_health_body,
@@ -33,7 +33,6 @@ from wings_ctl.proxy.health_router import (
     teardown_health_monitor,
     tick_observe_and_advance,
 )
-from wings_ctl.common.log_config import setup_root_logging, LOGGER_HEALTH
 from wings_ctl.proxy.speaker_logging import configure_worker_logging
 from wings_ctl.common.progress_utils import StartupProgressManager
 from wings_ctl.proxy.tags import build_backend_url, make_upstream_headers
@@ -199,63 +198,49 @@ async def get_startup_progress():
         return JSONResponse(status_code=200, content=response_body)
 
 
-def _parse_accel_feature_line(line: str) -> dict | None:
-    """解析加速特性文件的单行数据。
+def _read_advanced_features_state(file_path: str) -> dict:
+    """读取 advanced_features.json（页面状态汇报文件，使能真相源）。
+
+    该文件是单个 JSON 对象，当前标准字段为 ``engine/features/variants/others``。
+    接口层返回完整对象，避免后续新增顶层字段后被健康接口静默丢弃。
 
     Args:
-        line: JSON 格式的行数据
+        file_path: advanced_features.json 路径
 
     Returns:
-        dict | None: 解析后的特性数据，解析失败返回 None
+        dict: advanced_features.json 的完整对象；文件缺失、损坏或非对象时返回空字典。
     """
     try:
-        data = json.loads(line)
-        return {
-            "name": data.get("feature", ""),
-            "enabled": data.get("status", "") == "success",
-            "errMsg": data.get("error_msg", "")
-        }
-    except json.JSONDecodeError:
-        return None
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        _logger.debug("advanced_features.json unavailable: %s", exc)
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return data
 
 
-def _read_accel_features(file_path: str) -> list[dict]:
-    """读取加速特性文件并解析所有特性。
-
-    Args:
-        file_path: 加速特性文件路径
-
-    Returns:
-        list[dict]: 特性列表
-    """
-    features = []
-    with open(file_path, 'r', encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            feature = _parse_accel_feature_line(line)
-            if not feature:
-                continue
-            features.append(feature)
-    return features
-
-
-def _build_accel_data(features: list[dict], version: str | None = None) -> dict:
+def _build_accel_data(state: dict | None = None) -> dict:
     """构建加速特性响应数据。
 
     Args:
-        features: 特性列表
-        version: 引擎版本号。为 None 时从 ENGINE_VERSION 环境变量解析。
+        state: advanced_features.json 的完整对象
 
     Returns:
         dict: 加速特性数据
     """
-    return {
-        "engine": os.getenv("ENGINE", "vllm"),
-        "version": version or normalize_engine_version(),
-        "features": features
-    }
+    data = dict(state) if isinstance(state, dict) else {}
+    # 保持老消费者依赖的四个标准字段稳定，同时不删除 advanced_features.json
+    # 中未来新增的顶层字段，例如请求态、回退原因或诊断信息。
+    data["engine"] = data.get("engine") or os.getenv("ENGINE", "vllm")
+    if not isinstance(data.get("features"), dict):
+        data["features"] = {}
+    if not isinstance(data.get("variants"), dict):
+        data["variants"] = {}
+    if not isinstance(data.get("others"), dict):
+        data["others"] = {}
+    return data
 
 
 def _build_accel_response(accel_data: dict, message: str = "") -> JSONResponse:
@@ -275,52 +260,27 @@ def _build_accel_response(accel_data: dict, message: str = "") -> JSONResponse:
     })
 
 
-async def _detect_engine_version(client: httpx.AsyncClient) -> str | None:
-    """尝试从运行中的后端获取真实引擎版本号。
-
-    向后端 /version 端点发起 GET 请求（vLLM/vLLM-Ascend 标准接口）。
-    成功后将结果缓存在 app.state 中，后续调用直接返回缓存值。
-
-    Returns:
-        str | None: 引擎版本字符串（如 "0.17.0rc1"），失败时返回 None。
-    """
-    cached = getattr(app.state, "cached_engine_version", None)
-    if cached:
-        return cached
-    try:
-        url = f"http://{settings.ENGINE_HOST}:{settings.ENGINE_PORT}/version"
-        resp = await client.get(url, timeout=3.0)
-        if resp.status_code == 200:
-            data = resp.json()
-            version = data.get("version", "")
-            if version:
-                app.state.cached_engine_version = version
-                return version
-    except Exception as exc:  # noqa: BLE001
-        _logger.debug("Failed to detect engine version: %s", exc)
-    return None
-
-
+# FastAPI matches routes in registration order. Keep health-owned APIs above the
+# catch-all proxy route so they are not rejected by the engine endpoint whitelist.
 @app.get("/v1/startup/accel")
 async def get_startup_accel():
-    """获取加速特性使能信息
+    """获取加速特性使能信息。
+
+    单一真相源是 advanced_features.json（settings.ADVANCED_FEATURES_FILE）：
+    由 wings_entry 在脚本生成阶段写入；shell 层在补丁失败时回写。
+    data 字段保持 advanced_features.json 的完整对象；接口只补齐缺省标准字段，
+    不裁剪未来新增的顶层状态字段。
 
     Returns:
         JSONResponse: 包含加速特性信息的响应
     """
-    accel_file = settings.ACCEL_FILE
-    features = []
-    # 优先从运行中的后端获取真实版本号，回退到 ENGINE_VERSION 环境变量
-    version = await _detect_engine_version(app.state.client)
     try:
-        if os.path.exists(accel_file):
-            features = _read_accel_features(accel_file)
-        
-        accel_data = _build_accel_data(features, version=version)
+        state = _read_advanced_features_state(settings.ADVANCED_FEATURES_FILE)
+        accel_data = _build_accel_data(state)
         return _build_accel_response(accel_data)
     except Exception as e:
         _logger.error(f"Failed to get acceleration feature info: {e}")
-        accel_data = _build_accel_data([], version=version)
+        accel_data = _build_accel_data({})
         return _build_accel_response(accel_data, f"Failed to get acceleration feature info: {str(e)}")
 
 

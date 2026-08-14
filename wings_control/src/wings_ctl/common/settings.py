@@ -47,9 +47,11 @@ class Settings(BaseSettings):
     START_COMMAND_FILENAME: str = "start_command.sh"
 
     # log_analyzer 进度文件完整路径（由 SHARED_VOLUME_PATH 派生，见 _derive_volume_paths）
-    # 若需独立覆盖，可直接设置对应环境变量 PROGRESS_FILE / ACCEL_FILE。
+    # 若需独立覆盖，可直接设置对应环境变量 PROGRESS_FILE / ADVANCED_FEATURES_FILE。
+    #   - ADVANCED_FEATURES_FILE（advanced_features.json）：页面状态汇报的「使能 + 变体」JSON 对象，
+    #     是 /v1/startup/accel 的单一真相源
     PROGRESS_FILE: str = ""
-    ACCEL_FILE: str = ""
+    ADVANCED_FEATURES_FILE: str = ""
 
     # 引擎日志目录与文件路径（由 ENGINE_LOG_DIR 派生，见 _derive_volume_paths）
     # log_analyzer 通过 tail -F ENGINE_LOG_FILE 跟踪引擎日志。
@@ -61,7 +63,7 @@ class Settings(BaseSettings):
     @classmethod
     def _derive_volume_paths(cls, data: Any) -> Any:
         """在所有字段验证完成前，派生以下路径（若未被环境变量覆盖）：
-        - PROGRESS_FILE / ACCEL_FILE: 基于 SHARED_VOLUME_PATH
+        - PROGRESS_FILE / ADVANCED_FEATURES_FILE: 基于 SHARED_VOLUME_PATH
         - ENGINE_LOG_FILE / ENGINE_FULL_LOG_FILE: 基于 ENGINE_LOG_DIR
         """
         if not isinstance(data, dict):
@@ -69,8 +71,8 @@ class Settings(BaseSettings):
         shared = data.get("SHARED_VOLUME_PATH") or "/shared-volume"
         if not data.get("PROGRESS_FILE"):
             data["PROGRESS_FILE"] = f"{shared}/progress.jsonl"
-        if not data.get("ACCEL_FILE"):
-            data["ACCEL_FILE"] = f"{shared}/accel_features.jsonl"
+        if not data.get("ADVANCED_FEATURES_FILE"):
+            data["ADVANCED_FEATURES_FILE"] = f"{shared}/advanced_features.json"
         log_dir = data.get("ENGINE_LOG_DIR") or "/var/log/wings"
         if not data.get("ENGINE_LOG_FILE"):
             data["ENGINE_LOG_FILE"] = f"{log_dir}/engine.log"
