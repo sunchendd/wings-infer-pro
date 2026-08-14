@@ -71,6 +71,7 @@ from wings_ctl.strategy.reasoning_resolver import (
     build_model_identity,
     resolve_reasoning,
 )
+from wings_ctl.strategy.post_merge import apply_post_merge_strategy
 from wings_ctl.strategy.topology_inject import (
     LAYOUT_TP_ACROSS,
     coordinate_parallelism,
@@ -2210,6 +2211,30 @@ def resolve_config(
                 scenario["system_setup_source_prefix"],
             )
 
+    # FlashComm1 / DSA-CP 仅支持 TP>=2；在所有 merge 层完成后统一执行最终约束策略。
+    # 多机占位节点分别应用，保证占位视图与运行时选中节点的行为一致。
+    post_merge_notes: dict[str, str] = {}
+    if nodes:
+        for node in nodes:
+            result = apply_post_merge_strategy(
+                node.engine_config_traces,
+                node.env_traces,
+                engine=engine,
+            )
+            node.engine_config_traces = result.engine_config_traces
+            node.env_traces = result.env_traces
+            if result.notes:
+                post_merge_notes.update(result.notes)
+    else:
+        result = apply_post_merge_strategy(
+            engine_config_traces,
+            env_traces,
+            engine=engine,
+        )
+        engine_config_traces = result.engine_config_traces
+        env_traces = result.env_traces
+        post_merge_notes.update(result.notes)
+
     # ── 5. 组装结果:source_files + resolution_notes(查找/合并轨迹)+ ResolvedConfig ──
     # 仅将实际存在的文件加入 source_files
     source_files: List[str] = []
@@ -2260,6 +2285,7 @@ def resolve_config(
     resolution_notes["device_count_source"] = "provided" if device_count is not None else "unset"
     # 小策略层 DeviceCountTransform 协调摘要(template_tp/dp、resolved_dp、status)
     resolution_notes.update(strategy_notes)
+    resolution_notes.update(post_merge_notes)
     resolution_notes.update(feature_notes)  # 特性附加/跳过摘要(feature_overlay)
     resolution_notes.update(feature_inject_notes)  # SmartQoS/EnableTrace/Metrics 注入摘要
     resolution_notes["min_engine_version"] = min_engine_check["min_engine_version"]

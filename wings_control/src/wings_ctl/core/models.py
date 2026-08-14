@@ -44,7 +44,7 @@ PdListenerOwnerScope = Literal["per_process", "per_pod_connector_group"]
 class SourceEvent:
     """记录一次配置值的写入/覆盖事件。"""
 
-    action: str  # "set" | "override"
+    action: str  # "set" | "override" | "remove"
     # 合并层名(低→高优先):builtin_default / default_model / model_scenario / user_cli,
     # 以及策略层 strategy_device_count / strategy_feature / strategy_accel /
     # strategy_multinode_dp / strategy_topology_inject。
