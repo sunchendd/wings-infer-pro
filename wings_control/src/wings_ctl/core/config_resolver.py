@@ -824,6 +824,7 @@ def _resolve_multi_node(
     feature_overrides: dict,
     feature_trace_sources: dict[str, tuple[str, str]],
     accel_overrides: dict,
+    accel_env: dict,
     device_count: int | None,
     rank_ip: str | None,
     node_ips: List[str] | None,
@@ -853,6 +854,7 @@ def _resolve_multi_node(
         feature_trace_sources: FeatureOverlay 每个参数的真实来源文件和路径。
         accel_overrides: wings-accel 产出的 engine_config 合并层(模型级,对每个节点统一应用;
             排 strategy_feature 后、user_cli 前 → recipe < accel < user_cli;空=无加速产出)。
+        accel_env: wings-accel 产出的环境变量合并层，优先级高于 recipe 和特性环境变量。
         device_count: 本 Pod 卡数(None 不触发多机 DP 协调)。
         rank_ip: 当前 Pod IP；与 ``node_ips`` 同时存在时进入运行时注入路径。
         node_ips: 有序集群成员 IP；用于选择当前 Pod 对应的 node recipe。
@@ -910,6 +912,15 @@ def _resolve_multi_node(
                     "<strategy:feature_env_inject>",
                     "strategy.feature_env_inject",
                 ),
+            )
+        if accel_env:
+            merge_layers.append(
+                MergeLayer(
+                    "strategy_accel",
+                    accel_env,
+                    "<wings-accel>",
+                    "strategy.accel.env",
+                )
             )
         return trace_merge(merge_layers)
 
@@ -1190,6 +1201,7 @@ def _resolve_platform_fallback(
     feature_overrides: dict,
     feature_trace_sources: dict[str, tuple[str, str]],
     accel_layer: dict,
+    accel_env: dict,
     strategy_env_layer: dict | None,
     strategy_feature_inject_overrides: dict | None,
     device_count: int | None,
@@ -1263,6 +1275,7 @@ def _resolve_platform_fallback(
                 feature_overrides=feature_overrides,
                 feature_trace_sources=feature_trace_sources,
                 accel_overrides=accel_layer,
+                accel_env=accel_env,
                 device_count=device_count,
                 rank_ip=rank_ip,
                 node_ips=node_ips,
@@ -1322,6 +1335,15 @@ def _resolve_platform_fallback(
                 strategy_env_layer,
                 "<strategy:feature_env_inject>",
                 "strategy.feature_env_inject",
+            )
+        )
+    if accel_env:
+        env_layers.append(
+            MergeLayer(
+                "strategy_accel",
+                accel_env,
+                "<wings-accel>",
+                "strategy.accel.env",
             )
         )
     return (
@@ -2056,6 +2078,7 @@ def resolve_config(
         dp_size=recipe_dp,
     )
     accel_layer = accel.engine_config  # strategy_accel 合并层(空 dict = 无产出 → trace_merge no-op)
+    accel_env = accel.env  # 环境变量在各解析路径中作为 strategy_accel 层并入 env_traces。
 
     no_model_fallback = model_data is None or model_path is None
     actual_engine_version_for_min = engine_version.resolved or engine_version.requested
@@ -2094,6 +2117,7 @@ def resolve_config(
             feature_overrides=feature_overrides,
             feature_trace_sources=feature_trace_sources,
             accel_layer=accel_layer,
+            accel_env=accel_env,
             strategy_env_layer=strategy_env_layer,
             strategy_feature_inject_overrides=strategy_feature_inject_overrides,
             device_count=device_count,
@@ -2120,6 +2144,7 @@ def resolve_config(
                 feature_overrides=feature_overrides,
                 feature_trace_sources=feature_trace_sources,
                 accel_overrides=accel_layer,
+                accel_env=accel_env,
                 device_count=device_count,
                 rank_ip=rank_ip,
                 node_ips=node_ips,
@@ -2166,6 +2191,15 @@ def resolve_config(
                         "<strategy:feature_env_inject>",
                         "strategy.feature_env_inject",
                     ),
+                )
+            if accel_env:
+                env_layers.append(
+                    MergeLayer(
+                        "strategy_accel",
+                        accel_env,
+                        "<wings-accel>",
+                        "strategy.accel.env",
+                    )
                 )
             env_traces = trace_merge(env_layers)
 
@@ -2238,8 +2272,8 @@ def resolve_config(
         resolution_notes["strategy_selection_source"] = strategy_selection_source
         resolution_notes["strategy_default_candidates"] = ",".join(strategy_default_candidates)
 
-    # wings-accel:engine_config 已作为 strategy_accel 合并层并入上方 engine_config_traces。
-    # 这里仅把 accel 结构挂到 ResolvedConfig,供 env 渲染与 audit 摘要使用。
+    # wings-accel 的 engine_config 和 env 均已作为 strategy_accel 层并入对应 traces。
+    # 这里保留 accel 结构，供 packages、pre-serve 和诊断摘要使用。
     return ResolvedConfig(
         topology=topology,
         hardware=hardware,

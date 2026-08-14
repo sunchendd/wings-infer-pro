@@ -2,8 +2,8 @@
 
 建议3 / docs/45 §7 落地后,``accel.engine_config`` 改由 **config_resolver** 作为 ``strategy_accel``
 合并层并入 ``engine_config_traces``(见 ``tests/integration/test_accel_merge_layer.py``);
-**script_builder 不再消费 ``accel.engine_config``**。本文件只覆盖 script_builder / emitter 仍负责的
-接缝:``accel.env`` → export 段、``accel.enabled`` → install 段、``accel.audit`` → audit.json;
+``accel.env`` 同样由 resolver 并入 ``env_traces``。本文件只覆盖 script_builder / emitter 仍负责的
+接缝:trace → export 段、``accel.enabled`` → install 段、``accel.audit`` → audit.json;
 空 ``AccelResult`` → 零变化(回归)。本接缝与 trace 解耦,直接构造 ``AccelResult`` 作 stub。
 """
 
@@ -13,6 +13,7 @@ import json
 
 from wings_ctl.accel.smart_accel import AccelResult
 from wings_ctl.audit.emitter import emit_audit
+from wings_ctl.core.config_resolver import MergeLayer, trace_merge
 from wings_ctl.core.models import (
     EngineVersion,
     HardwareContext,
@@ -27,8 +28,7 @@ from wings_ctl.rendering.script_builder import build_scripts
 def _make_resolved(accel: AccelResult | None = None) -> ResolvedConfig:
     """构造最小可执行 standalone ResolvedConfig;``accel`` 缺省 → 空(回归基线)。
 
-    注:``accel.engine_config`` 不在此注入 traces —— 它由 config_resolver 合并(§7),
-    本文件仅验 script_builder/emitter 对 accel.env/enabled/audit 的接缝。
+    注:生产路径由 config_resolver 合并 accel engine_config/env；夹具只模拟 env 的已解析结果。
     """
     traces = {
         "model": TracedValue(
@@ -40,14 +40,10 @@ def _make_resolved(accel: AccelResult | None = None) -> ResolvedConfig:
                                 "scenarios.standalone.engine_config.model")],
         ),
     }
-    env_traces = {
-        "VLLM_USE_V1": TracedValue(
-            final_value="1", final_layer="model_scenario", source_file="model.yaml",
-            source_path="scenarios.standalone.env.VLLM_USE_V1",
-            events=[SourceEvent("set", "model_scenario", "1", "model.yaml",
-                                "scenarios.standalone.env.VLLM_USE_V1")],
-        ),
-    }
+    env_layers = [MergeLayer("model_scenario", {"VLLM_USE_V1": "1"}, "model.yaml", "scenarios.standalone.env")]
+    if accel and accel.env:
+        env_layers.append(MergeLayer("strategy_accel", accel.env, "<wings-accel>", "strategy.accel.env"))
+    env_traces = trace_merge(env_layers)
     return ResolvedConfig(
         topology=Topology.STANDALONE,
         hardware=HardwareContext("test-hw", "nvidia", {}),
@@ -83,11 +79,12 @@ def test_build_scripts_wires_accel_env_and_install(tmp_path):
     assert "--speculative-config" not in start_text
 
 
-def test_repro_wires_accel_env_section(tmp_path):
-    """验证非空 accel → repro.sh 含独立的 wings-accel env 段。"""
+def test_repro_renders_accel_env_from_trace(tmp_path):
+    """验证 accel env 由统一 trace 段渲染，不再生成独立重复区块。"""
     _, repro_path = build_scripts(_make_resolved(_STUB), tmp_path)
     repro_text = repro_path.read_text(encoding="utf-8")
-    assert "Environment Variables (wings-accel)" in repro_text  # 独立 env 段
+    assert "Environment Variables (wings-accel)" not in repro_text
+    assert "# source: <wings-accel> @ strategy.accel.env.WINGS_ACCEL_KV" in repro_text
     assert "export WINGS_ACCEL_KV=on" in repro_text
 
 

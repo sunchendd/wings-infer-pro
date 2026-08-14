@@ -1,30 +1,10 @@
 from __future__ import annotations
 
 import json
-import subprocess
 
+from tests.script_test_utils import run_vllm_command_as_echo
 from wings_ctl import cli
 
-
-def _run_echo_command(script_path):
-    content = script_path.read_text(encoding="utf-8")
-    # 替换引擎命令行(后台化后的 "vllm serve ..." 行)为 echo,用于实际执行验证
-    lines = content.splitlines()
-    engine_idx = next((i for i, ln in enumerate(lines) if ln.startswith("vllm serve ")), -1)
-    if engine_idx != -1:
-        lines[engine_idx] = "echo " + lines[engine_idx]
-    patched = "\n".join(lines) + "\n"
-    patched_path = script_path.with_name(f"echo_{script_path.name}")
-    patched_path.write_text(patched, encoding="utf-8")
-    out = subprocess.run(
-        ["bash", str(patched_path)],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
-    cmd_lines = [line for line in out.splitlines() if line.startswith("vllm serve ")]
-    assert len(cmd_lines) == 1
-    return cmd_lines[0]
 
 
 def test_cli_maas_named_params_end_to_end(config_root_real, tmp_path, monkeypatch):
@@ -79,7 +59,7 @@ def test_cli_maas_named_params_end_to_end(config_root_real, tmp_path, monkeypatc
     assert repro_path.exists()
     assert audit_path.exists()
 
-    cmd = _run_echo_command(start_path)
+    cmd = run_vllm_command_as_echo(start_path)
     assert "vllm serve /tmp/models/" in cmd
     assert "--served-model-name Qwen3-Next" in cmd
     assert "--port 17000" in cmd  # proxy 迁移:用户 --port 18000 是 proxy 端口,engine 监听 backend 17000
@@ -147,7 +127,7 @@ def test_cli_enable_auto_think_choice_dropped_warn_and_keeps_recipe(config_root_
 
     start_path = output_dir / "start_command.sh"
     audit_path = output_dir / "audit.json"
-    cmd = _run_echo_command(start_path)
+    cmd = run_vllm_command_as_echo(start_path)
     assert "--enable-auto-think-choice" not in cmd
     assert "--reasoning-parser deepseek_v4" in cmd
     # 警告文案已更新为"由 FeatureOverlay reasoning gate 接管"(与上方 --reasoning-parser 实际渲染一致)。
