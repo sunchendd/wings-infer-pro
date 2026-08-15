@@ -13,7 +13,8 @@ import logging
 import pytest
 
 from wings_ctl.accel.smart_accel import _as_bool
-from wings_ctl.utils.env_utils import env_bool, parse_bool
+from wings_ctl.utils import env_utils
+from wings_ctl.utils.env_utils import env_bool, get_interface_for_ip, parse_bool
 
 
 @pytest.mark.parametrize("raw", ["1", "true", "True", "TRUE", "yes", "Yes", "y", "on", "ON", "  on  "])
@@ -60,6 +61,35 @@ def test_env_bool_reads_environment(monkeypatch):
     monkeypatch.delenv("WINGS_TEST_FLAG", raising=False)
     assert env_bool("WINGS_TEST_FLAG", default=True) is True
     assert env_bool("WINGS_TEST_FLAG", default=False) is False
+
+
+def test_get_interface_for_ip_returns_matching_interface(monkeypatch):
+    """验证:IP 匹配到网卡时返回该网卡且不走 eth0 fallback。"""
+    monkeypatch.setattr(env_utils.socket, "if_nameindex", lambda: [(1, "lo"), (2, "ens5")])
+    addresses = {"lo": b"\x7f\x00\x00\x01", "ens5": b"\x0a\x00\x00\x02"}
+    monkeypatch.setattr(
+        env_utils.fcntl,
+        "ioctl",
+        lambda _fd, _op, request: b"\x00" * 20 + addresses[request.split(b"\0", 1)[0].decode()],
+    )
+
+    assert get_interface_for_ip("10.0.0.2") == ("ens5", True)
+
+
+def test_get_interface_for_ip_falls_back_when_unmatched(monkeypatch):
+    """验证:没有网卡持有目标 IP 时使用 eth0。"""
+    monkeypatch.setattr(env_utils.socket, "if_nameindex", lambda: [(1, "lo")])
+    monkeypatch.setattr(env_utils.fcntl, "ioctl", lambda *_args: b"\x00" * 20 + b"\x7f\x00\x00\x01")
+
+    assert get_interface_for_ip("10.0.0.2") == ("eth0", False)
+
+
+def test_get_interface_for_ip_falls_back_when_query_fails(monkeypatch):
+    """验证:查询网卡地址失败时使用 eth0。"""
+    monkeypatch.setattr(env_utils.socket, "if_nameindex", lambda: [(1, "ens5")])
+    monkeypatch.setattr(env_utils.fcntl, "ioctl", lambda *_args: (_ for _ in ()).throw(OSError("denied")))
+
+    assert get_interface_for_ip("10.0.0.2") == ("eth0", False)
 
 
 @pytest.mark.parametrize("val", ["1", "yes", "on", "true", "Y"])

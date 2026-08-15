@@ -337,6 +337,7 @@ def test_pd_pipeline_generates_scripts_and_audit(
 ) -> None:
     """验证 run_pipeline 产出 fail-together 脚本、audit 与 process trace。"""
     monkeypatch.setenv("ENGINE_VERSION", "v0.23.0")
+    monkeypatch.setenv("RANK_IP", "10.0.0.4")
     monkeypatch.delenv("PD_ROLE", raising=False)
     placement = ClusterPlacement(
         master_ip="10.0.0.3",
@@ -357,12 +358,12 @@ def test_pd_pipeline_generates_scripts_and_audit(
     assert start.exists() and repro.exists() and audit.exists()
     script = start.read_text(encoding="utf-8")
     assert "wait -n" in script  # fail-together supervisor
-    assert "nic_name=$(awk" in script
-    assert script.index("nic_name=$(awk") < script.index("export HCCL_IF_IP")
+    assert "nic_name=$(awk" not in script
     assert "export HCCL_IF_IP=10.0.0.4" in script
-    assert 'export GLOO_SOCKET_IFNAME="$nic_name"' in script
-    assert 'export TP_SOCKET_IFNAME="$nic_name"' in script
-    assert 'export HCCL_SOCKET_IFNAME="$nic_name"' in script
+    # 测试宿主没有 placement IP，接口查找按 eth0 兜底。
+    assert "export GLOO_SOCKET_IFNAME=eth0" in script
+    assert "export TP_SOCKET_IFNAME=eth0" in script
+    assert "export HCCL_SOCKET_IFNAME=eth0" in script
     assert "$local_ip" not in script
     engine_lines = [line for line in script.splitlines() if "exec vllm serve" in line]
     assert engine_lines
@@ -384,6 +385,9 @@ def test_pd_pipeline_generates_scripts_and_audit(
     assert "strategy_pd_process" in [
         event["layer"] for event in processes[0]["engine_config"]["kv_transfer_config"]["events"]
     ]
+    assert processes[0]["env"]["HCCL_IF_IP"]["final_layer"] == "strategy_network_env"
+    assert processes[0]["env"]["HCCL_SOCKET_IFNAME"]["source_path"] == "interface_for_local_ip:fallback_eth0"
+    assert data["resolution_notes"]["network_env_override.interface_discovery"] == "fallback_eth0"
     assert resolved.pd_topology is not None
 
 

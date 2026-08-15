@@ -42,11 +42,7 @@ def _render_env_section(env_traces: Dict[str, TracedValue]) -> List[str]:
     return lines
 
 
-def _render_system_setup_comments(
-    system_setup: Optional[SystemSetup],
-    *,
-    include_commands: bool = True,
-) -> List[str]:
+def _render_system_setup_comments(system_setup: Optional[SystemSetup]) -> List[str]:
     """渲染 system_setup 为注释形式(不生成可执行行)。
 
     ⚠️ 安全敏感:仅输出注释,不生成可执行指令。特权 sysctls / sysfs_writes **恒注释**
@@ -54,14 +50,12 @@ def _render_system_setup_comments(
 
     Args:
         system_setup: 系统级设置(None 返回空)。
-        include_commands: 是否把 commands 也以注释列出。multi_node 执行路径下 commands 已
-            inline 渲染(见 ``_render_runtime_commands_inline``),此处传 False 避免重复。
     """
     if system_setup is None:
         return []
     lines: List[str] = []
 
-    has_any = system_setup.sysctls or system_setup.sysfs_writes or (include_commands and system_setup.commands)
+    has_any = system_setup.sysctls or system_setup.sysfs_writes or system_setup.commands
     if has_any:
         lines.append(f"# ─── System Setup (source: {system_setup.source_file} @ {system_setup.source_path}) ───")
 
@@ -77,36 +71,12 @@ def _render_system_setup_comments(
             value = entry.get("value", "")
             lines.append(f"#   echo {value!r} > {path}")
 
-    if include_commands and system_setup.commands:
+    if system_setup.commands:
         lines.append(f"# commands ({len(system_setup.commands)} entries, not rendered)")
 
     if lines:
         lines.append("")
 
-    return lines
-
-
-def _render_runtime_commands_inline(system_setup: Optional[SystemSetup]) -> List[str]:
-    """把 system_setup.commands 渲染为**可执行** inline 行(multi_node)。
-
-    multi_node 路径下,这里当前只会执行框架内固定命令(NIC 探测)。
-    占位 ``$local_ip`` / ``$node0_ip`` 在上游已替换为字面值,不在这里赋值。
-    ⚠️ 若将来扩展新的 inline 命令,需要同步做人审安全评估。
-    特权 sysctls / sysfs_writes 不在此,仍走注释(``_render_system_setup_comments``)。
-
-    Args:
-        system_setup: 系统级设置(None / 无 commands 返回空)。
-
-    Returns:
-        inline 可执行命令行(含来源注释头);置于 env export 之前,使 ``$var`` 先定义。
-    """
-    if system_setup is None or not system_setup.commands:
-        return []
-    lines = [
-        f"# ─── runtime commands (inline; source: {system_setup.source_file} @ {system_setup.source_path}) ───",
-    ]
-    lines.extend(system_setup.commands)
-    lines.append("")
     return lines
 
 
@@ -368,7 +338,6 @@ def _render_start_command_sh(
     engine: str,
     engine_version: str,
     packages: List[str],
-    execute_commands: bool = False,
     accel_enabled: bool = False,
     accel_pre_serve: Optional[List[str]] = None,
     accel_pre_serve_master: Optional[List[str]] = None,
@@ -385,9 +354,6 @@ def _render_start_command_sh(
         engine: 引擎名称,传给 wings-accel install.py。
         engine_version: 引擎版本,传给 wings-accel install.py。
         packages: 选中 scheme 声明的 pip 依赖(name:version),传给 install.py ``--config``。
-        execute_commands: multi_node 已完成运行时注入时为 True;runtime commands 需要
-            在 env export 之前执行,使 ``$local_ip`` 等变量先定义。standalone 为 False,
-            系统设置命令只作为注释渲染。
         accel_enabled: wings-accel 是否真启用(``AccelResult.enabled``)。仅 True 时渲染
             runtime patch 安装段;False(未开/模块缺席)→ 不加,非 accel 路径零影响。
         accel_pre_serve: KV 存储后端 pre-serve 段(所有节点);None/空 → 不渲染。
@@ -416,12 +382,6 @@ def _render_start_command_sh(
         "",
     ]
 
-    # multi_node:runtime commands inline(必须在 env 之前,$var 先定义)
-    if execute_commands:
-        cmd_lines = _render_runtime_commands_inline(system_setup)
-        if cmd_lines:
-            lines.extend(cmd_lines)
-
     # log_analyzer 进度监控(在 env export 之前,与旧版组装顺序一致)
     if analyzer_preamble:
         lines += [
@@ -447,8 +407,8 @@ def _render_start_command_sh(
         lines.extend(env_lines)
         lines.append("")
 
-    # system_setup 注释(特权 sysctls/sysfs 恒注释;commands 若已 inline 则不重复)
-    setup_lines = _render_system_setup_comments(system_setup, include_commands=not execute_commands)
+    # system_setup 恒以注释形式渲染，不在启动脚本中执行。
+    setup_lines = _render_system_setup_comments(system_setup)
     if setup_lines:
         lines.extend(setup_lines)
 
@@ -481,11 +441,7 @@ def _render_start_command_sh(
     return "\n".join(lines)
 
 
-def _render_repro_sh(
-    resolved: ResolvedConfig,
-    *,
-    execute_commands: bool = False,
-) -> str:
+def _render_repro_sh(resolved: ResolvedConfig) -> str:
     """生成 repro.sh 内容。可移植复现脚本,含来源注释。
 
     直接遍历 resolved.engine_config_traces 生成带注释的参数行,
@@ -494,7 +450,6 @@ def _render_repro_sh(
 
     Args:
         resolved: 解析结果。
-        execute_commands: multi_node 已注入时为 True → runtime commands inline(env 之前)。
     """
     lines = [
         "#!/usr/bin/env bash",
@@ -507,12 +462,6 @@ def _render_repro_sh(
         "set -euo pipefail",
         "",
     ]
-
-    # multi_node:runtime commands inline(env 之前)
-    if execute_commands:
-        cmd_lines = _render_runtime_commands_inline(resolved.system_setup)
-        if cmd_lines:
-            lines.extend(cmd_lines)
 
     # env section with trace comments
     if resolved.env_traces:
@@ -533,8 +482,8 @@ def _render_repro_sh(
     # KV 磁盘卸载残留清理(与 start_command.sh 同款;repro 复现也需干净基线)
     lines.extend(_render_kv_disk_cleanup_section(resolved.accel.kv_disk_offload_path))
 
-    # system_setup (注释形式,含来源;commands 若已 inline 则不重复)
-    setup_lines = _render_system_setup_comments(resolved.system_setup, include_commands=not execute_commands)
+    # system_setup 仅以注释形式渲染。
+    setup_lines = _render_system_setup_comments(resolved.system_setup)
     if setup_lines:
         lines.extend(setup_lines)
 
@@ -641,9 +590,6 @@ def _render_pd_process_plan(resolved: ResolvedConfig) -> str:
     if plan is None or not plan.processes:
         raise ValueError("PD rendering 要求非空 process_plan。")
     lines = ["#!/usr/bin/env bash", "set -euo pipefail", ""]
-    runtime_commands = _render_runtime_commands_inline(resolved.system_setup)
-    if runtime_commands:
-        lines.extend(runtime_commands)
     if plan.lifecycle == "single":
         process = plan.processes[0]
         lines.extend(_render_env_section(process.env_traces))
@@ -704,8 +650,10 @@ def build_scripts(
     四条路径:
     - PD ``process_plan`` 非空 → 按 single/fail-together 生命周期渲染可执行脚本。
     - multi_node 占位(``resolved.nodes`` 非空,无运行时上下文)→ 占位脚本(无 exec,exit 3)。
-    - multi_node 已注入(topology==MULTI_NODE 且已选 node)→ 可执行,commands inline。
-    - standalone → 可执行,commands 维持注释。
+    - multi_node 已注入(topology==MULTI_NODE 且已选 node)→ 渲染可执行脚本。
+    - standalone → 渲染可执行脚本。
+
+    ``system_setup.commands`` 在所有路径均仅以注释形式保留，不会被脚本执行。
 
     Returns:
         (start_command_path, repro_path) 元组。
@@ -732,9 +680,6 @@ def build_scripts(
         repro_path.chmod(0o755)
         return start_path, repro_path
 
-    # multi_node 已注入 → commands inline 执行;standalone → 注释(现状)。
-    execute_commands = resolved.topology == Topology.MULTI_NODE
-
     # advanced_features.json(使能状态单一真相源)在脚本生成阶段写入共享卷,
     # health 接口 /v1/startup/accel 读它回显页面(对齐老仓库 wings_entry 时机)。
     _write_advanced_features_json(resolved)
@@ -751,7 +696,6 @@ def build_scripts(
         # install preamble 使用实际引擎版本(优先 requested,回退 resolved)。
         engine_version=resolved.engine_version.requested or resolved.engine_version.resolved,
         packages=resolved.accel.packages,
-        execute_commands=execute_commands,
         accel_enabled=resolved.accel.enabled,
         accel_pre_serve=resolved.accel.pre_serve,
         accel_pre_serve_master=resolved.accel.pre_serve_master,
@@ -762,7 +706,7 @@ def build_scripts(
     start_path.write_text(start_content, encoding="utf-8")
     start_path.chmod(0o755)
 
-    repro_content = _render_repro_sh(resolved, execute_commands=execute_commands)
+    repro_content = _render_repro_sh(resolved)
     repro_path.write_text(repro_content, encoding="utf-8")
     repro_path.chmod(0o755)
 

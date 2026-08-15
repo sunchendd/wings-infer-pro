@@ -7,10 +7,8 @@ import pytest
 from wings_ctl.strategy.topology_inject import (
     LAYOUT_DP_ACROSS,
     LAYOUT_TP_ACROSS,
-    NIC_DETECT_CMD,
     coordinate_parallelism,
     detect_layout,
-    runtime_var_commands,
     select_node,
     substitute_literal_placeholders,
 )
@@ -256,27 +254,3 @@ def test_substitute_literal_ascend_and_nvidia_tokens():
     ec = {"data_parallel_address": "$HEAD_IP", "addr2": "$node0_ip", "host": "0.0.0.0"}
     override = substitute_literal_placeholders(ec, rank_ip="10.0.0.2", master_ip="10.0.0.1")
     assert override == {"data_parallel_address": "10.0.0.1", "addr2": "10.0.0.1"}
-
-
-def test_substitute_literal_leaves_runtime_tokens():
-    """验证 runtime 占位($nic_name/$IFACE_NAME)不被字面替换。"""
-    env = {"GLOO_SOCKET_IFNAME": "$IFACE_NAME", "HCCL_IF_IP": "$local_ip"}
-    override = substitute_literal_placeholders(env, rank_ip="1.2.3.4", master_ip="9.9.9.9")
-    assert override == {"HCCL_IF_IP": "1.2.3.4"}  # IFACE_NAME 不动
-
-
-# ─── runtime_var_commands(runtime:$nic_name / $IFACE_NAME)───────────────────
-
-def test_runtime_var_commands_ascend_nic():
-    """验证引用 $nic_name → 产 `nic_name=$(...)`。"""
-    assert runtime_var_commands({"GLOO_SOCKET_IFNAME": "$nic_name"}) == [f"nic_name={NIC_DETECT_CMD}"]
-
-
-def test_runtime_var_commands_nvidia_iface():
-    """验证引用 $IFACE_NAME → 产 `IFACE_NAME=$(...)`(变量名 = 去 $)。"""
-    assert runtime_var_commands({"NCCL_SOCKET_IFNAME": "$IFACE_NAME"}) == [f"IFACE_NAME={NIC_DETECT_CMD}"]
-
-
-def test_runtime_var_commands_empty_when_none():
-    """验证无 runtime 占位 → 空。"""
-    assert not runtime_var_commands({"HCCL_IF_IP": "10.0.0.1"}, {"port": 8077})
