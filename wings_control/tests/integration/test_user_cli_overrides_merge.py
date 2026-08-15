@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import subprocess
 
+from tests.script_test_utils import run_vllm_command_as_echo
 from wings_ctl.core.models import PipelineRequest, Target, UserInput
 from wings_ctl.pipeline import run_pipeline
 
@@ -33,29 +33,6 @@ def _extract_port_events(audit: dict):
     entry = audit["engine_config"]["port"]
     return entry["final_value"], entry["final_layer"], entry["events"]
 
-
-def _run_echo_command(script_path: Path) -> str:
-    content = script_path.read_text(encoding="utf-8")
-    # 替换引擎命令行(后台化后的 "vllm serve ..." 行)为 echo,用于实际执行验证
-    lines = content.splitlines()
-    engine_idx = next((i for i, ln in enumerate(lines) if ln.startswith("vllm serve ")), -1)
-    if engine_idx != -1:
-        lines[engine_idx] = "echo " + lines[engine_idx]
-    patched = "\n".join(lines) + "\n"
-    patched_path = script_path.with_name(f"echo_{script_path.name}")
-    patched_path.write_text(patched, encoding="utf-8")
-    env = os.environ.copy()
-    env.setdefault("LD_PRELOAD", "")
-    out = subprocess.run(
-        ["bash", str(patched_path)],
-        check=True,
-        capture_output=True,
-        text=True,
-        env=env,
-    ).stdout
-    cmd_lines = [line for line in out.splitlines() if line.startswith("vllm serve ")]
-    assert len(cmd_lines) == 1
-    return cmd_lines[0]
 
 
 def test_engine_param_port_9000_enters_user_cli_layer(config_root_real, tmp_path):
@@ -91,7 +68,7 @@ def test_engine_param_port_9000_enters_user_cli_layer(config_root_real, tmp_path
     assert events[2]["value"] == 9000
     assert events[2]["source_file"] == "<user_cli>"
 
-    cmd = _run_echo_command(start_path)
+    cmd = run_vllm_command_as_echo(start_path)
     assert "--port 9000" in cmd
     assert "--port 8088" not in cmd
     assert cmd.count("--port ") == 1
@@ -144,7 +121,7 @@ def test_no_user_cli_overrides_no_side_effect(config_root_real, tmp_path):
     assert events[1]["layer"] == "model_scenario"
     assert events[1]["value"] == 8088
 
-    cmd = _run_echo_command(start_path)
+    cmd = run_vllm_command_as_echo(start_path)
     assert "--port 8088" in cmd
     assert "--port 9000" not in cmd
     assert "--port 9001" not in cmd

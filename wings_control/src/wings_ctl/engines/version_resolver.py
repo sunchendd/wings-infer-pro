@@ -23,9 +23,7 @@ logger = logging.getLogger(__name__)
 _VERSION_DIR_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)(?:[A-Za-z]+\d*)?$")
 # 匹配运行时传入的版本，并提取基础版本和预发布渠道。
 # 示例：v0.21.0rc1-20260709144216 → v0.21.0 + rc，最终查找 v0.21.0rc 目录。
-_REQUESTED_VERSION_RE = re.compile(
-    r"^v?(\d+\.\d+\.\d+)([A-Za-z]+)(?:\d+)?(?:[-+].*)?$"
-)
+_REQUESTED_VERSION_RE = re.compile(r"^v?(\d+\.\d+\.\d+)([A-Za-z]+)(?:\d+)?(?:[-+].*)?$")
 
 
 def _parse_version_tuple(ver_str: str) -> Optional[Tuple[int, int, int]]:
@@ -60,6 +58,8 @@ def resolve_engine_version(
     config_root: Path,
     hardware_family: str,
     engine: str = "vllm",
+    *,
+    require_exact: bool = False,
 ) -> EngineVersion:
     """解析引擎版本,必要时执行 latest 回退。
 
@@ -67,14 +67,18 @@ def resolve_engine_version(
         config_root: 配置根目录(含 engines/ 子目录)。
         hardware_family: 硬件族标识(当前函数不参与路径计算,保留为接口兼容参数)。
         engine: 引擎名称(如 "vllm")。
+        require_exact: 是否要求显式 ``ENGINE_VERSION`` 且禁止 latest 回退；PD 使用。
 
     Returns:
         EngineVersion 实例。
 
     Raises:
-        FileNotFoundError: 无法找到任何有效版本目录。
+        ValueError: ``require_exact=True`` 但未设置 ``ENGINE_VERSION``。
+        FileNotFoundError: 严格版本未命中，或无法找到任何有效版本目录。
     """
     requested_raw = os.environ.get("ENGINE_VERSION", "").strip() or None
+    if require_exact and requested_raw is None:
+        raise ValueError("PD 场景必须显式设置 ENGINE_VERSION，且版本必须命中 exact recipe。")
     engine_root = config_root / "engines" / engine
 
     # 版本层有无,靠"目录名像不像版本号"这条通用规则判定,不靠引擎名。
@@ -82,10 +86,11 @@ def resolve_engine_version(
     #   有匹配(如 vllm-ascend 的 v0.18.0)→ 有版本层,走版本目录解析 + latest 回退;
     #   全不匹配(如 vllm 下全是 h100/h200 硬件名)→ 无版本层,resolved 置空、ENGINE_VERSION 不参与路径。
     # 这样新增引擎(sglang 等)无需改代码、无需声明:目录建得像版本号就有版本层,反之没有。
-    has_version_dir = any(
-        child.is_dir() and _VERSION_DIR_RE.match(child.name)
-        for child in engine_root.iterdir()
-    ) if engine_root.is_dir() else False
+    has_version_dir = (
+        any(child.is_dir() and _VERSION_DIR_RE.match(child.name) for child in engine_root.iterdir())
+        if engine_root.is_dir()
+        else False
+    )
 
     if not has_version_dir:
         return EngineVersion(
@@ -107,11 +112,7 @@ def resolve_engine_version(
         # v0.21.0rc1-20260709144216 → v0.21.0rc。
         # 从完整版本中提取基础版本和渠道名称，生成配置目录名。
         normalized_match = _REQUESTED_VERSION_RE.match(requested_raw)
-        normalized_dir_name = (
-            f"v{normalized_match.group(1)}{normalized_match.group(2)}"
-            if normalized_match
-            else None
-        )
+        normalized_dir_name = f"v{normalized_match.group(1)}{normalized_match.group(2)}" if normalized_match else None
 
         # 按“原始目录名 → 简化后的目录名”的顺序查找，优先保证精确匹配。
         candidate_names = [version_dir_name]
@@ -127,17 +128,21 @@ def resolve_engine_version(
                     is_fallback=False,
                     has_version_dir=True,
                 )
+        if require_exact:
+            attempted = ", ".join(candidate_names)
+            raise FileNotFoundError(
+                f"PD ENGINE_VERSION={requested_raw!r} 未命中 exact 配置目录；engine={engine!r}，已尝试={attempted}。"
+            )
         logger.warning(
-            "EngineResolver: requested version '%s' not found at %s; "
-            "falling back to latest available version.",
-            requested_raw, exact_path,
+            "EngineResolver: requested version '%s' not found at %s; falling back to latest available version.",
+            requested_raw,
+            exact_path,
         )
 
     latest = _find_latest_version_dir(engine_dir)
     if latest is None:
         raise FileNotFoundError(
-            f"No version directories found under {engine_dir}. "
-            f"Cannot resolve engine version for {engine}."
+            f"No version directories found under {engine_dir}. Cannot resolve engine version for {engine}."
         )
 
     resolved_version = latest.lstrip("v")
@@ -147,7 +152,8 @@ def resolve_engine_version(
     if is_fallback:
         logger.warning(
             "EngineResolver: FALLBACK requested=%s resolved=%s",
-            requested_raw, resolved_version,
+            requested_raw,
+            resolved_version,
         )
     else:
         logger.info("EngineResolver: no ENGINE_VERSION set, using latest=%s", resolved_version)

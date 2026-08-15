@@ -8,6 +8,8 @@ from typing import Dict
 from wings_ctl.core.models import (
     ExplicitPdTopology,
     ParallelShape,
+    PD_TOPOLOGY_DERIVED_1P1D,
+    PD_TOPOLOGY_EXPLICIT_ALLOCATION,
     PdRole,
     PdRuntimeInput,
     ResolvedPdTopology,
@@ -90,7 +92,7 @@ def _resolve_derived_1p1d(
     role_tp = _validate_ordinary_device_count(device_count)
     derived_shape = ParallelShape(dp_size=1, tp_size=role_tp)
     return ResolvedPdTopology(
-        input_policy="derived_1p1d",
+        input_policy=PD_TOPOLOGY_DERIVED_1P1D,
         role=pd_input.role,
         instance_index=0 if pd_input.role is PdRole.PREFILL else 1,
         prefill=derived_shape,
@@ -150,7 +152,7 @@ def _resolve_explicit_allocation(
     _validate_capacity(role_shape.tp_size, explicit.dp_size_local, device_count)
     rank_start = member_index * explicit.dp_size_local
     return ResolvedPdTopology(
-        input_policy="explicit_allocation",
+        input_policy=PD_TOPOLOGY_EXPLICIT_ALLOCATION,
         role=pd_input.role,
         instance_index=explicit.pd_index,
         prefill=explicit.prefill,
@@ -182,9 +184,9 @@ def resolve_pd_topology(
         ValueError: pair policy 不一致、输入形状不匹配、closure 或容量校验失败。
     """
     runtime = pair[pd_input.role].runtime
-    if runtime.topology_input_policy == "derived_1p1d":
+    if runtime.topology_input_policy == PD_TOPOLOGY_DERIVED_1P1D:
         resolved = _resolve_derived_1p1d(pd_input, pair, device_count)
-    elif runtime.topology_input_policy == "explicit_allocation":
+    elif runtime.topology_input_policy == PD_TOPOLOGY_EXPLICIT_ALLOCATION:
         if pd_input.explicit_topology is None:
             raise ValueError("explicit_allocation recipe 必须提供完整 PD topology 六字段。")
         resolved = _resolve_explicit_allocation(pd_input, pd_input.explicit_topology, pair, device_count)

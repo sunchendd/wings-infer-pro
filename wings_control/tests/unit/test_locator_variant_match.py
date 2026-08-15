@@ -96,3 +96,20 @@ def test_exact_precedence_over_pattern(tmp_path):
     _write(md, "DeepSeek", "d-nvfp4.yaml", name="DeepSeek", name_pattern="(?i)deepseek", variant_name="DeepSeek-nvfp4")
     _, path, _ = _load(tmp_path, "DeepSeek-fp8")
     assert path.name == "d-fp8.yaml"
+
+
+def test_exact_variant_only_rejects_pattern_fallback(tmp_path):
+    """验证 PD exact 模式拒绝唯一 name_pattern 命中，不降级到家族 recipe。"""
+    md = _models_dir(tmp_path)
+    _write(md, "Solo", "solo.yaml", name="Solo", name_pattern="(?i)solo")
+
+    with pytest.raises(FileNotFoundError, match="exact model variant"):
+        load_model_config(
+            tmp_path,
+            "hw0",
+            "vllm",
+            "",
+            "Solo",
+            has_version_dir=False,
+            exact_variant_only=True,
+        )

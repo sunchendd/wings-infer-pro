@@ -50,10 +50,7 @@ def _build_summary_lines(
     )
     lines.append(f"[STARTUP] config_dir={config_dir}")
     lines.append(f"[STARTUP] model_config={model_config}")
-    lines.append(
-        "[STARTUP] artifacts: "
-        f"start={start_path} repro={repro_path} audit={audit_path} log={target_log_path}"
-    )
+    lines.append(f"[STARTUP] artifacts: start={start_path} repro={repro_path} audit={audit_path} log={target_log_path}")
 
     if (
         resolved.engine_version.is_fallback
@@ -70,9 +67,7 @@ def _build_summary_lines(
     rows = resolved.user_cli_params or []
     applied_count = sum(1 for row in rows if row.get("status") == "applied")
     dropped_rows = [row for row in rows if row.get("status") == "dropped"]
-    lines.append(
-        f"[STARTUP] user_cli_params: applied={applied_count} dropped={len(dropped_rows)}"
-    )
+    lines.append(f"[STARTUP] user_cli_params: applied={applied_count} dropped={len(dropped_rows)}")
     for row in dropped_rows:
         key = row.get("key", "<unknown>")
         reason = row.get("reason", "")
@@ -89,12 +84,27 @@ def _build_summary_lines(
     else:
         lines.append(f"[STARTUP] device_count={dc} (未下发或未触发 DP 协调)")
 
+    # PD 摘要只投影规范 topology/process plan，不重算 rank、端口或卡组。
+    if resolved.pd_topology and resolved.process_plan:
+        pd = resolved.pd_topology
+        plan = resolved.process_plan
+        lines.append(
+            "[STARTUP] pd "
+            f"role={pd.role.value} pd_index={pd.instance_index} "
+            f"member={pd.member_index + 1}/{len(pd.placement.node_ips or [])} "
+            f"layout={plan.layout} lifecycle={plan.lifecycle}"
+        )
+        lines.append(
+            "[STARTUP] pd allocation "
+            f"local_dp={pd.dp_size_local} ranks={pd.rank_start}..{pd.rank_end_exclusive - 1} "
+            f"endpoints={','.join(plan.endpoints)}"
+        )
+
     # multi_node 摘要:未注入时展示占位视图;已注入时展示本 Pod 角色和并行信息。
     if resolved.nodes:
         roles = ",".join(n.role for n in resolved.nodes)
         lines.append(
-            f"[STARTUP] multi_node: nodes={len(resolved.nodes)} roles=[{roles}] "
-            "injection=pending(无运行时上下文)"
+            f"[STARTUP] multi_node: nodes={len(resolved.nodes)} roles=[{roles}] injection=pending(无运行时上下文)"
         )
     elif notes.get("multi_node_injection_status") == "injected":
         dp_status = notes.get("multinode_dp_status", "template")

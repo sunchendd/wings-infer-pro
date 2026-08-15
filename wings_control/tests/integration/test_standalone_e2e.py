@@ -17,6 +17,7 @@ import subprocess
 
 import pytest
 
+from tests.script_test_utils import run_vllm_command_as_echo
 from wings_ctl.audit.emitter import emit_audit
 from wings_ctl.core.config_resolver import MergeLayer, resolve_config, trace_merge
 from wings_ctl.core.models import (
@@ -171,7 +172,7 @@ class TestStandaloneE2E:
         assert "--some-none-param" not in argv
 
     def test_e_non_standalone_raises(self, config_root, hardware_info_path):
-        """(e) 非 standalone 的 topology 调用时 raise NotImplementedError。"""
+        """(e) PD topology 缺规范化 pd_input 时 fail-fast(不再 NotImplementedError)。"""
         os.environ["ENGINE_VERSION"] = "0.19.0"
         try:
             hardware = resolve_hardware(hardware_info_path)
@@ -179,13 +180,7 @@ class TestStandaloneE2E:
                 config_root, hardware.hardware_family, engine="vllm"
             )
 
-            with pytest.raises(NotImplementedError, match="multi_node"):
-                resolve_config(
-                    ResolvedEnv(config_root=config_root, hardware=hardware, engine_version=engine_version),
-                    Target(model_name="Qwen3.5-0.8B", topology=Topology.MULTI_NODE, engine="vllm"),
-                )
-
-            with pytest.raises(NotImplementedError, match="pd_prefill"):
+            with pytest.raises(ValueError, match="pd_input"):
                 resolve_config(
                     ResolvedEnv(config_root=config_root, hardware=hardware, engine_version=engine_version),
                     Target(model_name="Qwen3.5-0.8B", topology=Topology.PD_PREFILL, engine="vllm"),
@@ -224,41 +219,10 @@ class TestStandaloneE2E:
         resolved = _resolve_full(config_root, hardware_info_path)
         start_path, repro_path = build_scripts(resolved, tmp_path)
 
-        def _run_echo(script_path: Path) -> str:
-            content = script_path.read_text(encoding="utf-8")
-            # 替换引擎命令行为 echo,用于实际执行验证:
-            # - start_command.sh: "vllm serve ..." (后台化,行尾有 &)
-            # - repro.sh: "exec vllm serve ..." (exec 前缀,需剥离后 echo)
-            lines = content.splitlines()
-            engine_idx = next(
-                (i for i, ln in enumerate(lines)
-                 if ln.startswith("vllm serve ") or ln.startswith("exec vllm serve ")),
-                -1,
-            )
-            if engine_idx != -1:
-                cmd = lines[engine_idx]
-                if cmd.startswith("exec "):
-                    cmd = cmd[len("exec "):]
-                lines[engine_idx] = "echo " + cmd
-            patched = "\n".join(lines) + "\n"
-            patched_path = script_path.with_name(f"echo_{script_path.name}")
-            patched_path.write_text(patched, encoding="utf-8")
-            out = subprocess.run(
-                ["bash", str(patched_path)],
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout
-            return out
-
-        start_out = _run_echo(start_path)
-        repro_out = _run_echo(repro_path)
-
-        for out in (start_out, repro_out):
-            lines = [line for line in out.splitlines() if line.strip()]
-            cmd_lines = [line for line in lines if line.startswith("vllm serve ")]
-            assert len(cmd_lines) == 1
-            cmd = cmd_lines[0]
+        for cmd in (
+            run_vllm_command_as_echo(start_path),
+            run_vllm_command_as_echo(repro_path),
+        ):
             assert "--tensor-parallel-size 1" in cmd
             assert "--max-model-len 262144" in cmd
             assert "--reasoning-parser qwen3" in cmd

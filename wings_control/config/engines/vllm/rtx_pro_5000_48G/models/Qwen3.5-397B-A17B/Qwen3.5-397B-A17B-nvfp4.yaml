@@ -73,3 +73,5 @@ scenarios:
           VLLM_USE_DEEP_GEMM: 0
           VLLM_FLASHINFER_MOE_BACKEND: latency
           VLLM_USE_FLASHINFER_MOE_FP4: 1
+          NCCL_P2P_LEVEL: SYS
+          NCCL_SHM_DISABLE: 1

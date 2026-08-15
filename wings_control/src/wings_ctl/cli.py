@@ -39,6 +39,7 @@ from wings_ctl.common.log_config import LOGGER_LAUNCHER, setup_root_logging
 from wings_ctl.core.config_resolver import DEFAULT_ENGINE_PORT
 from wings_ctl.core.models import ClusterPlacement, PipelineRequest, Target, UserInput
 from wings_ctl.engines.vllm_adapter import build_argv
+from wings_ctl.pd.input_contract import parse_pd_runtime_input
 from wings_ctl.pipeline import resolve_pipeline, run_pipeline
 from wings_ctl.strategy.pre_template import pre_template_strategy
 from wings_ctl.translators.cli_translator import CLITranslator
@@ -46,6 +47,7 @@ from wings_ctl.utils.env_utils import parse_node_ips
 
 
 logger = logging.getLogger(LOGGER_LAUNCHER)
+
 
 def _collect_user_cli_overrides(
     host: str | None,
@@ -159,6 +161,31 @@ def _export_proxy_port(port: int | None) -> None:
         os.environ["PORT"] = str(port)
 
 
+def _drop_pd_backend_port_compat(
+    overrides: Dict[str, Any],
+    dropped: list[Dict[str, Any]],
+) -> tuple[Dict[str, Any], list[Dict[str, Any]]]:
+    """移除 ``--port`` 为标准推理生成的 engine backend 兼容覆盖。
+
+    MaaS 的 ``--port`` 始终属于 proxy，并已由 ``_export_proxy_port`` 写入 ``PORT``。
+    标准推理历史路径还会把它映射成 engine backend；PD backend 则由 exact recipe 规划，
+    必须在进入 resolver 前去掉该派生值并保留 dropped audit。
+    """
+    if "port" not in overrides:
+        return overrides, dropped
+    filtered = dict(overrides)
+    value = filtered.pop("port")
+    dropped_with_pd = list(dropped)
+    dropped_with_pd.append(
+        {
+            "key": "port",
+            "value": value,
+            "reason": "PD engine backend port is owned by the exact recipe; --port remains proxy PORT",
+        }
+    )
+    return filtered, dropped_with_pd
+
+
 def _export_smartqos_env(enable_smartqos: bool | None) -> None:
     """把 ``--enable-smartqos`` 写入 ``os.environ["ENABLE_SMARTQOS"]``,供 proxy 子进程继承。
 
@@ -207,13 +234,16 @@ def _derive_max_model_len(input_length: int | None, output_length: int | None) -
     if input_length <= 0 or output_length <= 0:
         logger.warning(
             "input_length=%s / output_length=%s 含非正值,跳过 max_model_len 派生",
-            input_length, output_length,
+            input_length,
+            output_length,
         )
         return None
     mml = input_length + output_length
     logger.info(
         "派生 max_model_len = input_length(%d) + output_length(%d) = %d(覆盖 recipe)",
-        input_length, output_length, mml,
+        input_length,
+        output_length,
+        mml,
     )
     return mml
 
@@ -322,9 +352,7 @@ def _resolve_model_name(model_name: str | None, model_path: str | None) -> str:
         name = Path(model_path).name  # basename;应匹配 recipe 的 name_pattern
         logger.info("未传 --model-name,从 --model-path 推导配方标识: %s", name)
         return name
-    raise ValueError(
-        "需要 --model-name 或 --model-path 以确定配方(MaaS 下发 --model-name 模型名称)"
-    )
+    raise ValueError("需要 --model-name 或 --model-path 以确定配方(MaaS 下发 --model-name 模型名称)")
 
 
 def _collect_subsystem_switches(args: argparse.Namespace) -> List[str]:
@@ -365,6 +393,17 @@ def _parse_runtime_context_from_env() -> tuple[str | None, str | None, list[str]
     return rank_ip, master_ip, node_ips
 
 
+def _print_env_dry_run(env_traces: dict[str, Any]) -> None:
+    """打印 dry-run 解析后的环境变量。"""
+    if not env_traces:
+        return
+    print("# Environment Variables")
+    for env_key, traced in env_traces.items():
+        value = traced.final_value
+        if value is not None:
+            print(f"export {env_key}={shlex.quote(str(value))}")
+
+
 def _print_multi_node_dry_run(engine: str, nodes: List[Any]) -> None:
     """打印 dry-run 下的 multi_node 占位 argv 列表。
 
@@ -378,6 +417,7 @@ def _print_multi_node_dry_run(engine: str, nodes: List[Any]) -> None:
     for node in nodes:
         node_argv = build_argv(node.engine_config_traces, engine=engine)
         print(f"# node[{node.role}] (multi_node 占位,未注入 $占位符)")
+        _print_env_dry_run(node.env_traces)
         print(shlex.join(node_argv))
 
 
@@ -392,8 +432,7 @@ def _print_multi_node_summary(engine: str, nodes: List[Any]) -> None:
         None。
     """
     logger.info(
-        "multi_node: %s 节点(占位,未注入;"
-        "start_command.sh 为占位脚本,部署时各 Pod 携 RANK_IP/NODE_IPS 重跑)",
+        "multi_node: %s 节点(占位,未注入;start_command.sh 为占位脚本,部署时各 Pod 携 RANK_IP/NODE_IPS 重跑)",
         len(nodes),
     )
     for node in nodes:
@@ -421,6 +460,14 @@ def _run_dry_mode(parser: argparse.ArgumentParser, request: PipelineRequest) -> 
         if resolved.nodes:
             _print_multi_node_dry_run(engine, resolved.nodes)
             return
+        if resolved.process_plan:
+            for process in resolved.process_plan.processes:
+                print(
+                    f"# process[{process.process_index}] rank={process.dp_rank} "
+                    f"devices={','.join(str(item) for item in process.visible_devices)}"
+                )
+                print(shlex.join(process.argv))
+            return
 
         # accel.engine_config 已并入 engine_config_traces,build_argv 输出即最终命令。
         argv = build_argv(resolved.engine_config_traces, engine=engine)
@@ -428,6 +475,7 @@ def _run_dry_mode(parser: argparse.ArgumentParser, request: PipelineRequest) -> 
         parser.error(str(exc))
         return
 
+    _print_env_dry_run(resolved.env_traces)
     print(shlex.join(argv))
 
 
@@ -444,7 +492,8 @@ def _validate_unknown_args(unknown_args: List[str]) -> None:
         return
 
     logger.warning(
-        "Received unrecognized arguments (ignored, startup continues): %s; ", " ".join(unknown_args),
+        "Received unrecognized arguments (ignored, startup continues): %s; ",
+        " ".join(unknown_args),
     )
 
 
@@ -466,7 +515,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Config assets root (default: auto-detect)",
     )
     parser.add_argument(
-        "--output-dir", "-o",
+        "--output-dir",
+        "-o",
         type=Path,
         default=None,
         help="Output directory for scripts and audit (default: /shared-volume if present, else cwd)",
@@ -549,7 +599,6 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-
 def main() -> None:
     """CLI 入口函数。"""
     # CLI 入口是配置解析流水线的第一个执行点（先于 wings_control.py 导入），
@@ -608,17 +657,18 @@ def main() -> None:
             enable_otlp_traces=args.enable_otlp_traces,
             enable_metrics=args.enable_metrics,
         )
-        user_cli_overrides, user_cli_dropped = CLITranslator.translate_overrides(
-            raw_user_cli_overrides, engine
-        )
+        user_cli_overrides, user_cli_dropped = CLITranslator.translate_overrides(raw_user_cli_overrides, engine)
         # 特性开关本身不直接渲染进 argv,只提取为 ON 的开关传入 resolve_config:
         #   enable_auto_tool_choice / enable_auto_think_choice → feature_overlay 按 model.yaml features 渲染;
         #   enable_smartqos / enable_otlp_traces / enable_metrics → feature_inject 按引擎类型注入 engine_config/env。
         feature_switches = {
             k: raw_user_cli_overrides[k]
             for k in (
-                "enable_auto_tool_choice", "enable_auto_think_choice",
-                "enable_smartqos", "enable_otlp_traces", "enable_metrics",
+                "enable_auto_tool_choice",
+                "enable_auto_think_choice",
+                "enable_smartqos",
+                "enable_otlp_traces",
+                "enable_metrics",
             )
             if raw_user_cli_overrides.get(k)
         }
@@ -626,19 +676,33 @@ def main() -> None:
         parser.error(str(exc))
         return
 
-    # 大策略层:从 --distributed(CLI)+ PD_ROLE/NODE_IPS/MASTER_IP(env)推导 topology。
-    # 不读 yaml;resolve_config 只消费推导后的 topology。
+    # 先规范化运行时上下文和 PD 原子输入，再由大策略层推导 topology；两步都不读 YAML。
+    rank_ip, master_ip, node_ips = _parse_runtime_context_from_env()
+    placement = None
+    if rank_ip or node_ips or master_ip:
+        placement = ClusterPlacement(rank_ip=rank_ip, node_ips=node_ips, master_ip=master_ip)
     try:
+        pd_input, pd_role_missing_legacy = parse_pd_runtime_input(
+            os.environ.get("PD_ROLE"),
+            os.environ,
+            placement,
+            distributed=bool(args.distributed),
+        )
         engine, topology = pre_template_strategy(
             engine,
             distributed=args.distributed,
-            pd_role=os.environ.get("PD_ROLE"),
-            master_ip=os.environ.get("MASTER_IP"),
+            pd_role=pd_input.role if pd_input else None,
+            master_ip=master_ip,
         )
-    except (ValueError, NotImplementedError) as exc:
-        # 缺 MASTER_IP / PD 预留(未实现)等 → 友好报错,不抛 traceback
+    except ValueError as exc:
         parser.error(str(exc))
         return
+
+    if pd_input is not None:
+        user_cli_overrides, user_cli_dropped = _drop_pd_backend_port_compat(
+            user_cli_overrides,
+            user_cli_dropped,
+        )
 
     # 配方标识:--model-name(模型名称)或从 --model-path basename 推导。
     try:
@@ -647,13 +711,6 @@ def main() -> None:
         parser.error(str(exc))
         return
 
-    # 运行时上下文:multi_node 选本 Pod 节点 + 注入用。缺省时走占位视图。
-    rank_ip, master_ip, node_ips = _parse_runtime_context_from_env()
-
-    # 分布式集群寻址:三 IP 全空(单机 / 无运行时上下文)→ placement=None,单机路径一眼知无关分布式。
-    placement = None
-    if rank_ip or node_ips or master_ip:
-        placement = ClusterPlacement(rank_ip=rank_ip, node_ips=node_ips, master_ip=master_ip)
     request = PipelineRequest(
         target=Target(model_name=model_name, topology=topology, engine=engine),
         hardware_info_path=hardware_info_path,
@@ -665,6 +722,8 @@ def main() -> None:
         ),
         device_count=device_count,
         placement=placement,
+        pd_input=pd_input,
+        pd_role_missing_legacy=pd_role_missing_legacy,
     )
 
     if args.dry_run:
@@ -683,6 +742,14 @@ def main() -> None:
     if resolved.nodes:
         # multi_node 占位(无运行时上下文):顶层无扁平 argv,逐节点打印。
         _print_multi_node_summary(engine, resolved.nodes)
+    elif resolved.process_plan:
+        for process in resolved.process_plan.processes:
+            logger.info(
+                "process[%d] rank=%s argv: %s",
+                process.process_index,
+                process.dp_rank,
+                shlex.join(process.argv),
+            )
     else:
         # accel 已并入 traces,不再 append。shlex.join 与 exec 行同款。
         argv = build_argv(resolved.engine_config_traces, engine=engine)
