@@ -273,6 +273,10 @@ class SmartAccelOutput:
     # 由 core 从 smart_kv_cache_config(loader 已解析 _memory_capacity_gb)推导,供
     # wings-control 写 advanced_features.json 的 others.kv_mem_offload_size。
     kv_mem_offload_size_gb: Optional[int] = None
+    # KV 磁盘卸载实际生效路径;disk_offload_enabled 且 offload 产出时为 str,否则 None。
+    # 供 wings-control 在 vllm serve 前渲染残留清理(rm -rf $path/kvcache/*,见 script_builder):
+    # 服务重启后 LMCache 落盘的旧 KV 数据会残留并超出 MaaS 规划容量,须启动前清空。
+    kv_disk_offload_path: Optional[str] = None
     diagnostics: Dict[str, Dict[str, Any]] = field(default_factory=dict) # 降级诊断;只写 degraded 特性,原样落 audit
     packages: List[str] = field(default_factory=list) # 各选中 scheme 声明的 pip 依赖汇总(name:version);供 install 段 --config
     pre_serve: List[str] = field(default_factory=list) # 聚合:所有节点 pre-serve 命令(去重保序);script_builder 在 vllm serve 前渲染

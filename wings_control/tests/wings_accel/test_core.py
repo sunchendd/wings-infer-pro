@@ -288,3 +288,33 @@ def test_custom_features_only_when_smart_on():
         smart_accel={**make_smart_accel(), **custom},
     ))
     assert out2.engine_params.engine_config["mamba_cache"] is True
+
+
+# ── kv_disk_offload_path(磁盘卸载路径产出,供 wings-control 启动前清理残留)──
+
+def test_kv_disk_offload_path_disk_on():
+    """disk 开启且 offload 产出 → kv_disk_offload_path = disk_path(供清理残留)。"""
+    kv = SmartKVCacheConfig(
+        enabled=True, memory_offload_enabled=False, disk_offload_enabled=True,
+        disk_path="/lm", disk_capacity_gb=8,
+    )
+    out = func_smart_accel(make_input(offload_enabled=True, kv_cache_config=kv))
+    assert out.smart_kv_cache_scheme == "disk"
+    assert out.kv_disk_offload_path == "/lm"
+
+
+def test_kv_disk_offload_path_disk_off():
+    """仅内存卸载(disk 关)→ kv_disk_offload_path None(无残留清理需求)。"""
+    kv = SmartKVCacheConfig(enabled=True, memory_offload_enabled=True, disk_offload_enabled=False)
+    out = func_smart_accel(make_input(offload_enabled=True, kv_cache_config=kv))
+    assert out.kv_disk_offload_path is None
+
+
+def test_kv_disk_offload_path_offload_absent():
+    """offload 未产出(scheme 缺失被关)→ kv_disk_offload_path None(无清理目标)。"""
+    kv = SmartKVCacheConfig(
+        enabled=True, disk_offload_enabled=True, disk_path="/lm",
+    )
+    out = func_smart_accel(make_input(offload_enabled=True, kv_cache_config=kv,
+                                      smart_accel={"decoding": []}))  # 无 kv_offload 块 → offload None
+    assert out.kv_disk_offload_path is None

@@ -206,6 +206,32 @@ def _write_advanced_features_json(resolved: ResolvedConfig) -> None:
         logger.warning("Failed to write advanced_features.json: %s", exc)
 
 
+def _render_kv_disk_cleanup_section(kv_disk_offload_path: Optional[str]) -> List[str]:
+    """渲染 KV 磁盘卸载残留清理段(vllm serve 前)。
+
+    背景:LMCache disk 卸载的数据落盘在 ``KV_DISK_OFFLOAD_PATH/kvcache/`` 下,推理服务
+    重启后旧数据残留,与新一轮卸载数据叠加会超出 MaaS 规划的 KV_DISK_OFFLOAD_SIZE,
+    同主机上可能与其它服务争抢资源。启动前清空卸载目录,保证本次服务占用与规划一致。
+
+    清理目标固定为 ``<path>/kvcache/`` 子目录(lmcache 落盘约定),不碰 path 本身;
+    path 为 None(无磁盘卸载)→ 空列表(非 disk 路径零影响)。
+
+    ⚠️ rm 属安全敏感命令:路径来自 MaaS ``KV_DISK_OFFLOAD_PATH``(accel 产出已解析,
+    非用户 shell 输入),且追加 ``/kvcache/`` 常量后缀 + ``shlex.quote`` 整体转义,
+    杜绝通配/注入;改动命令形态须人工 review。
+    """
+    if not kv_disk_offload_path:
+        return []
+    target = f"{kv_disk_offload_path.rstrip('/')}/kvcache"
+    return [
+        "# ── KV 磁盘卸载残留清理:服务重启后旧 KV 落数据会超出规划容量,启动前清空 ──",
+        f"mkdir -p {shlex.quote(target)}",
+        f"rm -rf {shlex.quote(target)}/*",
+        'if compgen -G "$KV_DISK_OFFLOAD_PATH/kvcache/*" > /dev/null; then _wings_log WARN "kv disk cleanup: residue remains"; fi',
+        "",
+    ]
+
+
 def _render_accel_pre_serve_section(
     pre_serve: Optional[List[str]],
     pre_serve_master: Optional[List[str]],
@@ -348,6 +374,7 @@ def _render_start_command_sh(
     accel_pre_serve: Optional[List[str]] = None,
     accel_pre_serve_master: Optional[List[str]] = None,
     accel_pre_serve_client: Optional[List[str]] = None,
+    kv_disk_offload_path: Optional[str] = None,
     analyzer_preamble: Optional[str] = None,
 ) -> str:
     """生成 start_command.sh 内容。简洁执行脚本。
@@ -367,6 +394,8 @@ def _render_start_command_sh(
         accel_pre_serve: KV 存储后端 pre-serve 段(所有节点);None/空 → 不渲染。
         accel_pre_serve_master: KV 存储后端 pre-serve 段(仅 master);None/空 → 不渲染。
         accel_pre_serve_client: KV 存储后端 pre-serve 段(仅 client);None/空 → 不渲染。
+        kv_disk_offload_path: KV 磁盘卸载实际路径(accel 产出);None(无磁盘卸载)→ 不渲染
+            残留清理段。清理 vllm serve 前的 kvcache/ 残留,保证重启后占用不超规划容量。
         analyzer_preamble: log_analyzer 进度监控 shell 片段;None → 不注入。
             在 env export 之前插入,确保分析器在引擎启动前就开始监控日志。
             启动后台分析器进程并注册 trap 清理。
@@ -434,6 +463,9 @@ def _render_start_command_sh(
     if pre_serve_lines:
         lines.extend(pre_serve_lines)
 
+    # KV 磁盘卸载残留清理(仅 disk 开启):vllm serve 前清空 kvcache/,保证重启后占用不超规划容量
+    lines.extend(_render_kv_disk_cleanup_section(kv_disk_offload_path))
+
     # 后台化引擎进程(而非 exec 替换 shell),使 trap cleanup_analyzer 保持有效。
     # exec 会替换 shell 进程导致 trap 失效:引擎退出时 cleanup 无法触发,
     # log_analyzer 成为孤儿进程。后台化 + wait 保持 shell 存活,trap 正常工作,
@@ -498,6 +530,9 @@ def _render_repro_sh(
     )
     if pre_serve_lines:
         lines.extend(pre_serve_lines)
+
+    # KV 磁盘卸载残留清理(与 start_command.sh 同款;repro 复现也需干净基线)
+    lines.extend(_render_kv_disk_cleanup_section(resolved.accel.kv_disk_offload_path))
 
     # system_setup (注释形式,含来源;commands 若已 inline 则不重复)
     setup_lines = _render_system_setup_comments(resolved.system_setup, include_commands=not execute_commands)
@@ -722,6 +757,7 @@ def build_scripts(
         accel_pre_serve=resolved.accel.pre_serve,
         accel_pre_serve_master=resolved.accel.pre_serve_master,
         accel_pre_serve_client=resolved.accel.pre_serve_client,
+        kv_disk_offload_path=resolved.accel.kv_disk_offload_path,
         analyzer_preamble=analyzer_preamble,
     )
     start_path.write_text(start_content, encoding="utf-8")

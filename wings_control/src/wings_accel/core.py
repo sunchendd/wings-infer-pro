@@ -123,6 +123,7 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
         smart_kv_sparse_scheme=sparse.scheme if sparse else None,
         engine_params=engine_params,
         kv_mem_offload_size_gb=_resolve_kv_mem_offload_size_gb(smart_input.smart_kv_cache_config),
+        kv_disk_offload_path=_resolve_kv_disk_offload_path(smart_input.smart_kv_cache_config, offload),
         diagnostics=diagnostics,
         packages=packages,
         pre_serve=pre_serve,
@@ -182,6 +183,19 @@ def _resolve_kv_mem_offload_size_gb(kv) -> Optional[int]:
         return 0 if mode else None
     capacity = _memory_capacity_gb(kv)
     return capacity if capacity > 0 else 0
+
+
+def _resolve_kv_disk_offload_path(kv, offload) -> Optional[str]:
+    """推导 KV 磁盘卸载实际生效路径(None = 无磁盘卸载,不需要清理)。
+
+    条件:disk_offload_enabled 且 kv_offload 特性真产出(offload 非 None;backend scheme
+    命中等无 disk 的场景 offload 可能因方案路由不带 disk,此时 scheme envs 无 LMCACHE_LOCAL_DISK,
+    不该清理)。路径取 SmartKVCacheConfig.disk_path(loader 已解析自 KV_DISK_OFFLOAD_PATH)。
+    """
+    if offload is None or not getattr(kv, "disk_offload_enabled", False):
+        return None
+    path = str(getattr(kv, "disk_path", "") or "").strip()
+    return path or None
 
 
 def _build_placeholder_context(smart_input: SmartAccelInput) -> PlaceholderContext:
