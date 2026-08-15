@@ -217,3 +217,36 @@ def test_empty_accel_no_audit_key(tmp_path):
     audit_path = emit_audit(_make_resolved(), tmp_path)
     data = json.loads(audit_path.read_text(encoding="utf-8"))
     assert "wings_accel" not in data
+
+
+# ── KV 磁盘卸载残留清理(服务重启后旧数据超规划容量)─────────────────────────
+
+def test_kv_disk_cleanup_rendered_before_serve(tmp_path):
+    """disk 开启(kv_disk_offload_path 非空)→ start_command.sh 在 vllm serve 前清空 <path>/kvcache/。
+
+    背景:LMCache disk 卸载数据落盘在 KV_DISK_OFFLOAD_PATH/kvcache/,服务重启后旧数据
+    残留会超出 MaaS 规划容量(KV_DISK_OFFLOAD_SIZE),启动前清空保证占用与规划一致。
+    """
+    accel = AccelResult(
+        env={"LMCACHE_LOCAL_DISK": "/lm"},
+        enabled=True,
+        kv_disk_offload_path="/lm",
+    )
+    start_path, repro_path = build_scripts(_make_resolved(accel), tmp_path)
+    start_text = start_path.read_text(encoding="utf-8")
+    assert "mkdir -p /lm/kvcache" in start_text
+    assert "rm -rf /lm/kvcache/*" in start_text
+    # 清理段必须在 vllm serve 之前(先清残留再启动引擎)
+    assert start_text.index("rm -rf /lm/kvcache/*") < start_text.index("vllm serve")
+    # repro.sh 同款清理(复现也需要干净基线)
+    assert "rm -rf /lm/kvcache/*" in repro_path.read_text(encoding="utf-8")
+
+
+def test_kv_disk_cleanup_absent_without_disk(tmp_path):
+    """无磁盘卸载(kv_disk_offload_path=None,含 mem-only / accel 关)→ 不渲染清理段(no-op 回归)。"""
+    accel = AccelResult(env={"LMCACHE_LOCAL_CPU": "True"}, enabled=True)  # mem-only,path None
+    start_path, repro_path = build_scripts(_make_resolved(accel), tmp_path)
+    start_text = start_path.read_text(encoding="utf-8")
+    assert "kvcache" not in start_text
+    assert "rm -rf" not in start_text
+    assert "rm -rf" not in repro_path.read_text(encoding="utf-8")

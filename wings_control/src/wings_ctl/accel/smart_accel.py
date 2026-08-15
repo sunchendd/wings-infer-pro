@@ -51,6 +51,9 @@ class AccelResult:
     # auto 请求但估算不足被关 → 0,KV 卸载未请求 → None。供 script_builder 写
     # advanced_features.json 的 others.kv_mem_offload_size(health 接口 /v1/startup/accel 透出)。
     kv_mem_offload_size_gb: int | None = None
+    # KV 磁盘卸载实际生效路径;disk 开启且 offload 产出 → str,否则 None。script_builder 在
+    # vllm serve 前渲染残留清理(服务重启后旧 KV 落数据会超出 MaaS 规划容量)。
+    kv_disk_offload_path: str | None = None
     # KV 存储后端(memcache/mooncake)pre-serve 命令:script_builder 在 vllm serve 前渲染。
     # pre_serve=所有节点(生成配置文件);pre_serve_master=仅 master 节点起 daemon;
     # pre_serve_client=仅 client 节点(非 master)。
@@ -223,6 +226,8 @@ def collect_output(output) -> AccelResult:
             pre_serve_client=list(getattr(output, "pre_serve_client", []) or []),
             # KV 内存卸载页面回显容量(auto 估算/数值 GB);getattr 兜底旧/stub 输出无该字段 → None
             kv_mem_offload_size_gb=getattr(output, "kv_mem_offload_size_gb", None),
+            # KV 磁盘卸载路径(disk 开启且产出);getattr 兜底旧/stub 输出无该字段 → None
+            kv_disk_offload_path=getattr(output, "kv_disk_offload_path", None),
             # enabled = 真有产出(对齐 docstring"成功产出";模块跑了但产空 → False,不触发 install 段)
             enabled=bool(engine_config or env),
         )
@@ -243,7 +248,10 @@ def collect_output(output) -> AccelResult:
     if top:
         audit["wings_accel"] = top
     return AccelResult(
-        engine_config=engine_config, env=env, audit=audit, enabled=bool(engine_config or env)
+        engine_config=engine_config, env=env, audit=audit,
+        enabled=bool(engine_config or env),
+        kv_mem_offload_size_gb=getattr(output, "kv_mem_offload_size_gb", None),
+        kv_disk_offload_path=getattr(output, "kv_disk_offload_path", None),
     )
 
 
