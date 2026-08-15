@@ -227,7 +227,6 @@ def _render_kv_disk_cleanup_section(kv_disk_offload_path: Optional[str]) -> List
         "# ── KV 磁盘卸载残留清理:服务重启后旧 KV 落数据会超出规划容量,启动前清空 ──",
         f"mkdir -p {shlex.quote(target)}",
         f"rm -rf {shlex.quote(target)}/*",
-        'if compgen -G "$KV_DISK_OFFLOAD_PATH/kvcache/*" > /dev/null; then _wings_log WARN "kv disk cleanup: residue remains"; fi',
         "",
     ]
 
