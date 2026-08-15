@@ -5,7 +5,7 @@ from pathlib import Path
 from wings_ctl.core import config_resolver
 from wings_ctl.core.models import SourceEvent, TracedValue
 from wings_ctl.loaders.reasoning_table import LoadedReasoningTable
-from wings_ctl.strategy.post_merge import apply_post_merge_strategy
+from wings_ctl.strategy.post_merge import apply_network_env_strategy, apply_post_merge_strategy
 from wings_ctl.strategy.reasoning_resolver import ReasoningResolution, ReasoningSpec
 
 
@@ -17,6 +17,45 @@ def _traced(value, key="test") -> TracedValue:
         source_path=key,
         events=[SourceEvent("set", "model_scenario", value, "model.yaml", key)],
     )
+
+
+def test_network_env_strategy_overrides_declared_keys_with_trace(monkeypatch) -> None:
+    monkeypatch.setattr("wings_ctl.strategy.post_merge.get_local_ip", lambda: "10.0.0.2")
+    monkeypatch.setattr("wings_ctl.strategy.post_merge.get_interface_for_ip", lambda _ip: ("ens5", True))
+    result, notes = apply_network_env_strategy(
+        {
+            "HCCL_IF_IP": _traced("$local_ip", "env.HCCL_IF_IP"),
+            "NETWORK_CARD_NAME": _traced("$nic_name", "env.NETWORK_CARD_NAME"),
+            "GLOO_SOCKET_IFNAME": _traced("$nic_name", "env.GLOO_SOCKET_IFNAME"),
+            "NCCL_SOCKET_IFNAME": _traced("$IFACE_NAME", "env.NCCL_SOCKET_IFNAME"),
+            "OTHER": _traced("unchanged", "env.OTHER"),
+        }
+    )
+
+    assert result["HCCL_IF_IP"].final_value == "10.0.0.2"
+    assert result["NETWORK_CARD_NAME"].final_value == "ens5"
+    assert result["GLOO_SOCKET_IFNAME"].final_value == "ens5"
+    assert result["NCCL_SOCKET_IFNAME"].final_value == "ens5"
+    assert result["OTHER"].final_value == "unchanged"
+    assert result["HCCL_IF_IP"].events[-1] == SourceEvent(
+        "override", "strategy_network_env", "10.0.0.2", "<strategy:network_env>", "get_local_ip"
+    )
+    assert result["NETWORK_CARD_NAME"].events[-1].source_path == "interface_for_local_ip:matched"
+    assert result["GLOO_SOCKET_IFNAME"].events[-1].source_path == "interface_for_local_ip:matched"
+    assert result["NCCL_SOCKET_IFNAME"].events[-1].source_path == "interface_for_local_ip:matched"
+    assert notes["network_env_override.interface"] == "ens5"
+    assert notes["network_env_override.keys"] == "HCCL_IF_IP,NETWORK_CARD_NAME,GLOO_SOCKET_IFNAME,NCCL_SOCKET_IFNAME"
+
+
+def test_network_env_strategy_records_eth0_fallback(monkeypatch) -> None:
+    monkeypatch.setattr("wings_ctl.strategy.post_merge.get_local_ip", lambda: "10.0.0.2")
+    monkeypatch.setattr("wings_ctl.strategy.post_merge.get_interface_for_ip", lambda _ip: ("eth0", False))
+
+    result, notes = apply_network_env_strategy({"HCCL_SOCKET_IFNAME": _traced("$nic_name")})
+
+    assert result["HCCL_SOCKET_IFNAME"].final_value == "eth0"
+    assert result["HCCL_SOCKET_IFNAME"].events[-1].source_path == "interface_for_local_ip:fallback_eth0"
+    assert notes["network_env_override.interface_discovery"] == "fallback_eth0"
 
 
 def test_tp_dependent_ascend_params_are_removed_when_tp_is_one() -> None:

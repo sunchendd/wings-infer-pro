@@ -1,7 +1,7 @@
 """Step 3.1-c — multi_node 运行时注入(有 RANK_IP/NODE_IPS → 选 node + R-G + 注入)集成测试。
 
-验证:选本 Pod 节点(R-2 强校验)、占位字面替换(argv 安全)、nic 运行时探测(env)、
-R-G DP 调整、产可执行脚本(commands inline 在 env 前)、强校验/越界 raise。
+验证:选本 Pod 节点(R-2 强校验)、占位字面替换(argv 安全)、通信网卡环境变量解析、
+R-G DP 调整、产可执行脚本、强校验/越界 raise。
 固定输入→固定输出:GLM-4.5(head: cnt=8 复现模板;cnt=16 触发 R-G)。
 """
 
@@ -36,6 +36,7 @@ def _hw(tmp_path: Path) -> Path:
 def _run(tmp_path, monkeypatch, config_root_real, *, rank_ip, device_count=None, out="out"):
     """带运行时上下文跑 MULTI_NODE 流水线(注入路径)。"""
     monkeypatch.setenv("ENGINE_VERSION", _ENGINE_VERSION)
+    monkeypatch.setenv("RANK_IP", rank_ip)
     monkeypatch.setenv("WINGS_START_LOG", str(tmp_path / "wsl.log"))
     return run_pipeline(
         PipelineRequest(
@@ -79,14 +80,11 @@ def test_inject_worker_start_command_executable_and_safe(config_root_real, tmp_p
     text = start_path.read_text(encoding="utf-8")
     # 可执行(有引擎命令,无占位横幅)
     assert "vllm serve" in text and "RUNTIME INJECTION PENDING" not in text
-    # nic 运行时探测 inline,且在第一个 export 之前
-    assert "nic_name=$(awk" in text
-    assert text.index("nic_name=$(awk") < text.index("export ")
     # argv data-parallel-address = 字面 master IP(无单引号 $)
     assert "--data-parallel-address 10.0.0.1" in text
     assert "'$local_ip'" not in text and "'$node0_ip'" not in text
-    # $nic_name 仅在 env(双引号,运行时展开)
-    assert 'GLOO_SOCKET_IFNAME="$nic_name"' in text
+    # 通信网卡以本 Pod IP 查询；测试环境没有虚拟集群 IP，按 eth0 兜底。
+    assert "GLOO_SOCKET_IFNAME=eth0" in text
     # 语法合法
     subprocess.run(["bash", "-n", str(start_path)], check=True)
     assert "exec vllm serve" in repro_path.read_text(encoding="utf-8")  # repro.sh 仍用 exec
@@ -100,6 +98,9 @@ def test_inject_audit_and_startup_log_reflect_injection(config_root_real, tmp_pa
     assert audit["engine_config"]["data_parallel_start_rank"]["final_value"] == 2   # worker index1×dp_local2
     notes = audit["resolution_notes"]
     assert notes["multi_node_role"] == "worker" and notes["multi_node_index"] == "1"
+    assert audit["env"]["HCCL_IF_IP"]["final_layer"] == "strategy_network_env"
+    assert audit["env"]["GLOO_SOCKET_IFNAME"]["source_path"] == "interface_for_local_ip:fallback_eth0"
+    assert notes["network_env_override.interface_discovery"] == "fallback_eth0"
     log_text = (tmp_path / "wsl.log").read_text(encoding="utf-8")
     assert "multi_node: role=worker index=1" in log_text and "injection=injected" in log_text
 
