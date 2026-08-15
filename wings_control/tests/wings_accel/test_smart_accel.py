@@ -157,7 +157,7 @@ def test_build_input_maps_env_switches() -> None:
         engine="vllm", engine_version="0.19.0", switches=collect_accel_switches(env),
     )
     assert si.hardware_config.gpu_type == "h200"
-    assert si.hardware_config.pod_available_memory_gb == 512  # 524288 MiB → 512 GB
+    assert si.hardware_config.pod_available_memory_gb == 497  # 524288 MiB → 512 GB − 15 补偿 = 497
     assert si.smart_decoding_config.enabled is True
     assert si.smart_decoding_config.model_path == "/draft"
     assert si.smart_kv_cache_config.enabled is True

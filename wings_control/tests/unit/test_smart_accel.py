@@ -47,7 +47,7 @@ def test_collect_switches_v3_kv_hierarchy():
     assert s["kv_mem_size_gb"] == 0          # "auto" → 0(交 accel 智能推荐)
     assert s["kv_disk_size_gb"] == 512 and s["kv_disk_path"] == "/lm"
     assert s["kv_qat_compress_level"] == 2 and s["kv_qat_instance_num"] == 4
-    assert s["available_pod_mem_gb"] == 128 and s["pd_role"] == "P"  # 131072 MiB→128 GB;PD_ROLE 原样透传
+    assert s["available_pod_mem_gb"] == 113 and s["pd_role"] == "P"  # 131072 MiB→128 GB−15 补偿=113;PD_ROLE 原样透传
 
 
 def test_collect_switches_defaults_when_absent():

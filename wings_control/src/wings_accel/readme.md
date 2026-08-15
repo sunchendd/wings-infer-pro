@@ -145,7 +145,7 @@ class SmartAccelInput:
 | 子配置 | 字段 | MaaS 来源 |
 |---|---|---|
 | `SystemConfig` | `gpu_count` | `--device-count`(int,必填) |
-| | `pod_available_memory_gb` | `AVAILABLE_POD_MEM_SIZE`(int **MiB**,必填;入口 /1024 换算为 GB) |
+| | `pod_available_memory_gb` | `AVAILABLE_POD_MEM_SIZE`(int **MiB**,必填;入口 /1024 换算为 GB 后再扣 15GB——MaaS 页面下发口径补偿:页面 bug 实际下发=总内存−5GB,正确契约=总内存−20GB,页面修复后移除) |
 | | `gpu_type` | 硬件族目录名(非 MaaS 直传,yaml 定位键) |
 | `ModelConfig` | `model_path` | `--model-path`(主模型路径) |
 | | `model_name` | `--model`/`-m`(yaml 定位键) |

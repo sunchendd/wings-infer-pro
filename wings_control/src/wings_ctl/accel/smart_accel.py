@@ -25,6 +25,10 @@ from wings_ctl.utils.env_utils import parse_bool
 
 logger = logging.getLogger(__name__)
 
+# MaaS 页面下发口径补偿(GB):页面 bug 实际下发 = 节点总内存 − 5GB,正确契约应为总内存 − 20GB,
+# 入口换算后统一再扣 15GB 恢复正确口径;页面修复(恢复 −20GB 下发)后删除本补偿。
+_POD_MEM_MASS_SHORTFALL_GB = 15
+
 
 @dataclass
 class AccelResult:
@@ -101,11 +105,15 @@ def _pod_mem_mib_to_gb(value: Any) -> int:
 
     与老仓库 resolve_offload_cpu_capacity_gb 对齐:float(mib)/1024 后向下取整;
     空/非法 → 0(关闭 auto 估算,避免误判)。
+
+    MaaS 下发口径补偿:页面 bug 实际下发 = 节点总内存 − 5GB,而正确契约应为总内存 − 20GB,
+    故换算后再扣 15GB 恢复正确口径(页面修复后移除)。
     """
     try:
-        return int(int(value) // 1024)
+        gb = int(int(value) // 1024)
     except (TypeError, ValueError):
         return 0
+    return max(0, gb - _POD_MEM_MASS_SHORTFALL_GB)
 
 
 def _kv_mem_size(value: Any) -> str:

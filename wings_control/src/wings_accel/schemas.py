@@ -40,7 +40,8 @@ class SystemConfig:
     MaaS 对齐:
       - `--device-count`:必填,int,卡数。
       - `AVAILABLE_POD_MEM_SIZE`:必填,int,pod 可用内存大小,单位 **MiB**(如 65536 表示 64GB);当前消费方为 KV 卸载,
-        后续也可被其他特性消费。
+        后续也可被其他特性消费。注:入口换算为 GB 后再扣 15GB(MaaS 页面下发口径补偿,页面 bug 实际下发=总内存−5GB,
+        正确契约=总内存−20GB;页面修复后移除)。
     """
 
     gpu_type: str = "A100" # 硬件族(= hardware_family,如 rtx_pro_5000_72G / h200);yaml 定位键,非 MaaS 直接入参
