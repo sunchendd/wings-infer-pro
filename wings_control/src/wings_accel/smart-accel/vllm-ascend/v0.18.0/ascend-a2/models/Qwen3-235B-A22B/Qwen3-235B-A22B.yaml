@@ -1,0 +1,5 @@
+# SmartAccel 精确身份占位（无已验证的加速特性）
+model:
+  name: Qwen3-235B-A22B
+  variant_name: "Qwen3-235B-A22B-w8a8"
+smart_accel: {}

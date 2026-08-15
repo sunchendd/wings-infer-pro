@@ -1,0 +1,5 @@
+# SmartAccel 精确身份占位（无已验证的加速特性）
+model:
+  name: Qwen3-32B-W4A4
+  variant_name: "Qwen3-32B-W4A4-w4a4"
+smart_accel: {}

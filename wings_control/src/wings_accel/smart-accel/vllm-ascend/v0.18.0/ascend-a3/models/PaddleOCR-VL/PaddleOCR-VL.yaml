@@ -1,0 +1,5 @@
+# SmartAccel 精确身份占位（无已验证的加速特性）
+model:
+  name: PaddleOCR-VL
+  variant_name: "PaddleOCR-VL"
+smart_accel: {}

@@ -5,7 +5,7 @@ model:
   name: DeepSeek-R1
   variant_name: "DeepSeek-R1-W8A8"
   match:
-    - name_pattern: "(?i)deepseek[-.]?r1"
+    - name_pattern: "(?i)^deepseek[-.]?r1(?:[-.]?w8a8)?$"
 smart_accel:
   standalone:
     source_ref: smart_accel#standalone

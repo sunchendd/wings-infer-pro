@@ -1,0 +1,5 @@
+# SmartAccel 精确身份占位（无已验证的加速特性）
+model:
+  name: DeepSeek-V3
+  variant_name: "DeepSeek-V3-w8a8-mtp-QuaRot"
+smart_accel: {}

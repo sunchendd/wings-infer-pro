@@ -1,0 +1,5 @@
+# SmartAccel 精确身份占位（无已验证的加速特性）
+model:
+  name: DeepSeek-V4-Pro
+  variant_name: "DeepSeek-V4-Pro-w4a8-mtp"
+smart_accel: {}

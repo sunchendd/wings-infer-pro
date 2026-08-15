@@ -29,6 +29,8 @@ smart_accel:
               kv_connector: LMCacheAscendConnectorV1Dynamic
               kv_role: kv_both
               kv_connector_module_path: lmcache_ascend.integration.vllm.lmcache_ascend_connector_v1
+          packages:
+            lmcache-ascend: v0.4.5
           envs:
             LMCACHE_TRACK_USAGE: 'false'
             LMCACHE_LOCAL_CPU: 'True'
@@ -74,6 +76,8 @@ smart_accel:
               kv_connector: LMCacheAscendConnectorV1Dynamic
               kv_role: kv_both
               kv_connector_module_path: lmcache_ascend.integration.vllm.lmcache_ascend_connector_v1
+          packages:
+            lmcache-ascend: v0.4.5
           envs:
             LMCACHE_TRACK_USAGE: 'false'
             LMCACHE_LOCAL_CPU: 'True'

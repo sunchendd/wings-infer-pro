@@ -1,0 +1,5 @@
+# SmartAccel 精确身份占位（无已验证的加速特性）
+model:
+  name: Qwen2.5-VL-32B-Instruct
+  variant_name: "Qwen2.5-VL-32B-Instruct"
+smart_accel: {}

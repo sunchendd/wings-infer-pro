@@ -1,0 +1,5 @@
+# SmartAccel 精确身份占位（无已验证的加速特性）
+model:
+  name: Qwen3-Reranker
+  variant_name: "Qwen3-Reranker-8B"
+smart_accel: {}

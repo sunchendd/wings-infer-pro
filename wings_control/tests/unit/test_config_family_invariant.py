@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -41,6 +42,50 @@ def _engine_config_mappings(value: Any) -> Iterator[dict[str, Any]]:
     elif isinstance(value, list):
         for nested in value:
             yield from _engine_config_mappings(nested)
+
+
+def _contains_mtp(value: Any) -> bool:
+    """递归判断 YAML 是否声明 mtp/deepseek_mtp 投机方法。"""
+    if isinstance(value, dict):
+        if value.get("method") in {"mtp", "deepseek_mtp"}:
+            return True
+        return any(_contains_mtp(nested) for nested in value.values())
+    if isinstance(value, list):
+        return any(_contains_mtp(nested) for nested in value)
+    if isinstance(value, str):
+        return bool(re.search(r'["\']method["\']\s*:\s*["\'](?:deepseek_)?mtp["\']', value))
+    return False
+
+
+def _model_patterns(data: Any) -> list[str]:
+    """提取 model.match 下的 name_pattern。"""
+    if not isinstance(data, dict):
+        return []
+    model = data.get("model")
+    if not isinstance(model, dict):
+        return []
+    rules = model.get("match")
+    if not isinstance(rules, list):
+        return []
+    return [
+        rule["name_pattern"]
+        for rule in rules
+        if isinstance(rule, dict) and isinstance(rule.get("name_pattern"), str)
+    ]
+
+
+def _model_variant_keys(root: Path) -> set[tuple[str, str, str]]:
+    """收集 ``(version, hardware, variant_name)`` 资产身份。"""
+    keys: set[tuple[str, str, str]] = set()
+    for path in root.glob("v*/*/models/*/*.yaml"):
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        model = data.get("model") if isinstance(data, dict) else None
+        if not isinstance(model, dict):
+            continue
+        variant_name = model.get("variant_name")
+        if isinstance(variant_name, str) and variant_name.strip():
+            keys.add((path.parts[-5], path.parts[-4], variant_name.strip().casefold()))
+    return keys
 
 
 def test_config_family_dir_no_bare_and_suffixed_collision(config_root_real):
@@ -89,4 +134,51 @@ def test_vllm_flashinfer_kernel_config_uses_native_dotted_key(config_root_real):
     assert not invalid_native_entries, (
         "vLLM native FlashInfer kernel 配置必须使用字符串字面值 \"False\":\n"
         + "\n".join(invalid_native_entries)
+    )
+
+
+def test_deepseek_mtp_assets_do_not_match_unsupported_models(config_root_real):
+    """声明 MTP 的 DeepSeek 资产不得匹配已知不支持 MTP 的 Coder/Distill 模型。"""
+    unsupported_models = (
+        "DeepSeek-Coder-V2-Instruct",
+        "DeepSeek-R1-Distill-Qwen-1.5B",
+        "DeepSeek-R1-Distill-Qwen-7B",
+        "DeepSeek-R1-Distill-Qwen-14B",
+        "DeepSeek-R1-Distill-Qwen-32B",
+        "DeepSeek-R1-Distill-Llama-8B",
+        "DeepSeek-R1-Distill-Llama-70B",
+    )
+    roots = (
+        config_root_real / "engines",
+        Path(__file__).resolve().parents[2] / "src" / "wings_accel" / "smart-accel",
+    )
+    violations: list[str] = []
+    for root in roots:
+        for path in sorted(root.rglob("*.yaml")):
+            if "deepseek" not in str(path).casefold():
+                continue
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            if not _contains_mtp(data):
+                continue
+            for pattern in _model_patterns(data):
+                matched = [name for name in unsupported_models if re.search(pattern, name)]
+                if matched:
+                    violations.append(f"{path}: {pattern!r} -> {', '.join(matched)}")
+
+    assert not violations, (
+        "以下 DeepSeek YAML 声明了 MTP，却会匹配不支持 MTP 的 Coder/Distill 模型:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_vllm_ascend_engine_variants_have_smart_assets(config_root_real):
+    """每个 vLLM-Ascend engine variant 必须有同版本、同硬件、同身份的 SmartAccel 资产。"""
+    engine_keys = _model_variant_keys(config_root_real / "engines" / "vllm-ascend")
+    smart_root = Path(__file__).resolve().parents[2] / "src" / "wings_accel" / "smart-accel" / "vllm-ascend"
+    smart_keys = _model_variant_keys(smart_root)
+    engine_only = sorted(engine_keys - smart_keys)
+
+    assert not engine_only, (
+        "以下 vLLM-Ascend engine variant 缺少同版本、同硬件、同身份的 SmartAccel 资产：\n"
+        + "\n".join(map(str, engine_only))
     )

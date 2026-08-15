@@ -285,3 +285,52 @@ def test_real_yaml_mooncake_auto_derives_capacity(monkeypatch, tmp_path):
     assert '"global_segment_size": "{= memory_capacity_gb // gpu_count}GB"' not in body
     m = re.search(r'"global_segment_size":\s*"(\d+)GB"', body)
     assert m and int(m.group(1)) >= 1
+
+
+# ── 真实 YAML 资产(DeepSeek-V4-Flash lmcache-ascend)端到端 ──
+
+
+def test_real_yaml_deepseek_v4flash_lmcache_packages(monkeypatch, tmp_path):
+    """DeepSeek-V4-Flash 的 LMCache cpu scheme 声明 lmcache-ascend 依赖 → packages 进 out。
+
+    kv_connector=LMCacheAscendConnectorV1Dynamic(非 AscendStoreConnector backend)→ 走
+    cpu 三选一路径,packages = extract_packages(cpu scheme) = ["lmcache-ascend==v0.4.5"],
+    供 install 段 ``--config`` 拼依赖。
+    """
+    from wings_accel import LoadFlags, resolve_smart_accel_from_config
+
+    monkeypatch.setenv("SHARED_VOLUME_PATH", str(tmp_path))
+    out = resolve_smart_accel_from_config(
+        config_root="src/wings_accel",
+        engine="vllm-ascend", engine_version="0.21.0rc",
+        hardware_family="ascend-a2", model_name="DeepSeek-V4-Flash-w8a8-mtp",
+        flags=LoadFlags(kv=True, memory_offload_size_mode="8"),
+        gpu_count=1,
+    )
+    assert out is not None
+    assert out.smart_kv_cache_scheme == "cpu"  # name=介质 cpu(LMCacheAscendConnectorV1Dynamic 工具)
+    # lmcache-ascend 依赖透传进 out.packages(pip-style name==version,供 install 段 --config)
+    assert out.packages == ["lmcache-ascend==v0.4.5"]
+    # engine_config 仍是 LMCacheAscend 连接器(非 mooncake/AscendStore)
+    ktc = out.engine_params.engine_config["kv_transfer_config"]
+    assert ktc["kv_connector"] == "LMCacheAscendConnectorV1Dynamic"
+    # LMCache 环境变量注入
+    env = out.engine_params.env
+    assert env["LMCACHE_LOCAL_CPU"] == "True"
+    assert env["LMCACHE_MAX_LOCAL_CPU_SIZE"] == "8"
+
+
+def test_real_yaml_deepseek_v4flash_lmcache_packages_a3(monkeypatch, tmp_path):
+    """规则同 ascend-a2,但落在 A3 资产(engine_variant→hardware_family 必须存在同版本/硬件的资产)。"""
+    from wings_accel import LoadFlags, resolve_smart_accel_from_config
+
+    monkeypatch.setenv("SHARED_VOLUME_PATH", str(tmp_path))
+    out = resolve_smart_accel_from_config(
+        config_root="src/wings_accel",
+        engine="vllm-ascend", engine_version="0.21.0rc",
+        hardware_family="ascend-a3", model_name="DeepSeek-V4-Flash-w8a8-mtp",
+        flags=LoadFlags(kv=True, memory_offload_size_mode="8"),
+        gpu_count=1,
+    )
+    assert out is not None
+    assert out.packages == ["lmcache-ascend==v0.4.5"]

@@ -23,12 +23,6 @@ hardware_profile:
   vram_gb: 1024  # 单节点总显存(GB)
   multi_node: true  # 是否支持多节点
 
-# 可选功能列表
-features:
-  spec_decoding:
-    description: Speculative decoding (MTP draft) to accelerate generation.
-    args: [--speculative-config, "{\"num_speculative_tokens\":3,\"method\":\"mtp\"}"]
-
 # 部署场景
 scenarios:
   standalone:

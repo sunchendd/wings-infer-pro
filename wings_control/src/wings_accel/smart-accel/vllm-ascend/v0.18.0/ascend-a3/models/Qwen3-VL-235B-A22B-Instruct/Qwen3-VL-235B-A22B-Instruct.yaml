@@ -1,0 +1,5 @@
+# SmartAccel 精确身份占位（无已验证的加速特性）
+model:
+  name: Qwen3-VL-235B-A22B-Instruct
+  variant_name: "Qwen3-VL-235B-A22B-Instruct"
+smart_accel: {}
