@@ -355,3 +355,75 @@ def load_model_config(
             "多变体请传【带 dtype 后缀的完整变体名】(= 各文件 model.variant_name),"
             f"不要只传家族名。候选: {paths}"
         )
+
+
+def find_tool_calling_config(
+    config_root: Path,
+    engine: str,
+    model_name: str,
+    fallback_engines: Optional[List[str]] = None,
+    canonical_model_name: Optional[str] = None,
+) -> Tuple[Optional[Dict[str, Any]], Optional[Path]]:
+    """扫描目标引擎 YAML，查找同模型的 tool-calling 配置。"""
+    engines = [engine]
+    if fallback_engines:
+        engines.extend(fallback_engines)
+    if any(item not in {"vllm", "vllm-ascend"} for item in engines):
+        return None, None
+
+    for scan_engine in engines:
+        engine_dir = config_root / "engines" / scan_engine
+        if not engine_dir.is_dir():
+            continue
+
+        model_dirs: List[Path] = []
+        if canonical_model_name:
+            for models_dir in engine_dir.glob("**/models"):
+                candidate = models_dir / canonical_model_name
+                if candidate.is_dir():
+                    model_dirs.append(candidate)
+
+        yaml_files = (
+            sorted(yaml_file for model_dir in model_dirs for yaml_file in model_dir.glob("*.yaml"))
+            if model_dirs
+            else sorted(engine_dir.rglob("*.yaml"))
+        )
+        for yaml_file in yaml_files:
+            try:
+                data = load_yaml(yaml_file)
+            except Exception as exc:
+                logger.warning("ConfigLoader: tool-calling fallback skipped %s: %s", yaml_file, exc)
+                continue
+            if not isinstance(data, dict):
+                continue
+            features = data.get("features")
+            tool_calling = features.get("tool_calling") if isinstance(features, dict) else None
+            if not isinstance(tool_calling, dict) or not tool_calling.get("args"):
+                continue
+            model = data.get("model")
+            if not isinstance(model, dict):
+                continue
+            declared_name = model.get("name")
+            if canonical_model_name:
+                matched = (
+                    isinstance(declared_name, str)
+                    and declared_name.casefold() == canonical_model_name.casefold()
+                )
+            else:
+                matched = False
+            if not canonical_model_name:
+                for rule in model.get("match", []):
+                    if not isinstance(rule, dict) or not rule.get("name_pattern"):
+                        continue
+                    try:
+                        if re.search(str(rule["name_pattern"]), model_name):
+                            matched = True
+                            break
+                    except re.error:
+                        continue
+                if not matched:
+                    matched = isinstance(declared_name, str) and declared_name.casefold() == model_name.casefold()
+            if matched:
+                logger.info("ConfigLoader: tool-calling fallback for '%s' from %s", model_name, yaml_file)
+                return data, yaml_file
+    return None, None
