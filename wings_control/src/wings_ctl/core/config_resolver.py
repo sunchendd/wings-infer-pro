@@ -61,7 +61,12 @@ from wings_ctl.core.topology import Topology
 from wings_ctl.engines.vllm_adapter import resolve_model_traced
 from wings_ctl.engines.version_resolver import _parse_version_tuple
 from wings_ctl.engines.vllm_adapter import build_argv
-from wings_ctl.loaders.locator import load_model_config, load_platform_config, resolve_family_dir
+from wings_ctl.loaders.locator import (
+    find_tool_calling_config,
+    load_model_config,
+    load_platform_config,
+    resolve_family_dir,
+)
 from wings_ctl.loaders.reasoning_table import ReasoningTableError, load_reasoning_table
 from wings_ctl.pd.planner import resolve_pd_topology
 from wings_ctl.pd.recipe import select_pd_recipe_pair
@@ -103,13 +108,43 @@ def _prepare_feature_context(
     engine: str,
     model_data: Dict[str, Any] | None,
     reasoning_enabled: bool,
-) -> tuple[Dict[str, Any], Any, str]:
-    """按用户开关补全 reasoning feature，并保留其他模型特性。"""
+    tool_calling_enabled: bool = False,
+) -> tuple[Dict[str, Any], Any, str, str]:
+    """按用户开关补全 reasoning/tool-calling feature，并保留其他模型特性。"""
     # 先复制整个 features，保留未来特性以及模型 YAML 中尚未迁移的配置。
     # 不直接修改 model_data，避免后续合并或审计读取到被 resolver 改写的数据。
     features = dict((model_data or {}).get("features") or {})
     reasoning_resolution = None
     reasoning_table_source = ""
+    tool_calling_source = ""
+
+    # tool_calling 的匹配规则：
+    #   0. 用户未显式开启 enable_auto_tool_choice → 不查询、不注入。
+    #   1. 当前命中模型 YAML 的 features.tool_calling.args → 最高优先级，直接使用。
+    #   2. 当前 YAML 未配置时，仅在 vllm 引擎目录的同模型 YAML 中查询；
+    #      vllm / vllm-ascend 均复用此 vllm 回退配置，匹配 model.name 而非量化 variant_name。
+    #   3. 未找到有效配置 → 保持没有 tool_calling feature，不开启 parser。
+    if tool_calling_enabled and engine in {"vllm", "vllm-ascend"}:
+        tool_calling = features.get("tool_calling")
+        if not isinstance(tool_calling, dict) or not tool_calling.get("args"):
+            model_block = (model_data or {}).get("model", {})
+            canonical_model_name = (
+                model_block.get("name")
+                if isinstance(model_block, dict) and isinstance(model_block.get("name"), str)
+                else None
+            )
+            fallback_data, fallback_path = find_tool_calling_config(
+                config_root,
+                "vllm",
+                model_name,
+                canonical_model_name=canonical_model_name,
+            )
+            fallback_features = (fallback_data or {}).get("features", {})
+            fallback_tool_calling = fallback_features.get("tool_calling") if isinstance(fallback_features, dict) else None
+            if isinstance(fallback_tool_calling, dict) and fallback_tool_calling.get("args"):
+                features["tool_calling"] = dict(fallback_tool_calling)
+                features["tool_calling"]["_source_file"] = str(fallback_path)
+                tool_calling_source = str(fallback_path)
 
     # reasoning parser 的唯一优先级顺序：
     #   0. 用户未显式开启 enable_auto_think_choice → 不处理、不加载公共表、不注入。
@@ -117,14 +152,14 @@ def _prepare_feature_context(
     #   2. reason_parser.yaml 的精确模型配置 → 仅在模型 YAML 未提供 override 时查询。
     #   3. 两处都没有精确配置 → 保持没有 reasoning feature，不开启 parser。
     if not reasoning_enabled:
-        return features, reasoning_resolution, reasoning_table_source
+        return features, reasoning_resolution, reasoning_table_source, tool_calling_source
+
     # 优先级 1：模型 YAML 显式 override。
     # 命中后直接返回，确保公共表不能覆盖模型 YAML 的显式配置，
     # 同时避免模型 YAML 已提供配置时依赖公共表文件。
     reasoning_feature = features.get("reasoning")
     if isinstance(reasoning_feature, dict) and reasoning_feature.get("args"):
-        return features, None, reasoning_table_source
-
+        return features, None, reasoning_table_source, tool_calling_source
     try:
         # 优先级 2：模型 YAML 未配置时，查询 reason_parser.yaml 精确模型配置。
         loaded_reasoning = load_reasoning_table(config_root)
@@ -142,8 +177,7 @@ def _prepare_feature_context(
     except ReasoningTableError as exc:
         raise ValueError(f"reasoning parser table is invalid: {exc}") from exc
     # 返回补全后的特性集合，供 FeatureOverlay 处理。
-    return features, reasoning_resolution, reasoning_table_source
-
+    return features, reasoning_resolution, reasoning_table_source, tool_calling_source
 
 # ─── config-file 黑名单(§4.1,实现层内部规则,不对用户强调)──────────────
 # 走自定义传参方式(--config-file)时,user_params 里命中黑名单的 key 被静默忽略,
@@ -1877,15 +1911,20 @@ def _resolve_pd_config(
     assert model_data is not None and model_path is not None
     # FeatureOverlay 沿用标准推理语义，但必须在 per-process runtime 层之前进入静态
     # role trace，确保每条进程命令都继承同一份 feature 决策与来源事件。
-    normalized_features, reasoning_resolution, reasoning_table_source = _prepare_feature_context(
+    normalized_features, reasoning_resolution, reasoning_table_source, tool_calling_source = _prepare_feature_context(
         env.config_root,
         target.model_name,
         target.engine,
         model_data,
         bool((user_input.feature_switches or {}).get("enable_auto_think_choice")),
+        bool((user_input.feature_switches or {}).get("enable_auto_tool_choice")),
     )
     reasoning_source_file = ""
     reasoning_source_path = ""
+    tool_calling_source_file = str(model_path)
+    tool_calling_feature = normalized_features.get("tool_calling")
+    if isinstance(tool_calling_feature, dict) and tool_calling_feature.get("_source_file"):
+        tool_calling_source_file = str(tool_calling_feature["_source_file"])
     if reasoning_resolution is not None and reasoning_resolution.spec:
         reasoning_source_file = reasoning_resolution.source
         reasoning_source_path = reasoning_resolution.spec.source
@@ -1899,6 +1938,7 @@ def _resolve_pd_config(
             "feature_switches": user_input.feature_switches or {},
             "reasoning_source_file": reasoning_source_file,
             "reasoning_source_path": reasoning_source_path,
+            "tool_calling_source_file": tool_calling_source_file,
         },
     )
     feature_overrides = feature_result.overrides
@@ -1984,6 +2024,9 @@ def _resolve_pd_config(
         notes["reasoning.reason"] = reasoning_resolution.reason or ""
     if reasoning_table_source:
         notes["reasoning.table_source"] = reasoning_table_source
+    if tool_calling_source:
+        notes["tool_calling.source"] = tool_calling_source
+        notes["tool_calling.source_path"] = "features.tool_calling.args"
     if env.engine_version.has_version_dir:
         notes.update(
             {
@@ -2001,7 +2044,11 @@ def _resolve_pd_config(
         engine_version=env.engine_version,
         engine_config_traces=engine_traces,
         env_traces=env_traces,
-        source_files=[str(model_path), *([reasoning_table_source] if reasoning_table_source else [])],
+        source_files=[
+            str(model_path),
+            *([reasoning_table_source] if reasoning_table_source else []),
+            *([tool_calling_source] if tool_calling_source else []),
+        ],
         system_setup=None,
         resolution_notes=notes,
         user_cli_params=_build_user_cli_audit_entries(user_layer, user_input.cli_dropped),
@@ -2121,12 +2168,17 @@ def resolve_config(
 
     # 所有模型特性先复制，再由各特性自己的标准化步骤处理。
     # 当前 reasoning 使用公共能力表；未来特性可在同一 helper/流水线中独立接入。
-    normalized_features, reasoning_resolution, reasoning_table_source = _prepare_feature_context(
+    normalized_features, reasoning_resolution, reasoning_table_source, tool_calling_source = _prepare_feature_context(
         config_root, model_name, engine, model_data,
         bool((feature_switches or {}).get("enable_auto_think_choice")),
+        bool((feature_switches or {}).get("enable_auto_tool_choice")),
     )
     reasoning_source_file = ""
     reasoning_source_path = ""
+    tool_calling_source_file = str(model_path or "<model_yaml>")
+    tool_calling_feature = (normalized_features or {}).get("tool_calling")
+    if isinstance(tool_calling_feature, dict) and tool_calling_feature.get("_source_file"):
+        tool_calling_source_file = str(tool_calling_feature["_source_file"])
     if reasoning_resolution is not None and reasoning_resolution.spec:
         reasoning_source_file = reasoning_resolution.source
         reasoning_source_path = reasoning_resolution.spec.source
@@ -2140,6 +2192,7 @@ def resolve_config(
             "feature_switches": feature_switches or {},
             "reasoning_source_file": reasoning_source_file,
             "reasoning_source_path": reasoning_source_path,
+            "tool_calling_source_file": tool_calling_source_file,
         },
     )
     feature_overrides = feature_result.overrides
@@ -2352,6 +2405,8 @@ def resolve_config(
     source_files: List[str] = []
     if reasoning_table_source:
         source_files.append(reasoning_table_source)
+    if tool_calling_source:
+        source_files.append(tool_calling_source)
     if not platform_absent:
         source_files.append(platform_path_str)
     if model_path is not None:
