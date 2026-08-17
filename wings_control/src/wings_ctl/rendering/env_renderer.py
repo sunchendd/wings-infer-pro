@@ -49,29 +49,32 @@ def _validate_dollar_value(value: str) -> None:
         )
 
 
-def render_env_export(key: str, value: Any) -> str:
+def render_env_export(key: str, value: Any, *, allow_unsafe: bool = False) -> str:
     """将 key=value 渲染为安全的 export 语句。
 
     Args:
         key: 环境变量名。
         value: 环境变量值(任意类型,str() 转换)。
+        allow_unsafe: True 时跳过 _validate_dollar_value 安全校验,双引号放行
+            ``$(...)`` 等 shell 构造(仅 config_file env 层使用;用户对自己的输入负责)。
 
     Returns:
         完整的 export 语句字符串(不含换行符)。
 
     Raises:
-        ValueError: 值含不安全的 shell 构造。
+        ValueError: allow_unsafe=False 且值含不安全的 shell 构造。
     """
     str_value = str(value)
 
-    if "$" not in str_value and "`" not in str_value:
-        # 纯字面:shlex.quote 处理所有特殊字符
+    if not allow_unsafe and "$" not in str_value and "`" not in str_value:
+        # 纯字面:shlex.quote 处理所有特殊字符(保持既有行为,最小改动)
         return f"export {key}={shlex.quote(str_value)}"
 
-    # 含 $ 或 ` → 白名单校验
-    _validate_dollar_value(str_value)
+    if not allow_unsafe:
+        # 含 $ 或 ` → 白名单校验(仅普通 env 走;config_file env 的 unsafe 路径跳过)
+        _validate_dollar_value(str_value)
 
-    # 通过校验:用双引号包裹,让 shell 展开合法 $VAR
+    # 双引号包裹,让 shell 展开合法 $VAR;allow_unsafe=True 时同样放行 $(...) 等命令替换。
     # 转义双引号和反斜杠(双引号内的特殊字符)
     escaped = str_value.replace("\\", "\\\\").replace('"', '\\"')
     return f'export {key}="{escaped}"'

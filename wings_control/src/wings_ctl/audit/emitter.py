@@ -110,6 +110,11 @@ def _build_audit_dict(resolved: ResolvedConfig) -> Dict[str, Any]:
     if resolved.user_cli_params:
         audit["user_cli_params"] = list(resolved.user_cli_params)
 
+    # config_file_params(自定义传参方式):applied + 黑名单 dropped,同 user_cli_params 单数组形态。
+    # 仅走 resolve_custom_config 时非空;默认空列表 → 不写该键(非 custom 路径零影响)。
+    if resolved.config_file_params:
+        audit["config_file_params"] = list(resolved.config_file_params)
+
     # 解析注记(如 platform_default: absent)
     if resolved.resolution_notes:
         audit["resolution_notes"] = dict(resolved.resolution_notes)

@@ -64,6 +64,10 @@ class TracedValue:
     source_file: str  # 胜出层的文件路径
     source_path: str  # 胜出层的 YAML path
     events: List[SourceEvent] = field(default_factory=list)
+    # env 专用:值为 True 时,渲染层跳过 _validate_dollar_value 安全校验,双引号放行 $(...)。
+    # 仅 config_file_env 层构造时置 True(用户对自己的输入负责);其余层保持默认 False 不变。
+    # 见 rendering/env_renderer.render_env_export 与 script_builder._render_env_section。
+    allow_unsafe: bool = False
 
 
 @dataclass
@@ -386,6 +390,18 @@ class PipelineRequest:
 
 
 @dataclass(frozen=True)
+class CustomConfigFile:
+    """自定义传参方式(--config-file)的已加载产物。
+
+    `params` 为引擎原生参数(用户自管,不做字段映射,仅 snake_case 归一);
+    `env` 为用户自定义环境变量(值可含 ``$(hostname)`` 等 shell 构造,渲染时放行)。
+    两字段可选;同时为空时等价于未传 --config-file(分派层不必进 custom 路径)。
+    """
+    params: Dict[str, Any] = field(default_factory=dict)
+    env: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class ResolvedEnv:
     """已解析的环境:hardware / engine_version 算完后交给 resolve_config 的三要素。
 
@@ -486,6 +502,10 @@ class ResolvedConfig:
 
     # user_cli 参数审计(包含 dropped 条目,供 audit.json 展示)
     user_cli_params: List[Dict[str, Any]] = field(default_factory=list)
+
+    # config-file 参数审计(自定义传参方式):applied(config_file_params)+ dropped
+    # (黑名单弃置项)。仅走 resolve_custom_config 时非空;默认空列表 → audit 不写该键。
+    config_file_params: List[Dict[str, Any]] = field(default_factory=list)
 
     # multi_node 占位视图:无运行时上下文时承载全集群 per-node 解析,
     # 顶层 engine_config_traces/env_traces 为空(不伪造单 Pod 视图),build_scripts 走占位路径。
