@@ -27,9 +27,13 @@ import logging
 from typing import Any, Dict, List, NamedTuple, Optional
 
 from wings_ctl.strategy.parallelism import dp_local_from_device_count, dp_start_rank
-from wings_ctl.strategy.topology_inject import NIC_DETECT_CMD, select_node
+from wings_ctl.strategy.topology_inject import select_node
 
 logger = logging.getLogger(__name__)
+
+# 网卡解析对齐 15ffcc6 架构:custom 路径的 env 声明 ``$IFACE_NAME`` 占位,
+# 由 config_resolver 的 post_merge.apply_network_env_strategy 在 Python 侧按本 Pod IP
+# 解析真实网卡并覆盖(script_builder 已不再 inline 执行 system_setup.commands)。
 
 
 # 布局标签(与 topology_inject 概念一致,但 custom 的推断规则不同——见 _compute_layout)。
@@ -308,8 +312,9 @@ def multinode_custom_derive(
     # env:IP + 网卡类($5.1.5);nvidia 与 ascend 网卡/身份 env 键不同。
     # sglang 同 nvidia 型网卡 env(GLOO/NCCL,无 HCCL_IF_IP),走 _derive_env_vllm_common。
     env = _derive_env_common(ctx) if engine in ("vllm-ascend",) else _derive_env_vllm_common(ctx)
-    # system_setup:注入 NIC 探测命令,使 $IFACE_NAME 变量在 env export 前定义。
-    system_setup_commands = ["IFACE_NAME=" + NIC_DETECT_CMD] if params else []
+    # system_setup:不再注入 NIC 探测 shell 命令(15ffcc6 起 script_builder 不再
+    # inline 执行 commands);网卡由 apply_network_env_strategy 在 Python 侧解析覆盖。
+    system_setup_commands: List[str] = []
 
     notes: Dict[str, str] = {
         # canonical 键:与 recipe 路径(config_resolver.py multi_node_* notes)对齐,
