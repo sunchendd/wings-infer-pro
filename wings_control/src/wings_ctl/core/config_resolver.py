@@ -2737,6 +2737,9 @@ def resolve_custom_config(
             allow_unsafe=CONFIG_FILE_ENV_ALLOW_UNSAFE,
         ))
     env_traces = trace_merge(env_layers)
+    # 网卡/IP 通信变量 Python 侧解析覆盖(对齐 recipe 路径,15ffcc6 架构):
+    # 覆盖 mn_env 声明的 $IFACE_NAME 占位与 HCCL_IF_IP 为本 Pod 真实值。
+    env_traces, network_env_notes = apply_network_env_strategy(env_traces)
 
     # 5. engine_config 层序(低→高):builtin_default < strategy_feature_inject < strategy_accel
     #    < config_file < user_cli。user_cli 含 model/served_model_name(第 1/2 页 CLI 经 translator
@@ -2802,9 +2805,11 @@ def resolve_custom_config(
     }
     resolution_notes.update(feature_inject_notes)
     resolution_notes.update(mn_notes)
+    resolution_notes.update(network_env_notes)
 
-    # multi_node custom 的运行时网卡探测:system_setup.commands 注入 NIC_DETECT_CMD,
-    # 使 derived env 里的 $IFACE_NAME 在 env export 前定义(STANDALONE 为空)。
+    # system_setup:custom 多节点的网卡探测已改由 apply_network_env_strategy 在
+    # Python 侧解析(不再依赖 shell inline 探测),commands 恒空;保留 SystemSetup
+    # 结构以维持产物契约(STANDALONE 为 None)。
     system_setup: Optional[SystemSetup] = None
     if mn_env:
         system_setup = SystemSetup(

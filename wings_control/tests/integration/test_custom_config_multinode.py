@@ -224,8 +224,8 @@ def test_d_ascend_env_derived(config_root, hardware_info_path):
     assert env["GLOO_SOCKET_IFNAME"] == "$IFACE_NAME"
     assert env["TP_SOCKET_IFNAME"] == "$IFACE_NAME"
     assert env["HCCL_SOCKET_IFNAME"] == "$IFACE_NAME"
-    # system_setup 注入 NIC 探测,使 $IFACE_NAME 在 env 前定义
-    assert any("IFACE_NAME" in c and "eth0" in c for c in derive.system_setup_commands)
+    # system_setup 不再注入 shell 探测命令(15ffcc6:Python 侧解析网卡)
+    assert derive.system_setup_commands == []
 
 
 def test_d2_vllm_env_derived(config_root, hardware_info_path):
@@ -406,25 +406,25 @@ def test_f_missing_device_count_blocks(config_root, hardware_info_path):
         )
 
 
-# ─── (g) 端到端 vllm:build_scripts 产物含 env export + NIC 探测 + argv ───
+# ─── (g) 端到端 vllm:build_scripts 产物含 env export + Python 侧网卡解析 + argv ───
 
 
 def test_g_vllm_end_to_end_scripts(config_root, hardware_info_path, tmp_path):
     resolved = _resolve(config_root, hardware_info_path)
-    # system_setup 非空,内含 NIC 探测命令
+    # system_setup 结构保留(custom 多节点恒注入),commands 已不再含 shell 探测
     assert resolved.system_setup is not None
-    assert any("IFACE_NAME" in c for c in resolved.system_setup.commands)
-    # env_traces 含 $IFACE_NAME(allow_unsafe=True 渲染)
-    assert resolved.env_traces["GLOO_SOCKET_IFNAME"].final_value == "$IFACE_NAME"
-    assert resolved.env_traces["GLOO_SOCKET_IFNAME"].allow_unsafe is True
+    # 网卡/IP 通信变量由 apply_network_env_strategy Python 侧解析覆盖:
+    # $IFACE_NAME 占位被替换为本 Pod IP 所属网卡(或 eth0 兜底)。
+    iface = resolved.env_traces["GLOO_SOCKET_IFNAME"].final_value
+    assert iface != "$IFACE_NAME"
 
     # 三件产物落盘
     start_path, repro_path = build_scripts(resolved, tmp_path)
     start_text = start_path.read_text(encoding="utf-8")
-    # runtime 探测命令在 env export 前 inline
-    assert "IFACE_NAME=$(awk" in start_text
-    # env 双引号放行 $IFACE_NAME
-    assert 'export GLOO_SOCKET_IFNAME="$IFACE_NAME"' in start_text
+    # shell 内联探测已移除(15ffcc6 架构:script_builder 不再 inline 执行 commands)
+    assert "IFACE_NAME=$(awk" not in start_text
+    # env export 写入解析后的真实网卡名(安全值走单引号安全渲染,无 $() 不加双引号)
+    assert f"export GLOO_SOCKET_IFNAME={iface}" in start_text
     assert "--nnodes 3" in start_text
     assert "--node-rank 2" in start_text
     # worker(node_rank=2 > 0)不注入 log_analyzer(仅 master 运行分析器)。
