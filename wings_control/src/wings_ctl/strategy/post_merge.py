@@ -10,8 +10,17 @@ from dataclasses import dataclass
 from typing import Any, Dict
 
 from wings_ctl.core.models import SourceEvent, TracedValue
+from wings_ctl.utils.env_utils import get_interface_for_ip, get_local_ip
 
 _FLASHCOMM1_ENV = "VLLM_ASCEND_ENABLE_FLASHCOMM1"
+_NETWORK_IP_ENV = "HCCL_IF_IP"
+_NETWORK_INTERFACE_ENVS = (
+    "NETWORK_CARD_NAME",
+    "GLOO_SOCKET_IFNAME",
+    "NCCL_SOCKET_IFNAME",
+    "TP_SOCKET_IFNAME",
+    "HCCL_SOCKET_IFNAME",
+)
 _DSA_CP_KEY = "enable_dsa_cp"
 _TP_KEY = "tensor_parallel_size"
 
@@ -46,6 +55,52 @@ def _remove_dsa_cp_from_additional_config(value: Any) -> tuple[Any, bool]:
     cleaned = dict(value)
     del cleaned[_DSA_CP_KEY]
     return cleaned, True
+
+
+def apply_network_env_strategy(
+    env_traces: Dict[str, TracedValue],
+) -> tuple[Dict[str, TracedValue], Dict[str, str]]:
+    """以本 Pod IP 及所属网卡覆盖已声明的通信环境变量。
+
+    仅覆盖 YAML 已声明的通信 IP 和网卡变量（含 NCCL），不为其他引擎或 recipe 注入新变量。每个改写
+    都追加独立 trace event，使 audit 可同时看到原 YAML 值、最终值和覆盖原因。
+    """
+    target_keys = [key for key in (_NETWORK_IP_ENV, *_NETWORK_INTERFACE_ENVS) if key in env_traces]
+    if not target_keys:
+        return env_traces, {}
+    if all(env_traces[key].final_layer == "strategy_network_env" for key in target_keys):
+        return env_traces, {}
+
+    local_ip = get_local_ip()
+    interface, matched = get_interface_for_ip(local_ip)
+    discovery = "matched" if matched else "fallback_eth0"
+    result = dict(env_traces)
+    for key in target_keys:
+        value = local_ip if key == _NETWORK_IP_ENV else interface
+        reason = "get_local_ip" if key == _NETWORK_IP_ENV else f"interface_for_local_ip:{discovery}"
+        previous = env_traces[key]
+        event = SourceEvent(
+            action="override",
+            layer="strategy_network_env",
+            value=value,
+            source_file="<strategy:network_env>",
+            source_path=reason,
+        )
+        result[key] = TracedValue(
+            final_value=value,
+            final_layer="strategy_network_env",
+            source_file="<strategy:network_env>",
+            source_path=reason,
+            events=previous.events + [event],
+        )
+    notes = {
+        "network_env_override.status": "applied",
+        "network_env_override.local_ip": local_ip,
+        "network_env_override.interface": interface,
+        "network_env_override.interface_discovery": discovery,
+        "network_env_override.keys": ",".join(target_keys),
+    }
+    return result, notes
 
 
 def apply_post_merge_strategy(

@@ -1,7 +1,7 @@
 """Step:nvidia `head`/`worker` 形态 multi_node 集成测试(docs/32 多形态重设计)。
 
 验证 vllm(nvidia)的 head/worker 直接键形态(全仓 4039,主流)端到端可用:
-选 head/worker、node_rank=index、`$HEAD_IP`→MASTER_IP 字面、`$IFACE_NAME`→运行时 inline、
+选 head/worker、node_rank=index、`$HEAD_IP`→MASTER_IP 字面、通信网卡变量→本 Pod 实际网卡、
 TP 跨 Pod(tep,DP=1)、worker --headless。固定输入:DeepSeek-V4-Pro-fp8(vllm/h100,默认 tep;
 传完整变体名 variant_name 避免家族级歧义,docs/48)。
 """
@@ -55,7 +55,7 @@ def test_nvidia_head_worker_schema_supported(config_root_real, tmp_path, monkeyp
 
 
 def test_nvidia_worker_argv_node_rank_and_literal_master(config_root_real, tmp_path, monkeypatch):
-    """验证 worker 产可执行脚本:node_rank=1、master_addr=字面 MASTER_IP、--headless、$IFACE_NAME 运行时。"""
+    """验证 worker 产可执行脚本:node_rank=1、master_addr=字面 MASTER_IP、--headless、网卡已解析。"""
     _, start_path, repro_path, _ = _run(tmp_path, monkeypatch, config_root_real, rank_ip="10.0.0.2", tag="worker")
     text = start_path.read_text(encoding="utf-8")
     assert "vllm serve" in text and "RUNTIME INJECTION PENDING" not in text
@@ -64,10 +64,10 @@ def test_nvidia_worker_argv_node_rank_and_literal_master(config_root_real, tmp_p
     # $HEAD_IP → 字面 MASTER_IP(argv 安全,无裸 $)
     assert "--master-addr 10.0.0.1" in text and "'$HEAD_IP'" not in text
     assert "--headless" in text
-    # $IFACE_NAME 运行时探测 inline,在 env 之前;env 里双引号引用
-    assert "IFACE_NAME=$(awk" in text
-    assert text.index("IFACE_NAME=$(awk") < text.index("export ")
-    assert 'NCCL_SOCKET_IFNAME="$IFACE_NAME"' in text
+    # 通信网卡由网络后置策略按本 Pod IP 解析；测试环境中解析到实际网卡。
+    assert "IFACE_NAME=$(awk" not in text
+    assert "NCCL_SOCKET_IFNAME=$IFACE_NAME" not in text
+    assert "export NCCL_SOCKET_IFNAME=" in text
     subprocess.run(["bash", "-n", str(start_path)], check=True)
     assert "exec vllm serve" in repro_path.read_text(encoding="utf-8")  # repro.sh 仍用 exec
 

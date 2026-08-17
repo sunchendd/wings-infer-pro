@@ -427,7 +427,7 @@ class SystemSetup:
 
     sysctls: Dict[str, Any] = field(default_factory=dict)
     sysfs_writes: List[Dict[str, str]] = field(default_factory=list)
-    # standalone 路径按注释渲染;multi_node 已注入路径会 inline 执行其中的运行时命令。
+    # 所有拓扑均按注释形式渲染 commands，框架不执行其中命令。
     commands: List[str] = field(default_factory=list)
     source_file: str = ""  # 来源文件(用于 audit)
     source_path: str = ""  # YAML 路径
@@ -438,10 +438,10 @@ class ResolvedNode:
     """multi_node 场景下单个节点(=Pod)的解析结果。
 
     每个 node 独立持有自己那份 engine_config / env 的 trace + system_setup。
-    无运行时上下文时,占位符 ``$node0_ip`` / ``$local_ip`` / ``$nic_name`` 按字面保留,
+    无运行时上下文时,字面占位符按 YAML 原值保留，
     ``ResolvedConfig.nodes`` 承载全集群视图并产出占位脚本。
-    运行时上下文完整时,会选出本 Pod 节点升为顶层可执行配置,
-    占位由 ``system_setup.commands`` 在运行时填充(见 ``strategy.topology_inject``)。
+    运行时上下文完整时,会选出本 Pod 节点升为顶层可执行配置；
+    通信 IP 和网卡变量由网络后置策略解析为本 Pod 的实际值。
 
     Attributes:
         role: 节点角色(``head`` / ``worker``;PD 为 ``prefill`` / ``decode``)。

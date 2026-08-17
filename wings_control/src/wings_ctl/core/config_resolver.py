@@ -73,14 +73,15 @@ from wings_ctl.strategy.reasoning_resolver import (
     build_model_identity,
     resolve_reasoning,
 )
-from wings_ctl.strategy.post_merge import apply_post_merge_strategy
+
 from wings_ctl.strategy.legacy_json_adapter import adapt_legacy_config_params
 from wings_ctl.strategy.multinode_custom import MultinodeCtx, multinode_custom_derive
+from wings_ctl.strategy.post_merge import apply_network_env_strategy, apply_post_merge_strategy
+
 from wings_ctl.strategy.topology_inject import (
     LAYOUT_TP_ACROSS,
     coordinate_parallelism,
     detect_layout,
-    runtime_var_commands,
     select_node,
     substitute_literal_placeholders,
 )
@@ -1050,7 +1051,6 @@ def _resolve_multi_node(
             index=sel.index,
         )
         # 字面占位替换($local_ip/$node0_ip → 真实 IP),单独记一层 trace。
-        # argv 里需要是字面值;$nic_name 这类运行时变量保留给 shell 展开。
         ec_inject = substitute_literal_placeholders(spec.engine_config, rank_ip=rank_ip, master_ip=master_ip)
         env_inject = substitute_literal_placeholders(spec.env, rank_ip=rank_ip, master_ip=master_ip)
         ec_traces = _ec_traces(
@@ -1078,14 +1078,10 @@ def _resolve_multi_node(
         )
         env_traces = _env_traces(spec, override=env_inject)
 
-        # system_setup:commands 仅保留运行时 nic 探测(若被 env 引用);特权 sysctls/sysfs 原样(渲染层注释)。
-        raw_ss = spec.system_setup
-        nic_cmds = runtime_var_commands(spec.engine_config, spec.env)
         system_setup = _build_system_setup(
-            raw_ss,
+            spec.system_setup,
             model_path_str,
             spec.system_setup_source_prefix,
-            commands_override=nic_cmds,
         )
 
         notes = {
@@ -1665,22 +1661,35 @@ def _build_pd_process_env_traces(
         resolved.hardware.device
     )
     env_override = {visible_env_name: ",".join(str(item) for item in visible_devices)} if visible_env_name else {}
-    return trace_merge(
-        [
-            MergeLayer(
-                "model_scenario",
-                {name: traced.final_value for name, traced in resolved.env_traces.items()},
-                resolved.source_files[0],
-                "pd_role_recipe.env",
-            ),
-            MergeLayer(
-                "strategy_pd_process",
-                env_override,
-                "<strategy:pd_process>",
-                f"pd.processes[{local_index}].env",
-            ),
-        ]
-    )
+    # 复制 role 级完整 trace，而不是以 final_value 重新构建 model 层；否则网络等后置
+    # 策略的覆盖原因会在 per-process audit 中丢失。
+    result = {
+        key: TracedValue(
+            final_value=traced.final_value,
+            final_layer=traced.final_layer,
+            source_file=traced.source_file,
+            source_path=traced.source_path,
+            events=list(traced.events),
+        )
+        for key, traced in resolved.env_traces.items()
+    }
+    for key, value in env_override.items():
+        event = SourceEvent(
+            action="override" if key in result else "set",
+            layer="strategy_pd_process",
+            value=value,
+            source_file="<strategy:pd_process>",
+            source_path=f"pd.processes[{local_index}].env.{key}",
+        )
+        events = result[key].events + [event] if key in result else [event]
+        result[key] = TracedValue(
+            final_value=value,
+            final_layer="strategy_pd_process",
+            source_file="<strategy:pd_process>",
+            source_path=f"pd.processes[{local_index}].env.{key}",
+            events=events,
+        )
+    return result
 
 
 def _build_pd_process_listeners(
@@ -1949,7 +1958,7 @@ def _resolve_pd_config(
             )
         )
     env_traces = trace_merge(env_layers)
-    runtime_commands = runtime_var_commands(role_recipe.engine_config, role_recipe.env)
+    env_traces, network_env_notes = apply_network_env_strategy(env_traces)
     notes = {
         "matched_model_yaml": str(model_path),
         "matched_name_pattern": matched,
@@ -1967,6 +1976,7 @@ def _resolve_pd_config(
             }
         )
     notes.update(feature_notes)
+    notes.update(network_env_notes)
     if reasoning_resolution is not None:
         notes["reasoning.status"] = reasoning_resolution.status
         notes["reasoning.source"] = reasoning_resolution.source
@@ -1992,13 +2002,7 @@ def _resolve_pd_config(
         engine_config_traces=engine_traces,
         env_traces=env_traces,
         source_files=[str(model_path), *([reasoning_table_source] if reasoning_table_source else [])],
-        system_setup=SystemSetup(
-            commands=runtime_commands,
-            source_file="<strategy:pd_network>",
-            source_path="pd.network.runtime_commands",
-        )
-        if runtime_commands
-        else None,
+        system_setup=None,
         resolution_notes=notes,
         user_cli_params=_build_user_cli_audit_entries(user_layer, user_input.cli_dropped),
         accel=AccelResult(),
@@ -2317,6 +2321,7 @@ def resolve_config(
             )
 
     # FlashComm1 / DSA-CP 仅支持 TP>=2；在所有 merge 层完成后统一执行最终约束策略。
+    # 网络通信变量随后强制收敛到本 Pod 的 local IP 和对应网卡；两种策略都保留 trace。
     # 多机占位节点分别应用，保证占位视图与运行时选中节点的行为一致。
     post_merge_notes: dict[str, str] = {}
     if nodes:
@@ -2327,9 +2332,10 @@ def resolve_config(
                 engine=engine,
             )
             node.engine_config_traces = result.engine_config_traces
-            node.env_traces = result.env_traces
+            node.env_traces, network_env_notes = apply_network_env_strategy(result.env_traces)
             if result.notes:
                 post_merge_notes.update(result.notes)
+            post_merge_notes.update(network_env_notes)
     else:
         result = apply_post_merge_strategy(
             engine_config_traces,
@@ -2337,8 +2343,9 @@ def resolve_config(
             engine=engine,
         )
         engine_config_traces = result.engine_config_traces
-        env_traces = result.env_traces
+        env_traces, network_env_notes = apply_network_env_strategy(result.env_traces)
         post_merge_notes.update(result.notes)
+        post_merge_notes.update(network_env_notes)
 
     # ── 5. 组装结果:source_files + resolution_notes(查找/合并轨迹)+ ResolvedConfig ──
     # 仅将实际存在的文件加入 source_files

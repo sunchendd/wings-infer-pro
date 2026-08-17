@@ -15,9 +15,11 @@ Sidecar 架构契约:
     - 默认值明确且对 sidecar 场景安全
 """
 # Copyright (c) xFusion Digital Technologies Co., Ltd. 2025-2025. All rights reserved.
+import fcntl
+import logging
 import os
 import socket
-import logging
+import struct
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -117,6 +119,29 @@ def get_local_ip():
             logger.warning("get_local_ip: hostname '%s' lookup failed: %s; falling back to 127.0.0.1", hostname, e)
             host_ip = "127.0.0.1"
     return host_ip
+
+
+def get_interface_for_ip(target_ip: str, default: str = "eth0") -> tuple[str, bool]:
+    """查找持有指定 IPv4 地址的网卡；未命中时回退默认网卡。
+
+    Args:
+        target_ip: 要匹配的本 Pod IPv4 地址。
+        default: 找不到匹配网卡或查询失败时使用的网卡名。
+
+    Returns:
+        ``(interface_name, matched)``。``matched=False`` 表示返回的是 fallback。
+    """
+    for _index, name in socket.if_nameindex():
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                request = struct.pack("256s", name[:15].encode())
+                address = fcntl.ioctl(sock.fileno(), 0x8915, request)[20:24]
+                if socket.inet_ntoa(address) == target_ip:
+                    return name, True
+        except OSError:
+            continue
+    logger.warning("get_interface_for_ip: no interface owns IP %s; falling back to %s", target_ip, default)
+    return default, False
 
 
 def _strip_ip_brackets(raw: str) -> str:

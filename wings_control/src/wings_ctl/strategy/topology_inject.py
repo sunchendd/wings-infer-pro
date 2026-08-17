@@ -17,11 +17,6 @@ from wings_ctl.strategy.parallelism import dp_local_from_device_count, dp_start_
 
 logger = logging.getLogger(__name__)
 
-# nic 探测:默认路由网卡(复用旧 wings-control)。只读 /proc/net/route,容器内无需特权;
-# 无默认路由兜底 eth0。运行时在本 Pod 的 shell 执行。
-NIC_DETECT_CMD = "$(awk '$2==\"00000000\"{print $1;exit}' /proc/net/route 2>/dev/null || echo eth0)"
-
-
 # 多机布局标签:
 # - DP_across: TP 在单 Pod 内,DP 跨 Pod
 # - TP_across: 一个 TP 组跨多个 Pod
@@ -265,8 +260,6 @@ _PLACEHOLDERS: dict[str, tuple[str, str]] = {
     "$local_ip": ("rank_ip", "literal"),
     "$node0_ip": ("master_ip", "literal"),
     "$HEAD_IP": ("master_ip", "literal"),   # nvidia,与 $node0_ip 同源(=MASTER_IP)
-    "$nic_name": ("nic", "runtime"),
-    "$IFACE_NAME": ("nic", "runtime"),       # nvidia,与 $nic_name 同处理
 }
 
 
@@ -293,7 +286,6 @@ def substitute_literal_placeholders(
     """替换 literal 类型占位符并返回覆盖层。
 
     只返回发生变化的键;未变化的键不出现在返回值里。
-    runtime 类型(`$nic_name`/`$IFACE_NAME`)不在这里处理。
 
     Args:
         values: engine_config 或 env 的模板 dict(只读)。
@@ -319,31 +311,3 @@ def substitute_literal_placeholders(
         if nv != v:
             override[k] = nv
     return override
-
-
-def runtime_var_commands(*value_dicts: dict) -> list[str]:
-    """扫描 runtime 占位符,生成对应的 inline 探测命令。
-
-    返回例如 ``["nic_name=$(...)"]`` 或 ``["IFACE_NAME=$(...)"]``。
-    这些命令需在 env export 之前执行,否则后续变量引用无法展开。
-
-    Args:
-        *value_dicts: 待扫描的值 dict(engine_config / env)。
-
-    Returns:
-        inline 命令列表(每个 runtime 占位一条);无则空。
-    """
-    runtime_tokens = [tok for tok, (_src, kind) in _PLACEHOLDERS.items() if kind == "runtime"]
-    cmds: list[str] = []
-    for tok in runtime_tokens:
-        found = False
-        for value_dict in value_dicts:
-            for _key, value in value_dict.items():
-                if isinstance(value, str) and tok in value:
-                    found = True
-                    break
-            if found:
-                break
-        if found:
-            cmds.append(f"{tok[1:]}={NIC_DETECT_CMD}")  # tok[1:] = 去掉前导 $
-    return cmds
