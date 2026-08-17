@@ -186,24 +186,23 @@ def _write_advanced_features_json(resolved: ResolvedConfig) -> None:
 def _render_kv_disk_cleanup_section(kv_disk_offload_path: Optional[str]) -> List[str]:
     """渲染 KV 磁盘卸载残留清理段(vllm serve 前)。
 
-    背景:LMCache disk 卸载的数据落盘在 ``KV_DISK_OFFLOAD_PATH/kvcache/`` 下,推理服务
+    背景:LMCache disk 卸载的数据落盘在 ``KV_DISK_OFFLOAD_PATH`` 下,推理服务
     重启后旧数据残留,与新一轮卸载数据叠加会超出 MaaS 规划的 KV_DISK_OFFLOAD_SIZE,
     同主机上可能与其它服务争抢资源。启动前清空卸载目录,保证本次服务占用与规划一致。
 
-    清理目标固定为 ``<path>/kvcache/`` 子目录(lmcache 落盘约定),不碰 path 本身;
-    path 为 None(无磁盘卸载)→ 空列表(非 disk 路径零影响)。
+    清理目标为 ``KV_DISK_OFFLOAD_PATH`` 目录下的 ``*.pt`` 文件(卸载数据落盘形态,
+    不追加子目录后缀);path 为 None(无磁盘卸载)→ 空列表(非 disk 路径零影响)。
 
     ⚠️ rm 属安全敏感命令:路径来自 MaaS ``KV_DISK_OFFLOAD_PATH``(accel 产出已解析,
-    非用户 shell 输入),且追加 ``/kvcache/`` 常量后缀 + ``shlex.quote`` 整体转义,
-    杜绝通配/注入;改动命令形态须人工 review。
+    非用户 shell 输入),且 ``shlex.quote`` 整体转义,杜绝通配/注入;改动命令形态须人工 review。
     """
     if not kv_disk_offload_path:
         return []
-    target = f"{kv_disk_offload_path.rstrip('/')}/kvcache"
+    target = kv_disk_offload_path.rstrip("/")
     return [
         "# ── KV 磁盘卸载残留清理:服务重启后旧 KV 落数据会超出规划容量,启动前清空 ──",
         f"mkdir -p {shlex.quote(target)}",
-        f"rm -rf {shlex.quote(target)}/*",
+        f"rm -f {shlex.quote(target)}/*.pt",
         "",
     ]
 
@@ -367,7 +366,7 @@ def _render_start_command_sh(
         accel_pre_serve_master: KV 存储后端 pre-serve 段(仅 master);None/空 → 不渲染。
         accel_pre_serve_client: KV 存储后端 pre-serve 段(仅 client);None/空 → 不渲染。
         kv_disk_offload_path: KV 磁盘卸载实际路径(accel 产出);None(无磁盘卸载)→ 不渲染
-            残留清理段。清理 vllm serve 前的 kvcache/ 残留,保证重启后占用不超规划容量。
+            残留清理段。清理 vllm serve 前的卸载目录残留,保证重启后占用不超规划容量。
         analyzer_preamble: log_analyzer 进度监控 shell 片段;None → 不注入。
             在 env export 之前插入,确保分析器在引擎启动前就开始监控日志。
             启动后台分析器进程并注册 trap 清理。
@@ -429,7 +428,7 @@ def _render_start_command_sh(
     if pre_serve_lines:
         lines.extend(pre_serve_lines)
 
-    # KV 磁盘卸载残留清理(仅 disk 开启):vllm serve 前清空 kvcache/,保证重启后占用不超规划容量
+    # KV 磁盘卸载残留清理(仅 disk 开启):vllm serve 前清空卸载目录,保证重启后占用不超规划容量
     lines.extend(_render_kv_disk_cleanup_section(kv_disk_offload_path))
 
     # 后台化引擎进程(而非 exec 替换 shell),使 trap cleanup_analyzer 保持有效。
