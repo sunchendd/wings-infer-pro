@@ -222,9 +222,9 @@ def test_empty_accel_no_audit_key(tmp_path):
 # ── KV 磁盘卸载残留清理(服务重启后旧数据超规划容量)─────────────────────────
 
 def test_kv_disk_cleanup_rendered_before_serve(tmp_path):
-    """disk 开启(kv_disk_offload_path 非空)→ start_command.sh 在 vllm serve 前清空 <path>/kvcache/。
+    """disk 开启(kv_disk_offload_path 非空)→ start_command.sh 在 vllm serve 前清空 <path>/*。
 
-    背景:LMCache disk 卸载数据落盘在 KV_DISK_OFFLOAD_PATH/kvcache/,服务重启后旧数据
+    背景:LMCache disk 卸载数据落盘在 KV_DISK_OFFLOAD_PATH 下,服务重启后旧数据
     残留会超出 MaaS 规划容量(KV_DISK_OFFLOAD_SIZE),启动前清空保证占用与规划一致。
     """
     accel = AccelResult(
@@ -234,12 +234,12 @@ def test_kv_disk_cleanup_rendered_before_serve(tmp_path):
     )
     start_path, repro_path = build_scripts(_make_resolved(accel), tmp_path)
     start_text = start_path.read_text(encoding="utf-8")
-    assert "mkdir -p /lm/kvcache" in start_text
-    assert "rm -rf /lm/kvcache/*" in start_text
+    assert "mkdir -p /lm" in start_text
+    assert "rm -f /lm/*.pt" in start_text
     # 清理段必须在 vllm serve 之前(先清残留再启动引擎)
-    assert start_text.index("rm -rf /lm/kvcache/*") < start_text.index("vllm serve")
+    assert start_text.index("rm -f /lm/*.pt") < start_text.index("vllm serve")
     # repro.sh 同款清理(复现也需要干净基线)
-    assert "rm -rf /lm/kvcache/*" in repro_path.read_text(encoding="utf-8")
+    assert "rm -f /lm/*.pt" in repro_path.read_text(encoding="utf-8")
 
 
 def test_kv_disk_cleanup_absent_without_disk(tmp_path):
