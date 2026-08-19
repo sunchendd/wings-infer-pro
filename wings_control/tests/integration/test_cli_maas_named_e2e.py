@@ -15,7 +15,7 @@ def test_cli_maas_named_params_end_to_end(config_root_real, tmp_path, monkeypatc
     )
     output_dir = tmp_path / "out"
 
-    monkeypatch.setenv("ENGINE_VERSION", "0.18.0")
+    monkeypatch.setenv("ENGINE_VERSION", "v0.18.0")
     monkeypatch.setattr(
         "sys.argv",
         [
@@ -104,7 +104,7 @@ def test_cli_enable_auto_think_choice_dropped_warn_and_keeps_recipe(config_root_
     )
     output_dir = tmp_path / "think_mode_out"
 
-    monkeypatch.setenv("ENGINE_VERSION", "0.18.0")
+    monkeypatch.setenv("ENGINE_VERSION", "v0.18.0")
     monkeypatch.setattr(
         "sys.argv",
         [

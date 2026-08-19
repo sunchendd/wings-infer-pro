@@ -36,7 +36,7 @@ def _hw(tmp_path: Path) -> Path:
 
 def _run_pod(tmp_path, monkeypatch, config_root_real, *, inst: str, rank_ip: str, tag: str):
     """以某实例某 Pod 的运行时上下文跑一次流水线,返回 ResolvedConfig。"""
-    monkeypatch.setenv("ENGINE_VERSION", "0.18.0")
+    monkeypatch.setenv("ENGINE_VERSION", "v0.18.0")
     monkeypatch.setenv("WINGS_START_LOG", str(tmp_path / f"{tag}.log"))
     meta = _INSTANCES[inst]
     resolved, *_ = run_pipeline(

@@ -66,6 +66,7 @@ from wings_ctl.loaders.locator import (
     load_model_config,
     load_platform_config,
     resolve_family_dir,
+    resolve_version_dir,
 )
 from wings_ctl.loaders.reasoning_table import ReasoningTableError, load_reasoning_table
 from wings_ctl.pd.planner import resolve_pd_topology
@@ -1890,8 +1891,8 @@ def _resolve_pd_config(
     if conflicts:
         raise ValueError(f"PD-owned 参数不允许 user_cli 覆盖：{conflicts}。")
 
-    # PD 只接受 exact engine version 和 exact model variant。recipe 是已验收的命令形状，
-    # 不能像标准推理一样通过版本或模型 fallback 换成另一份拓扑配置。
+    # PD 必须命中受支持的 engine 配置目录前缀，并要求 exact model variant。recipe 是已验收的命令形状，
+    # 不能像标准推理一样通过 latest 或模型 fallback 换成另一份拓扑配置。
     family_dir = resolve_family_dir(
         env.config_root,
         target.engine,
@@ -2419,7 +2420,9 @@ def resolve_config(
 
     # 查找轨迹 — 版本解析结果
     if engine_version.has_version_dir:
-        resolution_notes["resolved_version_dir"] = str(config_root / "engines" / engine / f"v{engine_version.resolved}")
+        resolution_notes["resolved_version_dir"] = str(
+            resolve_version_dir(config_root / "engines" / engine, engine_version.resolved)
+        )
         resolution_notes["version_is_fallback"] = "true" if engine_version.is_fallback else "false"
         resolution_notes["requested_version"] = engine_version.requested or "<none>"
         resolution_notes["resolved_version"] = engine_version.resolved

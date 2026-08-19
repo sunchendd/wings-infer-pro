@@ -93,7 +93,7 @@ def test_resolve_family_dir_suffix_bearing_ascend_alias(config_root_real, monkey
     """回归:非 x86_64 上带显存后缀的昇腾卡名经别名命中架构目录。"""
     monkeypatch.setattr(locator.platform, "machine", lambda: "aarch64")
     assert (
-        resolve_family_dir(config_root_real, "vllm-ascend", "Ascend910B_64G", "0.18.0", True)
+        resolve_family_dir(config_root_real, "vllm-ascend", "Ascend910B_64G", "v0.18.0", True)
         == "ascend-a2"
     )
 
@@ -111,7 +111,7 @@ def test_resolve_family_dir_910b_non_x86_keeps_default(config_root_real, monkeyp
     """非 x86_64 平台继续使用默认 Ascend 910B 目录。"""
     monkeypatch.setattr(locator.platform, "machine", lambda: "aarch64")
     assert (
-        resolve_family_dir(config_root_real, "vllm-ascend", "Ascend910B_64G", "0.18.0", True)
+        resolve_family_dir(config_root_real, "vllm-ascend", "Ascend910B_64G", "v0.18.0", True)
         == "ascend-a2"
     )
 

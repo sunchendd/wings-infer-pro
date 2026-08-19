@@ -10,7 +10,7 @@ from wings_ctl.pipeline import run_pipeline
 
 
 def _run_with_overrides(config_root: Path, hardware_info_path: Path, tmp_path: Path, user_cli_overrides: dict | None):
-    os.environ["ENGINE_VERSION"] = "0.18.0"
+    os.environ["ENGINE_VERSION"] = "v0.18.0"
     try:
         out_dir = tmp_path / ("with_overrides" if user_cli_overrides else "without_overrides")
         out_dir.mkdir(parents=True, exist_ok=True)

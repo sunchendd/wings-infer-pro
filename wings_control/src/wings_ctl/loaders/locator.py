@@ -46,6 +46,17 @@ _ALIAS: Dict[str, str] = {
 }
 
 
+def resolve_version_dir(engine_root: Path, version: str) -> Path:
+    """返回版本配置目录，兼容 ``vX.Y.Z`` 与自定义目录名。
+
+    传统语义化版本使用 ``v{version}`` 目录；其他版本字符串作为自定义版本
+    目录名直接使用。
+    """
+    if re.fullmatch(r"v?\d+\.\d+\.\d+(?:[A-Za-z]+\d*)?", version):
+        return engine_root / f"v{version.lstrip('v')}"
+    return engine_root / version
+
+
 def resolve_family_dir(
     config_root: Path,
     engine: str,
@@ -84,7 +95,7 @@ def resolve_family_dir(
     # 列出该 engine[/version] 下所有含 models/ 的硬件目录,按 casefold 建"归一名→真实名"索引:
     # 匹配大小写无关,命中后回填磁盘真实目录名(config 变体目录用大写 G,不能只比小写)。
     base = config_root / "engines" / engine
-    parent = base / f"v{version.lstrip('v')}" if has_version_dir else base
+    parent = resolve_version_dir(base, version) if has_version_dir else base
     candidates: Dict[str, str] = {}
     if parent.is_dir():
         for child in sorted(parent.iterdir()):
@@ -151,17 +162,17 @@ def build_models_dir(
     """拼接 models 目录路径 —— 全仓唯一的"目录布局规则"来源。
 
     布局:
-    - 有版本层(has_version_dir=True): engines/{engine}/v{version}/{hardware_family}/models
+    - 有版本层(has_version_dir=True): engines/{engine}/{version_dir}/{hardware_family}/models
     - 无版本层(has_version_dir=False): engines/{engine}/{hardware_family}/models
 
-    版本层有无由上游目录自判决定(目录名像不像 vX.Y.Z),不由引擎名决定;
+    版本层有无由上游版本解析决定，不由引擎名决定;
     无版本层引擎(如 vllm)的 version 参数不参与拼接。
 
     Args:
         config_root: 配置根目录,内含 engines/ 子树。
         engine: 引擎名(如 "vllm" / "vllm-ascend")。
         hardware_family: 硬件族标识(如 "h200")。
-        version: 引擎版本字符串;仅 has_version_dir=True 时用于拼 v{version} 层。
+        version: 引擎版本字符串;仅 has_version_dir=True 时用于拼版本目录层。
         has_version_dir: 是否含版本层目录(上游 version_resolver 目录自判产出)。
 
     Returns:
@@ -169,7 +180,7 @@ def build_models_dir(
     """
     base = config_root / "engines" / engine
     if has_version_dir:
-        return base / f"v{version.lstrip('v')}" / hardware_family / "models"
+        return resolve_version_dir(base, version) / hardware_family / "models"
     return base / hardware_family / "models"
 
 

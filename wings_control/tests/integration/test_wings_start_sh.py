@@ -32,7 +32,7 @@ def _hw(tmp_path: Path) -> Path:
 def _run(args: list[str], tmp_path: Path) -> subprocess.CompletedProcess:
     """以子进程跑 wings_start.sh;ENGINE_VERSION 固定,日志指向 tmp 避免 /var/log 噪音。"""
     env = dict(os.environ)
-    env["ENGINE_VERSION"] = "0.18.0"
+    env["ENGINE_VERSION"] = "v0.18.0"
     env["WINGS_START_LOG"] = str(tmp_path / "wings_start.log")
     # 清掉可能从外部泄漏的多机运行时上下文,确保走 standalone
     for k in ("RANK_IP", "NODE_IPS", "MASTER_IP", "PD_ROLE"):
@@ -61,7 +61,7 @@ def _start(args: list[str], tmp_path: Path) -> subprocess.Popen[str]:
         长驻中的子进程句柄。
     """
     env = dict(os.environ)
-    env["ENGINE_VERSION"] = "0.18.0"
+    env["ENGINE_VERSION"] = "v0.18.0"
     env["WINGS_START_LOG"] = str(tmp_path / "wings_start.log")
     for k in ("RANK_IP", "NODE_IPS", "MASTER_IP", "PD_ROLE"):
         env.pop(k, None)
@@ -147,6 +147,9 @@ def test_wings_start_sh_produces_artifacts(config_root_real, tmp_path):
     assert (out / "repro.sh").exists()
     assert (out / "audit.json").exists()
     assert "vllm serve" in (out / "start_command.sh").read_text(encoding="utf-8")
+    repro_content = (out / "repro.sh").read_text(encoding="utf-8")
+    assert "# Engine: vllm-ascend v0.18.0" in repro_content
+    assert "vv0.18.0" not in repro_content
 
 
 @pytest.mark.skipif(not _SCRIPT.exists(), reason="wings_start.sh 不在仓库根")

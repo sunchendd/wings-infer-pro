@@ -240,7 +240,7 @@ class TestStandaloneE2E:
 
         # 版本信息
         assert audit["version"]["engine"] == "vllm"
-        assert audit["version"]["resolved_config_version"] == "0.19.0"
+        assert audit["version"]["resolved_config_version"] == "v0.19.0"
 
         # engine_config 每个参数都有 events
         for _, entry in audit["engine_config"].items():
@@ -262,7 +262,7 @@ class TestStandaloneE2E:
             )
             assert engine_version.is_fallback is True
             assert engine_version.requested == "99.99.99"
-            assert engine_version.resolved == "0.19.0"  # latest available
+            assert engine_version.resolved == "v0.19.0"  # latest available
         finally:
             os.environ.pop("ENGINE_VERSION", None)
 
