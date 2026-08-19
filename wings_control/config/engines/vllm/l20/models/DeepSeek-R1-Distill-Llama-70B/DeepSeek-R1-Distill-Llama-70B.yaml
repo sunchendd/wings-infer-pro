@@ -52,4 +52,5 @@ scenarios:
           host: 0.0.0.0
           port: 17000
           tensor_parallel_size: 4
+          tokenizer_mode: deepseek_v32 # Llama 模型必须配置解决乱码问题，tokenizer不配置 默认取 model路径
         env: {}

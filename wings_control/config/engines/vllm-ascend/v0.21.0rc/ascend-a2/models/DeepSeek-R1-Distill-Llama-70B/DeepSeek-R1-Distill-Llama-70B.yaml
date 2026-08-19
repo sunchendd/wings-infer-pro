@@ -1,0 +1,67 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_ascend_deepseek-r1-distill-llama-70b_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Llama-70B"
+    date_updated: 2026-08-18
+    note: 用户提供 vLLM Ascend OpenAI API server 启动命令，手工录入。
+
+# 模型基本信息
+model:
+  name: DeepSeek-R1-Distill-Llama-70B  # 模型名称
+  slug: deepseek-r1-distill-llama-70b  # 模型标识
+  provider: DeepSeek  # 提供者/厂商
+  description: "DeepSeek-R1 蒸馏到 Llama 70B 的 dense 推理模型。"  # 模型描述
+  model_id: deepseek-ai/DeepSeek-R1-Distill-Llama-70B  # HuggingFace/ModelScope 模型 ID
+  model_path: null
+  architecture: dense
+  parameter_count: 70B
+  active_parameters: 70B
+  context_length: 131072
+  vram_minimum_gb: 512
+  tasks:
+    - text
+  min_engine_version: v0.21.0rc
+  match:
+    - name_pattern: "(?i)deepseek[-.]?r1[-.]?distill[-.]?llama[-.]?70b"
+  variant_name: DeepSeek-R1-Distill-Llama-70B
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: Enable automatic tool/function calling via the model's tool-call parser.
+    args: [--enable-auto-tool-choice, --tool-call-parser, llama3_json]
+
+# 硬件信息
+hardware_profile:
+  name: ascend-a2
+  display_name: Ascend A2
+  gpu_count: 8
+  vram_gb: 512
+  multi_node: true
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: vllm_ascend_deepseek-r1-distill-llama-70b_manual#single_node
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        description: Single-node OpenAI-compatible API server.
+        default_strategy: true
+        engine_config:
+          model: deepseek-ai/DeepSeek-R1-Distill-Llama-70B
+          served_model_name: DeepSeek-R1-Distill-Llama-70B
+          host: "0.0.0.0"
+          port: 17000
+          tensor_parallel_size: 4
+          trust_remote_code: true
+          max_model_len: 4096
+          max_num_seqs: 64
+          tokenizer_mode: deepseek_v32 # Llama 模型必须配置解决乱码问题，tokenizer不配置 默认取 model路径
+        env: {}
