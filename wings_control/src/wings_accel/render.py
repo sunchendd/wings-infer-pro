@@ -414,7 +414,7 @@ def write_scheme_files(
 
 
 def extract_packages(scheme: Dict[str, Any]) -> List[str]:
-    """从单个 scheme dict 读 ``packages`` 依赖,统一返回 pip-style ``name==version`` 字符串列表。
+    """从单个 scheme dict 读 ``packages`` 依赖,统一返回 ``name:version`` 字符串列表。
 
     YAML 形态(**键值对**,name→version,每行一个;**无 list dash**):
 
@@ -422,23 +422,25 @@ def extract_packages(scheme: Dict[str, Any]) -> List[str]:
           packages:
             arctic-inference: 0.1.1
 
-    输出统一为 ``["name==version", ...]``(pip 安装 specifier,供 install 段 ``--config`` 的 packages)。
+    输出统一为 ``["name:version", ...]``(与 install.py manifest / 报错信息的
+    ``name:version`` 风格一致;packages 经 ``--config '{json}'`` 传递,纯 JSON 字符串,
+    无 shell/pip 解析歧义,无需 pip-style ``==``)。
     兼容旧 list 形态与单字符串(原样保留)。
 
     Args:
         scheme: 单个 scheme dict;``packages`` 缺失 → 返回空列表。
 
     Returns:
-        ``name==version`` 字符串列表(保留输入顺序);空键/空串丢弃。
+        ``name:version`` 字符串列表(保留输入顺序);空键/空串丢弃。
     """
     raw = (scheme or {}).get("packages")
     if isinstance(raw, dict):
-        return [f"{name}=={ver}" for name, ver in raw.items() if name]
+        return [f"{name}:{ver}" for name, ver in raw.items() if name]
     if isinstance(raw, list):
         out: List[str] = []
         for item in raw:
             if isinstance(item, dict):
-                out.extend(f"{k}=={v}" for k, v in item.items() if k)
+                out.extend(f"{k}:{v}" for k, v in item.items() if k)
             elif item is not None and str(item) != "":
                 out.append(str(item))
         return out

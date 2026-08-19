@@ -181,7 +181,7 @@ class _FeatureOutput:              # expander 内部返回形态(不导出)
     engine_params: EngineParams    # 已渲染
     degraded: bool = False         # 是否降级
     degrade_reason: str = ""       # 降级原因
-    packages: List[str] = []       # pip 依赖(name==version)
+    packages: List[str] = []       # pip 依赖(name:version)
 
 @dataclass
 class SmartAccelOutput:            # 总输出
@@ -427,7 +427,7 @@ YAML `packages` 是**键值对**(name→version,无 list dash):
     arctic-inference: 0.1.1
 ```
 
-统一输出 pip-style `["name==version", ...]`,兼容旧 list 形态与单字符串。
+统一输出 `["name:version", ...]`(与 install.py manifest 风格一致),兼容旧 list 形态与单字符串。
 
 ---
 
