@@ -97,7 +97,7 @@ LMCACHE_LOCAL_DISK=/var/cache/lmcache
 LMCACHE_MAX_LOCAL_DISK_SIZE=600.0
 ```
 
-**packages:** lmcache==v0.3.15
+**packages:** lmcache:v0.3.15
 
 ---
 
