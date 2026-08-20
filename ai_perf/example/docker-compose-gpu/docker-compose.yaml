@@ -1,0 +1,89 @@
+version: "3.8"
+
+# AI Perf example — NVIDIA GPU (vllm) + wings-infer-pro
+#
+# 三容器:
+#   accel-init:     加速包镜像 /opt/packages/ → accel-vol
+#   aiperf-control: wings-control(wings-infer-pro) 生成 start_command.sh 到 shared-vol
+#   aiperf-engine:  等 start_command.sh 出现后 exec 拉起 vllm
+
+services:
+  accel-init:
+    image: ${IMAGE_ACCEL}
+    container_name: aiperf-accel-${SERVICE_SUFFIX}
+    restart: "no"
+    entrypoint: ["cp", "-a", "/opt/packages/.", "/accel-volume/"]
+    volumes:
+      - accel-vol:/accel-volume
+
+  aiperf-control:
+    image: ${IMAGE_CONTROL}
+    container_name: aiperf-control-${SERVICE_SUFFIX}
+    network_mode: host
+    restart: "no"
+    depends_on:
+      accel-init:
+        condition: service_completed_successfully
+    environment:
+      WINGS_SKIP_PID_CHECK: "true"
+      ENGINE: "${ENGINE}"
+      # ENGINE_VERSION 选择 wings-infer-pro 配置资产版本树(config/engines/<engine>/<version>/)
+      ENGINE_VERSION: "${ENGINE_VERSION}"
+      MODEL_NAME: "${MODEL_NAME}"
+      MODEL_PATH: "${MODEL_PATH}/"
+      DEVICE_COUNT: "${DEVICE_COUNT}"
+      # hardware_family 定位配置目录 config/engines/<engine>/<version>/<HARDWARE_FAMILY>/
+      HARDWARE_FAMILY: "${HARDWARE_FAMILY}"
+      WINGS_ACCEL_DIR: "/accel-volume"
+      # 特性开关: 新版 wings_ctl 无 --enable-speculative-decode 等 flag,
+      # 由 SmartAccel 子系统直接读以下环境变量
+      ENABLE_ACCEL: "${ENABLE_ACCEL:-false}"
+      ENABLE_REASON_PROXY: "${ENABLE_REASON_PROXY:-false}"
+      ENABLE_SPECULATIVE_DECODE: "${ENABLE_SPECULATIVE_DECODE:-false}"
+      ENABLE_SPARSE: "${ENABLE_SPARSE:-false}"
+      # 端口: ENGINE_PORT=backend 真实监听; PORT=proxy 对外; HEALTH_PORT 健康检查
+      ENGINE_PORT: "${ENGINE_PORT}"
+      PORT: "${CONTROL_PORT}"
+      HEALTH_PORT: "${HEALTH_PORT}"
+      MONITOR_PROXY_PORT: "${MONITOR_PROXY_PORT}"
+      BACKEND_URL: "http://127.0.0.1:${ENGINE_PORT}"
+      # 引擎参数(透传给 wings_start.sh CLI)
+      GPU_MEMORY_UTILIZATION: "${GPU_MEMORY_UTILIZATION}"
+      QUANTIZATION: "${QUANTIZATION:-}"
+      INPUT_LENGTH: "${INPUT_LENGTH}"
+      OUTPUT_LENGTH: "${OUTPUT_LENGTH}"
+      MAX_NUM_SEQS: "${MAX_NUM_SEQS}"
+      MAX_NUM_BATCHED_TOKENS: "${MAX_NUM_BATCHED_TOKENS:-}"
+      KV_CACHE_DTYPE: "${KV_CACHE_DTYPE}"
+      BLOCK_SIZE: "${BLOCK_SIZE}"
+      DTYPE: "${DTYPE}"
+      TRUST_REMOTE_CODE: "${TRUST_REMOTE_CODE}"
+    volumes:
+      - ./aiperf-control-entrypoint.sh:/aiperf-control-entrypoint.sh:ro
+      - shared-vol:/shared-volume
+      - accel-vol:/accel-volume
+      - ${MODEL_PATH}:${MODEL_PATH}:ro
+    entrypoint: ["/aiperf-control-entrypoint.sh"]
+
+  aiperf-engine:
+    image: ${IMAGE_ENGINE}
+    container_name: aiperf-engine-${SERVICE_SUFFIX}
+    network_mode: host
+    restart: "no"
+    shm_size: "${SHM_SIZE}"
+    runtime: nvidia
+    depends_on:
+      accel-init:
+        condition: service_completed_successfully
+    environment:
+      NVIDIA_VISIBLE_DEVICES: "${XPU_VISIBLE_DEVICES}"
+    volumes:
+      - ./aiperf-engine-entrypoint.sh:/aiperf-engine-entrypoint.sh:ro
+      - shared-vol:/shared-volume
+      - accel-vol:/accel-volume
+      - ${MODEL_PATH}:${MODEL_PATH}:ro
+    entrypoint: ["/aiperf-engine-entrypoint.sh"]
+
+volumes:
+  shared-vol:
+  accel-vol:
