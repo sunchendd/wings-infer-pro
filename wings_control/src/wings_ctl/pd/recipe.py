@@ -335,6 +335,8 @@ def select_pd_recipe_pair(
             topology_input_policy=shape_policy,
             prefill_shape=node.prefill_shape,
             decode_shape=node.decode_shape,
+            # recipe 中 identity group 的成员数是已验收 topology 的参考值；实际 mPnD
+            # 成员数由 MaaS placement 和显式 topology 决定，不在 planner 中作硬匹配。
             instance_member_count=_identity_groups(grouped[role])[0][1],
             process_layout=PD_PROCESS_LAYOUT_SINGLE if ordinary_1p1d else PD_PROCESS_LAYOUT_PER_LOCAL_RANK,
             dp_launch_policy=PD_DP_LAUNCH_NONE if ordinary_1p1d else PD_DP_LAUNCH_EXTERNAL_RANK,

@@ -1653,9 +1653,12 @@ def _build_pd_process_overrides(
     """构造一个 local process 的 PD-owned 参数覆盖和 KV listener 起始端口。"""
     role_shape = topology.prefill if topology.role is PdRole.PREFILL else topology.decode
     rank = topology.rank_start + local_index
-    overrides: Dict[str, Any] = {"port": port}
-    if topology.input_policy == PD_TOPOLOGY_DERIVED_1P1D:
-        overrides["tensor_parallel_size"] = role_shape.tp_size
+    # recipe 中的 TP 只是已验收 topology 的参考值。普通 PD 和显式 mPnD 都必须
+    # 使用同一份 resolved topology，避免 argv、设备切片和 connector extra config 分叉。
+    overrides: Dict[str, Any] = {
+        "port": port,
+        "tensor_parallel_size": role_shape.tp_size,
+    }
     if runtime.dp_launch_policy == PD_DP_LAUNCH_EXTERNAL_RANK:
         overrides.update(
             {
@@ -1845,6 +1848,35 @@ def _build_pd_process_plan(
     )
 
 
+def _build_pd_recipe_recommendation_notes(
+    topology: ResolvedPdTopology,
+    runtime: PdRuntimeSpec,
+) -> Dict[str, str]:
+    """比较显式 topology 与当前 role recipe 的已验收推荐基线。
+
+    推荐值只用于区分 ``matched`` 和 ``custom``，不参与 topology 合法性判断。
+    shape 比较覆盖 P/D 两侧；成员数只比较当前 Pod 所属 role，因为另一侧 placement
+    不在本 Pod 的可观察范围内。
+    """
+    if topology.input_policy != PD_TOPOLOGY_EXPLICIT_ALLOCATION:
+        return {}
+
+    member_count = len(topology.placement.node_ips or [])
+    shape_matches = topology.prefill == runtime.prefill_shape and topology.decode == runtime.decode_shape
+    member_count_matches = member_count == runtime.instance_member_count
+    return {
+        "pd_recipe_recommendation_status": "matched" if shape_matches and member_count_matches else "custom",
+        "pd_recipe_shape_match": "true" if shape_matches else "false",
+        "pd_recipe_role_member_count_match": "true" if member_count_matches else "false",
+        "pd_recipe_recommended_prefill_shape": (
+            f"dp={runtime.prefill_shape.dp_size},tp={runtime.prefill_shape.tp_size}"
+        ),
+        "pd_recipe_recommended_decode_shape": (f"dp={runtime.decode_shape.dp_size},tp={runtime.decode_shape.tp_size}"),
+        "pd_recipe_recommended_role_member_count": str(runtime.instance_member_count),
+        "pd_runtime_role_member_count": str(member_count),
+    }
+
+
 def _resolve_pd_config(
     env: ResolvedEnv,
     target: Target,
@@ -2016,6 +2048,7 @@ def _resolve_pd_config(
                 "pd_peer_device_count_validation": "maas_asserted_not_locally_observable",
             }
         )
+    notes.update(_build_pd_recipe_recommendation_notes(pd_topology, role_recipe.runtime))
     notes.update(feature_notes)
     notes.update(network_env_notes)
     if reasoning_resolution is not None:

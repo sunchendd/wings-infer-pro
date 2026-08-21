@@ -167,24 +167,23 @@ def test_explicit_allocation_rejects_global_dp_mismatch() -> None:
         resolve_pd_topology(pd_input, pair, device_count=8)
 
 
-def test_explicit_allocation_rejects_recipe_instance_member_mismatch() -> None:
-    """锁定 A2 类错误：四个成员 Pod 不能被 recipe 写成四个独立 Instance。"""
+def test_explicit_allocation_accepts_custom_homogeneous_mpnd_shape() -> None:
+    """验证 custom mPnD 只受 closure 和满卡约束，不受 recipe 示例 shape 限制。"""
     pair = _pair(
         "explicit_allocation",
-        prefill_tp=1,
-        decode_tp=1,
-        prefill_dp=8,
-        decode_dp=32,
-        decode_members=1,
+        prefill_tp=4,
+        decode_tp=2,
+        prefill_dp=2,
+        decode_dp=4,
     )
     explicit = ExplicitPdTopology(
-        pd_index=4,
-        prefill=ParallelShape(dp_size=8, tp_size=1),
-        decode=ParallelShape(dp_size=32, tp_size=1),
-        dp_size_local=8,
+        pd_index=7,
+        prefill=ParallelShape(dp_size=8, tp_size=2),
+        decode=ParallelShape(dp_size=4, tp_size=4),
+        dp_size_local=2,
     )
     pd_input = PdRuntimeInput(
-        PdRole.DECODE,
+        PdRole.PREFILL,
         explicit,
         _placement(
             ["10.0.0.5", "10.0.0.6", "10.0.0.7", "10.0.0.8"],
@@ -192,22 +191,28 @@ def test_explicit_allocation_rejects_recipe_instance_member_mismatch() -> None:
         ),
     )
 
-    with pytest.raises(ValueError, match="成员 Pod 数"):
-        resolve_pd_topology(pd_input, pair, device_count=8)
+    resolved = resolve_pd_topology(pd_input, pair, device_count=4)
+
+    assert resolved.instance_index == 7
+    assert resolved.prefill == ParallelShape(dp_size=8, tp_size=2)
+    assert resolved.decode == ParallelShape(dp_size=4, tp_size=4)
+    assert resolved.member_index == 3
+    assert resolved.rank_start == 6
+    assert resolved.rank_end_exclusive == 8
 
 
-def test_explicit_allocation_rejects_unapproved_parallel_shape() -> None:
-    """验证 MaaS 输入不能偏离 exact recipe 冻结的 P/D DP、TP。"""
+def test_explicit_allocation_rejects_idle_devices() -> None:
+    """验证 PD 大 EP 必须让 TP 和 local DP 使用当前 Pod 的全部设备。"""
     pair = _pair("explicit_allocation", prefill_dp=2, decode_dp=4, prefill_members=2)
     explicit = ExplicitPdTopology(
         pd_index=0,
-        prefill=ParallelShape(dp_size=4, tp_size=4),
+        prefill=ParallelShape(dp_size=2, tp_size=2),
         decode=ParallelShape(dp_size=4, tp_size=2),
         dp_size_local=2,
     )
-    pd_input = PdRuntimeInput(PdRole.PREFILL, explicit, _placement(["10.0.0.1", "10.0.0.2"]))
+    pd_input = PdRuntimeInput(PdRole.PREFILL, explicit, _placement(["10.0.0.1"]))
 
-    with pytest.raises(ValueError, match="已验收 P/D shape"):
+    with pytest.raises(ValueError, match="满卡闭合"):
         resolve_pd_topology(pd_input, pair, device_count=8)
 
 
@@ -224,6 +229,22 @@ def test_explicit_allocation_rejects_insufficient_devices() -> None:
 
     with pytest.raises(ValueError, match="卡数不足"):
         resolve_pd_topology(pd_input, pair, device_count=4)
+
+
+@pytest.mark.parametrize("device_count", [True, 0, -1])
+def test_explicit_allocation_rejects_invalid_device_count(device_count: int) -> None:
+    """验证显式分配拒绝布尔值和非正卡数。"""
+    pair = _pair("explicit_allocation", prefill_dp=2, decode_dp=2)
+    explicit = ExplicitPdTopology(
+        pd_index=0,
+        prefill=ParallelShape(dp_size=1, tp_size=1),
+        decode=ParallelShape(dp_size=1, tp_size=1),
+        dp_size_local=1,
+    )
+    pd_input = PdRuntimeInput(PdRole.PREFILL, explicit, _placement(["10.0.0.1"]))
+
+    with pytest.raises(ValueError, match="device_count 必须是正整数"):
+        resolve_pd_topology(pd_input, pair, device_count=device_count)
 
 
 def test_pd_topology_requires_device_count() -> None:

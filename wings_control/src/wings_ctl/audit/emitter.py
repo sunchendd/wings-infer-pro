@@ -172,6 +172,10 @@ def _build_audit_dict(resolved: ResolvedConfig) -> Dict[str, Any]:
             "maas_assertions": {
                 "pd_index_unique": "maas_asserted_not_locally_observable",
                 "all_prefill_before_decode": "maas_asserted_not_locally_observable",
+                "peer_role_topology": "maas_asserted_not_locally_observable",
+                "same_role_instance_homogeneity": "maas_asserted_not_locally_observable",
+                "cross_pod_endpoint_conflicts": "maas_asserted_not_locally_observable",
+                "network_policy": "maas_asserted_not_locally_observable",
             },
             "process_plan": {
                 "layout": resolved.process_plan.layout,

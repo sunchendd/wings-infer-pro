@@ -67,7 +67,7 @@ def _engine_config(role: str) -> dict:
             "kv_port": 36000 if role == "P" else 36100,
             "kv_connector_extra_config": {
                 "prefill": {"dp_size": 4, "tp_size": 8},
-                "decode": {"dp_size": 4, "tp_size": 1},
+                "decode": {"dp_size": 4, "tp_size": 8},
             },
         },
     }
@@ -195,11 +195,11 @@ def ordinary_pd_root(tmp_path: Path) -> Path:
 
 
 def _decode_input(placement: ClusterPlacement) -> PdRuntimeInput:
-    """构造 decode Pod 的显式 allocation 输入(DP=4, local=2, member 2)。"""
+    """构造 decode Pod 的显式 allocation 输入(DP=4, TP=8, local=2, member 2)。"""
     explicit = ExplicitPdTopology(
         pd_index=1,
         prefill=ParallelShape(dp_size=4, tp_size=8),
-        decode=ParallelShape(dp_size=4, tp_size=1),
+        decode=ParallelShape(dp_size=4, tp_size=8),
         dp_size_local=2,
     )
     return PdRuntimeInput(PdRole.DECODE, explicit, placement)
@@ -274,12 +274,110 @@ def test_pd_exact_pipeline_builds_process_plan(pd_root: Path, tmp_path: Path, mo
     plan = resolved.process_plan
     assert plan.layout == "per_local_dp_rank"
     assert [process.dp_rank for process in plan.processes] == [2, 3]
-    assert [process.visible_devices for process in plan.processes] == [(0,), (1,)]
+    assert [process.visible_devices for process in plan.processes] == [tuple(range(8)), tuple(range(8, 16))]
     assert plan.endpoints == ["10.0.0.4:17000", "10.0.0.4:17001"]
     assert all(isinstance(process.argv, list) for process in plan.processes)
     assert all("--enable-auto-tool-choice" not in process.argv for process in plan.processes)
     assert all("--reasoning-parser" not in process.argv for process in plan.processes)
     assert all("--speculative-config" not in process.argv for process in plan.processes)
+    assert resolved.resolution_notes["pd_recipe_recommendation_status"] == "matched"
+
+
+def test_pd_pipeline_uses_custom_mpnd_shape_for_argv_devices_and_connector(
+    pd_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """验证 runtime topology 覆盖 recipe 推荐 shape 的所有进程级参数。"""
+    monkeypatch.setenv("ENGINE_VERSION", "v0.23.0")
+    placement = ClusterPlacement(
+        master_ip="10.0.0.5",
+        rank_ip="10.0.0.8",
+        node_ips=["10.0.0.5", "10.0.0.6", "10.0.0.7", "10.0.0.8"],
+    )
+    pd_input = PdRuntimeInput(
+        PdRole.PREFILL,
+        ExplicitPdTopology(
+            pd_index=7,
+            prefill=ParallelShape(dp_size=8, tp_size=2),
+            decode=ParallelShape(dp_size=4, tp_size=4),
+            dp_size_local=2,
+        ),
+        placement,
+    )
+    request = PipelineRequest(
+        target=Target(_VARIANT, Topology.PD_PREFILL, "vllm-ascend"),
+        hardware_info_path=_write_hardware(pd_root),
+        config_root=pd_root,
+        device_count=4,
+        placement=placement,
+        pd_input=pd_input,
+    )
+
+    resolved = resolve_pipeline(request)
+
+    assert resolved.process_plan is not None
+    processes = resolved.process_plan.processes
+    assert [process.dp_rank for process in processes] == [6, 7]
+    assert [process.visible_devices for process in processes] == [(0, 1), (2, 3)]
+    assert [process.argv[process.argv.index("--tensor-parallel-size") + 1] for process in processes] == ["2", "2"]
+    assert all(
+        process.engine_config_traces["kv_transfer_config"].final_value["kv_connector_extra_config"]
+        == {
+            "prefill": {"dp_size": 8, "tp_size": 2},
+            "decode": {"dp_size": 4, "tp_size": 4},
+        }
+        for process in processes
+    )
+    assert resolved.resolution_notes["pd_recipe_recommendation_status"] == "custom"
+    assert resolved.resolution_notes["pd_recipe_shape_match"] == "false"
+
+
+def test_pd_pipeline_uses_custom_mpnd_decode_shape(
+    pd_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """验证 D Pod 使用独立于 P 的 runtime DP/TP，并保持 rank、卡组和 connector 一致。"""
+    monkeypatch.setenv("ENGINE_VERSION", "v0.23.0")
+    placement = ClusterPlacement(
+        master_ip="10.0.1.1",
+        rank_ip="10.0.1.2",
+        node_ips=["10.0.1.1", "10.0.1.2"],
+    )
+    pd_input = PdRuntimeInput(
+        PdRole.DECODE,
+        ExplicitPdTopology(
+            pd_index=8,
+            prefill=ParallelShape(dp_size=8, tp_size=2),
+            decode=ParallelShape(dp_size=4, tp_size=4),
+            dp_size_local=2,
+        ),
+        placement,
+    )
+    request = PipelineRequest(
+        target=Target(_VARIANT, Topology.PD_DECODE, "vllm-ascend"),
+        hardware_info_path=_write_hardware(pd_root),
+        config_root=pd_root,
+        device_count=8,
+        placement=placement,
+        pd_input=pd_input,
+    )
+
+    resolved = resolve_pipeline(request)
+
+    assert resolved.process_plan is not None
+    processes = resolved.process_plan.processes
+    assert [process.dp_rank for process in processes] == [2, 3]
+    assert [process.visible_devices for process in processes] == [tuple(range(4)), tuple(range(4, 8))]
+    assert [process.argv[process.argv.index("--tensor-parallel-size") + 1] for process in processes] == ["4", "4"]
+    assert all(
+        process.engine_config_traces["kv_transfer_config"].final_value["kv_connector_extra_config"]
+        == {
+            "prefill": {"dp_size": 8, "tp_size": 2},
+            "decode": {"dp_size": 4, "tp_size": 4},
+        }
+        for process in processes
+    )
+    assert resolved.resolution_notes["pd_recipe_recommendation_status"] == "custom"
 
 
 def test_pd_feature_overlay_applies_to_every_process_with_trace(
@@ -404,7 +502,7 @@ def test_pd_cli_keeps_proxy_port_out_of_engine_overrides(
         "PD_PREFILL_DP_SIZE": "4",
         "PD_PREFILL_TP_SIZE": "8",
         "PD_DECODE_DP_SIZE": "4",
-        "PD_DECODE_TP_SIZE": "1",
+        "PD_DECODE_TP_SIZE": "8",
         "DP_SIZE_LOCAL": "2",
         "RANK_IP": "10.0.0.4",
         "MASTER_IP": "10.0.0.3",
@@ -459,7 +557,7 @@ def test_pd_cli_feature_switches_reuse_model_overlay(
         "PD_PREFILL_DP_SIZE": "4",
         "PD_PREFILL_TP_SIZE": "8",
         "PD_DECODE_DP_SIZE": "4",
-        "PD_DECODE_TP_SIZE": "1",
+        "PD_DECODE_TP_SIZE": "8",
         "DP_SIZE_LOCAL": "2",
         "RANK_IP": "10.0.0.4",
         "MASTER_IP": "10.0.0.3",

@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 def _validate_capacity(role_tp: int, local_dp: int, device_count: int | None) -> None:
-    """校验当前 Pod 卡数能容纳所有 local ranks。
+    """校验当前 Pod 的 local ranks 恰好使用 MaaS 分配的全部设备。
 
     Args:
         role_tp: 当前 role TP。
@@ -28,15 +28,22 @@ def _validate_capacity(role_tp: int, local_dp: int, device_count: int | None) ->
         device_count: MaaS 显式下发卡数。
 
     Raises:
-        ValueError: 卡数缺失或 ``role_tp * local_dp`` 超出卡数。
+        ValueError: 卡数缺失，或 ``role_tp * local_dp`` 与卡数不闭合。
     """
     if device_count is None:
         raise ValueError("PD 场景必须显式提供 device_count，供本 Pod 卡组闭合校验。")
+    if isinstance(device_count, bool) or not isinstance(device_count, int) or device_count <= 0:
+        raise ValueError(f"PD device_count 必须是正整数，当前值为 {device_count!r}。")
     required = role_tp * local_dp
     if required > device_count:
         raise ValueError(
             f"PD 本 Pod 卡数不足：role_tp={role_tp} * dp_size_local={local_dp} "
             f"需要 {required} 卡，device_count={device_count}。"
+        )
+    if required < device_count:
+        raise ValueError(
+            f"PD 本 Pod 必须满卡闭合：role_tp={role_tp} * dp_size_local={local_dp} "
+            f"仅使用 {required} 卡，device_count={device_count}。"
         )
 
 
@@ -108,39 +115,29 @@ def _resolve_derived_1p1d(
 def _resolve_explicit_allocation(
     pd_input: PdRuntimeInput,
     explicit: ExplicitPdTopology,
-    pair: Dict[PdRole, PdRoleRecipe],
     device_count: int | None,
 ) -> ResolvedPdTopology:
-    """解析场景 B 同构 local DP allocation。
+    """解析 PD 大 EP 的同构 local DP allocation。
 
     Args:
         pd_input: 当前 Pod 规范输入和 Instance placement。
         explicit: MaaS 原子六字段。
-        pair: P/D exact recipe pair，用于校验输入 TP 未偏离静态 recipe。
         device_count: 当前 Pod 卡数。
 
     Returns:
         含 member/rank range 的规范 topology。
 
     Raises:
-        ValueError: role global DP 与 placement closure 不一致，或卡数不足。
+        ValueError: role global DP 与 placement closure 不一致，或卡数不闭合。
+
+    ``explicit_allocation`` 的 P/D shape 和成员 Pod 数由 MaaS 规划。exact recipe
+    只约束后续 ProcessPlan 使用的静态 engine/connector policy，并提供已验收的推荐
+    topology，不限制本次 deployment 的实际 shape。
     """
     placement = pd_input.placement
     assert placement.node_ips is not None
     assert placement.rank_ip is not None
-    runtime = pair[pd_input.role].runtime
-    if explicit.prefill != runtime.prefill_shape or explicit.decode != runtime.decode_shape:
-        raise ValueError(
-            "PD topology 与 exact recipe 已验收 P/D shape 不一致："
-            f"input P={explicit.prefill} D={explicit.decode}，"
-            f"recipe P={runtime.prefill_shape} D={runtime.decode_shape}。"
-        )
     member_index = placement.node_ips.index(placement.rank_ip)
-    if len(placement.node_ips) != runtime.instance_member_count:
-        raise ValueError(
-            f"PD logical Instance 成员 Pod 数与 exact nodes recipe 不一致："
-            f"NODE_IPS={len(placement.node_ips)}，recipe={runtime.instance_member_count}。"
-        )
     role_shape = explicit.prefill if pd_input.role is PdRole.PREFILL else explicit.decode
     expected_global_dp = len(placement.node_ips) * explicit.dp_size_local
     if role_shape.dp_size != expected_global_dp:
@@ -189,7 +186,7 @@ def resolve_pd_topology(
     elif runtime.topology_input_policy == PD_TOPOLOGY_EXPLICIT_ALLOCATION:
         if pd_input.explicit_topology is None:
             raise ValueError("explicit_allocation recipe 必须提供完整 PD topology 六字段。")
-        resolved = _resolve_explicit_allocation(pd_input, pd_input.explicit_topology, pair, device_count)
+        resolved = _resolve_explicit_allocation(pd_input, pd_input.explicit_topology, device_count)
     else:  # 固定 schema parser 已拦截；保留边界保护。
         raise ValueError(f"未知 PD topology input policy：{runtime.topology_input_policy!r}。")
     logger.info(
