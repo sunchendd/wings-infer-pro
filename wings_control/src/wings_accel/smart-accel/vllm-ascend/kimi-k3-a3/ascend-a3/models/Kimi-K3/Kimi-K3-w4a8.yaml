@@ -1,0 +1,6 @@
+model:
+  name: Kimi-K3
+  variant_name: "Kimi-K3-w4a8"
+  match:
+    - name_pattern: "(?i)kimi[-.]?k3"
+smart_accel: {}

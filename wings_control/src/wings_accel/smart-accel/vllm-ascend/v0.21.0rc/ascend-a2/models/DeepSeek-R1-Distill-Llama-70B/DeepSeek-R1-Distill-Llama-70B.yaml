@@ -1,0 +1,6 @@
+model:
+  name: DeepSeek-R1-Distill-Llama-70B
+  variant_name: "DeepSeek-R1-Distill-Llama-70B"
+  match:
+    - name_pattern: "(?i)deepseek[-.]?r1[-.]?distill[-.]?llama[-.]?70b"
+smart_accel: {}

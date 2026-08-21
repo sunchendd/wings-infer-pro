@@ -1,0 +1,58 @@
+# SmartAccel 加速配置(decoding=deepseek_mtp)
+# 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
+# 由 features.spec_decoding 自动生成;仅 decoding,无 kv_offload/sparse。
+model:
+  name: GLM-5.1
+  variant_name: "GLM-5.1-w4a8"
+  match:
+    - name_pattern: "(?i)glm[-.]?5.1"
+smart_accel:
+  standalone:
+    source_ref: smart_accel#standalone
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+        - name: deepseek_mtp
+          cli_params:
+            speculative_config:
+              method: deepseek_mtp
+              num_speculative_tokens: 3
+          envs: {}
+  multi_node:
+    source_ref: smart_accel#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dp:
+        default_strategy: true
+        decoding:
+        - name: deepseek_mtp
+          cli_params:
+            speculative_config:
+              method: deepseek_mtp
+              num_speculative_tokens: 3
+          envs: {}
+  pd_disaggregation:
+    source_ref: smart_accel#pd_cluster
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        default_strategy: true
+        nodes:
+        - role: decode
+          index: 0
+          decoding:
+          - name: deepseek_mtp
+            cli_params:
+              speculative_config:
+                method: deepseek_mtp
+                num_speculative_tokens: 3
+            envs: {}
