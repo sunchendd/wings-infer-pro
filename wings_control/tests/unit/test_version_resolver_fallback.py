@@ -13,6 +13,7 @@ from wings_ctl.engines.version_resolver import (
     _parse_version_tuple,
     resolve_engine_version,
 )
+from wings_ctl.loaders.locator import build_models_dir
 
 
 # ─── _parse_version_tuple(版本字符串解析,含两段式/非法)──────────────────────
@@ -69,17 +70,17 @@ def test_no_engine_version_uses_latest_not_fallback(tmp_path, monkeypatch):
     monkeypatch.delenv("ENGINE_VERSION", raising=False)
     root = _make_engine_dirs(tmp_path, "vllm-ascend", ["v0.17.0", "v0.18.0"])
     ev = resolve_engine_version(root, "ascend-a3", engine="vllm-ascend")
-    assert ev.resolved == "0.18.0"
+    assert ev.resolved == "v0.18.0"
     assert ev.is_fallback is False  # 关键:未请求 → 不算 fallback
     assert ev.requested is None
 
 
-def test_exact_match_not_fallback(tmp_path, monkeypatch):
-    """精确命中请求版本 → is_fallback=False。"""
-    monkeypatch.setenv("ENGINE_VERSION", "0.18.0")
+def test_directory_name_prefix_match_not_fallback(tmp_path, monkeypatch):
+    """下发值以目录名开头时命中，不发生字符串转换。"""
+    monkeypatch.setenv("ENGINE_VERSION", "v0.18.0")
     root = _make_engine_dirs(tmp_path, "vllm-ascend", ["v0.17.0", "v0.18.0"])
     ev = resolve_engine_version(root, "ascend-a3", engine="vllm-ascend")
-    assert ev.resolved == "0.18.0"
+    assert ev.resolved == "v0.18.0"
     assert ev.is_fallback is False
 
 
@@ -88,33 +89,74 @@ def test_requested_not_found_is_fallback(tmp_path, monkeypatch):
     monkeypatch.setenv("ENGINE_VERSION", "9.9.9")
     root = _make_engine_dirs(tmp_path, "vllm-ascend", ["v0.17.0", "v0.18.0"])
     ev = resolve_engine_version(root, "ascend-a3", engine="vllm-ascend")
-    assert ev.resolved == "0.18.0"
+    assert ev.resolved == "v0.18.0"
     assert ev.is_fallback is True
     assert ev.requested == "9.9.9"
 
 
 def test_prerelease_build_version_matches_channel_directory(tmp_path, monkeypatch):
-    """带 rc 序号和构建时间戳的版本 → 命中 v0.21.0rc 配置目录。"""
+    """带构建后缀的版本按原始前缀命中 v0.21.0rc 目录。"""
     monkeypatch.setenv("ENGINE_VERSION", "v0.21.0rc1-20260709144216")
     root = _make_engine_dirs(tmp_path, "vllm-ascend", ["v0.18.0", "v0.21.0rc"])
 
     ev = resolve_engine_version(root, "ascend-a3", engine="vllm-ascend")
 
     assert ev.requested == "v0.21.0rc1-20260709144216"
-    assert ev.resolved == "0.21.0rc"
+    assert ev.resolved == "v0.21.0rc"
     assert ev.is_fallback is False
     assert ev.has_version_dir is True
 
 
-def test_prerelease_build_version_without_v_prefix_matches_channel_directory(tmp_path, monkeypatch):
-    """无 v 前缀的 rc 构建版本同样 → 命中 v0.21.0rc 配置目录。"""
+def test_prerelease_build_version_without_v_prefix_falls_back(tmp_path, monkeypatch):
+    """不补 v；无 v 前缀的请求不匹配 v 开头目录。"""
     monkeypatch.setenv("ENGINE_VERSION", "0.21.0rc1-20260709144216")
     root = _make_engine_dirs(tmp_path, "vllm-ascend", ["v0.21.0rc"])
 
     ev = resolve_engine_version(root, "ascend-a3", engine="vllm-ascend")
 
-    assert ev.resolved == "0.21.0rc"
+    assert ev.resolved == "v0.21.0rc"
+    assert ev.is_fallback is True
+
+
+def test_custom_version_prefix_matches_case_insensitively_and_loads_its_models_dir(tmp_path, monkeypatch):
+    """自定义目录按大小写无关最长前缀命中，并用于后续 YAML 路径定位。"""
+    engine_root = tmp_path / "engines" / "vllm-ascend"
+    (engine_root / "kimi-k3").mkdir(parents=True)
+    models_dir = engine_root / "KIMI-K3-A3" / "ascend-a3" / "models"
+    models_dir.mkdir(parents=True)
+    (engine_root / "v0.23.0").mkdir()
+    monkeypatch.setenv("ENGINE_VERSION", "kimi-k3-a3-20260730213841")
+
+    ev = resolve_engine_version(tmp_path, "ascend-a3", engine="vllm-ascend")
+
+    assert ev.resolved == "KIMI-K3-A3"
     assert ev.is_fallback is False
+    assert ev.has_version_dir is True
+    assert build_models_dir(tmp_path, "vllm-ascend", "ascend-a3", ev.resolved, ev.has_version_dir) == models_dir
+
+
+def test_custom_version_prefix_is_accepted_in_require_exact_mode(tmp_path, monkeypatch):
+    """PD strict 模式允许显式命中的自定义版本前缀目录。"""
+    root = _make_engine_dirs(tmp_path, "vllm-ascend", ["v0.23.0"])
+    (root / "engines" / "vllm-ascend" / "kimi-k3-a3").mkdir()
+    monkeypatch.setenv("ENGINE_VERSION", "KIMI-K3-A3-20260730213841")
+
+    ev = resolve_engine_version(root, "ascend-a3", engine="vllm-ascend", require_exact=True)
+
+    assert ev.resolved == "kimi-k3-a3"
+    assert ev.is_fallback is False
+
+
+def test_non_version_engine_does_not_treat_hardware_directory_as_version_prefix(tmp_path, monkeypatch):
+    """无版本层引擎不得把硬件目录误判为自定义版本目录。"""
+    (tmp_path / "engines" / "vllm" / "h100" / "models").mkdir(parents=True)
+    monkeypatch.setenv("ENGINE_VERSION", "H100-20260819")
+
+    ev = resolve_engine_version(tmp_path, "h100", engine="vllm", require_exact=True)
+
+    assert ev.requested == "H100-20260819"
+    assert ev.resolved == ""
+    assert ev.has_version_dir is False
 
 
 def test_require_exact_rejects_missing_engine_version(tmp_path, monkeypatch):
@@ -131,26 +173,37 @@ def test_require_exact_rejects_unmatched_engine_version(tmp_path, monkeypatch):
     monkeypatch.setenv("ENGINE_VERSION", "9.9.9")
     root = _make_engine_dirs(tmp_path, "vllm-ascend", ["v0.21.0rc"])
 
-    with pytest.raises(FileNotFoundError, match="exact"):
+    with pytest.raises(FileNotFoundError, match="目录名前缀"):
         resolve_engine_version(root, "ascend-a3", engine="vllm-ascend", require_exact=True)
 
 
-def test_require_exact_v023_matches_release_config_directory(tmp_path, monkeypatch):
-    """PD 目标组合下发 v0.23.0 时精确命中同名配置目录。"""
+def test_require_exact_v023_matches_release_directory_prefix(tmp_path, monkeypatch):
+    """PD 目标组合按目录名前缀命中 v0.23.0。"""
     monkeypatch.setenv("ENGINE_VERSION", "v0.23.0")
     root = _make_engine_dirs(tmp_path, "vllm-ascend", ["v0.23.0"])
 
     ev = resolve_engine_version(root, "ascend-a3", engine="vllm-ascend", require_exact=True)
 
     assert ev.requested == "v0.23.0"
-    assert ev.resolved == "0.23.0"
+    assert ev.resolved == "v0.23.0"
     assert ev.is_fallback is False
 
 
-def test_require_exact_rejects_rc_alias_for_v023_release_directory(tmp_path, monkeypatch):
-    """配置目录只有 v0.23.0 时，不把 MaaS 的 v0.23.0rc 猜测映射到 release。"""
+def test_require_exact_does_not_add_v_prefix_to_release_version(tmp_path, monkeypatch):
+    """纯目录名前缀规则不将 0.23.0 转换为 v0.23.0。"""
+    monkeypatch.setenv("ENGINE_VERSION", "0.23.0")
+    root = _make_engine_dirs(tmp_path, "vllm-ascend", ["v0.23.0"])
+
+    with pytest.raises(FileNotFoundError, match="目录名前缀"):
+        resolve_engine_version(root, "ascend-a3", engine="vllm-ascend", require_exact=True)
+
+
+def test_require_exact_accepts_release_directory_as_plain_prefix(tmp_path, monkeypatch):
+    """纯前缀规则下，v0.23.0rc 命中 v0.23.0 目录。"""
     monkeypatch.setenv("ENGINE_VERSION", "v0.23.0rc")
     root = _make_engine_dirs(tmp_path, "vllm-ascend", ["v0.23.0"])
 
-    with pytest.raises(FileNotFoundError, match="v0.23.0rc"):
-        resolve_engine_version(root, "ascend-a3", engine="vllm-ascend", require_exact=True)
+    ev = resolve_engine_version(root, "ascend-a3", engine="vllm-ascend", require_exact=True)
+
+    assert ev.resolved == "v0.23.0"
+    assert ev.is_fallback is False

@@ -28,7 +28,7 @@ def _resolve_ascend(config_root_real: Path):
             json.dumps({"hardware_family": "ascend-a3", "device": "ascend", "count": 16}),
             encoding="utf-8",
         )
-    os.environ["ENGINE_VERSION"] = "0.18.0"
+    os.environ["ENGINE_VERSION"] = "v0.18.0"
     try:
         hardware = resolve_hardware(hw_path)
         engine_version = resolve_engine_version(
@@ -84,7 +84,7 @@ scenarios:
                 config_root=tmp_path,
                 hardware_family="ascend-a3",
                 engine="vllm-ascend",
-                version="0.18.0",
+                version="v0.18.0",
                 model_name="DeepSeek-V4-Flash",
             )
 
@@ -94,7 +94,7 @@ scenarios:
             config_root=config_root_real,
             hardware_family="ascend-a3",
             engine="vllm-ascend",
-            version="0.18.0",
+            version="v0.18.0",
             model_name="NonExistentModel-999B",
         )
         assert data is None

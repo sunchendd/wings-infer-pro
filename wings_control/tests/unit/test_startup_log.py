@@ -55,7 +55,7 @@ def test_startup_log_normal_contains_required_summary(
         tmp_path=tmp_path,
         monkeypatch=monkeypatch,
         output_name="normal",
-        engine_version="0.18.0",
+        engine_version="v0.18.0",
         log_path=log_path,
         user_cli_overrides={"served_model_name": "maas-demo-service", "port": 18000},
         user_cli_dropped=[
@@ -72,7 +72,7 @@ def test_startup_log_normal_contains_required_summary(
     assert "[STARTUP] ts=" in content
     assert "hardware=ascend-a3" in content
     assert "engine=vllm-ascend" in content
-    assert "resolved_config_version=0.18.0" in content
+    assert "resolved_config_version=v0.18.0" in content
     assert "[STARTUP] artifacts:" in content
     assert f"log={log_path}" in content
     assert "[STARTUP] user_cli_params: applied=2 dropped=1" in content
@@ -118,7 +118,7 @@ def test_startup_log_downgrades_to_output_dir_when_target_unwritable(
             tmp_path=tmp_path,
             monkeypatch=monkeypatch,
             output_name="downgrade",
-            engine_version="0.18.0",
+            engine_version="v0.18.0",
             log_path=unwritable_target,
         )
 
@@ -141,7 +141,7 @@ def test_startup_log_appends_multiple_startup_blocks(
         tmp_path=tmp_path,
         monkeypatch=monkeypatch,
         output_name="append_first",
-        engine_version="0.18.0",
+        engine_version="v0.18.0",
         log_path=log_path,
     )
     _run_once(
@@ -149,7 +149,7 @@ def test_startup_log_appends_multiple_startup_blocks(
         tmp_path=tmp_path,
         monkeypatch=monkeypatch,
         output_name="append_second",
-        engine_version="0.18.0",
+        engine_version="v0.18.0",
         log_path=log_path,
     )
 
@@ -169,7 +169,7 @@ def test_startup_log_default_path_unwritable_is_quiet_no_warning(
     不显式设 WINGS_START_LOG,走默认路径;无论默认是否可写,都不应出现"startup log 写入失败"的 WARNING。
     """
     monkeypatch.delenv("WINGS_START_LOG", raising=False)  # 用默认 /var/log/wings 路径
-    monkeypatch.setenv("ENGINE_VERSION", "0.18.0")
+    monkeypatch.setenv("ENGINE_VERSION", "v0.18.0")
     hardware_info_path = tmp_path / "hw.json"
     hardware_info_path.write_text(
         json.dumps({"hardware_family": "ascend-a3", "device": "ascend", "count": 16}),
@@ -204,7 +204,7 @@ def test_startup_log_is_warn_only_never_drop_semantics(
         tmp_path=tmp_path,
         monkeypatch=monkeypatch,
         output_name="warnonly",
-        engine_version="0.18.0",
+        engine_version="v0.18.0",
         log_path=log_path,
         user_cli_dropped=[
             {
@@ -235,7 +235,7 @@ def test_startup_log_reports_device_count_when_provided(
         tmp_path=tmp_path,
         monkeypatch=monkeypatch,
         output_name="devcount",
-        engine_version="0.18.0",
+        engine_version="v0.18.0",
         log_path=log_path,
         device_count=8,  # DeepSeek-V4-Flash TP=4 → DP=2
     )
@@ -244,4 +244,3 @@ def test_startup_log_reports_device_count_when_provided(
     assert "device_count=8" in content
     assert "DP=2" in content
     assert "strategy_device_count" in content
-

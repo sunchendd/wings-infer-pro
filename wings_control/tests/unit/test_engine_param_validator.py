@@ -73,7 +73,7 @@ def _make_resolved_multinode(
     node_traces: list[tuple[str, dict]],
     *,
     engine: str = "vllm-ascend",
-    resolved_version: str = "0.18.0",
+    resolved_version: str = "v0.18.0",
     has_version_dir: bool = True,
 ) -> ResolvedConfig:
     """构造一个 multi_node ResolvedConfig(顶层 traces 空、nodes 承载 per-node)。"""
@@ -345,7 +345,7 @@ def test_pipeline_writes_param_validation_to_audit_and_log(
     )
     output_dir = tmp_path / "out"
     log_path = tmp_path / "wings_start.log"
-    monkeypatch.setenv("ENGINE_VERSION", "0.18.0")
+    monkeypatch.setenv("ENGINE_VERSION", "v0.18.0")
     monkeypatch.setenv("WINGS_START_LOG", str(log_path))
 
     run_pipeline(
@@ -414,7 +414,7 @@ def test_pipeline_multinode_validates_per_node(config_root_real, tmp_path, monke
         encoding="utf-8",
     )
     output_dir = tmp_path / "out"
-    monkeypatch.setenv("ENGINE_VERSION", "0.18.0")
+    monkeypatch.setenv("ENGINE_VERSION", "v0.18.0")
     monkeypatch.setenv("WINGS_START_LOG", str(tmp_path / "wings_start.log"))
 
     resolved, *_ = run_pipeline(

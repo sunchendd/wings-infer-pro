@@ -462,7 +462,7 @@ def _render_repro_sh(resolved: ResolvedConfig) -> str:
         "# ─── Reproducibility Script ───",
         f"# Generated from: {', '.join(resolved.source_files)}",
         f"# Hardware: {resolved.hardware.hardware_family}",
-        f"# Engine: {resolved.engine} v{resolved.engine_version.resolved}",
+        f"# Engine: {resolved.engine} {resolved.engine_version.resolved}",
         f"# Topology: {resolved.topology.value}",
         "",
         "set -euo pipefail",

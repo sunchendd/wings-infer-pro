@@ -23,7 +23,7 @@ from wings_ctl.pipeline import run_pipeline
 _HW = {"hardware_family": "ascend-a2", "device": "ascend", "count": 16}
 _MODEL = "GLM-4.5"
 _ENGINE = "vllm-ascend"
-_ENGINE_VERSION = "0.18.0"
+_ENGINE_VERSION = "v0.18.0"
 _NODE_IPS = ["10.0.0.1", "10.0.0.2"]
 
 

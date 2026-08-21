@@ -59,13 +59,13 @@ SCENES = [
         golden_file="inject_dsv4_node0.sh",
         model_name="DeepSeek-V4-Pro", model_path="/model/DeepSeek-V4-Pro",
         engine="vllm-ascend", hw_family="ascend-a3", device="ascend",
-        device_count=16, rank_ip="10.0.0.1", engine_version="0.18.0",
+        device_count=16, rank_ip="10.0.0.1", engine_version="v0.18.0",
     ),
     InjectScene(
         golden_file="inject_dsv4_node1.sh",
         model_name="DeepSeek-V4-Pro", model_path="/model/DeepSeek-V4-Pro",
         engine="vllm-ascend", hw_family="ascend-a3", device="ascend",
-        device_count=16, rank_ip="10.0.0.2", engine_version="0.18.0",
+        device_count=16, rank_ip="10.0.0.2", engine_version="v0.18.0",
     ),
 ]
 

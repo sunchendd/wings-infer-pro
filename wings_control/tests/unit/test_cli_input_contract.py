@@ -217,7 +217,7 @@ def test_nonexistent_hardware_friendly_error_not_crash(config_root_real, tmp_pat
         json.dumps({"hardware_family": "1rtx_pro_5000_72G", "device": "nvidia", "count": 8}),
         encoding="utf-8",
     )
-    monkeypatch.setenv("ENGINE_VERSION", "0.18.0")
+    monkeypatch.setenv("ENGINE_VERSION", "v0.18.0")
     monkeypatch.setattr(
         "sys.argv",
         [

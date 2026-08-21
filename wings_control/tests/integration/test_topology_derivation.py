@@ -33,7 +33,7 @@ def _argv(config_root_real: Path, tmp_path: Path, *extra: str) -> list[str]:
 
 def test_no_distributed_derives_standalone(config_root_real, tmp_path, monkeypatch, capsys):
     """无 --distributed → 推导 standalone,正常产出 argv(不抛异常)。"""
-    monkeypatch.setenv("ENGINE_VERSION", "0.18.0")
+    monkeypatch.setenv("ENGINE_VERSION", "v0.18.0")
     monkeypatch.setattr("sys.argv", _argv(config_root_real, tmp_path))
     cli.main()  # 不抛异常
     assert "vllm serve" in capsys.readouterr().out
@@ -41,7 +41,7 @@ def test_no_distributed_derives_standalone(config_root_real, tmp_path, monkeypat
 
 def test_distributed_missing_master_ip_friendly_error(config_root_real, tmp_path, monkeypatch, capsys):
     """--distributed 缺 MASTER_IP → 友好报错(SystemExit 2 + stderr 含 MASTER_IP)。"""
-    monkeypatch.setenv("ENGINE_VERSION", "0.18.0")
+    monkeypatch.setenv("ENGINE_VERSION", "v0.18.0")
     monkeypatch.delenv("MASTER_IP", raising=False)
     monkeypatch.setattr("sys.argv", _argv(config_root_real, tmp_path, "--distributed"))
     with pytest.raises(SystemExit) as exc:
@@ -58,7 +58,7 @@ def test_distributed_with_master_ip_recipe_without_multi_node_friendly_error(
     → 友好报错(SystemExit 2),不抛 NotImplementedError traceback(multi_node 本身已实现,
     缺的是该 recipe 的 multi_node 场景)。
     """
-    monkeypatch.setenv("ENGINE_VERSION", "0.18.0")
+    monkeypatch.setenv("ENGINE_VERSION", "v0.18.0")
     monkeypatch.setenv("MASTER_IP", "10.0.0.1")
     monkeypatch.setattr("sys.argv", _argv(config_root_real, tmp_path, "--distributed"))
     with pytest.raises(SystemExit) as exc:
@@ -69,7 +69,7 @@ def test_distributed_with_master_ip_recipe_without_multi_node_friendly_error(
 
 def test_pd_role_is_reserved_friendly_error(config_root_real, tmp_path, monkeypatch, capsys):
     """PD_ROLE 置位 → PD 分离为预留点(本期不实现)→ 友好报错(SystemExit 2),不抛 traceback。"""
-    monkeypatch.setenv("ENGINE_VERSION", "0.18.0")
+    monkeypatch.setenv("ENGINE_VERSION", "v0.18.0")
     monkeypatch.setenv("PD_ROLE", "P")
     monkeypatch.setattr("sys.argv", _argv(config_root_real, tmp_path))
     with pytest.raises(SystemExit) as exc:
