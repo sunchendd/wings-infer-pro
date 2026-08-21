@@ -82,7 +82,7 @@ scenarios:
           engine_config:
             model: Qwen/Qwen3.5-27B
             trust_remote_code: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 0
@@ -94,7 +94,7 @@ scenarios:
           engine_config:
             model: Qwen/Qwen3.5-27B
             trust_remote_code: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 1

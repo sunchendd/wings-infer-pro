@@ -70,7 +70,7 @@ scenarios:
           engine_config:
             model: openbmb/MiniCPM-V-4.6
             trust_remote_code: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 0
@@ -82,7 +82,7 @@ scenarios:
           engine_config:
             model: openbmb/MiniCPM-V-4.6
             trust_remote_code: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 1

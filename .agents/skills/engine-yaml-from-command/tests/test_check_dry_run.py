@@ -118,6 +118,79 @@ def test_missing_reasoning_parameter_fails(tmp_path: Path) -> None:
         raise AssertionError("missing reasoning flag was accepted")
 
 
+def test_nested_vllm_config_preserves_nested_underscores_and_bool_case(tmp_path: Path) -> None:
+    yaml_path, command_path = write_case(tmp_path, feature_args="", command_args="")
+    yaml_text = yaml_path.read_text(encoding="utf-8")
+    yaml_path.write_text(
+        yaml_text.replace(
+            "          tensor_parallel_size: 1\n",
+            "          tensor_parallel_size: 1\n"
+            "          cc.pass_config.fuse_allreduce_rms: false\n",
+        ),
+        encoding="utf-8",
+    )
+    command_path.write_text(
+        "vllm serve demo/model --tensor-parallel-size 1 "
+        "--cc.pass_config.fuse_allreduce_rms=False\n",
+        encoding="utf-8",
+    )
+
+    report = module.check(yaml_path, [command_path], "vllm", "standalone")
+
+    assert "--cc.pass_config.fuse_allreduce_rms=false" in "\n".join(report)
+
+
+def test_numeric_feature_argument_matches_command(tmp_path: Path) -> None:
+    yaml_path, command_path = write_case(
+        tmp_path,
+        feature_args="""  kv_offloading:
+    args: [--kv-offloading-backend, native, --kv-offloading-size, 200]""",
+        command_args="--kv-offloading-backend native --kv-offloading-size 200",
+    )
+
+    report = module.check(yaml_path, [command_path], "vllm", "standalone")
+
+    assert "--kv-offloading-size" in "\n".join(report)
+
+
+def test_standalone_host_is_normalized_when_omitted_from_command(tmp_path: Path) -> None:
+    yaml_path, command_path = write_case(tmp_path, feature_args="", command_args="")
+    yaml_text = yaml_path.read_text(encoding="utf-8")
+    yaml_path.write_text(
+        yaml_text.replace(
+            "          tensor_parallel_size: 1\n",
+            "          host: 0.0.0.0\n"
+            "          tensor_parallel_size: 1\n",
+        ),
+        encoding="utf-8",
+    )
+
+    report = module.check(yaml_path, [command_path], "vllm", "standalone")
+
+    assert "node[0]: OK" in "\n".join(report)
+
+
+def test_standalone_host_is_normalized_when_command_differs(tmp_path: Path) -> None:
+    yaml_path, command_path = write_case(tmp_path, feature_args="", command_args="")
+    yaml_text = yaml_path.read_text(encoding="utf-8")
+    yaml_path.write_text(
+        yaml_text.replace(
+            "          tensor_parallel_size: 1\n",
+            "          host: 0.0.0.0\n"
+            "          tensor_parallel_size: 1\n",
+        ),
+        encoding="utf-8",
+    )
+    command_path.write_text(
+        "vllm serve demo/model --host 127.0.0.1 --tensor-parallel-size 1\n",
+        encoding="utf-8",
+    )
+
+    report = module.check(yaml_path, [command_path], "vllm", "standalone")
+
+    assert "node[0]: OK" in "\n".join(report)
+
+
 def test_multi_node_dry_run_matches_head_and_worker(tmp_path: Path) -> None:
     yaml_path = tmp_path / "multi-node.yaml"
     yaml_path.write_text(

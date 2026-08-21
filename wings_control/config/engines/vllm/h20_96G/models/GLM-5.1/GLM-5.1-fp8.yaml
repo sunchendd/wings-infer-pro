@@ -65,7 +65,7 @@ scenarios:
             model: zai-org/GLM-5.1-FP8
             trust_remote_code: true
             chat_template_content_format: string
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 0
@@ -78,7 +78,7 @@ scenarios:
             model: zai-org/GLM-5.1-FP8
             trust_remote_code: true
             chat_template_content_format: string
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 1

@@ -96,7 +96,7 @@ upstream_sources -> model -> hardware_profile -> features(可选) -> scenarios
 ### Shell 拆分
 
 - `vllm serve <model>` 的位置参数写成 `engine_config.model`。
-- `--flag-name value` 写成 `flag_name: value`；裸 flag 写 `true`。
+- 普通顶层 `--flag-name value` 写成 `flag_name: value`；裸 flag 写 `true`。
 - `export KEY=value` 写入对应策略或节点的 `env`，保持顺序。
 - 对硬件 profile `rtx_pro_5000`（包括任意显存后缀，如 `rtx_pro_5000_48G`、`rtx_pro_5000_72G`）生成 YAML 时，必须在每个部署策略/节点的 `env` 中加入以下性能环境变量；不区分显存规格，也不要求用户在启动命令中重复提供：
   ```yaml
@@ -117,11 +117,35 @@ system_setup:
 - `MOONCAKE_CONFIG_PATH` 统一为 `/shared-volume/mooncake.json`。
 - MemCache 配置路径统一为 `/shared-volume/mmc_local.conf`。
 
+### 参数名映射与嵌套原生配置
+
+Wings Control 的 `engine_config` 参数名映射以**第一个点号**为边界；不得把完整 CLI 名称机械地把 `-` 和 `.` 全部替换成 `_`。该规则适用于 vLLM、vLLM-Ascend、SGLang 的 `engine_config` 渲染，优先级高于“普通顶层参数”的简写规则。
+
+1. **无点号的顶层参数**：CLI 去掉 `--` 后将连字符转换为下划线。例如 `--max-model-len 2048` 写成 `max_model_len: 2048`，渲染回 `--max-model-len 2048`。
+2. **带点号的原生嵌套参数**：只转换点号**前**的顶层段；点号及其后的原生路径必须逐字符保留（包括下划线、额外点号和大小写）。例如：
+   ```yaml
+   # --cc.pass_config.fuse_allreduce_rms=False
+   cc.pass_config.fuse_allreduce_rms: false
+
+   # --speculative-config.num_speculative_tokens 3
+   speculative_config.num_speculative_tokens: 3
+   ```
+   上述键分别渲染为 `--cc.pass_config.fuse_allreduce_rms=False` 与 `--speculative-config.num_speculative_tokens=3`。
+3. **禁止扁平化嵌套路径**：不得把 `--cc.pass_config.fuse_allreduce_rms=False` 写成 `cc_pass_config_fuse_allreduce_rms: false`。这会错误渲染为 `--cc-pass-config-fuse-allreduce-rms`，且当前顶层布尔 `false` 会被当作关闭的裸开关而省略，造成参数丢失。
+4. **布尔值语义**：顶层 `true` 是裸 flag；顶层 `false` 不输出。带点号的嵌套参数始终使用 `--flag=value`，所以 `true` 和 `false` 都必须显式保留为 YAML 布尔值，不能因为值为 `false` 而删除。若原始命令含有“顶层参数显式传 Boolean 值”但它不是嵌套路径，先核对项目渲染器是否支持；不支持时必须扩展渲染/契约，不能静默写成顶层 `false`。
+5. `features.*.args` 是原始 CLI token 列表，保持原 flag 拼写，不套用 `engine_config` 的 key 转换规则。
+
+所有长参数必须使用 `--` 前缀；`-cc.pass_config...` 不是本项目输出的长参数形式。
+
 ### 引擎差异
 
 - vLLM 手工配置默认把本地模型路径替换成已确认的 HF/ModelScope ID，并默认丢弃 `served_model_name`。
 - vLLM-Ascend 保留命令中的 `served_model_name`。官方 `/weights/...`、`$MODEL_PATH` 可部署占位路径可以保留；用户机器私有路径应替换为已确认的模型 ID 或可部署占位路径。
 - SGLang 保留真实参数名，例如 `model_path`、`tp`/`tp_size`、`dp`、`ep`、`mem_fraction_static`、`disaggregation_mode`，不得改写为 vLLM 参数名。
+
+### 单机监听地址
+
+所有 `standalone` 场景的 `engine_config` 必须写入 `host: "0.0.0.0"`。无论原始启动命令是否提供 `--host`，也无论其值为何，均不得省略该字段或沿用原始值。该规范化仅适用于 standalone；multi-node 和 PD 仍按原始命令及对应 reference 保留节点地址。
 
 ### 可选功能
 
@@ -188,7 +212,7 @@ python3 <skill-dir>/scripts/check_dry_run.py \
 
 multi-node/PD 对每个节点重复 `--command-file`，顺序必须与 YAML 中的节点顺序一致。
 inline 命令物化后，必须检查 command file 内容与用户消息逐项一致，再运行校验。
-校验失败（缺失参数、额外参数、参数值不一致或节点数量不一致）时停止并修正 YAML。
+校验失败（缺失参数、额外参数、参数值不一致或节点数量不一致）时停止并修正 YAML。standalone 的 `--host` 是唯一例外：YAML 固定为 `0.0.0.0`，dry-run 不将原始命令中缺失或不同的 `--host` 视为不一致。
 脚本会打印每个节点的 YAML 重建命令、原始启动命令和逐项比较结果：`OK` 表示匹配，
 `缺失`、`多余`、`不一致` 会分别列出参数及 YAML/command 的值；异常报告输出到 stderr，
 并以退出码 1 结束。成功报告输出到 stdout 并以退出码 0 结束，便于日志和 CI 查看。
@@ -200,8 +224,8 @@ inline 命令物化后，必须检查 command file 内容与用户消息逐项�
 1. YAML 可解析，顶层顺序和字段类型正确；`system_setup.commands` 必须是同一行的 flow-style 字符串列表。
 2. 场景结构与 reference 一致，且恰有一个 `default_strategy: true`。
 3. multi-node 节点结构完整；PD 同时存在 prefill/decode。
-4. `engine_config` 可按原顺序重建命令，features 参数可合并回原始命令。
-5. 除明确的路径归一化、feature 拆分和参数名映射外，不允许核心参数缺失或值变化。
+4. `engine_config` 可按原顺序重建命令，features 参数可合并回原始命令；若存在带点号的 key，必须逐项确认输出为 `--顶层-flag.原生路径=value`，并覆盖值为 `false` 的情形。
+5. 除明确的路径归一化、feature 拆分、参数名映射和 standalone `host: "0.0.0.0"` 规范化外，不允许核心参数缺失或值变化。
 6. 若存在 `features.reasoning`，核对 `model.variant_name` 在 `wings_control/docs/features/reasoning_parser/reason_parser.yaml` 的 `ReasoningParserModels.models` 中已唯一登记，且 `vllm` 与 `vllm_ascend` 的 parser 配置相同；若是新登记项，确认公共表同步已包含在同一变更中。
 
 除 `system_setup.commands` 的 canonical flow-style 约束外，YAML 的引号、其它 flow/block list、`0.90`/`0.9` 属于序列化差异，应比较解析后的结构。若用户要求其余内容逐字一致，必须使用用户指定模板或确定性 renderer，不能依赖自由生成。

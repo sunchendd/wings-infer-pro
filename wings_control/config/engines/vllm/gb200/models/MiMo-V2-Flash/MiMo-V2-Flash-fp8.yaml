@@ -115,7 +115,7 @@ scenarios:
             trust_remote_code: true
             generation_config: vllm
             enable_expert_parallel: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 0
@@ -129,7 +129,7 @@ scenarios:
             trust_remote_code: true
             generation_config: vllm
             enable_expert_parallel: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 1
@@ -147,7 +147,7 @@ scenarios:
             model: XiaomiMiMo/MiMo-V2-Flash
             trust_remote_code: true
             generation_config: vllm
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 0
@@ -160,7 +160,7 @@ scenarios:
             model: XiaomiMiMo/MiMo-V2-Flash
             trust_remote_code: true
             generation_config: vllm
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 1

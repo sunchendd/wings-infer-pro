@@ -135,7 +135,7 @@ scenarios:
             model: nvidia/Llama-4-Scout-17B-16E-Instruct-FP8
             kv_cache_dtype: fp8
             enable_expert_parallel: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 0
@@ -153,7 +153,7 @@ scenarios:
             model: nvidia/Llama-4-Scout-17B-16E-Instruct-FP8
             kv_cache_dtype: fp8
             enable_expert_parallel: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 1
@@ -175,7 +175,7 @@ scenarios:
           engine_config:
             model: nvidia/Llama-4-Scout-17B-16E-Instruct-FP8
             kv_cache_dtype: fp8
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 0
@@ -192,7 +192,7 @@ scenarios:
           engine_config:
             model: nvidia/Llama-4-Scout-17B-16E-Instruct-FP8
             kv_cache_dtype: fp8
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 1

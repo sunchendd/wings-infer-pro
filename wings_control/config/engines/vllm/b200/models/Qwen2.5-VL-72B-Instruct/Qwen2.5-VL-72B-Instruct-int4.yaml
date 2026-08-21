@@ -74,7 +74,7 @@ scenarios:
           engine_config:
             model: Qwen/Qwen2.5-VL-72B-Instruct-AWQ
             quantization: awq
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 0
@@ -87,7 +87,7 @@ scenarios:
           engine_config:
             model: Qwen/Qwen2.5-VL-72B-Instruct-AWQ
             quantization: awq
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 1

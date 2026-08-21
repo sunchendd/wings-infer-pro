@@ -48,7 +48,10 @@ scenarios:
         engine_config:
           model: BAAI/bge-large-zh-v1.5
           trust_remote_code: true
-          port: 18000
-          gpu_memory_utilization: 0.9
+          host: 0.0.0.0
+          port: 17000
+          max_model_len: 512
           tensor_parallel_size: 1
+          enforce_eager: true
+          runner: pooling
         env: {}

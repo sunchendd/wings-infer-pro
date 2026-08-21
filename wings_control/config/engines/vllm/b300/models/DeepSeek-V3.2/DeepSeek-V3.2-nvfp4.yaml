@@ -139,7 +139,7 @@ scenarios:
             kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
             kv_cache_dtype: fp8
             enable_expert_parallel: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 0
@@ -155,7 +155,7 @@ scenarios:
             kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
             kv_cache_dtype: fp8
             enable_expert_parallel: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 1
@@ -175,7 +175,7 @@ scenarios:
             trust_remote_code: true
             kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
             kv_cache_dtype: fp8
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 0
@@ -190,7 +190,7 @@ scenarios:
             trust_remote_code: true
             kernel_config.enable_flashinfer_autotune: "False"  # vLLM 原型命令: --kernel-config.enable_flashinfer_autotune=False
             kv_cache_dtype: fp8
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 1

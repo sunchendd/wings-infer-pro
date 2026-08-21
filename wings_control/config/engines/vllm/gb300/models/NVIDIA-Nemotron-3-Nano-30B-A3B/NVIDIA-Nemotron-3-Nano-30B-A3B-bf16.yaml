@@ -105,7 +105,7 @@ scenarios:
             trust_remote_code: true
             async_scheduling: true
             enable_expert_parallel: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 0
@@ -119,7 +119,7 @@ scenarios:
             trust_remote_code: true
             async_scheduling: true
             enable_expert_parallel: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 1
@@ -137,7 +137,7 @@ scenarios:
             model: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
             trust_remote_code: true
             async_scheduling: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 0
@@ -150,7 +150,7 @@ scenarios:
             model: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
             trust_remote_code: true
             async_scheduling: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 1

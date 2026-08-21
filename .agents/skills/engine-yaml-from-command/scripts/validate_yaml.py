@@ -241,6 +241,9 @@ def validate_engine_config(engine: str, config: dict[str, Any], path: str) -> No
 def validate_standalone(strategy: dict[str, Any], path: str) -> None:
     if "engine_config" not in strategy:
         raise ValidationError(f"{path} must contain engine_config directly")
+    config = require_mapping(strategy["engine_config"], f"{path}.engine_config")
+    if config.get("host") != "0.0.0.0":
+        raise ValidationError(f"{path}.engine_config.host must be \"0.0.0.0\"")
 
 
 def validate_multi_node(strategy: dict[str, Any], path: str) -> None:

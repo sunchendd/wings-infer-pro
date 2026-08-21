@@ -1,0 +1,59 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_deepseek-r1-distill-qwen-32b_bf16_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-32B"
+    note: 用户提供 vLLM OpenAI API Server 启动命令，手工录入。
+
+# 模型基本信息
+model:
+  name: DeepSeek-R1-Distill-Qwen-32B
+  slug: deepseek-r1-distill-qwen-32b
+  provider: DeepSeek
+  description: "DeepSeek-R1 蒸馏到 Qwen 32B 的 BF16 dense 推理模型。"
+  model_id: deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
+  architecture: dense
+  parameter_count: 32B
+  active_parameters: 32B
+  context_length: null
+  vram_minimum_gb: 141
+  tasks: [text]
+  min_engine_version: "0.23.0"
+  match:
+    - name_pattern: "(?i)DeepSeek[-.]?R1[-.]?Distill[-.]?Qwen[-.]?32B"
+  variant_name: DeepSeek-R1-Distill-Qwen-32B
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 1
+  vram_gb: 141
+  multi_node: false
+
+# 可选功能列表
+features:
+  tool_calling:
+    args: [--tool-call-parser, hermes]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_deepseek-r1-distill-qwen-32b_bf16_manual#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
+          served_model_name: DeepSeek-R1-Distill-Qwen-32B
+          host: "0.0.0.0"
+          port: 17000
+          tensor_parallel_size: 1
+          trust_remote_code: true
+          max_model_len: 4096
+        env: {}

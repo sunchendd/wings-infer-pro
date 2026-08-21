@@ -75,7 +75,7 @@ scenarios:
             model: tencent/HunyuanOCR
             no_enable_prefix_caching: true
             mm_processor_cache_gb: 0
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 0
@@ -88,7 +88,7 @@ scenarios:
             model: tencent/HunyuanOCR
             no_enable_prefix_caching: true
             mm_processor_cache_gb: 0
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 1

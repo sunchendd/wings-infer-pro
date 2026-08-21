@@ -137,7 +137,7 @@ scenarios:
             model: MiniMaxAI/MiniMax-M2
             trust_remote_code: true
             enable_expert_parallel: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             nnodes: 2
             node_rank: 0
             master_addr: $HEAD_IP
@@ -153,7 +153,7 @@ scenarios:
             model: MiniMaxAI/MiniMax-M2
             trust_remote_code: true
             enable_expert_parallel: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             nnodes: 2
             node_rank: 1
             master_addr: $HEAD_IP
@@ -173,7 +173,7 @@ scenarios:
           engine_config:
             model: MiniMaxAI/MiniMax-M2
             trust_remote_code: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             nnodes: 2
             node_rank: 0
             master_addr: $HEAD_IP
@@ -188,7 +188,7 @@ scenarios:
           engine_config:
             model: MiniMaxAI/MiniMax-M2
             trust_remote_code: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             nnodes: 2
             node_rank: 1
             master_addr: $HEAD_IP
