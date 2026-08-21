@@ -1,0 +1,7 @@
+# DeepSeek-V4-Pro-fp8 当前无已验证的 smart-accel 特性。
+model:
+  name: DeepSeek-V4-Pro
+  variant_name: "DeepSeek-V4-Pro-fp8"
+  match:
+    - name_pattern: "(?i)deepseek[-.]?v4[-.]?pro"
+smart_accel: {}
