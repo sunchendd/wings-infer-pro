@@ -82,7 +82,7 @@ scenarios:
             config_format: mistral
             load_format: mistral
             kv_cache_dtype: fp8
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 0
@@ -97,7 +97,7 @@ scenarios:
             config_format: mistral
             load_format: mistral
             kv_cache_dtype: fp8
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 1

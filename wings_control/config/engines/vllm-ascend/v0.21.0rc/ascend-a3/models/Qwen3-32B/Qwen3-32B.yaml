@@ -54,4 +54,3 @@ scenarios:
         env:
           TASK_QUEUE_ENABLE: 1
           HCCL_OP_EXPANSION_MODE: AIV
-          VLLM_ASCEND_ENABLE_FLASHCOMM1: 1

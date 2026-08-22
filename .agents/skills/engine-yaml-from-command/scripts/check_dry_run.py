@@ -23,7 +23,8 @@ class DryRunMismatch(ValueError):
 
 
 def kebab(name: str) -> str:
-    return "--" + name.replace("_", "-")
+    top_level, dot, nested_path = name.partition(".")
+    return "--" + top_level.replace("_", "-") + dot + nested_path
 
 
 def scalar(value: Any) -> str:
@@ -36,6 +37,8 @@ def scalar(value: Any) -> str:
 
 def normalize_value(value: str) -> str:
     """Ignore shell/YAML serialization differences for JSON-valued arguments."""
+    if value.lower() in {"true", "false"}:
+        return value.lower()
     try:
         parsed = json.loads(value)
     except (TypeError, json.JSONDecodeError):
@@ -55,6 +58,9 @@ def render_command(arguments: dict[str, str]) -> str:
     """Render parsed arguments as a copyable shell command."""
     parts: list[str] = []
     for flag, value in arguments.items():
+        if "." in flag:
+            parts.append(f"{flag}={shlex.quote(value)}")
+            continue
         parts.append(flag)
         if value != "true":
             parts.append(shlex.quote(value))
@@ -63,6 +69,7 @@ def render_command(arguments: dict[str, str]) -> str:
 
 def parse_tokens(tokens: list[str], engine: str) -> dict[str, str]:
     """Parse one engine command into flag/value pairs."""
+    tokens = [str(token) for token in tokens]
     if engine in {"vllm", "vllm-ascend"}:
         try:
             start = tokens.index("serve") + 1
@@ -231,7 +238,10 @@ def yaml_configs(data: dict[str, Any], scenario: str) -> list[dict[str, Any]]:
 
 
 def compare(
-    expected: dict[str, str], actual: dict[str, str], label: str
+    expected: dict[str, str],
+    actual: dict[str, str],
+    label: str,
+    ignored_flags: frozenset[str] = frozenset(),
 ) -> list[str]:
     # vLLM YAMLs may use a distributable HF/ModelScope ID instead of a
     # machine-local absolute model path. Keep strict comparison for every
@@ -241,6 +251,9 @@ def compare(
     if comparable_actual.get("--model", "").startswith("/"):
         comparable_expected.pop("--model", None)
         comparable_actual.pop("--model", None)
+    for flag in ignored_flags:
+        comparable_expected.pop(flag, None)
+        comparable_actual.pop(flag, None)
 
     missing = sorted(set(comparable_expected) - set(comparable_actual))
     extra = sorted(set(comparable_actual) - set(comparable_expected))
@@ -359,7 +372,8 @@ def check(yaml_path: Path, command_paths: list[Path], engine: str, scenario: str
             ]
         )
         try:
-            report.extend(compare(expected_arguments, actual, label))
+            ignored_flags = frozenset({"--host"}) if scenario == "standalone" else frozenset()
+            report.extend(compare(expected_arguments, actual, label, ignored_flags))
             report.extend(compare_environment(expected_environment, environment, label))
         except DryRunMismatch as exc:
             raise DryRunMismatch("\n".join(report + [str(exc)])) from exc

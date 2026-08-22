@@ -12,7 +12,7 @@ _wings_log() {
 export GLOO_SOCKET_IFNAME=eth0
 export NCCL_SOCKET_IFNAME=eth0
 
-vllm serve /model/MiMo-V2-Flash --host 0.0.0.0 --port 17000 --trust-remote-code --generation-config vllm --tensor-parallel-size 8 --nnodes 2 --node-rank 1 --master-addr 10.0.0.1 --headless --served-model-name MiMo-V2-Flash &
+vllm serve /model/MiMo-V2-Flash --host 0.0.0.0 --port 17000 --trust-remote-code --generation-config vllm --cc.pass_config.fuse_allreduce_rms=False --tensor-parallel-size 8 --nnodes 2 --node-rank 1 --master-addr 10.0.0.1 --headless --served-model-name MiMo-V2-Flash &
 ENGINE_PID=$!
 _wings_log INFO "engine started, PID=$ENGINE_PID"
 wait "$ENGINE_PID"
