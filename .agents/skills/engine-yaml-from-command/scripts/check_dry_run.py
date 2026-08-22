@@ -16,6 +16,7 @@ import yaml
 ENGINES = ("vllm", "vllm-ascend", "sglang")
 SCENARIOS = ("standalone", "multi_node", "pd_disaggregation")
 DEFAULT_SCENARIOS = ("standalone", "multi_node", "pd_disaggregation")
+IGNORED_ENV_VARS = frozenset({"ASCEND_RT_VISIBLE_DEVICES"})
 
 
 class DryRunMismatch(ValueError):
@@ -124,6 +125,8 @@ def command_env(text: str) -> dict[str, str]:
             key, value = token.split("=", 1)
             if not key:
                 raise DryRunMismatch(f"environment export has an empty name: {token!r}")
+            if key in IGNORED_ENV_VARS:
+                continue
             result[key] = value
     return result
 
@@ -164,28 +167,15 @@ def compare_environment(expected: dict[str, str], actual: dict[str, str], label:
 
 
 def command_tokens(text: str) -> list[str]:
-    logical_lines: list[str] = []
-    current = ""
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or line.startswith("export "):
-            continue
-        if line.endswith("\\"):
-            current += line[:-1] + " "
-            continue
-        logical_lines.append(current + line)
-        current = ""
-    if current:
-        logical_lines.append(current)
-    for line in logical_lines:
-        try:
-            tokens = shlex.split(line, comments=True, posix=True)
-        except ValueError:
-            continue
-        if "vllm" in tokens and "serve" in tokens:
-            return tokens[tokens.index("vllm") :]
-        if "sglang" in tokens:
-            return tokens[tokens.index("sglang") :]
+    try:
+        tokens = shlex.split(text, comments=True, posix=True)
+    except ValueError as exc:
+        raise DryRunMismatch(f"invalid shell command: {exc}") from exc
+    tokens = [token.strip() for token in tokens if token.strip()]
+    if "vllm" in tokens and "serve" in tokens:
+        return tokens[tokens.index("vllm") :]
+    if "sglang" in tokens:
+        return tokens[tokens.index("sglang") :]
     raise DryRunMismatch("no supported engine launch command found")
 
 

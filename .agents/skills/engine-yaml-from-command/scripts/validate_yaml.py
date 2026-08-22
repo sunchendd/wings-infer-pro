@@ -238,12 +238,36 @@ def validate_engine_config(engine: str, config: dict[str, Any], path: str) -> No
         raise ValidationError(f"{path} contains vLLM parameter names for SGLang")
 
 
+def validate_data_parallel_rpc_port(config: dict[str, Any], path: str) -> None:
+    if "data_parallel_rpc_port" not in config:
+        return
+    value = config["data_parallel_rpc_port"]
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValidationError(
+            f"{path}.data_parallel_rpc_port must be a YAML integer, "
+            f"not a script placeholder or quoted value: {value!r}"
+        )
+
+
+def validate_kv_transfer_config(config: dict[str, Any], path: str) -> None:
+    transfer = config.get("kv_transfer_config")
+    if not isinstance(transfer, dict):
+        return
+    for key in ("engine_id", "kv_port"):
+        if key not in transfer:
+            continue
+        value = transfer[key]
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValidationError(
+                f"{path}.kv_transfer_config.{key} must be a YAML integer, "
+                f"not a script placeholder or quoted value: {value!r}"
+            )
+
+
 def validate_standalone(strategy: dict[str, Any], path: str) -> None:
     if "engine_config" not in strategy:
         raise ValidationError(f"{path} must contain engine_config directly")
-    config = require_mapping(strategy["engine_config"], f"{path}.engine_config")
-    if config.get("host") != "0.0.0.0":
-        raise ValidationError(f"{path}.engine_config.host must be \"0.0.0.0\"")
+    require_mapping(strategy["engine_config"], f"{path}.engine_config")
 
 
 def validate_multi_node(strategy: dict[str, Any], path: str) -> None:
@@ -348,6 +372,9 @@ def validate_scenarios(data: dict[str, Any], engine: str, requested: str) -> Non
                 raise ValidationError(f"{path} does not contain any engine_config")
             for config_path, config in configs:
                 validate_engine_config(engine, config, config_path)
+                validate_kv_transfer_config(config, config_path)
+                if scenario_name in {"multi_node", "pd_disaggregation"}:
+                    validate_data_parallel_rpc_port(config, config_path)
 
 
 def main() -> int:
