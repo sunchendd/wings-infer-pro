@@ -600,7 +600,7 @@ def load_smart_accel_from_config(
         return None
     smart_input = load_smart_accel_from_yaml(str(yaml_path), flags)
     if smart_input is not None:
-        # smart-accel 根目录供 files 条目 src 解析(kv_backends/<backend>/ 模板)。
+        # smart-accel 根目录供 files 条目 src 解析。
         smart_input.config_root = str(_resolve_smart_accel_root(config_root))
     return smart_input
 

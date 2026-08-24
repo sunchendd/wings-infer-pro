@@ -493,7 +493,7 @@ smart_accel:
 | `{master_ip}` | master IP(运行时 envsubst 展开) | `MASTER_IP` | KV 后端 | resolve 期→`${MASTER_IP}`,运行时 envsubst 展开 | 同上 |
 | `{lookup_server_worker_ids}` | lmcache lookup server worker ids `"0,1,…,N-1"` | `tensor_parallel_size`(yaml)→ `tp_size` | lmcache(disk/cpu_disk) | `",".join(range(tp_size))` | `render.py::_resolve_token` |
 
-> **端口 / 协议不再有占位符**(v2):mooncake `50088`、memcache `15000/16000`、协议 `device_rdma/device_sdma` 等全由 YAML 资产 / backend 共享模板(`kv_backends/<backend>/`)明文声明,代码不写死。IP 用 `{rank_ip}`/`{master_ip}`,运行时 envsubst 展开;`{kv_master_endpoint}`/`{kv_world_size}`/`{kv_master_port}`/`{kv_protocol}` 已移除。memcache `world_size` 为 conf 字面量(作者手填,不经占位符)。
+> **端口 / 协议不再有占位符**(v2):mooncake `50088`、memcache `15000/16000`、协议 `device_rdma/device_sdma` 等全由 YAML 资产明文声明,代码不写死。IP 用 `{rank_ip}`/`{master_ip}`,运行时 envsubst 展开;`{kv_master_endpoint}`/`{kv_world_size}`/`{kv_master_port}`/`{kv_protocol}` 已移除。memcache `world_size` 为 conf 字面量(作者手填,不经占位符)。
 
 > 「MaaS 来源」= 该值最终来自的产品侧 env/CLI,经 `yaml_loader.LoadFlags` → `SmartXxxConfig` → `core._build_placeholder_context` 派生进 `PlaceholderContext`。`{qat_*}` 在 offload expander 里会被 effective 闸改写(仅 vllm 视为 qat-on)后再喂给 files content。
 
@@ -731,7 +731,7 @@ vllm serve 前要起 KV 协调服务(`mooncake_master` / memcache `MetaService`)
 | 字段 | 必填 | 含义 |
 |---|---|---|
 | `path` | ✅ | 落盘路径(容器内;相对 `SHARED_VOLUME_PATH` 或绝对 `/...`) |
-| `content` / `src` | 二选一 | `content`=**首选**,明文内联(`content: \|` 块标量,任意 JSON/conf/sh);`src`=外置模板相对 `config_root`(`kv_backends/<backend>/...`),仅超长/缩进敏感内容兜底 |
+| `content` / `src` | 二选一 | `content`=**首选**,明文内联(`content: \|` 块标量,任意 JSON/conf/sh);`src`=外置模板相对 `config_root`,仅已有模板需要复用时使用 |
 | `scope` | ❌ | `all`(默认,所有节点)/ `master`(仅 master)/ `client`(仅 client/非 master) |
 | `mode` | ❌ | 权限,如 `"0755"`(脚本执行位) |
 
@@ -759,7 +759,7 @@ vllm serve 前要起 KV 协调服务(`mooncake_master` / memcache `MetaService`)
 - **per-node `local_hostname` 用 `{rank_ip}`**(渲染为 `${RANK_IP}`,运行时 envsubst 展开)。
 - **mooncake 必加 `LD_LIBRARY_PATH: "/usr/local/lib:${LD_LIBRARY_PATH:-}"`**(加载 ascend_transport.so;memcache 不加——install.py 已注入)。
 - **端口 / 协议 / daemon 参数全字面量**(mooncake 50088、memcache 15000/16000、`device_rdma`/`device_sdma`);`lookup_rpc_port` 固定(mooncake="1" / memcache="0")。**不再有 `{kv_master_port}`/`{kv_protocol}` 占位符**。
-- **内联 `content:` 首选**:脚本 / conf / json 直接内联进 YAML(`content: |` 块标量);超长或缩进敏感内容可 `src` 外置模板(`kv_backends/<backend>/`)兜底。
+- **内联 `content:` 首选**:脚本 / conf / json 直接内联进 YAML(`content: |` 块标量);当前资产不维护 backend 共享模板。
 - **算术派生值用 `{= expr}`**:`{= memory_capacity_gb // gpu_count}GB` 在 YAML 里就地算(变量见 §10.2),免新增 Python 占位符 token。
 - **memcache `world_size` 是手填字面量**:`ock.mmc.local_service.world_size` = KV 卸载协调的 worker 总数(随部署节点数 × TP/DP 变),不经占位符 / `{= expr}`(无单一变量可表达);当前 ascend-a3 的 memcache 资产统一填 `256`,**换部署规模 / 拓扑时作者必须同步手改**,否则 KV 协调方数会错。mooncake 用 `P2PHANDSHAKE`,无此字段。
 
@@ -802,7 +802,7 @@ smart_accel:
                 mode: "0755"
                 content: |
                   #!/usr/bin/env bash
-                  mooncake_master --port 50088 \
+                  /usr/local/bin/mooncake_master --port 50088 \
                       --eviction_high_watermark_ratio 0.9 \
                       --eviction_ratio 0.1 \
                       --default_kv_lease_ttl 11000
@@ -829,4 +829,4 @@ smart_accel:
             sparse: [ ... ]
 ```
 
-content 用 `{rank_ip}`/`{master_ip}` 占位符 + `{= memory_capacity_gb // gpu_count}GB` 算术派生 per-card 大小,端口 `50088`/协议 `ascend` 字面量(见 §10.2)。memcache 同构:`backend: memcache` / `lookup_rpc_port: "0"`、`envs` 带 `MMC_META_CONFIG_PATH`+`MMC_LOCAL_CONFIG_PATH`、3 个 files(`mmc_local.conf` scope=all / `mmc_meta.conf` scope=master / `start_kv_serve.sh` daemon);**`mmc_local.conf` 的 `world_size` 为字面量(作者手填,不经占位符)**。lmcache(disk/cpu_disk)想给 lookup server worker ids:envs 写 `LMCACHE_LOOKUP_SERVER_WORKER_IDS: "{lookup_server_worker_ids}"`(tp_size=N → `0,1,…,N-1`)。完整资产见 `smart-accel/vllm-ascend/v0.21.0rc/ascend-a2/models/MiniMax-M2.7/MiniMax-M2.7-w8a8.yaml`;超长/缩进敏感内容可改用 `src` 外置模板(`smart-accel/kv_backends/<backend>/`)。
+content 用 `{rank_ip}`/`{master_ip}` 占位符 + `{= memory_capacity_gb // gpu_count}GB` 算术派生 per-card 大小,端口 `50088`/协议 `ascend` 字面量(见 §10.2)。memcache 同构:`backend: memcache` / `lookup_rpc_port: "0"`、`envs` 带 `MMC_META_CONFIG_PATH`+`MMC_LOCAL_CONFIG_PATH`、3 个 files(`mmc_local.conf` scope=all / `mmc_meta.conf` scope=master / `start_kv_serve.sh` daemon);**`mmc_local.conf` 的 `world_size` 为字面量(作者手填,不经占位符)**。lmcache(disk/cpu_disk)想给 lookup server worker ids:envs 写 `LMCACHE_LOOKUP_SERVER_WORKER_IDS: "{lookup_server_worker_ids}"`(tp_size=N → `0,1,…,N-1`)。完整资产见 `smart-accel/vllm-ascend/v0.21.0rc/ascend-a2/models/MiniMax-M2.7/MiniMax-M2.7-w8a8.yaml`。
