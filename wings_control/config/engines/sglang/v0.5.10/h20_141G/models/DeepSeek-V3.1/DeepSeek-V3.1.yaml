@@ -1,0 +1,43 @@
+upstream_sources:
+  - id: sglang_deepseek-v3.1_bf16_manual
+    kind: manual
+    repo: null
+    file: null
+    url: null
+    note: 用户提供启动命令，手工录入。
+
+model:
+  name: DeepSeek-V3.1
+  provider: deepseek-ai
+  model_id: deepseek-ai/DeepSeek-V3.1
+  min_engine_version: v0.5.10
+  match:
+    - name_pattern: "(?i)deepseek[-.]?v3.1"
+  variant_name: DeepSeek-V3.1
+
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 1128
+  multi_node: false
+
+features:
+  tool_calling:
+    description: Enable tool/function calling via SGLang parser flags.
+    args: [--tool-call-parser, deepseekv3]
+
+scenarios:
+  standalone:
+    source_ref: "sglang_deepseek-v3.1_bf16_manual#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Single Node
+        engine_config:
+          model: deepseek-ai/DeepSeek-V3.1
+          tp_size: 8
+          port: 30000
+          host: "0.0.0.0"
+        env: {}
+        default_strategy: true

@@ -283,7 +283,8 @@ scenarios:
           deepep_mode: auto
           cuda_graph_bs: 1
           disable_radix_cache: true
-          model_loader_extra_config: "{\"enable_multithread_load\":"
+          model_loader_extra_config:
+            enable_multithread_load: "true"
           prefill_delayer_max_delay_passes: 200
           enable_prefill_delayer: true
         env:

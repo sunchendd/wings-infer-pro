@@ -17,6 +17,9 @@ ENGINES = ("vllm", "vllm-ascend", "sglang")
 SCENARIOS = ("standalone", "multi_node", "pd_disaggregation")
 DEFAULT_SCENARIOS = ("standalone", "multi_node", "pd_disaggregation")
 IGNORED_ENV_VARS = frozenset({"ASCEND_RT_VISIBLE_DEVICES"})
+RTX_PRO_5000_AUTO_ENV_VARS = frozenset({"NCCL_P2P_LEVEL", "NCCL_SHM_DISABLE"})
+DEFAULT_ENABLED_FEATURES = ("tool_calling", "reasoning")
+CHAT_TEMPLATE_FLAG = "--chat-template"
 
 
 class DryRunMismatch(ValueError):
@@ -107,6 +110,15 @@ def parse_tokens(tokens: list[str], engine: str) -> dict[str, str]:
     return result
 
 
+def canonicalize_sglang_arguments(arguments: dict[str, str]) -> dict[str, str]:
+    """Normalize legacy SGLang parallelism aliases for semantic comparison."""
+    normalized = dict(arguments)
+    for legacy, canonical in (("--tp", "--tp-size"), ("--dp", "--dp-size"), ("--ep", "--ep-size")):
+        if legacy in normalized and canonical not in normalized:
+            normalized[canonical] = normalized.pop(legacy)
+    return normalized
+
+
 def command_env(text: str) -> dict[str, str]:
     """Parse explicit ``export KEY=value`` assignments from a launch script."""
     result: dict[str, str] = {}
@@ -141,8 +153,15 @@ def yaml_environment(config: dict[str, Any]) -> dict[str, str]:
     return {str(key): scalar(value) for key, value in env.items()}
 
 
-def compare_environment(expected: dict[str, str], actual: dict[str, str], label: str) -> list[str]:
+def compare_environment(
+    expected: dict[str, str],
+    actual: dict[str, str],
+    label: str,
+    ignored_variables: frozenset[str] = frozenset(),
+) -> list[str]:
     """Compare YAML environment variables with explicit command exports."""
+    expected = {key: value for key, value in expected.items() if key not in ignored_variables}
+    actual = {key: value for key, value in actual.items() if key not in ignored_variables}
     missing = sorted(set(expected) - set(actual))
     extra = sorted(set(actual) - set(expected))
     different = sorted(
@@ -176,6 +195,9 @@ def command_tokens(text: str) -> list[str]:
         return tokens[tokens.index("vllm") :]
     if "sglang" in tokens:
         return tokens[tokens.index("sglang") :]
+    for index, token in enumerate(tokens):
+        if token == "sglang.launch_server":
+            return ["sglang", *tokens[index + 1 :]]
     raise DryRunMismatch("no supported engine launch command found")
 
 
@@ -204,7 +226,12 @@ def yaml_configs(data: dict[str, Any], scenario: str) -> list[dict[str, Any]]:
     )
     features = data.get("features", {}) or {}
     feature_args: dict[str, str] = {}
-    for feature in features.values():
+    feature_names = [
+        *DEFAULT_ENABLED_FEATURES,
+        *(name for name in features if name not in DEFAULT_ENABLED_FEATURES),
+    ]
+    for feature_name in feature_names:
+        feature = features.get(feature_name)
         if not isinstance(feature, dict):
             continue
         args = feature.get("args", [])
@@ -227,20 +254,57 @@ def yaml_configs(data: dict[str, Any], scenario: str) -> list[dict[str, Any]]:
     return result
 
 
+def validate_chat_template_source(
+    expected: dict[str, str], actual: dict[str, str], label: str
+) -> None:
+    """Require a YAML chat template to be explicitly present in the user command."""
+    yaml_template = expected.get(CHAT_TEMPLATE_FLAG)
+    if yaml_template is None:
+        return
+    command_template = actual.get(CHAT_TEMPLATE_FLAG)
+    if command_template is None:
+        raise DryRunMismatch(
+            f"{label}: YAML contains {CHAT_TEMPLATE_FLAG}={yaml_template!r}, but the "
+            "user-provided launch command does not. A chat template must originate "
+            "from the user command, not a reference or fallback configuration."
+        )
+    if normalize_value(yaml_template) != normalize_value(command_template):
+        raise DryRunMismatch(
+            f"{label}: YAML {CHAT_TEMPLATE_FLAG}={yaml_template!r} does not match "
+            f"the user-provided launch command value {command_template!r}."
+        )
+
+
 def compare(
     expected: dict[str, str],
     actual: dict[str, str],
     label: str,
+    engine: str,
     ignored_flags: frozenset[str] = frozenset(),
 ) -> list[str]:
     # vLLM YAMLs may use a distributable HF/ModelScope ID instead of a
-    # machine-local absolute model path. Keep strict comparison for every
-    # explicitly represented parameter, including served_model_name.
+    # machine-local absolute model path and omit served_model_name as a
+    # deployment-local API alias. Keep strict comparison for all other
+    # explicitly represented parameters.
     comparable_expected = dict(expected)
     comparable_actual = dict(actual)
+    if engine == "sglang":
+        comparable_expected = canonicalize_sglang_arguments(comparable_expected)
+        comparable_actual = canonicalize_sglang_arguments(comparable_actual)
     if comparable_actual.get("--model", "").startswith("/"):
         comparable_expected.pop("--model", None)
         comparable_actual.pop("--model", None)
+    if (
+        engine == "sglang"
+        and comparable_actual.get("--model-path", "").startswith("/")
+        and "--model-path" in comparable_expected
+    ):
+        comparable_expected.pop("--model", None)
+        comparable_expected.pop("--model-path", None)
+        comparable_actual.pop("--model-path", None)
+    if engine == "vllm":
+        comparable_expected.pop("--served-model-name", None)
+        comparable_actual.pop("--served-model-name", None)
     for flag in ignored_flags:
         comparable_expected.pop(flag, None)
         comparable_actual.pop(flag, None)
@@ -348,6 +412,11 @@ def check(yaml_path: Path, command_paths: list[Path], engine: str, scenario: str
         raise DryRunMismatch(
             f"YAML has {len(configs)} engine configs but commands provide {len(commands)}"
         )
+    auto_env_ignored = (
+        RTX_PRO_5000_AUTO_ENV_VARS
+        if any(part.startswith("rtx_pro_5000") for part in yaml_path.parts)
+        else frozenset()
+    )
     report: list[str] = []
     for index, (expected, actual, environment) in enumerate(zip(configs, commands, environments)):
         label = f"node[{index}]"
@@ -362,9 +431,21 @@ def check(yaml_path: Path, command_paths: list[Path], engine: str, scenario: str
             ]
         )
         try:
-            ignored_flags = frozenset({"--host"}) if scenario == "standalone" else frozenset()
-            report.extend(compare(expected_arguments, actual, label, ignored_flags))
-            report.extend(compare_environment(expected_environment, environment, label))
+            ignored_flags = (
+                frozenset({"--host"})
+                if engine == "sglang" or scenario == "standalone"
+                else frozenset()
+            )
+            validate_chat_template_source(expected_arguments, actual, label)
+            report.extend(compare(expected_arguments, actual, label, engine, ignored_flags))
+            report.extend(
+                compare_environment(
+                    expected_environment,
+                    environment,
+                    label,
+                    auto_env_ignored,
+                )
+            )
         except DryRunMismatch as exc:
             raise DryRunMismatch("\n".join(report + [str(exc)])) from exc
     return report

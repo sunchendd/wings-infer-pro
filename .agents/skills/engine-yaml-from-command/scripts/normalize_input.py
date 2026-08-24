@@ -27,6 +27,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--engine", required=True)
     parser.add_argument("--engine-version", required=True)
+    parser.add_argument(
+        "--allow-special-engine-version",
+        action="store_true",
+        help=(
+            "Allow a non-semver 0day/custom engine version only after the user "
+            "explicitly confirms that version."
+        ),
+    )
     parser.add_argument("--hardware-profile", required=True)
     parser.add_argument("--scenario", required=True)
     parser.add_argument("--model-name", required=True)
@@ -36,7 +44,10 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Allow an unconfirmed local model path instead of a model_id.",
     )
-    parser.add_argument("--variant", required=True)
+    parser.add_argument(
+        "--variant",
+        help="Explicit model variant. Defaults to the model name when omitted.",
+    )
     parser.add_argument(
         "--command-file",
         action="append",
@@ -55,6 +66,26 @@ def parse_args() -> argparse.Namespace:
 def fail(message: str) -> None:
     print(f"error: {message}", file=sys.stderr)
     raise SystemExit(2)
+
+
+def validate_engine_version(
+    engine_version: str, allow_special_engine_version: bool
+) -> str | None:
+    """Validate a normal version or explicitly confirmed custom version string."""
+    if not engine_version.strip():
+        fail("engine version must not be empty")
+    if VERSION_RE.fullmatch(engine_version):
+        return None
+    if allow_special_engine_version:
+        return (
+            f"engine version {engine_version!r} is a user-confirmed special/custom "
+            "release; semver validation was explicitly bypassed"
+        )
+    fail(
+        f"invalid engine version {engine_version!r}; expected a complete version "
+        "such as v0.21.0rc or v0.5.14. For a user-confirmed special/custom release, "
+        "pass --allow-special-engine-version"
+    )
 
 
 def load_profiles() -> dict[str, Any]:
@@ -190,6 +221,16 @@ def resolve_hardware(args: argparse.Namespace, profiles: dict[str, Any]) -> dict
     }
 
 
+def resolve_variant(model_name: str, variant: str | None) -> str:
+    """Use the model name when no precision or quantization variant is confirmed."""
+    if variant is None:
+        return model_name
+    normalized = variant.strip()
+    if not normalized:
+        fail("variant must not be empty when provided")
+    return normalized.lower()
+
+
 def data_parallel_rpc_port_warnings(
     scenario: str, commands: list[dict[str, str]]
 ) -> list[str]:
@@ -220,21 +261,20 @@ def main() -> int:
             f"unknown scenario {args.scenario!r}; expected one of "
             f"{', '.join(SCENARIOS)}"
         )
-    if not VERSION_RE.fullmatch(args.engine_version):
-        fail(
-            f"invalid engine version {args.engine_version!r}; expected a complete "
-            "version such as v0.21.0rc or v0.5.14"
-        )
+    version_warning = validate_engine_version(
+        args.engine_version, args.allow_special_engine_version
+    )
 
     commands = parse_command_files(args.command_file, args.engine)
     validate_roles(args.scenario, commands)
     hardware = resolve_hardware(args, load_profiles())
 
     warnings = data_parallel_rpc_port_warnings(args.scenario, commands)
+    if version_warning:
+        warnings.insert(0, version_warning)
     if not args.model_name.strip():
         fail("model_name must not be empty")
-    if not args.variant.strip():
-        fail("variant must not be empty")
+    variant = resolve_variant(args.model_name, args.variant)
     if not args.model_id and not args.allow_local_model_path:
         fail(
             "model_id is not confirmed; provide --model-id or explicitly pass "
@@ -251,7 +291,7 @@ def main() -> int:
         "model": {
             "name": args.model_name,
             "model_id": args.model_id,
-            "variant": args.variant.lower(),
+            "variant": variant,
         },
         "command_files": [
             {"role": item["role"] or None, "path": item["path"]}

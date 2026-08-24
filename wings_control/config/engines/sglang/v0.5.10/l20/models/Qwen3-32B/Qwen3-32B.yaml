@@ -1,0 +1,63 @@
+upstream_sources:
+  - id: sglang_qwen3-32b_bf16_manual
+    kind: manual
+    repo: null
+    file: null
+    url: null
+    note: 用户提供启动命令，手工录入。
+
+model:
+  name: Qwen3-32B
+  provider: Qwen
+  model_id: Qwen/Qwen3-32B
+  min_engine_version: v0.5.10
+  match:
+    - name_pattern: "(?i)qwen3[-.]?32b"
+  variant_name: Qwen3-32B
+
+hardware_profile:
+  gpu_count: 4
+  vram_gb: 192
+  multi_node: true
+
+scenarios:
+  multi_node:
+    source_ref: "sglang_qwen3-32b_bf16_manual#multi_node"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        display_name: Multi-Node
+        head:
+          engine_config:
+            model: Qwen/Qwen3-32B
+            trust_remote_code: true
+            model_path: Qwen/Qwen3-32B
+            served_model_name: Qwen3-32B
+            host: "0.0.0.0"
+            port: 17000
+            mem_fraction_static: 0.9
+            tp_size: 16
+            nnodes: 2
+            node_rank: 0
+            dist_init_addr: 192.168.1.100:28030
+          env:
+            GLOO_SOCKET_IFNAME: bond0
+            NCCL_SOCKET_IFNAME: bond0
+        worker:
+          engine_config:
+            model: Qwen/Qwen3-32B
+            trust_remote_code: true
+            model_path: Qwen/Qwen3-32B
+            served_model_name: Qwen3-32B
+            host: "0.0.0.0"
+            mem_fraction_static: 0.9
+            tp_size: 16
+            nnodes: 2
+            node_rank: 1
+            dist_init_addr: 192.168.1.100:28030
+          env:
+            GLOO_SOCKET_IFNAME: bond0
+            NCCL_SOCKET_IFNAME: bond0
+        default_strategy: true
