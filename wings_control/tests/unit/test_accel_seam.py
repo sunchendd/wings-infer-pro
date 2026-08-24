@@ -176,6 +176,44 @@ def test_build_scripts_writes_advanced_features_disabled(tmp_path, monkeypatch):
     assert data["others"]["speculative_decode"] is None
 
 
+def test_build_scripts_reports_sparse_scheme_as_sparse_kv(tmp_path, monkeypatch):
+    """MaaS 开 SPARSE 且命中 yaml scheme → 页面回显稀疏；纯 recipe fp8（未开 SPARSE）不算。"""
+    import json as _json
+    from wings_ctl.common.settings import settings
+
+    target = tmp_path / "advanced_features.json"
+    monkeypatch.setattr(settings, "ADVANCED_FEATURES_FILE", str(target))
+    resolved = _make_resolved()
+    resolved.engine_config_traces["kv_cache_dtype"] = TracedValue(
+        final_value="fp8", final_layer="model_scenario", source_file="model.yaml",
+        source_path="scenarios.standalone.engine_config.kv_cache_dtype", events=[],
+    )
+    build_scripts(resolved, tmp_path)
+
+    data = _json.loads(target.read_text(encoding="utf-8"))
+    # 无选中 sparse scheme（SPARSE 未开/未命中）→ 即使 recipe 基线是 fp8 也不回显稀疏
+    assert data["features"]["sparse_kv"] is False
+    assert data["variants"]["sparse_kv"] is None
+
+
+def test_build_scripts_does_not_report_fp8_e4m3_as_sparse(tmp_path, monkeypatch):
+    """仅选中 sparse scheme 才回显稀疏；fp8_e4m3 等其他 dtype 不影响该口径。"""
+    import json as _json
+    from wings_ctl.common.settings import settings
+
+    target = tmp_path / "advanced_features.json"
+    monkeypatch.setattr(settings, "ADVANCED_FEATURES_FILE", str(target))
+    resolved = _make_resolved()
+    resolved.engine_config_traces["kv_cache_dtype"] = TracedValue(
+        final_value="fp8_e4m3", final_layer="model_scenario", source_file="model.yaml",
+        source_path="scenarios.standalone.engine_config.kv_cache_dtype", events=[],
+    )
+    build_scripts(resolved, tmp_path)
+
+    data = _json.loads(target.read_text(encoding="utf-8"))
+    assert data["features"]["sparse_kv"] is False
+
+
 def test_emit_audit_writes_wings_accel(tmp_path):
     """验证非空 accel.audit → audit.json 写入 wings_accel 诊断块。"""
     audit_path = emit_audit(_make_resolved(_STUB), tmp_path)

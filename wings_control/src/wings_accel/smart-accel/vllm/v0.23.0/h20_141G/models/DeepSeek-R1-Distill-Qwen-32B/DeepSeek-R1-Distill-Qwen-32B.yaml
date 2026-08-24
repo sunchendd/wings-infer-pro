@@ -1,0 +1,7 @@
+# SmartAccel 精确身份占位（无已验证的加速特性）
+model:
+  name: DeepSeek-R1-Distill-Qwen-32B
+  variant_name: "DeepSeek-R1-Distill-Qwen-32B"
+  match:
+    - name_pattern: "(?i)deepseek[-.]?r1[-.]?distill[-.]?qwen[-.]?32b"
+smart_accel: {}

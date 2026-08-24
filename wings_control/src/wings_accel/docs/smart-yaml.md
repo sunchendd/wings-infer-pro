@@ -28,13 +28,9 @@
 
 ### 稀疏(sparse · 详见 §3.1)
 
-**`kv_cache_dtype: fp8` 默认不加**,按下表决定:
-
-| 开源 recipe 的 fp8 | 0day 测试结果 | 是否在 yaml 写 fp8 |
-|---|---|---|
-| recipe 已开 | — | **不写**(recipe 已覆盖,避免重复 / 冲突) |
-| recipe 关 | 测试证明可开 | **写**(补充) |
-| recipe 关 | 测试未验证 | **不写**(保持默认) |
+**`kv_cache_dtype: fp8` 属于 smart sparse 能力**。只要对应 engine recipe 在实际场景启用精确值
+`fp8`，每个 sparse scheme 的 `cli_params` 都必须显式写入 `kv_cache_dtype: fp8`，即使 recipe
+已经设置；`fp8_e4m3` 等其他 dtype 不适用本规则。
 
 > 是否同时加 index cache(indexcache 形态)由 yaml 是否写 `hf_overrides: { use_index_cache, index_topk_freq }` 决定,与 fp8 开关相互独立(§3.1)。sparse 在所有 scenario(含 PD 的 prefill/decode)都支持。
 

@@ -65,8 +65,8 @@ def test_all_on_real_output(model):
         assert out.smart_kv_sparse_scheme == "performance_first"
         assert "speculative_config" in ec and "kv_transfer_config" not in ec
         assert ec["hf_overrides"]["index_topk_freq"] == 8
-        # kv_cache_dtype 由 engine_config baseline 提供,smart-accel sparse 块不再重复声明
-        assert "kv_cache_dtype" not in ec
+        # fp8 KV cache 属于 smart sparse，sparse 块显式声明以驱动稀疏回显。
+        assert ec["kv_cache_dtype"] == "fp8"
     elif model == "MiniMax-M2.7":
         # decoding=suffix + kv_offload=cpu(资产新增独立 cpu scheme:仅开内存时走 lmcache cpu-only)
         assert out.smart_decoding_scheme == "suffix"

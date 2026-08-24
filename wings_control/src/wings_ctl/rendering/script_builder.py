@@ -135,7 +135,8 @@ def _write_advanced_features_json(resolved: ResolvedConfig) -> None:
         resolved: 配置解析最终产物(``resolved.accel`` 承载 wings-accel 产出)。
     """
     accel = resolved.accel
-    # features:有选中 scheme 即该特性最终生效(scheme 名即 variants 策略)
+    # features:有选中 scheme 即该特性最终生效(scheme 名即 variants 策略);
+    # sparse_kv 只按 MaaS 开关开且 smart 命中 sparse scheme 回显(recipe 基线 fp8 不算)
     decoding_scheme = accel.audit.get("smart_decoding_scheme") if accel.audit else None
     sparse_scheme = accel.audit.get("smart_kv_sparse_scheme") if accel.audit else None
     offload_scheme = accel.audit.get("smart_kv_cache_scheme") if accel.audit else None

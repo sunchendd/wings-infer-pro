@@ -542,7 +542,7 @@ def find_smart_accel_yaml_path(
 
     # ① variant_name 精确优先(确定性,docs/48 主路径)
     if len(exact_variant) == 1:
-        logger.info("SmartAccel: model '%s' 精确命中 variant_name in %s", model_name, exact_variant[0])
+        logger.info("SmartAccel: model '%s' exactly matched variant_name in %s", model_name, exact_variant[0])
         return exact_variant[0]
     if len(exact_variant) > 1:
         raise ValueError(

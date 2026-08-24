@@ -58,7 +58,7 @@ def _read_draft_architectures(draft_path: str) -> List[str]:
     try:
         data = json.loads(cfg.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        logger.debug("draft config.json 读取失败 %s: %s", cfg, exc)
+        logger.debug("failed to read draft config.json %s: %s", cfg, exc)
         return []
     archs = data.get("architectures") if isinstance(data, dict) else None
     if not isinstance(archs, list):
@@ -140,27 +140,27 @@ def smart_decoding_expander(
             archs = _read_draft_architectures(model_path)
             matched = _match_draft_method(model_based, archs)
             if matched:
-                logger.info("decoding model_based: 草稿 architectures=%s 命中 %s", archs, matched.get("name"))
+                logger.info("decoding model_based: draft architectures=%s matched %s", archs, matched.get("name"))
                 return render_scheme(matched, ctx, degraded=False)
             # 未匹配 draft_arch → 降级到通用 draft 方案(未声明 draft_arch 的 model_based)
             generic_draft = [m for m in model_based if not m.get("draft_arch")]
             if generic_draft:
-                logger.info("decoding model_based: architectures=%s 未命中 draft_arch,降级通用 draft", archs)
+                logger.info("decoding model_based: architectures=%s did not match draft_arch; falling back to generic draft", archs)
                 return render_scheme(generic_draft[0], ctx, degraded=False)
             # 无通用 draft → 降级到 no_model
-            logger.info("decoding model_based: architectures=%s 无匹配且无通用 draft,降级 no_model", archs)
+            logger.info("decoding model_based: architectures=%s have no match or generic draft; falling back to no_model", archs)
         # miss -> 降级到 no_model(至多一个,取首序)
         no_models = [m for m in methods if not _is_model_based(m) and _eligible(m, cfg)]
         if no_models:
             if len(no_models) > 1:
-                logger.warning("decoding no_model 命中 %d 个方案,no_model 应至多一个,取首序", len(no_models))
+                logger.warning("decoding no_model matched %d schemes; no_model must have at most one, selecting the first", len(no_models))
             return render_scheme(no_models[0], ctx, degraded=True, degrade_reason="model_based_miss->no_model")
 
     # Step [2]: no_model branch(或降级落点;至多一个,取首序)
     no_models = [m for m in methods if not _is_model_based(m) and _eligible(m, cfg)]
     if no_models:
         if len(no_models) > 1:
-            logger.warning("decoding no_model 命中 %d 个方案,no_model 应至多一个,取首序", len(no_models))
+            logger.warning("decoding no_model matched %d schemes; no_model must have at most one, selecting the first", len(no_models))
         return render_scheme(no_models[0], ctx, degraded=False)
 
     # 无合格方案 → None
