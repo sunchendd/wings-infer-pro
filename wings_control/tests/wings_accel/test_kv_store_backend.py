@@ -5,7 +5,7 @@ name = 介质(cpu/disk/cpu_disk):后端工具(mooncake/memcache)是 **cpu 介质
 scheme 的 ``name`` 统一为 ``cpu``(工具由 connector + ``kv_connector_extra_config.backend`` 区分)。
 覆盖 offload.py 的后端选择分支、render.py 的 ``{rank_ip}``/``{master_ip}`` 占位符与 ``{= expr}`` 算术求值、files 自描述落盘(path/content/scope/mode)、框架自动合成的 pre_serve/pre_serve_master
 (mkdir / envsubst / master-only ``bash daemon &``,不监听端口),以及真实 YAML 资产
-(MiniMax-M2.7-w8a8,mooncake 工具)+ backend 共享模板(kv_backends/<backend>/)的 resolve。
+(MiniMax-M2.7-w8a8 的 mooncake 工具)的解析。
 """
 
 from wings_accel.offload import smart_kv_offload_expander
