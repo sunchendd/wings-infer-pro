@@ -13,6 +13,11 @@ from __future__ import annotations
 import logging
 from typing import NamedTuple
 
+from wings_ctl.engines.delivery_contract import (
+    build_parallelism_override,
+    get_engine_delivery_contract,
+    read_parallelism_values,
+)
 from wings_ctl.strategy.parallelism import dp_local_from_device_count, dp_start_rank
 
 logger = logging.getLogger(__name__)
@@ -135,6 +140,7 @@ def select_node(
 def coordinate_parallelism(
     template_engine_config: dict,
     *,
+    engine: str = "vllm",
     device_count: int | None,
     pod_count: int,
     index: int,
@@ -164,7 +170,7 @@ def coordinate_parallelism(
     Raises:
         ValueError: 当前输入不满足硬约束(如 TP 收缩非 2 的幂、非整除、PP>1、卡数非法等)。
     """
-    pp = template_engine_config.get("pipeline_parallel_size") or 1
+    tp, template_dp, pp = read_parallelism_values(template_engine_config, engine=engine)
     if pp > 1:
         raise ValueError(
             f"pipeline_parallel_size={pp}>1:PP 暂不支持(tp_pp 策略不应被选中)"
@@ -173,7 +179,7 @@ def coordinate_parallelism(
         # 未下发 device_count → 不协调;但 DP_across 仍要检查模板 DP 与集群规模是否一致,
         # 避免 start_rank 越界。
         if detect_layout(template_engine_config) == LAYOUT_DP_ACROSS:
-            dp = template_engine_config.get("data_parallel_size")
+            _, dp, _ = read_parallelism_values(template_engine_config, engine=engine)
             dp_local = template_engine_config.get("data_parallel_size_local")
             if dp is not None and dp_local and dp != pod_count * dp_local:
                 raise ValueError(
@@ -186,7 +192,6 @@ def coordinate_parallelism(
     if device_count <= 0:
         raise ValueError(f"device-count={device_count} 非法(须为正整数)")
 
-    tp = template_engine_config.get("tensor_parallel_size") or 1
     world_size = pod_count * device_count
     layout = detect_layout(template_engine_config)
     notes = {
@@ -202,7 +207,7 @@ def coordinate_parallelism(
         if world_size & (world_size - 1):
             raise ValueError(f"world_size={world_size} 不是 2 的幂")
 
-        tpl_dp = template_engine_config.get("data_parallel_size") or 1
+        tpl_dp = template_dp
         resolved_tp = world_size
         notes.update({
             "multinode_dp_resolved_tp": str(resolved_tp),
@@ -215,7 +220,7 @@ def coordinate_parallelism(
                 "下发 world_size=%d,将 TP 调整为%d,DP 保持%d",
                 tp, tpl_dp, world_size, resolved_tp, tpl_dp,
             )
-            return {"tensor_parallel_size": resolved_tp}, notes
+            return build_parallelism_override(engine=engine, tp=resolved_tp), notes
         logger.info(
             "multi_node 协调(TP 跨):TP=%d(=world_size),DP 保持%d,world_size=%d",
             resolved_tp, tpl_dp, world_size,
@@ -231,7 +236,7 @@ def coordinate_parallelism(
         "multinode_dp_size_local": str(dp_local),
         "multinode_dp_start_rank": str(start_rank),
     })
-    tpl_dp = template_engine_config.get("data_parallel_size") or 1
+    tpl_dp = template_dp
     tpl_local = template_engine_config.get("data_parallel_size_local") or 1
     tpl_sr = template_engine_config.get("data_parallel_start_rank") or 0
     if dp == tpl_dp and dp_local == tpl_local and start_rank == tpl_sr:
@@ -245,7 +250,7 @@ def coordinate_parallelism(
     )
     return (
         {
-            "data_parallel_size": dp,
+            **build_parallelism_override(engine=engine, dp=dp),
             "data_parallel_size_local": dp_local,
             "data_parallel_start_rank": start_rank,
         },
@@ -259,7 +264,8 @@ def coordinate_parallelism(
 _PLACEHOLDERS: dict[str, tuple[str, str]] = {
     "$local_ip": ("rank_ip", "literal"),
     "$node0_ip": ("master_ip", "literal"),
-    "$HEAD_IP": ("master_ip", "literal"),   # nvidia,与 $node0_ip 同源(=MASTER_IP)
+    "$HEAD_IP": ("master_ip", "literal"),
+    "${HEAD_IP}": ("master_ip", "literal"),
 }
 
 
@@ -311,3 +317,53 @@ def substitute_literal_placeholders(
         if nv != v:
             override[k] = nv
     return override
+
+
+def validate_recipe_rendezvous_address(
+    engine_config: dict,
+    *,
+    engine: str,
+) -> int | None:
+    """校验契约声明的 recipe rendezvous 地址并返回端口。"""
+    param = get_engine_delivery_contract(engine).rendezvous_address_param
+    if param is None:
+        return None
+
+    recipe_value = engine_config.get(param)
+    if not isinstance(recipe_value, str):
+        raise ValueError(f"engine={engine!r} multi_node recipe requires string {param!r}; received {recipe_value!r}.")
+    host, separator, port_text = recipe_value.strip().rpartition(":")
+    if not separator or not host or not port_text.isdecimal():
+        raise ValueError(f"engine={engine!r} multi_node {param!r} must use 'host:port'; received {recipe_value!r}.")
+
+    port = int(port_text)
+    if not 1 <= port <= 65535:
+        raise ValueError(f"engine={engine!r} multi_node {param!r} port must be in 1..65535; received {recipe_value!r}.")
+    return port
+
+
+def build_rendezvous_address_override(
+    engine_config: dict,
+    *,
+    engine: str,
+    master_ip: str,
+) -> dict:
+    """使用运行时 master IP 重建契约声明的 rendezvous 地址。
+
+    recipe 中的地址仅提供 rendezvous 端口；实际 head 地址必须来自本次
+    placement。未声明该参数的引擎不产生覆盖层。
+    """
+    param = get_engine_delivery_contract(engine).rendezvous_address_param
+    if param is None:
+        return {}
+    port = validate_recipe_rendezvous_address(engine_config, engine=engine)
+    assert port is not None
+    recipe_value = engine_config[param]
+    resolved = f"{master_ip}:{port}"
+    logger.info(
+        "multi_node rendezvous override: %s=%s (recipe=%s)",
+        param,
+        resolved,
+        recipe_value,
+    )
+    return {param: resolved}

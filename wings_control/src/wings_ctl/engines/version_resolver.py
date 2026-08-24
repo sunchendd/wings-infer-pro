@@ -15,6 +15,10 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from wings_ctl.core.models import EngineVersion
+from wings_ctl.engines.delivery_contract import (
+    get_engine_delivery_contract,
+    validate_requested_version,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +101,10 @@ def resolve_engine_version(
         FileNotFoundError: 严格版本未命中，或无法找到任何有效版本目录。
     """
     requested_raw = os.environ.get("ENGINE_VERSION", "").strip() or None
+    validate_requested_version(engine, requested_raw)
+    required_prefix = get_engine_delivery_contract(engine).required_version_prefix
+    if required_prefix is not None:
+        require_exact = True
     if require_exact and requested_raw is None:
         raise ValueError("PD 场景必须显式设置 ENGINE_VERSION，且必须命中受支持的配置目录前缀。")
     engine_root = config_root / "engines" / engine
@@ -111,6 +119,12 @@ def resolve_engine_version(
         if engine_root.is_dir()
         else False
     )
+
+    if required_prefix is not None and not has_version_dir:
+        raise FileNotFoundError(
+            f"Strict version resolution requires an available version directory under {engine_root}; "
+            f"engine={engine!r}, ENGINE_VERSION={requested_raw!r}."
+        )
 
     engine_dir = engine_root
 
@@ -131,6 +145,11 @@ def resolve_engine_version(
                 )
 
         if require_exact and has_version_dir:
+            if required_prefix is not None:
+                raise FileNotFoundError(
+                    f"Strict ENGINE_VERSION={requested_raw!r} did not match a version directory under {engine_dir}; "
+                    f"engine={engine!r}, required prefix={required_prefix!r}."
+                )
             raise FileNotFoundError(f"PD ENGINE_VERSION={requested_raw!r} 未命中目录名前缀；engine={engine!r}。")
 
     if not has_version_dir:
