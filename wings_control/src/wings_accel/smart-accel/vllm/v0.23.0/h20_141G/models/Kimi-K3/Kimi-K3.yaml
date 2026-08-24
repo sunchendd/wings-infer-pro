@@ -1,0 +1,7 @@
+# SmartAccel 精确身份占位（无已验证的加速特性）
+model:
+  name: Kimi-K3
+  variant_name: "Kimi-K3"
+  match:
+    - name_pattern: "(?i)kimi[-.]?k3"
+smart_accel: {}
