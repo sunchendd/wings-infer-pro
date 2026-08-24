@@ -173,7 +173,7 @@ scenarios:
               data_parallel_size_local: 8
               data_parallel_start_rank: 0
               data_parallel_address: $PREFILL_NODE_1
-              data_parallel_rpc_port: $PREFILL_DP_RPC_PORT
+              data_parallel_rpc_port: 12321
               enable_expert_parallel: true
               enforce_eager: true
               max_num_seqs: 8
@@ -202,7 +202,7 @@ scenarios:
               data_parallel_size_local: 8
               data_parallel_start_rank: 0
               data_parallel_address: $DECODE_NODE_1
-              data_parallel_rpc_port: $DECODE_DP_RPC_PORT
+              data_parallel_rpc_port: 12322
               enable_expert_parallel: true
               max_num_seqs: 1536
               max_num_batched_tokens: 1536

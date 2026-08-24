@@ -101,9 +101,13 @@ scenarios:
               data_parallel_size: $3
               data_parallel_rank: $4
               data_parallel_address: $5
-              data_parallel_rpc_port: $6
+              data_parallel_rpc_port: 12321
               tensor_parallel_size: $7
               enable_expert_parallel: true
+              speculative_config:
+                num_speculative_tokens: 1
+                method: mtp
+                enforce_eager: true
               seed: 1024
               served_model_name: dsv4
               max_model_len: 1048576
@@ -164,15 +168,19 @@ scenarios:
               data_parallel_size: $3
               data_parallel_rank: $4
               data_parallel_address: $5
-              data_parallel_rpc_port: $6
+              data_parallel_rpc_port: 12321
               tensor_parallel_size: $7
               enable_expert_parallel: true
+              speculative_config:
+                num_speculative_tokens: 1
+                method: mtp
+                enforce_eager: true
               seed: 1024
               served_model_name: dsv4
               max_model_len: 1048576
               max_num_batched_tokens: 120
               max_num_seqs: 60
-              async_scheduling: true
+              async_scheduling: false  #  性能压测服务会挂掉，需要关闭
               block_size: 128
               no_disable_hybrid_kv_cache_manager: true
               no_enable_prefix_caching: true

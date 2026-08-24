@@ -16,6 +16,9 @@ ENGINES = ("vllm", "vllm-ascend", "sglang")
 SCENARIOS = ("standalone", "multi_node", "pd_disaggregation")
 VERSION_RE = re.compile(r"^v?\d+\.\d+\.\d+(?:rc\d*)?$")
 SUSPICIOUS_SHELL_RE = re.compile(r"\\[()]")
+DATA_PARALLEL_RPC_PORT_RE = re.compile(
+    r"--data[-_]parallel[-_]rpc[-_]port(?:=|\s+)([^\s\\]+)"
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -187,6 +190,27 @@ def resolve_hardware(args: argparse.Namespace, profiles: dict[str, Any]) -> dict
     }
 
 
+def data_parallel_rpc_port_warnings(
+    scenario: str, commands: list[dict[str, str]]
+) -> list[str]:
+    """Warn when a distributed command leaves the data-parallel RPC port unresolved."""
+    if scenario not in {"multi_node", "pd_disaggregation"}:
+        return []
+
+    warnings: list[str] = []
+    for command in commands:
+        for match in DATA_PARALLEL_RPC_PORT_RE.finditer(command["text"]):
+            value = match.group(1).strip("'\"")
+            if value.isdecimal():
+                continue
+            warnings.append(
+                "data_parallel_rpc_port is not numeric in "
+                f"{command['path']} ({value!r}); render YAML with 12321 and ask "
+                "the user to confirm the actual port before claiming dry-run success"
+            )
+    return warnings
+
+
 def main() -> int:
     args = parse_args()
     if args.engine not in ENGINES:
@@ -206,7 +230,7 @@ def main() -> int:
     validate_roles(args.scenario, commands)
     hardware = resolve_hardware(args, load_profiles())
 
-    warnings: list[str] = []
+    warnings = data_parallel_rpc_port_warnings(args.scenario, commands)
     if not args.model_name.strip():
         fail("model_name must not be empty")
     if not args.variant.strip():
@@ -241,4 +265,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -102,9 +102,13 @@ scenarios:
               data_parallel_size: $3
               data_parallel_rank: $4
               data_parallel_address: $5
-              data_parallel_rpc_port: $6
+              data_parallel_rpc_port: 12321
               tensor_parallel_size: $7
               enable_expert_parallel: true
+              speculative_config:
+                num_speculative_tokens: 1
+                method: mtp
+                enforce_eager: true
               seed: 1024
               served_model_name: dsv4
               max_model_len: 135000
@@ -164,9 +168,13 @@ scenarios:
               data_parallel_size: $3
               data_parallel_rank: $4
               data_parallel_address: $5
-              data_parallel_rpc_port: $6
+              data_parallel_rpc_port: 12321
               tensor_parallel_size: $7
               enable_expert_parallel: true
+              speculative_config:
+                num_speculative_tokens: 1
+                method: mtp
+                enforce_eager: true
               seed: 1024
               served_model_name: dsv4
               max_model_len: 135000
@@ -226,9 +234,13 @@ scenarios:
               data_parallel_size: $3
               data_parallel_rank: $4
               data_parallel_address: $5
-              data_parallel_rpc_port: $6
+              data_parallel_rpc_port: 12321
               tensor_parallel_size: $7
               enable_expert_parallel: true
+              speculative_config:
+                num_speculative_tokens: 1
+                method: mtp
+                enforce_eager: true
               seed: 1024
               served_model_name: dsv4
               max_model_len: 135000
@@ -288,9 +300,13 @@ scenarios:
               data_parallel_size: $3
               data_parallel_rank: $4
               data_parallel_address: $5
-              data_parallel_rpc_port: $6
+              data_parallel_rpc_port: 12321
               tensor_parallel_size: $7
               enable_expert_parallel: true
+              speculative_config:
+                num_speculative_tokens: 1
+                method: mtp
+                enforce_eager: true
               seed: 1024
               served_model_name: dsv4
               max_model_len: 135000
@@ -350,9 +366,13 @@ scenarios:
               data_parallel_size: $3
               data_parallel_rank: $4
               data_parallel_address: $5
-              data_parallel_rpc_port: $6
+              data_parallel_rpc_port: 12321
               tensor_parallel_size: $7
               enable_expert_parallel: true
+              speculative_config:
+                num_speculative_tokens: 1
+                method: mtp
+                enforce_eager: true
               seed: 1024
               served_model_name: dsv4
               max_model_len: 135000
@@ -417,9 +437,13 @@ scenarios:
               data_parallel_size: $3
               data_parallel_rank: $4
               data_parallel_address: $5
-              data_parallel_rpc_port: $6
+              data_parallel_rpc_port: 12321
               tensor_parallel_size: $7
               enable_expert_parallel: true
+              speculative_config:
+                num_speculative_tokens: 1
+                method: mtp
+                enforce_eager: true
               seed: 1024
               served_model_name: dsv4
               max_model_len: 135000
@@ -441,8 +465,8 @@ scenarios:
               kv_transfer_config:
                 kv_connector: MooncakeHybridConnector
                 kv_role: kv_consumer
-                kv_port: 30500
-                engine_id: 5
+                kv_port: 30400
+                engine_id: 4
                 kv_connector_extra_config:
                   prefill:
                     dp_size: 8
@@ -484,9 +508,13 @@ scenarios:
               data_parallel_size: $3
               data_parallel_rank: $4
               data_parallel_address: $5
-              data_parallel_rpc_port: $6
+              data_parallel_rpc_port: 12321
               tensor_parallel_size: $7
               enable_expert_parallel: true
+              speculative_config:
+                num_speculative_tokens: 1
+                method: mtp
+                enforce_eager: true
               seed: 1024
               served_model_name: dsv4
               max_model_len: 135000
@@ -508,8 +536,8 @@ scenarios:
               kv_transfer_config:
                 kv_connector: MooncakeHybridConnector
                 kv_role: kv_consumer
-                kv_port: 30600
-                engine_id: 6
+                kv_port: 30400
+                engine_id: 4
                 kv_connector_extra_config:
                   prefill:
                     dp_size: 8
@@ -551,9 +579,13 @@ scenarios:
               data_parallel_size: $3
               data_parallel_rank: $4
               data_parallel_address: $5
-              data_parallel_rpc_port: $6
+              data_parallel_rpc_port: 12321
               tensor_parallel_size: $7
               enable_expert_parallel: true
+              speculative_config:
+                num_speculative_tokens: 1
+                method: mtp
+                enforce_eager: true
               seed: 1024
               served_model_name: dsv4
               max_model_len: 135000
@@ -575,8 +607,8 @@ scenarios:
               kv_transfer_config:
                 kv_connector: MooncakeHybridConnector
                 kv_role: kv_consumer
-                kv_port: 30700
-                engine_id: 7
+                kv_port: 30400
+                engine_id: 4
                 kv_connector_extra_config:
                   prefill:
                     dp_size: 8

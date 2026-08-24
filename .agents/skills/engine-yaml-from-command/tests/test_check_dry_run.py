@@ -306,6 +306,46 @@ scenarios:
     assert "node[1]: OK" in output
 
 
+def test_command_tokens_parses_quoted_multiline_json() -> None:
+    tokens = module.command_tokens(
+        """export HCCL_BUFFSIZE=400
+vllm serve demo/model \\
+  --kv-transfer-config \\
+  '{"kv_connector": "MooncakeConnectorV1",
+    "kv_connector_extra_config": {"use_ascend_direct": true}}'
+"""
+    )
+
+    assert tokens == [
+        "vllm",
+        "serve",
+        "demo/model",
+        "--kv-transfer-config",
+        '{"kv_connector": "MooncakeConnectorV1",\n    "kv_connector_extra_config": {"use_ascend_direct": true}}',
+    ]
+
+
+def test_command_tokens_strips_line_continuation_whitespace() -> None:
+    tokens = module.command_tokens(
+        "vllm serve demo/model \\\n--tensor-parallel-size 8 \\\n--enable-expert-parallel\n"
+    )
+
+    assert tokens == [
+        "vllm",
+        "serve",
+        "demo/model",
+        "--tensor-parallel-size",
+        "8",
+        "--enable-expert-parallel",
+    ]
+
+
+def test_command_env_ignores_ascend_visible_devices() -> None:
+    assert module.command_env(
+        "export ASCEND_RT_VISIBLE_DEVICES=$1\nexport HCCL_BUFFSIZE=256\n"
+    ) == {"HCCL_BUFFSIZE": "256"}
+
+
 def test_default_model_dry_run(tmp_path: Path) -> None:
     yaml_path = tmp_path / "default_model.yaml"
     yaml_path.write_text(

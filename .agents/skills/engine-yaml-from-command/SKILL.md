@@ -116,6 +116,23 @@ system_setup:
 - jemalloc 统一为 `/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}`。
 - `MOONCAKE_CONFIG_PATH` 统一为 `/shared-volume/mooncake.json`。
 - MemCache 配置路径统一为 `/shared-volume/mmc_local.conf`。
+- 对于 `multi_node` 和 `pd_disaggregation`：若原始命令包含
+  `--data-parallel-rpc-port`（或等价的下划线拼写），但值不是可确认的十进制端口号
+  （例如 `$6`、`${DP_RPC_PORT}`），必须将 YAML 的对应
+  `data_parallel_rpc_port` 写为 YAML 整数，并按场景设置回退值：
+  - `multi_node` 的 head、worker 和同一组中的所有节点均填写 `12321`。
+  - `pd_disaggregation` 中，同一组的所有 prefill（`p`）节点填写 `12321`，所有
+    decode（`d`）节点填写 `12322`。
+  生成结果必须明确提示用户这些值是待确认的默认端口，要求其确认实际端口；在确认前不得
+  声称端口已按原始命令验证。若原始命令给出明确数字端口，必须保留原值，不得按上述回退
+  规则改写。
+  对生成后的 YAML，`validate_yaml.py` 必须校验 multi-node 和 PD 节点中已出现的
+  `data_parallel_rpc_port` 为 YAML 整数；`$6`、`${DP_RPC_PORT}` 和带引号的
+  `"12321"` 均视为无效并报错。
+- `engine_config.kv_transfer_config` 中的 `engine_id` 和 `kv_port` 必须是 YAML
+  整数。脚本占位符（如 `$1`）、带引号的字符串（如 `"0"`、`"30000"`）或任何非
+  整数值均视为无效，`validate_yaml.py` 必须报错。生成时应从原始命令提取明确数字，
+  不得保留 shell 变量或引号。
 
 ### 参数名映射与嵌套原生配置
 
@@ -152,6 +169,25 @@ Wings Control 的 `engine_config` 参数名映射以**第一个点号**为边界
 工具调用、reasoning、spec decoding、KV offloading、Mooncake/MemCache/LMCache 和 sparse index 等可独立开关功能放在 `features`，不重复留在 `engine_config`。`features.*.args` 保留原始 CLI flag，JSON 使用双引号字符串并转义内部双引号。
 
 如果目标 schema 不支持 `features`，先扩展 schema/验证器；否则功能参数留在 `engine_config`，不能静默丢弃。
+
+#### PD 功能参数保留规则
+
+对于 `pd_disaggregation`，以下功能参数**不得**从各 prefill/decode 节点的
+`engine_config` 抽取到顶层 `features`。必须保留在每个节点中，并按该节点的原始
+启动命令分别配置；不得为了复用而删除节点中的参数：
+
+| 功能 | 参数 |
+|---|---|
+| `spec_decoding` | `--speculative-config` 或 SGLang speculative 参数组 |
+| `kv_offloading` | `--kv-offloading-*` |
+| `mooncake_offloading` | Mooncake `--kv-transfer-config` |
+| `memcache_offloading` | MemCache `--kv-transfer-config` |
+| `lmcache` | LMCache server 与 connector 参数 |
+| `sparse_index` | 配置 sparse index 的 `--hf-overrides` |
+
+这项限制仅针对 PD 节点配置。standalone 或 multi-node 场景仍可按目标 schema 将这些
+可选功能抽取到 `features`；但同一 YAML 具有 PD 场景时，不能让顶层 feature 覆盖或替代
+PD 节点的显式参数。
 
 #### reasoning parser 公共表同步
 
@@ -213,6 +249,10 @@ python3 <skill-dir>/scripts/check_dry_run.py \
 multi-node/PD 对每个节点重复 `--command-file`，顺序必须与 YAML 中的节点顺序一致。
 inline 命令物化后，必须检查 command file 内容与用户消息逐项一致，再运行校验。
 校验失败（缺失参数、额外参数、参数值不一致或节点数量不一致）时停止并修正 YAML。standalone 的 `--host` 是唯一例外：YAML 固定为 `0.0.0.0`，dry-run 不将原始命令中缺失或不同的 `--host` 视为不一致。
+对于 multi-node/PD 的 `data_parallel_rpc_port` 回退值：在用户确认真实端口前，不得将含
+`$6` 等非数字端口的原始命令直接与 YAML 宣称为 dry-run 匹配；应报告端口待确认。用户确认
+回退端口后，才可将临时命令中的该参数解析为对应值并完成 dry-run：multi-node 的所有节点为
+`12321`；PD 的 prefill（`p`）节点为 `12321`，decode（`d`）节点为 `12322`。
 脚本会打印每个节点的 YAML 重建命令、原始启动命令和逐项比较结果：`OK` 表示匹配，
 `缺失`、`多余`、`不一致` 会分别列出参数及 YAML/command 的值；异常报告输出到 stderr，
 并以退出码 1 结束。成功报告输出到 stdout 并以退出码 0 结束，便于日志和 CI 查看。
