@@ -221,7 +221,7 @@ def _eval_expr_substr(text: str, ctx: PlaceholderContext) -> str:
             tree = ast.parse(body, mode="eval")
             return _format_expr_result(_eval_arith(tree, ns))
         except (SyntaxError, ValueError, ZeroDivisionError, TypeError) as exc:
-            logger.debug("smart_accel: {= expr} 求值失败,保留字面量 %r: %s", match.group(0), exc)
+            logger.debug("smart_accel: failed to evaluate {= expr}; preserving literal %r: %s", match.group(0), exc)
             return match.group(0)
 
     return _EXPR_RE.sub(_sub, text)
@@ -333,11 +333,11 @@ def _resolve_file_entry(
     src = f.get("src")
     if src:
         if not ctx.config_root:
-            logger.warning("smart_accel: files %s 用 src=%r 但无 config_root,跳过", p, src)
+            logger.warning("smart_accel: skipping file %s with src=%r because config_root is unset", p, src)
             return None
         src_path = Path(ctx.config_root) / str(src)
         if not src_path.is_file():
-            logger.warning("smart_accel: files src 模板不存在: %s,跳过", src_path)
+            logger.warning("smart_accel: skipping missing files src template: %s", src_path)
             return None
         content: Any = src_path.read_text(encoding="utf-8")
     else:

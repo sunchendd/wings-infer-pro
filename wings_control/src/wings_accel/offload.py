@@ -180,11 +180,11 @@ def smart_kv_offload_expander(
         if target == "cpu_disk" and ("disk" in schemes or "cpu" in schemes):
             target = "disk" if "disk" in schemes else "cpu"
             logger.warning(
-                "kv_offload: cpu_disk scheme 缺失,退化到 %r(yaml 需显式声明 cpu_disk 才能用组合)",
+                "kv_offload: cpu_disk scheme is missing; falling back to %r (YAML must explicitly declare cpu_disk for the combined mode)",
                 target,
             )
         else:
-            logger.warning("kv_offload: 目标 scheme %r 缺失,关闭 KV 卸载", target)
+            logger.warning("kv_offload: requested scheme %r is missing; disabling KV offload", target)
             return None
 
     selected = schemes[target]
