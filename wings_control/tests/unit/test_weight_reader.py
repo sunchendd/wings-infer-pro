@@ -36,13 +36,13 @@ def test_weight_bytes_index_bad_falls_back(tmp_path):
 
 def test_weight_bytes_raises_no_source(tmp_path):
     """既无 index 又无 shards → raise(显存闸缺输入)。"""
-    with pytest.raises(ValueError, match="无法判定权重体积"):
+    with pytest.raises(ValueError, match="Cannot determine weight size"):
         resolve_weight_bytes(str(tmp_path))
 
 
 def test_weight_bytes_raises_not_dir():
     """model-path 非目录 → raise。"""
-    with pytest.raises(ValueError, match="不是可读目录"):
+    with pytest.raises(ValueError, match="not a readable directory"):
         resolve_weight_bytes("/nonexistent/path/xyz")
 
 

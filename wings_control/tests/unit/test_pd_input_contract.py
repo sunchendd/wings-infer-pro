@@ -99,7 +99,7 @@ def test_six_fields_reject_invalid_integer_values(name: str, value: str) -> None
 
 def test_standard_rejects_residual_pd_fields() -> None:
     """验证标准推理不消费完整或部分 PD topology 残留。"""
-    with pytest.raises(ValueError, match="标准推理.*PD_INDEX"):
+    with pytest.raises(ValueError, match="Standard inference.*PD_INDEX"):
         parse_pd_runtime_input("none", {"PD_INDEX": "0"}, None, distributed=False)
 
 
@@ -159,7 +159,7 @@ def test_pd_cross_pod_rejects_invalid_placement(placement: ClusterPlacement) -> 
 
 def test_pd_cross_pod_rejects_single_member_node_ips() -> None:
     """验证跨 Pod(--distributed)要求 NODE_IPS 至少 2 成员；单成员视为误标失败。"""
-    with pytest.raises(ValueError, match="至少 2 个成员"):
+    with pytest.raises(ValueError, match="at least two NODE_IPS"):
         parse_pd_runtime_input(
             "P",
             _explicit_env(),

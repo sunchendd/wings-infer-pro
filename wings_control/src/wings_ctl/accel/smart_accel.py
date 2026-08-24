@@ -293,7 +293,7 @@ def apply_smart_accel(*, hardware_family: str, gpu_count: int | None, model_path
         return AccelResult()
     mod = _import_accel()
     if mod is None:
-        logger.debug("wings-accel 模块未合入,智能加速委托跳过(no-op)")
+        logger.debug("wings-accel module is unavailable; skipping smart acceleration delegation")
         return AccelResult()
     resolved_env = os.environ if env is None else env
     try:
@@ -338,10 +338,10 @@ def apply_smart_accel(*, hardware_family: str, gpu_count: int | None, model_path
             return AccelResult()
         result = collect_output(output)
         logger.info(
-            "wings-accel 已应用:+%d engine_config / +%d env / audit=%s",
+            "wings-accel applied: +%d engine_config / +%d env / audit=%s",
             len(result.engine_config), len(result.env), list(result.audit),
         )
         return result
     except Exception as exc:  # 加速委托失败不应打断主流程 → 降级为不加速
-        logger.warning("wings-accel 调用失败,降级为不加速:%s", exc)
+        logger.warning("wings-accel invocation failed; continuing without acceleration: %s", exc)
         return AccelResult()

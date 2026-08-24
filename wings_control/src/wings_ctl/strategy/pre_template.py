@@ -47,7 +47,7 @@ def pre_template_strategy(
     # 标准分布式:以 --distributed 为准;MASTER_IP 缺失则直接失败。
     if distributed:
         if not master_ip:
-            raise ValueError("分布式场景(--distributed)必填 MASTER_IP(env),当前缺失。")
+            raise ValueError("Distributed mode (--distributed) requires MASTER_IP in the environment")
         return engine, Topology.MULTI_NODE
 
     # 3) 默认单机。

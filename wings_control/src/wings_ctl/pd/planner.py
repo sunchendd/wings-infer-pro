@@ -31,19 +31,19 @@ def _validate_capacity(role_tp: int, local_dp: int, device_count: int | None) ->
         ValueError: 卡数缺失，或 ``role_tp * local_dp`` 与卡数不闭合。
     """
     if device_count is None:
-        raise ValueError("PD 场景必须显式提供 device_count，供本 Pod 卡组闭合校验。")
+        raise ValueError("PD requires an explicit device_count for current-Pod capacity validation")
     if isinstance(device_count, bool) or not isinstance(device_count, int) or device_count <= 0:
-        raise ValueError(f"PD device_count 必须是正整数，当前值为 {device_count!r}。")
+        raise ValueError(f"PD device_count must be a positive integer; got {device_count!r}")
     required = role_tp * local_dp
     if required > device_count:
         raise ValueError(
-            f"PD 本 Pod 卡数不足：role_tp={role_tp} * dp_size_local={local_dp} "
-            f"需要 {required} 卡，device_count={device_count}。"
+            f"Insufficient devices in current PD Pod: role_tp={role_tp} * dp_size_local={local_dp} "
+            f"requires {required}, device_count={device_count}"
         )
     if required < device_count:
         raise ValueError(
-            f"PD 本 Pod 必须满卡闭合：role_tp={role_tp} * dp_size_local={local_dp} "
-            f"仅使用 {required} 卡，device_count={device_count}。"
+            f"Current PD Pod must use all allocated devices: role_tp={role_tp} * dp_size_local={local_dp} "
+            f"uses only {required}, device_count={device_count}"
         )
 
 
@@ -60,11 +60,11 @@ def _validate_ordinary_device_count(device_count: int | None) -> int:
         ValueError: 卡数缺失、非正整数或不是 2 的幂。
     """
     if device_count is None:
-        raise ValueError("普通 PD 必须显式提供 device_count。")
+        raise ValueError("Ordinary PD requires an explicit device_count")
     if isinstance(device_count, bool) or not isinstance(device_count, int) or device_count <= 0:
-        raise ValueError(f"普通 PD device_count 必须是正整数，当前值为 {device_count!r}。")
+        raise ValueError(f"Ordinary PD device_count must be a positive integer; got {device_count!r}")
     if device_count & (device_count - 1):
-        raise ValueError(f"普通 PD device_count 必须是 2 的幂，当前值为 {device_count}。")
+        raise ValueError(f"Ordinary PD device_count must be a power of two; got {device_count}")
     return device_count
 
 
@@ -87,15 +87,15 @@ def _resolve_derived_1p1d(
         ValueError: 输入携带六字段、placement 非 singleton，或卡数不是正的 2 次幂。
     """
     if pd_input.explicit_topology is not None:
-        raise ValueError("derived_1p1d recipe 不接受 PD topology 六字段。")
+        raise ValueError("A derived_1p1d recipe does not accept the six PD topology fields")
     placement = pd_input.placement
     if placement.node_ips is None or len(placement.node_ips) != 1:
-        raise ValueError("derived_1p1d 每个 logical Instance 必须恰好一个 Pod。")
+        raise ValueError("Each derived_1p1d logical instance must contain exactly one Pod")
     runtime = pair[pd_input.role].runtime
     prefill = runtime.prefill_shape
     decode = runtime.decode_shape
     if prefill.dp_size != 1 or decode.dp_size != 1:
-        raise ValueError("derived_1p1d recipe 必须固定 P/D dp_size=1。")
+        raise ValueError("A derived_1p1d recipe must set P/D dp_size=1")
     role_tp = _validate_ordinary_device_count(device_count)
     derived_shape = ParallelShape(dp_size=1, tp_size=role_tp)
     return ResolvedPdTopology(
@@ -142,9 +142,9 @@ def _resolve_explicit_allocation(
     expected_global_dp = len(placement.node_ips) * explicit.dp_size_local
     if role_shape.dp_size != expected_global_dp:
         raise ValueError(
-            f"PD global DP closure 失败：role={pd_input.role.value} global_dp={role_shape.dp_size}，"
-            f"len(NODE_IPS)={len(placement.node_ips)} * DP_SIZE_LOCAL={explicit.dp_size_local} "
-            f"应为 {expected_global_dp}。"
+            f"PD global DP closure failed: role={pd_input.role.value} global_dp={role_shape.dp_size}, "
+            f"but len(NODE_IPS)={len(placement.node_ips)} * DP_SIZE_LOCAL={explicit.dp_size_local} "
+            f"requires {expected_global_dp}"
         )
     _validate_capacity(role_shape.tp_size, explicit.dp_size_local, device_count)
     rank_start = member_index * explicit.dp_size_local
@@ -185,10 +185,10 @@ def resolve_pd_topology(
         resolved = _resolve_derived_1p1d(pd_input, pair, device_count)
     elif runtime.topology_input_policy == PD_TOPOLOGY_EXPLICIT_ALLOCATION:
         if pd_input.explicit_topology is None:
-            raise ValueError("explicit_allocation recipe 必须提供完整 PD topology 六字段。")
+            raise ValueError("An explicit_allocation recipe requires all six PD topology fields")
         resolved = _resolve_explicit_allocation(pd_input, pd_input.explicit_topology, device_count)
     else:  # 固定 schema parser 已拦截；保留边界保护。
-        raise ValueError(f"未知 PD topology input policy：{runtime.topology_input_policy!r}。")
+        raise ValueError(f"Unknown PD topology input policy: {runtime.topology_input_policy!r}")
     logger.info(
         "PD topology resolved: role=%s instance=%d member=%d ranks=%d..%d",
         resolved.role.value,

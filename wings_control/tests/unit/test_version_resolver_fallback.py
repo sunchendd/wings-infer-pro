@@ -173,7 +173,7 @@ def test_require_exact_rejects_unmatched_engine_version(tmp_path, monkeypatch):
     monkeypatch.setenv("ENGINE_VERSION", "9.9.9")
     root = _make_engine_dirs(tmp_path, "vllm-ascend", ["v0.21.0rc"])
 
-    with pytest.raises(FileNotFoundError, match="目录名前缀"):
+    with pytest.raises(FileNotFoundError, match="configuration directory prefix"):
         resolve_engine_version(root, "ascend-a3", engine="vllm-ascend", require_exact=True)
 
 
@@ -194,7 +194,7 @@ def test_require_exact_does_not_add_v_prefix_to_release_version(tmp_path, monkey
     monkeypatch.setenv("ENGINE_VERSION", "0.23.0")
     root = _make_engine_dirs(tmp_path, "vllm-ascend", ["v0.23.0"])
 
-    with pytest.raises(FileNotFoundError, match="目录名前缀"):
+    with pytest.raises(FileNotFoundError, match="configuration directory prefix"):
         resolve_engine_version(root, "ascend-a3", engine="vllm-ascend", require_exact=True)
 
 

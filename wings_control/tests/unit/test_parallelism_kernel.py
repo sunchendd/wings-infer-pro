@@ -28,19 +28,19 @@ def test_dp_local_tp_one():
 
 def test_dp_local_raises_non_positive():
     """cnt≤0 → raise(须为正整数)。"""
-    with pytest.raises(ValueError, match="非法"):
+    with pytest.raises(ValueError, match="invalid"):
         dp_local_from_device_count(0, 4)
 
 
 def test_dp_local_raises_less_than_tp():
     """cnt<TP → raise(装不下一个 TP 组)。"""
-    with pytest.raises(ValueError, match="装不下"):
+    with pytest.raises(ValueError, match="insufficient devices"):
         dp_local_from_device_count(2, 4)
 
 
 def test_dp_local_raises_not_divisible():
     """cnt 非 TP 整数倍 → raise(不向下取整)。"""
-    with pytest.raises(ValueError, match="整数倍"):
+    with pytest.raises(ValueError, match="not divisible"):
         dp_local_from_device_count(10, 4)
 
 
@@ -78,19 +78,19 @@ def test_replica_shrink_tp():
 
 def test_replica_ge_tp_raises_not_divisible():
     """够卡但非整除:cnt=12,TP=8 → raise(不向下取整,R-D)。"""
-    with pytest.raises(ValueError, match="整数倍"):
+    with pytest.raises(ValueError, match="not divisible"):
         resolve_replica_tp_dp(12, 8)
 
 
 def test_replica_shrink_raises_non_power_of_two():
     """收缩但 cnt 非 2 的幂:cnt=6,TP=8 → raise(收缩守卫)。"""
-    with pytest.raises(ValueError, match="2 的幂"):
+    with pytest.raises(ValueError, match="power of two"):
         resolve_replica_tp_dp(6, 8)
 
 
 def test_replica_raises_non_positive():
     """cnt≤0 → raise。"""
-    with pytest.raises(ValueError, match="非法"):
+    with pytest.raises(ValueError, match="invalid"):
         resolve_replica_tp_dp(0, 8)
 
 
@@ -111,7 +111,7 @@ def test_capacity_pass():
 
 def test_capacity_raises_insufficient():
     """装不下:TP=4×80G=320G < 1.5×280G=420G → raise。"""
-    with pytest.raises(ValueError, match="容量不足"):
+    with pytest.raises(ValueError, match="Insufficient capacity"):
         check_capacity(4, 80 * 2**30, 280 * 2**30)
 
 

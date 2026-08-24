@@ -575,11 +575,11 @@ def _render_repro_sh(resolved: ResolvedConfig) -> str:
 
 _MULTI_NODE_BANNER = [
     "# ============================================================================",
-    "# MULTI-NODE — RUNTIME INJECTION PENDING (无运行时上下文 RANK_IP/NODE_IPS)",
-    "# 本脚本为【占位】:nodes[] 已加载并完成深合并,但未选定本 Pod / 未注入。",
-    "# 部署时由 wings-ctl 在各 Pod 携 RANK_IP/NODE_IPS/MASTER_IP 重跑,产可执行脚本。",
-    "# 下方每个节点的 argv/env 中 $占位符 为【字面未解析】值,仅供 review。",
-    "# ⚠️ 切勿直接执行本脚本。",
+    "# MULTI-NODE — RUNTIME INJECTION PENDING (RANK_IP/NODE_IPS are unavailable)",
+    "# This is a placeholder script: nodes are loaded and merged, but the current Pod is not selected.",
+    "# Rerun wings-ctl in each Pod with RANK_IP/NODE_IPS/MASTER_IP to generate an executable script.",
+    "# The argv/env values below contain literal unresolved placeholders and are for review only.",
+    "# Do not execute this script directly.",
     "# ============================================================================",
 ]
 
@@ -599,7 +599,7 @@ def _render_multi_node_placeholder(resolved: ResolvedConfig) -> str:
     lines = ["#!/usr/bin/env bash"]
     lines.extend(_MULTI_NODE_BANNER)
     lines.append("set -euo pipefail")
-    lines.append('echo "multi_node 占位脚本:未注入(缺 RANK_IP/NODE_IPS),请勿直接执行" >&2')
+    lines.append('echo "multi_node placeholder script: runtime injection is pending (missing RANK_IP/NODE_IPS); do not execute directly" >&2')
     lines.append("exit 3")
     lines.append("")
 
@@ -608,12 +608,12 @@ def _render_multi_node_placeholder(resolved: ResolvedConfig) -> str:
         lines.append(f"# ─── node[{i}] role={node.role}{idx} (source: {node.source_prefix}) ───")
         env_lines = _render_env_section(node.env_traces)
         if env_lines:
-            lines.append("#   env (未注入):")
+            lines.append("#   env (runtime injection pending):")
             lines.extend(f"#     {line}" for line in env_lines)
         setup_lines = _render_system_setup_comments(node.system_setup)
         lines.extend(f"# {line}" if line else "#" for line in setup_lines)
         argv = build_argv(node.engine_config_traces, engine=resolved.engine)
-        lines.append("#   argv (未注入,$占位符为字面值):")
+        lines.append("#   argv (runtime injection pending; placeholders are literal):")
         lines.append(f"#     {shlex.join(argv)}")
         lines.append("")
     return "\n".join(lines)
@@ -633,7 +633,7 @@ def _render_pd_process_plan(resolved: ResolvedConfig) -> str:
     """
     plan = resolved.process_plan
     if plan is None or not plan.processes:
-        raise ValueError("PD rendering 要求非空 process_plan。")
+        raise ValueError("PD rendering requires a non-empty process_plan")
     lines = ["#!/usr/bin/env bash", "set -euo pipefail", ""]
     if plan.lifecycle == "single":
         process = plan.processes[0]
@@ -644,7 +644,7 @@ def _render_pd_process_plan(resolved: ResolvedConfig) -> str:
         lines.append("")
         return "\n".join(lines)
     if plan.lifecycle != "fail_together":
-        raise ValueError(f"未知 PD lifecycle：{plan.lifecycle!r}。")
+        raise ValueError(f"Unknown PD lifecycle: {plan.lifecycle!r}")
 
     lines.extend(
         [

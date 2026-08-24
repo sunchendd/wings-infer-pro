@@ -464,8 +464,8 @@ def _from_head_worker(strategy: Dict[str, Any], strategy_prefix: str, pod_count:
         # 运行时集群规模与配方静态 nnodes 不一致时 fail-fast。
         # multi_node 不自动改写 nnodes,否则可能出现 node_rank 越界的静默错配。
         raise ValueError(
-            f"集群规模不一致:运行时 NODE_IPS 给出 {pod_count} 个 Pod,但 recipe nnodes={static_nnodes};"
-            "multi_node 不自动改写 nnodes,请确认下发的 NODE_IPS 数量与配方一致。"
+            f"Cluster size mismatch: runtime NODE_IPS contains {pod_count} Pods, but recipe nnodes={static_nnodes}; "
+            "multi_node does not rewrite nnodes automatically. Verify NODE_IPS and recipe size."
         )
     specs = [_make_node_spec(head, role="head", index=0, node_prefix=f"{strategy_prefix}.head")]
     for i in range(1, pod_count):
@@ -506,13 +506,16 @@ def normalize_nodes(strategy: Dict[str, Any], strategy_prefix: str, pod_count: i
     nodes_raw = strategy.get("nodes")
     if isinstance(nodes_raw, list):  # nodes[] 形态:逐项枚举(ascend 及大量 nvidia recipe)
         specs = _from_nodes_list(nodes_raw, strategy_prefix)
-        logger.info("multi_node 形态归一:nodes[] → %d 节点", len(specs))
+        logger.info("multi_node normalized nodes[] into %d nodes", len(specs))
         return specs
     if "head" in strategy or "worker" in strategy:  # head/worker 形态:复用展开(当前见于 nvidia)
         if "head" not in strategy:
-            raise ValueError(f"multi_node 形态含 'worker' 但缺 'head',无法确定主节点:strategy 键={sorted(strategy)}")
+            raise ValueError(
+                f"multi_node shape contains 'worker' but lacks 'head'; cannot determine the head node. "
+                f"Strategy keys: {sorted(strategy)}"
+            )
         specs = _from_head_worker(strategy, strategy_prefix, pod_count)
-        logger.info("multi_node 形态归一:head/worker → %d 节点", len(specs))
+        logger.info("multi_node normalized head/worker into %d nodes", len(specs))
         return specs
     return None  # 非多段形态 → 交调用方按单段处理
 
@@ -539,9 +542,9 @@ def _select_scenario(
     scenario = scenarios.get(scenario_key)
     if scenario is None:
         raise NotImplementedError(
-            f"该 recipe 无 '{topology.value}' 场景(scenarios.{topology.value} 缺失);"
-            f"本 recipe 可用场景: {list(scenarios.keys())}。"
-            "请确认 --distributed/PD 等拓扑选择与所选模型 recipe 匹配。"
+            f"This recipe does not define scenario '{topology.value}' (scenarios.{topology.value} is missing). "
+            f"Available scenarios: {list(scenarios.keys())}. "
+            "Verify that --distributed or PD topology selection matches the selected recipe."
         )
 
     # 旧格式: direct engine_config/env/system_setup
@@ -573,7 +576,7 @@ def _select_scenario(
             strategy_name = next(iter(strategies.keys()))
             selection_source = "fallback_first_no_default"
             logger.warning(
-                "scenarios.%s.strategies 无 default_strategy=true,按顺序取第一个策略 '%s'",
+                "scenarios.%s.strategies has no default_strategy=true; selecting first strategy '%s' by order",
                 scenario_key,
                 strategy_name,
             )
@@ -581,7 +584,7 @@ def _select_scenario(
             strategy_name = default_strategy_names[0]
             selection_source = "fallback_first_multiple_defaults"
             logger.warning(
-                "scenarios.%s.strategies 存在多个 default_strategy=true (%s),按顺序取第一个 default '%s' (官网数据异常)",
+                "scenarios.%s.strategies has multiple default_strategy=true values (%s); selecting first default '%s' by order",
                 scenario_key,
                 ",".join(default_strategy_names),
                 strategy_name,
@@ -1093,7 +1096,7 @@ def _resolve_multi_node(
         spec = node_specs[sel.index]
         if device_count is not None and detect_layout(spec.engine_config) == LAYOUT_TP_ACROSS:
             if hardware is None:
-                raise ValueError("TP 跨机收缩需要硬件上下文以执行显存校验")
+                raise ValueError("TP-across shrink requires hardware context for capacity validation")
             _preflight_shrink_gate(
                 spec.engine_config,
                 pod_count * device_count,
@@ -1159,7 +1162,7 @@ def _resolve_multi_node(
         if rendezvous_override:
             notes["multi_node_rendezvous_address"] = str(next(iter(rendezvous_override.values())))
         notes.update(dp_notes)
-        logger.info("multi_node 注入完成:role=%s index=%d pod_count=%d", sel.role, sel.index, pod_count)
+        logger.info("multi_node injection completed: role=%s index=%d pod_count=%d", sel.role, sel.index, pod_count)
         return ec_traces, env_traces, system_setup, None, notes
 
     # 占位路径:无运行时上下文时产全集群占位视图,不注入。
@@ -1205,7 +1208,7 @@ def _resolve_multi_node(
         "multi_node_injection_status": "pending_runtime_context",
     }
     logger.info(
-        "multi_node 占位加载(无运行时上下文):nodes=%d roles=%s",
+        "multi_node placeholder loaded without runtime context: nodes=%d roles=%s",
         len(resolved_nodes),
         notes["multi_node_roles"],
     )
@@ -1246,22 +1249,22 @@ def _preflight_shrink_gate(
     gpu_mem_gb = hardware.gpu_mem_gb
     if gpu_mem_gb is None:
         raise ValueError(
-            "TP 收缩(device-count<TP)需前置显存闸,但 hardware_family 无 _<N>G 显存后缀、"
-            "拿不到单卡显存(gpu_mem);请在 hardware_family 带上单卡显存,如 h20_96G。"
+            "TP shrink (device-count<TP) requires a capacity gate, but hardware_family has no _<N>G memory suffix; "
+            "single-device memory is unavailable. Include memory in hardware_family, for example h20_96G."
         )
     if not weights_path:
-        raise ValueError("无 --model-path:TP 收缩需读权重体积过显存闸。")
+        raise ValueError("TP shrink requires --model-path to read model weight size for the capacity gate")
     gpu_mem_bytes = int(gpu_mem_gb) * 2**30
     weight_bytes = resolve_weight_bytes(str(weights_path))
     check_capacity(device_count, gpu_mem_bytes, weight_bytes)  # tp_eff=cnt(收缩后)
     heads = read_num_attention_heads(str(weights_path))
     if heads is not None and heads % device_count != 0:
         raise ValueError(
-            f"num_attention_heads={heads} 不被 device-count={device_count} 整除:"
-            f"TP 收缩到 {device_count} 无法切分(收缩守卫);请调整卡数或用 direct_vllm_serve。"
+            f"num_attention_heads={heads} is not divisible by device-count={device_count}; "
+            f"TP cannot shrink to {device_count}. Adjust device count or use direct_vllm_serve."
         )
     logger.info(
-        "TP 收缩前置闸通过:cnt=%d gpu_mem=%dG weight_bytes=%d",
+        "TP shrink preflight gate passed: count=%d gpu_mem=%dG weight_bytes=%d",
         device_count,
         int(gpu_mem_gb),
         weight_bytes,
@@ -1606,12 +1609,12 @@ def _validate_pd_listener_conflicts(listeners: List[ListenerPlan]) -> None:
         if listener.port_start is None or listener.port_end is None:
             continue
         if not 1 <= listener.port_start <= listener.port_end <= 65535:
-            raise ValueError(f"PD listener {listener.name} 端口越界：{listener.port_start}..{listener.port_end}。")
+            raise ValueError(f"PD listener {listener.name} port range is invalid: {listener.port_start}..{listener.port_end}")
         for start, end, name in occupied:
             if listener.port_start <= end and start <= listener.port_end:
                 raise ValueError(
-                    f"PD listener 冲突：{name}={start}..{end} 与 "
-                    f"{listener.name}={listener.port_start}..{listener.port_end}。"
+                    f"PD listener conflict: {name}={start}..{end} overlaps "
+                    f"{listener.name}={listener.port_start}..{listener.port_end}"
                 )
         occupied.append((listener.port_start, listener.port_end, listener.name))
 
@@ -1649,22 +1652,22 @@ def _validate_pd_runtime_spec(runtime: PdRuntimeSpec, topology: ResolvedPdTopolo
     )
     for field, value, allowed in allowed_values:
         if value not in allowed:
-            raise ValueError(f"未知 PD {field}：{value!r}；允许值={sorted(allowed)}。")
+            raise ValueError(f"Unknown PD {field}: {value!r}; allowed values={sorted(allowed)}")
     if runtime.topology_input_policy != topology.input_policy:
         raise ValueError(
-            "PD runtime topology_input_policy 与 resolved topology 不一致："
-            f"runtime={runtime.topology_input_policy!r}，resolved={topology.input_policy!r}。"
+            "PD runtime topology_input_policy does not match resolved topology: "
+            f"runtime={runtime.topology_input_policy!r}, resolved={topology.input_policy!r}"
         )
     if runtime.connector_profile.kv_port_policy.base is None:
-        raise ValueError("PD kv_port_policy.mode=from_pd_index 时必须提供 base。")
+        raise ValueError("PD kv_port_policy.mode=from_pd_index requires base")
     if runtime.process_layout == PD_PROCESS_LAYOUT_SINGLE:
         if topology.dp_size_local != 1:
-            raise ValueError("single_process layout 只接受 dp_size_local=1。")
+            raise ValueError("single_process layout accepts only dp_size_local=1")
         if runtime.dp_launch_policy != PD_DP_LAUNCH_NONE:
-            raise ValueError("single_process layout 首期只接受 dp_launch_policy=none。")
+            raise ValueError("single_process layout accepts only dp_launch_policy=none")
         return 1
     if runtime.dp_launch_policy != PD_DP_LAUNCH_EXTERNAL_RANK:
-        raise ValueError("per_local_dp_rank 首期只支持 external_rank。")
+        raise ValueError("per_local_dp_rank supports only external_rank")
     return topology.dp_size_local
 
 
@@ -1676,9 +1679,9 @@ def _validate_pd_ambient_port(expected_ports: List[int]) -> None:
     try:
         ambient_port_value = int(ambient_port, 10)
     except ValueError as exc:
-        raise ValueError(f"PD ENGINE_PORT 必须是整数，当前值为 {ambient_port!r}。") from exc
+        raise ValueError(f"PD ENGINE_PORT must be an integer; got {ambient_port!r}") from exc
     if ambient_port_value not in expected_ports or len(expected_ports) != 1:
-        raise ValueError(f"PD ENGINE_PORT={ambient_port_value} 与 exact endpoint profile {expected_ports} 冲突。")
+        raise ValueError(f"PD ENGINE_PORT={ambient_port_value} conflicts with exact endpoint profile {expected_ports}")
 
 
 def _build_pd_process_overrides(
@@ -1944,7 +1947,7 @@ def _resolve_pd_config(
         "D": Topology.PD_DECODE,
     }[pd_input.role.value]
     if target.topology is not expected_topology:
-        raise ValueError(f"PD role/topology 不一致：role={pd_input.role.value}，topology={target.topology.value}。")
+        raise ValueError(f"PD role/topology mismatch: role={pd_input.role.value}, topology={target.topology.value}")
 
     # 首期 PD 的 rank、卡组和 connector identity 由 ProcessPlan 独占。禁止 accel 再次
     # 改写这些字段，也禁止 user_cli 绕过 trace ownership 覆盖 PD-owned 参数。
@@ -1953,12 +1956,12 @@ def _resolve_pd_config(
         name for name, value in accel_switches.items() if name.endswith("_enabled") and value is True
     )
     if enabled_accel:
-        raise ValueError(f"PD 首期不支持 wings-accel 开关：{enabled_accel}。")
+        raise ValueError(f"PD does not support wings-accel switches: {enabled_accel}")
 
     user_layer = user_input.cli_overrides or {}
     conflicts = sorted(_PD_OWNED_PARAMS.intersection(user_layer))
     if conflicts:
-        raise ValueError(f"PD-owned 参数不允许 user_cli 覆盖：{conflicts}。")
+        raise ValueError(f"PD-owned parameters cannot be overridden by user_cli: {conflicts}")
 
     # PD 必须命中受支持的 engine 配置目录前缀，并要求 exact model variant。recipe 是已验收的命令形状，
     # 不能像标准推理一样通过 latest 或模型 fallback 换成另一份拓扑配置。
@@ -2127,7 +2130,7 @@ def _resolve_pd_config(
         pd_topology=pd_topology,
     )
     if device_count is None:
-        raise ValueError("PD 场景必须显式提供 device_count。")
+        raise ValueError("PD requires an explicit device_count")
     resolved.process_plan = _build_pd_process_plan(resolved, role_recipe.runtime, device_count)
     # 顶层 trace 描述的是展开前的 role 公共配置，不对应任何一条完整命令。清空后可强制
     # 所有消费者读取 process_plan，避免误把 processes[0] 的 rank/端口当成整个 Pod 的配置。
@@ -2229,7 +2232,7 @@ def resolve_config(
     # topology 由大策略层(pre_template_strategy,cli 入口)推导后传入;此处纯消费。
     if topology in (Topology.PD_PREFILL, Topology.PD_DECODE):
         if pd_input is None:
-            raise ValueError(f"Topology '{topology.value}' 缺少规范化 pd_input。")
+            raise ValueError(f"Topology '{topology.value}' is missing normalized pd_input")
         return _resolve_pd_config(env, target, user_input, device_count, pd_input)
     if topology not in (Topology.STANDALONE, Topology.MULTI_NODE):
         raise NotImplementedError(f"Topology '{topology.value}' not implemented.")
@@ -2370,7 +2373,7 @@ def resolve_config(
     # ── 4. 按 topology / 是否命中 recipe 合并出 engine_config / env traces ──
     #      fallback(无 recipe)/ standalone 命中 / multi_node 逐节点,三条路径。
     if no_model_fallback:
-        logger.warning("无 model recipe,按平台基线兜底")
+        logger.warning("No model recipe matched; falling back to platform defaults")
         (
             engine_config_traces,
             env_traces,
@@ -2822,16 +2825,16 @@ def resolve_custom_config(
     # custom 支线:STANDALONE 与 MULTI_NODE 支持;PD(阶段0拍板 §3/§4 单独立项)不支持。
     if topology not in (Topology.STANDALONE, Topology.MULTI_NODE):
         raise NotImplementedError(
-            f"config-file 自定义传参方式暂不支持 topology '{topology.value}'"
-            "(仅 standalone / multi_node)"
+            f"config-file custom mode does not support topology '{topology.value}' "
+            "(only standalone / multi_node are supported)"
         )
     # multi_node custom 派生身份键强依赖运行时 placement(rank_ip/node_ips/master_ip)。
     if topology == Topology.MULTI_NODE and (
         placement is None or not placement.node_ips or not placement.rank_ip
     ):
         raise ValueError(
-            "config-file multi_node 需提供分布式运行时上下文(placement):"
-            "缺 NODE_IPS / RANK_IP / MASTER_IP 无法派生 per-node 身份参数"
+            "config-file multi_node requires distributed runtime placement: "
+            "NODE_IPS / RANK_IP / MASTER_IP are required to derive per-node identity parameters"
         )
 
     user_cli_overrides = user_input.cli_overrides or {}
@@ -2982,8 +2985,8 @@ def resolve_custom_config(
     #    → model/served_model_name);缺失时已无 recipe 可兜底,直接爆(对齐 build_argv 语义,早点报)。
     if resolve_model_traced(engine_config_traces) is None:
         raise ValueError(
-            "config-file 自定义传参方式下 model 缺失:需通过 --model-path 或 --model-name "
-            "(第 1 页 CLI)提供模型,config-file 的 params 不受 model/model_path 键"
+            "model is missing in config-file custom mode: provide it through --model-path or --model-name; "
+            "config-file params cannot supply model/model_path"
         )
 
     # 7. 审计条目:user_cli(applied+dropped,复用骨架)+ config_file(applied + 黑名单 dropped,

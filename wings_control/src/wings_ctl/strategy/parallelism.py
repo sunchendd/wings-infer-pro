@@ -29,17 +29,17 @@ def dp_local_from_device_count(device_count: int, tp: int) -> int:
     # 在此显式报错,避免 device_count % tp 抛出难以定位的 ZeroDivisionError。
     if tp <= 0:
         raise ValueError(
-            f"tensor_parallel_size={tp} 非法(recipe 的 TP 须为正整数);无法据此协调 device-count 的 DP"
+            f"tensor_parallel_size={tp} is invalid; recipe TP must be a positive integer"
         )
     if device_count <= 0:
-        raise ValueError(f"device-count={device_count} 非法(须为正整数)")
+        raise ValueError(f"device-count={device_count} is invalid; it must be a positive integer")
     if device_count < tp:
         raise ValueError(
-            f"device-count={device_count} < tensor_parallel_size={tp}:装不下一个 TP 组(cnt 须 ≥ TP)"
+            f"device-count={device_count} < tensor_parallel_size={tp}: insufficient devices for one TP group"
         )
     if device_count % tp != 0:
         raise ValueError(
-            f"device-count={device_count} 不是 tensor_parallel_size={tp} 的整数倍(不向下取整)"
+            f"device-count={device_count} is not divisible by tensor_parallel_size={tp}; rounding down is not supported"
         )
     return device_count // tp
 
@@ -90,15 +90,15 @@ def resolve_replica_tp_dp(device_count: int, tp: int) -> tuple[int, int]:
             ``<tp`` 但不是 2 的幂。
     """
     if device_count <= 0:
-        raise ValueError(f"device-count={device_count} 非法(须为正整数)")
+        raise ValueError(f"device-count={device_count} is invalid; it must be a positive integer")
     if device_count >= tp:
         # 够卡:TP 静态,DP=cnt//tp(复用公共核整除校验)
         return tp, dp_local_from_device_count(device_count, tp)
     # 少卡:收缩 TP 到 device_count。2 的幂守卫(纯函数,可在此)
     if not _is_power_of_two(device_count):
         raise ValueError(
-            f"device-count={device_count} < tensor_parallel_size={tp} 触发 TP 收缩,"
-            f"但 {device_count} 不是 2 的幂(收缩守卫);请调整卡数或用 direct_vllm_serve。"
+            f"device-count={device_count} < tensor_parallel_size={tp} triggers TP shrink, "
+            f"but {device_count} is not a power of two; adjust device count or use direct_vllm_serve."
         )
     return device_count, 1
 
@@ -129,7 +129,8 @@ def check_capacity(
     need = multiplier * weight_bytes
     if avail < need:
         raise ValueError(
-            f"容量不足:TP_有效={tp_eff} × gpu_mem={gpu_mem_bytes}B = {avail:.0f}B "
-            f"< {multiplier}×权重{weight_bytes}B = {need:.0f}B;这 {tp_eff} 张卡装不下一份模型。"
-            "请增卡 / 换硬件;或 direct_vllm_serve。"
+            f"Insufficient capacity: effective TP={tp_eff} × gpu_mem={gpu_mem_bytes}B = {avail:.0f}B "
+            f"< {multiplier} × weight_bytes={weight_bytes}B = {need:.0f}B; "
+            f"one model replica does not fit on {tp_eff} devices. "
+            "Add devices, use different hardware, or use direct_vllm_serve."
         )

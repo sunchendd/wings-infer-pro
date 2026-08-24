@@ -131,11 +131,11 @@ def resolve_family_dir(
     aliased = _ALIAS.get(card.casefold())
     if aliased:
         if aliased.casefold() in candidates:
-            logger.info("resolve_family_dir: '%s' 经别名 → %s", hardware_family, candidates[aliased.casefold()])
+            logger.info("resolve_family_dir: '%s' resolved by alias to %s", hardware_family, candidates[aliased.casefold()])
             return candidates[aliased.casefold()]
         # 别名命中但目标目录不存在 = _ALIAS 配错(填表时目录名写错);不静默,记 warn 再回落剥后缀。
         logger.warning(
-            "resolve_family_dir: 别名 '%s' → '%s' 但该目录在 engine='%s' 下不存在(_ALIAS 配置可能有误);回落剥后缀",
+            "resolve_family_dir: alias '%s' -> '%s' does not exist under engine='%s'; falling back to suffix removal",
             card.casefold(),
             aliased,
             engine,
@@ -146,9 +146,9 @@ def resolve_family_dir(
         return candidates[card.casefold()]
 
     raise FileNotFoundError(
-        f"hardware_family='{hardware_family}' 无配置资产"
-        f"(engine='{engine}';归一卡型='{card}';已试 精确/别名/剥后缀)。"
-        "请确认下发的 hardware_family 带正确显存后缀(如 h20_96G)、且该硬件 recipe 已下发。"
+        f"No configuration assets for hardware_family='{hardware_family}' "
+        f"(engine='{engine}', normalized card='{card}', tried exact/alias/suffix removal). "
+        "Verify the hardware_family memory suffix (for example h20_96G) and that the hardware recipe is available."
     )
 
 
@@ -261,10 +261,9 @@ def load_model_config(
     models_dir = build_models_dir(config_root, engine, hardware_family, version, has_version_dir)
     if not models_dir.is_dir():
         raise FileNotFoundError(
-            f"engine='{engine}' hardware_family='{hardware_family}' 下无配置资产"
-            f"(models 目录不存在: {models_dir})。"
-            "请检查 --hardware-info 里的 hardware_family 是否正确,"
-            "或确认该 engine + hardware 的 recipe 已下发。"
+            f"No configuration assets for engine='{engine}' hardware_family='{hardware_family}' "
+            f"(models directory does not exist: {models_dir}). "
+            "Verify hardware_family in --hardware-info and that the engine/hardware recipe is available."
         )
 
     # 两步匹配:① 精确 variant_name 优先;② name_pattern 模糊匹配作为回退。
@@ -333,19 +332,19 @@ def load_model_config(
     # ── ① 精确 variant_name 优先(确定性,无正则子串坑)──
     if len(exact_matches) == 1:
         data, yaml_file, vn = exact_matches[0]
-        logger.info("ConfigLoader: model '%s' 精确命中 variant_name in %s", model_name, yaml_file)
+        logger.info("ConfigLoader: model '%s' exactly matched variant_name in %s", model_name, yaml_file)
         return data, yaml_file, f"variant_name={vn}"
     if len(exact_matches) > 1:
         paths = ", ".join(str(p) for _, p, _ in exact_matches)
         raise ValueError(
-            f"variant_name 冲突:多个文件声明 variant_name='{model_name}': {paths}。请确保同目录 variant_name 唯一。"
+            f"variant_name conflict: multiple files declare variant_name='{model_name}': {paths}. Ensure variant_name is unique in the directory."
         )
 
     # ── ② name_pattern 模糊匹配回退 ──
     if exact_variant_only:
         raise FileNotFoundError(
-            f"PD exact model variant 未命中：model_name={model_name!r}，models_dir={models_dir}。"
-            "PD 不允许 name_pattern 或 default_model 回退。"
+            f"PD exact model variant did not match: model_name={model_name!r}, models_dir={models_dir}. "
+            "PD does not allow name_pattern or default_model fallback."
         )
     if len(pattern_matches) == 1:
         data, yaml_file, pattern = pattern_matches[0]
@@ -362,9 +361,9 @@ def load_model_config(
     else:
         paths = ", ".join(str(p) for _, p, _ in pattern_matches)
         raise ValueError(
-            f"Ambiguous: model_name='{model_name}' 命中多个变体(name_pattern 家族级)。"
-            "多变体请传【带 dtype 后缀的完整变体名】(= 各文件 model.variant_name),"
-            f"不要只传家族名。候选: {paths}"
+            f"Ambiguous: model_name='{model_name}' matched multiple family-level variants. "
+            "Provide the complete variant name including the dtype suffix (model.variant_name), "
+            f"not only the family name. Candidates: {paths}"
         )
 
 

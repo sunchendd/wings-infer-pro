@@ -338,7 +338,7 @@ def test_h_pd_raises(config_root, hardware_info_path, topology):
 
 def test_h_multinode_missing_placement_raises(config_root, hardware_info_path):
     """custom multi_node 缺运行时 placement(NODE_IPS/RANK_IP)→ ValueError 引导早爆。"""
-    with pytest.raises(ValueError, match="分布式运行时上下文"):
+    with pytest.raises(ValueError, match="distributed runtime placement"):
         _resolve(config_root, hardware_info_path, topology=Topology.MULTI_NODE)
 
 

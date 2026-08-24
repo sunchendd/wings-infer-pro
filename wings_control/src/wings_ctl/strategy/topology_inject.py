@@ -95,29 +95,29 @@ def select_node(
     """
     if len(node_ips) != node_count:
         raise ValueError(
-            f"NODE_IPS 长度({len(node_ips)})与 recipe nodes[] 条数({node_count})不一致:"
-            "集群规模须与配方一致"
+            f"NODE_IPS length ({len(node_ips)}) does not match recipe nodes[] length ({node_count}); "
+            "cluster size must match the recipe"
         )
     if rank_ip not in node_ips:
         raise ValueError(
-            f"RANK_IP={rank_ip} 不在 NODE_IPS={node_ips} 中:无法确定本 Pod 节点身份"
+            f"RANK_IP={rank_ip} is not in NODE_IPS={node_ips}; cannot determine the current Pod identity"
         )
     # 无 MASTER_IP 无法确定 head(node_specs[0] 恒为 head,须有对应 IP)。
     if master_ip is None:
         raise ValueError(
-            f"multi_node 缺 MASTER_IP:无法确定 head 节点(NODE_IPS={node_ips})"
+            f"multi_node is missing MASTER_IP; cannot determine the head node (NODE_IPS={node_ips})"
         )
     # master 必须是 NODE_IPS 首位,否则 index↔node_spec 映射失配(master Pod 会拿到 worker 配置)。
     if node_ips[0] != master_ip:
         raise ValueError(
-            f"MASTER_IP={master_ip} 必须为 NODE_IPS 首位(当前 NODE_IPS={node_ips});"
-            "否则 master Pod 会被映射到 worker 配置(node_rank≠0/headless),静默错配。"
-            "请确认 MaaS 下发的 NODE_IPS 以 master 打头。"
+            f"MASTER_IP={master_ip} must be the first NODE_IPS entry (NODE_IPS={node_ips}); "
+            "otherwise the master Pod could be mapped to worker configuration. "
+            "Ensure MaaS sends NODE_IPS with the master first."
         )
     index = node_ips.index(rank_ip)
     role = "head" if rank_ip == master_ip else "worker"  # 不变量下等价于 index == 0
     logger.info(
-        "multi_node 选节点:rank_ip=%s index=%d role=%s (node_ips=%s, master=%s)",
+        "multi_node selected node: rank_ip=%s index=%d role=%s (node_ips=%s, master=%s)",
         rank_ip, index, role, node_ips, master_ip,
     )
     return NodeSelection(index=index, role=role)
@@ -173,7 +173,7 @@ def coordinate_parallelism(
     tp, template_dp, pp = read_parallelism_values(template_engine_config, engine=engine)
     if pp > 1:
         raise ValueError(
-            f"pipeline_parallel_size={pp}>1:PP 暂不支持(tp_pp 策略不应被选中)"
+            f"pipeline_parallel_size={pp}>1: pipeline parallelism is not supported"
         )
     if device_count is None:
         # 未下发 device_count → 不协调;但 DP_across 仍要检查模板 DP 与集群规模是否一致,
@@ -183,14 +183,13 @@ def coordinate_parallelism(
             dp_local = template_engine_config.get("data_parallel_size_local")
             if dp is not None and dp_local and dp != pod_count * dp_local:
                 raise ValueError(
-                    f"DP 配置与集群规模不一致:data_parallel_size={dp} ≠ "
-                    f"pod_count({pod_count})×data_parallel_size_local({dp_local});"
-                    "未下发 --device-count 时不自动改 DP,请确认 NODE_IPS 数量与配方一致"
-                    "(或下发 --device-count 由策略层协调)。"
+                    f"DP configuration does not match cluster size: data_parallel_size={dp} != "
+                    f"pod_count({pod_count}) × data_parallel_size_local({dp_local}); "
+                    "without --device-count, DP is not adjusted automatically. Verify NODE_IPS and recipe size."
                 )
         return {}, {}
     if device_count <= 0:
-        raise ValueError(f"device-count={device_count} 非法(须为正整数)")
+        raise ValueError(f"device-count={device_count} is invalid; it must be a positive integer")
 
     world_size = pod_count * device_count
     layout = detect_layout(template_engine_config)
@@ -205,7 +204,7 @@ def coordinate_parallelism(
     if layout == LAYOUT_TP_ACROSS:
         # TP_across 先校验 world_size，再使用全部实际卡作为 TP；DP 始终沿用模板值。
         if world_size & (world_size - 1):
-            raise ValueError(f"world_size={world_size} 不是 2 的幂")
+            raise ValueError(f"world_size={world_size} is not a power of two")
 
         tpl_dp = template_dp
         resolved_tp = world_size
@@ -216,13 +215,13 @@ def coordinate_parallelism(
         })
         if resolved_tp != tp:
             logger.warning(
-                "multi_node 下发参数与模板不一致(TP 跨):模板 TP=%d,DP=%d;"
-                "下发 world_size=%d,将 TP 调整为%d,DP 保持%d",
+                "multi_node runtime values differ from the TP-across template: template TP=%d, DP=%d; "
+                "world_size=%d, setting TP=%d while keeping DP=%d",
                 tp, tpl_dp, world_size, resolved_tp, tpl_dp,
             )
             return build_parallelism_override(engine=engine, tp=resolved_tp), notes
         logger.info(
-            "multi_node 协调(TP 跨):TP=%d(=world_size),DP 保持%d,world_size=%d",
+            "multi_node coordination (TP-across): TP=%d (=world_size), keeping DP=%d, world_size=%d",
             resolved_tp, tpl_dp, world_size,
         )
         return {}, notes
@@ -241,11 +240,11 @@ def coordinate_parallelism(
     tpl_sr = template_engine_config.get("data_parallel_start_rank") or 0
     if dp == tpl_dp and dp_local == tpl_local and start_rank == tpl_sr:
         notes["multinode_dp_status"] = "noop"
-        logger.info("multi_node 协调(DP 跨):DP=%d dp_local=%d start_rank=%d(=模板)", dp, dp_local, start_rank)
+        logger.info("multi_node coordination (DP-across): DP=%d dp_local=%d start_rank=%d (matches template)", dp, dp_local, start_rank)
         return {}, notes
     notes["multinode_dp_status"] = "overridden"
     logger.info(
-        "multi_node 协调(DP 跨):DP=%d dp_local=%d start_rank=%d(index=%d,pod_count=%d,cnt=%d,TP=%d)",
+        "multi_node coordination (DP-across): DP=%d dp_local=%d start_rank=%d (index=%d, pod_count=%d, count=%d, TP=%d)",
         dp, dp_local, start_rank, index, pod_count, device_count, tp,
     )
     return (
