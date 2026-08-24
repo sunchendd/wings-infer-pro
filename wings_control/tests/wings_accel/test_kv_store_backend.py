@@ -35,7 +35,7 @@ def mooncake_block():
                         '"master_server_address": "{master_ip}:50088", '
                         '"global_segment_size": "{= memory_capacity_gb // gpu_count}GB"}'},
             {"path": "start_kv_serve.sh", "mode": "0755", "scope": "master",
-             "content": "mooncake_master --port 50088\n"},
+             "content": "/usr/local/bin/mooncake_master --port 50088\n"},
         ],
     }]
 
@@ -144,7 +144,7 @@ def test_client_scope_file_routes_to_pre_serve_client(monkeypatch, tmp_path):
         "files": [
             # 必须含 start_kv_serve.sh 才能走 backend 路径(daemon 判定);否则落三选一
             {"path": "start_kv_serve.sh", "mode": "0755", "scope": "master",
-             "content": "mooncake_master --port 50088\n"},
+             "content": "/usr/local/bin/mooncake_master --port 50088\n"},
             {"path": "worker_only.conf", "scope": "client",
              "content": "local_hostname = {rank_ip}\nmaster = {master_ip}\n"},
             {"path": "shared.conf", "scope": "all", "content": "ip = {rank_ip}\n"},

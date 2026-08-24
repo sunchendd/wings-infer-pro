@@ -802,7 +802,7 @@ smart_accel:
                 mode: "0755"
                 content: |
                   #!/usr/bin/env bash
-                  mooncake_master --port 50088 \
+                  /usr/local/bin/mooncake_master --port 50088 \
                       --eviction_high_watermark_ratio 0.9 \
                       --eviction_ratio 0.1 \
                       --default_kv_lease_ttl 11000
