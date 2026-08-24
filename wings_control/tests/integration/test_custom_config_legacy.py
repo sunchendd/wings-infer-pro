@@ -21,6 +21,7 @@ import os
 from wings_ctl.core.config_resolver import resolve_custom_config
 from wings_ctl.core.models import (
     CustomConfigFile,
+    EngineVersion,
     ResolvedEnv,
     Target,
     UserInput,
@@ -55,6 +56,18 @@ def _env(config_root, hardware_info_path, *, engine: str = "vllm") -> ResolvedEn
     os.environ["ENGINE_VERSION"] = "0.19.0"
     try:
         hardware = resolve_hardware(hardware_info_path)
+        if engine == "sglang":
+            engine_version = EngineVersion(
+                requested="v0.5.10",
+                resolved="v0.5.10",
+                is_fallback=False,
+                has_version_dir=True,
+            )
+            return ResolvedEnv(
+                config_root=config_root,
+                hardware=hardware,
+                engine_version=engine_version,
+            )
         engine_version = resolve_engine_version(
             config_root, hardware.hardware_family, engine=engine
         )
@@ -283,13 +296,18 @@ def test_k_custom_no_accel_no_hardware_lookup(config_root, hardware_info_path):
     )
 
 
-def test_k1_custom_accel_enabled_raises_on_missing_asset(
-    config_root, hardware_info_path, monkeypatch
+def test_k1_custom_sglang_accel_is_dropped(
+    config_root, hardware_info_path, monkeypatch, caplog
 ):
-    """开启加速特性且硬件资产缺失 → raise(与配置传参路径一致,缺资产 fail-fast)。"""
+    """SGLang custom 路径也应忽略 accel 开关，不定位 accel 资产。"""
     monkeypatch.setenv("ENABLE_SPECULATIVE_DECODE", "true")
-    # sglang 无 nvidia-RTX5880 资产 → 开启 accel 后定位失败应 raise,而非静默降级。
-    import pytest
 
-    with pytest.raises(FileNotFoundError):
-        _resolve(config_root, hardware_info_path, engine="sglang", device_count=2)
+    resolved = _resolve(config_root, hardware_info_path, engine="sglang", device_count=2)
+
+    assert resolved.accel.enabled is False
+    assert resolved.resolution_notes["accel_policy"] == "drop_warn"
+    assert (
+        resolved.resolution_notes["accel_dropped_switches"]
+        == "ENABLE_SPECULATIVE_DECODE"
+    )
+    assert "ignored switches: ENABLE_SPECULATIVE_DECODE" in caplog.text

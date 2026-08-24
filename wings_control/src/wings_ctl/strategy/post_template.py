@@ -15,6 +15,10 @@ import logging
 from typing import Any, Callable
 
 from wings_ctl.engines.extension import get_engine_extension
+from wings_ctl.engines.delivery_contract import (
+    build_parallelism_override,
+    read_parallelism_values,
+)
 from wings_ctl.strategy.parallelism import resolve_replica_tp_dp
 
 logger = logging.getLogger(__name__)
@@ -57,8 +61,8 @@ def device_count_transform(engine_config: dict, ctx: dict[str, Any]) -> tuple[di
     if device_count is None:
         return {}, {}
 
-    tp = engine_config.get("tensor_parallel_size", 1)
-    template_dp = engine_config.get("data_parallel_size", 1)
+    engine = ctx.get("engine", "vllm")
+    tp, template_dp, _ = read_parallelism_values(engine_config, engine=engine)
 
     # 单机:cnt>=TP 算 DP;cnt<TP 收缩 TP。
     tp_eff, resolved_dp = resolve_replica_tp_dp(device_count, tp)
@@ -73,14 +77,14 @@ def device_count_transform(engine_config: dict, ctx: dict[str, Any]) -> tuple[di
         notes["device_count_tp_eff"] = str(tp_eff)
         notes["device_count_status"] = "tp_shrunk"
         logger.info("device-count=%d < TP=%d:收缩 TP→%d、DP=1", device_count, tp, tp_eff)
-        return {"tensor_parallel_size": tp_eff, "data_parallel_size": resolved_dp}, notes
+        return build_parallelism_override(engine=engine, tp=tp_eff, dp=resolved_dp), notes
 
     if resolved_dp == template_dp:
         notes["device_count_status"] = "noop_equals_template"
         return {}, notes
 
     notes["device_count_status"] = "overridden"
-    return {"data_parallel_size": resolved_dp}, notes
+    return build_parallelism_override(engine=engine, dp=resolved_dp), notes
 
 
 # 通用 argv 引擎的固定策略链。特殊引擎可以通过 extension 替换整条链，避免

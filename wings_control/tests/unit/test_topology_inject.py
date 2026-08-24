@@ -7,6 +7,7 @@ import pytest
 from wings_ctl.strategy.topology_inject import (
     LAYOUT_DP_ACROSS,
     LAYOUT_TP_ACROSS,
+    build_rendezvous_address_override,
     coordinate_parallelism,
     detect_layout,
     select_node,
@@ -251,6 +252,51 @@ def test_coord_a_consistent_no_device_count_is_noop():
 
 def test_substitute_literal_ascend_and_nvidia_tokens():
     """验证 $local_ip→RANK_IP、$node0_ip/$HEAD_IP→MASTER_IP 字面替换;仅变更键进 override。"""
-    ec = {"data_parallel_address": "$HEAD_IP", "addr2": "$node0_ip", "host": "0.0.0.0"}
+    ec = {"data_parallel_address": "${HEAD_IP}:5000", "addr2": "$node0_ip", "host": "0.0.0.0"}
     override = substitute_literal_placeholders(ec, rank_ip="10.0.0.2", master_ip="10.0.0.1")
-    assert override == {"data_parallel_address": "10.0.0.1", "addr2": "10.0.0.1"}
+    assert override == {"data_parallel_address": "10.0.0.1:5000", "addr2": "10.0.0.1"}
+
+
+def test_sglang_rendezvous_uses_runtime_master_ip_and_recipe_port():
+    """SGLang 多机必须忽略 recipe host，仅沿用其 rendezvous 端口。"""
+    override = build_rendezvous_address_override(
+        {"dist_init_addr": "192.168.1.100:28030"},
+        engine="sglang",
+        master_ip="10.0.0.1",
+    )
+    assert override == {"dist_init_addr": "10.0.0.1:28030"}
+
+
+@pytest.mark.parametrize(
+    "recipe_value",
+    [None, "", "host", "host:abc", "host:0", "host:65536"],
+)
+def test_sglang_rendezvous_requires_valid_recipe_port(recipe_value):
+    """SGLang 多机 recipe 必须给出合法 host:port，以避免静默选择错误端口。"""
+    with pytest.raises(ValueError, match="dist_init_addr"):
+        build_rendezvous_address_override(
+            {"dist_init_addr": recipe_value},
+            engine="sglang",
+            master_ip="10.0.0.1",
+        )
+
+
+def test_vllm_has_no_rendezvous_override_contract():
+    assert build_rendezvous_address_override(
+        {"dist_init_addr": "192.168.1.100:28030"},
+        engine="vllm",
+        master_ip="10.0.0.1",
+    ) == {}
+
+
+def test_sglang_two_node_tp_across_uses_native_tp_key():
+    override, notes = coordinate_parallelism(
+        {"model": "m", "tp_size": 32, "node_rank": 0},
+        engine="sglang",
+        device_count=8,
+        pod_count=2,
+        index=0,
+    )
+
+    assert override == {"tp_size": 16}
+    assert notes["multinode_dp_resolved_dp"] == "1"

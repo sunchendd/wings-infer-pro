@@ -160,6 +160,25 @@ def collect_accel_switches(env: dict) -> dict[str, Any]:
     }
 
 
+def active_accel_switch_names(env: dict) -> list[str]:
+    """返回当前生效的 accel 开关名，用于引擎能力门控日志。"""
+    switches = collect_accel_switches(env)
+    names: list[str] = []
+    if switches["speculative_enabled"]:
+        names.append("ENABLE_SPECULATIVE_DECODE")
+    if switches["sparse_enabled"]:
+        names.append("ENABLE_SPARSE")
+    if _as_bool(env, "ENABLE_KV_OFFLOAD"):
+        names.append("ENABLE_KV_OFFLOAD")
+    if switches["kv_mem_enabled"]:
+        names.append("ENABLE_KV_MEM_OFFLOAD")
+    if switches["kv_disk_enabled"]:
+        names.append("ENABLE_KV_DISK_OFFLOAD")
+    if switches["kv_qat_enabled"]:
+        names.append("ENABLE_KV_QAT")
+    return names
+
+
 def build_smart_input(mod, *, hardware_family: str, gpu_count: int | None, model_path: str | None,
                       model_name: str | None, engine: str, engine_version: str | None,
                       switches: dict):
@@ -260,6 +279,7 @@ def apply_smart_accel(*, hardware_family: str, gpu_count: int | None, model_path
                       config_root: str = "", pd_role: str | None = None,
                       topology: str | None = None,
                       tp_size: int = 0, dp_size: int = 0,
+                      enabled: bool = True,
                       env: dict | None = None) -> AccelResult:
     """委托 wings-accel 生成加速产出;模块缺失/异常 → 空 :class:`AccelResult`(不打断启动)。
 
@@ -269,6 +289,8 @@ def apply_smart_accel(*, hardware_family: str, gpu_count: int | None, model_path
     tp_size/dp_size 由调用方从 model recipe 的 scenarios.engine_config 透传,供 KV 内存
     auto 估算 worker_count;smart-accel YAML 常无 scenarios 字段,故需上游注入。0 = 未下发。
     """
+    if not enabled:
+        return AccelResult()
     mod = _import_accel()
     if mod is None:
         logger.debug("wings-accel 模块未合入,智能加速委托跳过(no-op)")

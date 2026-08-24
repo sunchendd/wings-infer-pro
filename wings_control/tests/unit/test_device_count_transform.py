@@ -87,3 +87,13 @@ def test_default_tp_one_when_absent() -> None:
     override, notes = device_count_transform({"model": "m"}, {"device_count": 8})
     assert override == {"data_parallel_size": 8}
     assert notes["device_count_tp"] == "1"
+
+
+def test_sglang_native_parallelism_keys_follow_device_count():
+    override, notes = device_count_transform(
+        {"model": "m", "tp_size": 16},
+        {"device_count": 32, "engine": "sglang"},
+    )
+
+    assert override == {"dp_size": 2}
+    assert notes["device_count_status"] == "overridden"

@@ -21,7 +21,12 @@ import os
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 from wings_ctl import __version__ as WINGS_CTL_VERSION
-from wings_ctl.accel.smart_accel import AccelResult, apply_smart_accel, collect_accel_switches
+from wings_ctl.accel.smart_accel import (
+    AccelResult,
+    active_accel_switch_names,
+    apply_smart_accel,
+    collect_accel_switches,
+)
 from wings_ctl.core.constants import DEFAULT_ENGINE_PORT
 from wings_ctl.core.models import (
     ClusterPlacement,
@@ -58,6 +63,16 @@ from wings_ctl.core.models import (
     UserInput,
 )
 from wings_ctl.core.topology import Topology
+from wings_ctl.engines.delivery_contract import (
+    has_engine_delivery_contract,
+    read_parallelism_values,
+    should_drop_accel,
+    validate_final_parallelism,
+    validate_placement,
+    validate_resolved_version,
+    validate_recipe_node_count,
+    validate_topology,
+)
 from wings_ctl.engines.vllm_adapter import resolve_model_traced
 from wings_ctl.engines.version_resolver import _parse_version_tuple
 from wings_ctl.engines.vllm_adapter import build_argv
@@ -89,10 +104,12 @@ from wings_ctl.strategy.post_merge import apply_network_env_strategy, apply_post
 
 from wings_ctl.strategy.topology_inject import (
     LAYOUT_TP_ACROSS,
+    build_rendezvous_address_override,
     coordinate_parallelism,
     detect_layout,
     select_node,
     substitute_literal_placeholders,
+    validate_recipe_rendezvous_address,
 )
 from wings_ctl.weight.reader import read_num_attention_heads, resolve_weight_bytes
 
@@ -613,6 +630,7 @@ def _peek_recipe_parallelism(
     model_data: Dict[str, Any] | None,
     topology: Topology,
     *,
+    engine: str = "vllm",
     rank_ip: str | None = None,
     node_ips: List[str] | None = None,
     master_ip: str | None = None,
@@ -668,13 +686,11 @@ def _peek_recipe_parallelism(
     if not isinstance(ec, dict):
         return 0, 0
 
-    def _to_int(v: Any) -> int:
-        try:
-            return int(v)
-        except (TypeError, ValueError):
-            return 0
-
-    return _to_int(ec.get("tensor_parallel_size")), _to_int(ec.get("data_parallel_size"))
+    try:
+        tp, dp, _ = read_parallelism_values(ec, engine=engine, default=0)
+    except ValueError:
+        return 0, 0
+    return tp, dp
 
 
 def _pick_default_strategy(strategies: Dict[str, Any]) -> Dict[str, Any] | None:
@@ -978,6 +994,7 @@ def _resolve_multi_node(
     weights_path: Any = None,
     strategy_env_layer: dict | None = None,
     strategy_feature_inject_overrides: dict | None = None,
+    engine: str = "vllm",
 ) -> tuple[
     Dict[str, TracedValue],
     Dict[str, TracedValue],
@@ -1021,6 +1038,7 @@ def _resolve_multi_node(
     """
     model_path_str = str(model_path)
     pod_count = len(node_specs)
+    validate_recipe_node_count(engine, "multi_node", pod_count)
 
     # extra_layers 直接用 MergeLayer 表达 multi_node 注入层(名/数据/来源文件/来源路径前缀),
     # 避免位置字段顺序不清;这些层插在 model_scenario 后、user_cli 前。加一个多机 merge layer = 追加一个 MergeLayer。
@@ -1081,15 +1099,24 @@ def _resolve_multi_node(
                 pod_count * device_count,
                 hardware,
                 weights_path,
+                engine,
             )
         dp_override, dp_notes = coordinate_parallelism(
             spec.engine_config,
+            engine=engine,
             device_count=device_count,
             pod_count=pod_count,
             index=sel.index,
         )
-        # 字面占位替换($local_ip/$node0_ip → 真实 IP),单独记一层 trace。
+        # 字面占位替换($local_ip/$node0_ip → 真实 IP)，并以运行时 master IP
+        # 重建引擎契约声明的 rendezvous 地址，单独记一层 trace。
         ec_inject = substitute_literal_placeholders(spec.engine_config, rank_ip=rank_ip, master_ip=master_ip)
+        rendezvous_override = build_rendezvous_address_override(
+            spec.engine_config,
+            engine=engine,
+            master_ip=master_ip,
+        )
+        ec_inject.update(rendezvous_override)
         env_inject = substitute_literal_placeholders(spec.env, rank_ip=rank_ip, master_ip=master_ip)
         ec_traces = _ec_traces(
             spec,
@@ -1129,6 +1156,8 @@ def _resolve_multi_node(
             "multi_node_node_ips": ",".join(node_ips),
             "multi_node_injection_status": "injected",
         }
+        if rendezvous_override:
+            notes["multi_node_rendezvous_address"] = str(next(iter(rendezvous_override.values())))
         notes.update(dp_notes)
         logger.info("multi_node 注入完成:role=%s index=%d pod_count=%d", sel.role, sel.index, pod_count)
         return ec_traces, env_traces, system_setup, None, notes
@@ -1136,6 +1165,7 @@ def _resolve_multi_node(
     # 占位路径:无运行时上下文时产全集群占位视图,不注入。
     resolved_nodes: List[ResolvedNode] = []
     for spec in node_specs:
+        validate_recipe_rendezvous_address(spec.engine_config, engine=engine)
         extra_layers = [
             MergeLayer(
                 "strategy_feature",
@@ -1187,6 +1217,7 @@ def _preflight_shrink_gate(
     device_count: int | None,
     hardware: HardwareContext,
     weights_path: Any,
+    engine: str = "vllm",
 ) -> None:
     """TP 收缩的前置校验:仅当 ``cnt < 模板 TP`` 时触发。
 
@@ -1208,7 +1239,7 @@ def _preflight_shrink_gate(
     """
     if device_count is None:
         return
-    tp = scenario_engine_config.get("tensor_parallel_size", 1)
+    tp, _, _ = read_parallelism_values(scenario_engine_config, engine=engine)
     if device_count >= tp:
         return  # 不收缩时不触发前置闸
     # 单卡显存唯一来自 hardware_family 的 _<N>G 后缀(resolve_hardware 已解析进 gpu_mem_gb)。
@@ -1332,11 +1363,11 @@ def _merge_engine_config_traces(
 
 def _resolve_platform_fallback(
     *,
+    engine: str,
     platform_data: Dict[str, Any],
     platform_path: Any,
     platform_env: dict,
     topology: Topology,
-    engine: str,
     model_name: str,
     user_layer: dict,
     feature_overrides: dict,
@@ -1411,6 +1442,7 @@ def _resolve_platform_fallback(
         return (
             *_resolve_multi_node(
                 fallback_node_specs,
+                engine=engine,
                 model_path=platform_path,
                 user_layer=user_layer,
                 feature_overrides=feature_overrides,
@@ -1445,7 +1477,7 @@ def _resolve_platform_fallback(
     # 只有实际采用公共 TP/DP transform 的 argv 引擎才执行权重/显存预检。
     # MindIE 的 device_count 表示本地设备规模，由其 extension 自己校验和计算。
     if requires_parallelism_preflight(engine):
-        _preflight_shrink_gate(scenario_engine_config, device_count, hardware, weights_path)
+        _preflight_shrink_gate(scenario_engine_config, device_count, hardware, weights_path, engine)
     strategy_overrides, strategy_notes = post_template_strategy(
         scenario_engine_config,
         {"device_count": device_count, "topology": topology, "engine": engine},
@@ -2104,6 +2136,28 @@ def _resolve_pd_config(
     return resolved
 
 
+def _resolve_accel_policy(
+    engine: str,
+    environ: Any,
+) -> tuple[bool, dict[str, str]]:
+    """按引擎交付契约决定是否丢弃 accel 开关，并生成审计摘要。"""
+    drop_accel = should_drop_accel(engine)
+    notes: dict[str, str] = {}
+    if not drop_accel:
+        return False, notes
+
+    notes["accel_policy"] = "drop_warn"
+    switch_names = active_accel_switch_names(environ)
+    if switch_names:
+        notes["accel_dropped_switches"] = ",".join(switch_names)
+        logger.warning(
+            "engine=%s does not support Wings Accel; ignored switches: %s",
+            engine,
+            ",".join(switch_names),
+        )
+    return True, notes
+
+
 def resolve_config(
     env: ResolvedEnv,
     target: Target,
@@ -2160,6 +2214,17 @@ def resolve_config(
     rank_ip = _placement.rank_ip
     node_ips = _placement.node_ips
     master_ip = _placement.master_ip
+
+    delivery_active = has_engine_delivery_contract(engine)
+    validate_resolved_version(engine, engine_version.requested, engine_version.resolved)
+    validate_topology(engine, topology.value)
+    validate_placement(
+        engine,
+        topology.value,
+        node_ips,
+        rank_ip=rank_ip,
+        master_ip=master_ip,
+    )
 
     # topology 由大策略层(pre_template_strategy,cli 入口)推导后传入;此处纯消费。
     if topology in (Topology.PD_PREFILL, Topology.PD_DECODE):
@@ -2248,6 +2313,8 @@ def resolve_config(
     user_cli_audit_entries = _build_user_cli_audit_entries(user_layer, user_cli_dropped)
     platform_env = platform_data.get("platform_env", {})
 
+    drop_accel, accel_notes = _resolve_accel_policy(engine, os.environ)
+
     # wings-accel(智能加速)委托:按开关取加速产出(结构化 engine_config / env / scheme)。
     # 在 trace_merge **之前**计算,把 accel.engine_config 作为 strategy_accel 合并层并入引擎参数,
     # 层序为 recipe < accel < user_cli。
@@ -2260,11 +2327,13 @@ def resolve_config(
     # - 无运行时 IP 上下文(占位加载)退化取 head;recipe 缺失/字段缺失 → 0(accel 内部兜底 1)。
     recipe_tp, recipe_dp = _peek_recipe_parallelism(
         model_data, topology,
+        engine=engine,
         rank_ip=rank_ip, node_ips=node_ips, master_ip=master_ip,
     )
     accel = apply_smart_accel(
         hardware_family=resolved_family_dir,
         gpu_count=device_count,
+        enabled=not drop_accel,
         model_path=None,
         model_name=model_name,
         engine=engine,
@@ -2310,11 +2379,11 @@ def resolve_config(
             strategy_notes,
             matched_pattern,
         ) = _resolve_platform_fallback(
+            engine=engine,
             platform_data=platform_data,
             platform_path=platform_path,
             platform_env=platform_env,
             topology=topology,
-            engine=engine,
             model_name=model_name,
             user_layer=user_layer,
             feature_overrides=feature_overrides,
@@ -2342,6 +2411,7 @@ def resolve_config(
             # multi_node:逐节点深合并 + 选 node/注入(详见 _resolve_multi_node)。
             engine_config_traces, env_traces, system_setup, nodes, strategy_notes = _resolve_multi_node(
                 node_specs,
+                engine=engine,
                 model_path=model_path,
                 user_layer=user_layer,
                 feature_overrides=feature_overrides,
@@ -2360,7 +2430,7 @@ def resolve_config(
         else:
             scenario_engine_config = scenario["engine_config"]
             if requires_parallelism_preflight(engine):
-                _preflight_shrink_gate(scenario_engine_config, device_count, hardware, weights_path)
+                _preflight_shrink_gate(scenario_engine_config, device_count, hardware, weights_path, engine)
             strategy_overrides, strategy_notes = post_template_strategy(
                 scenario_engine_config,
                 {"device_count": device_count, "topology": topology, "engine": engine},
@@ -2441,6 +2511,34 @@ def resolve_config(
         post_merge_notes.update(result.notes)
         post_merge_notes.update(network_env_notes)
 
+    expected_multi_node_tp = None
+    if topology == Topology.MULTI_NODE and device_count is not None and node_ips:
+        expected_multi_node_tp = len(node_ips) * device_count
+    expected_rendezvous_address = strategy_notes.get("multi_node_rendezvous_address")
+
+    if delivery_active:
+        if nodes:
+            for node in nodes:
+                validate_final_parallelism(
+                    engine,
+                    topology.value,
+                    node.engine_config_traces,
+                    expected_node_index=node.index,
+                )
+        else:
+            expected_node_index = (
+                int(strategy_notes["multi_node_index"])
+                if "multi_node_index" in strategy_notes
+                else None
+            )
+            validate_final_parallelism(
+                engine,
+                topology.value,
+                engine_config_traces,
+                expected_node_index=expected_node_index,
+                expected_tp=expected_multi_node_tp,
+                expected_rendezvous_address=expected_rendezvous_address,
+            )
     # ── 5. 组装结果:source_files + resolution_notes(查找/合并轨迹)+ ResolvedConfig ──
     # 仅将实际存在的文件加入 source_files
     source_files: List[str] = []
@@ -2498,6 +2596,7 @@ def resolve_config(
     resolution_notes.update(post_merge_notes)
     resolution_notes.update(feature_notes)  # 特性附加/跳过摘要(feature_overlay)
     resolution_notes.update(feature_inject_notes)  # SmartQoS/EnableTrace/Metrics 注入摘要
+    resolution_notes.update(accel_notes)
     resolution_notes["min_engine_version"] = min_engine_check["min_engine_version"]
     resolution_notes["engine_version_for_min_check"] = min_engine_check["engine_version_for_min_check"]
     resolution_notes["engine_version_for_min_check_source"] = min_check_version_source
@@ -2688,8 +2787,7 @@ def resolve_custom_config(
     < config_file < user_cli``(user_cli 含 model/served_model_name/host/port,§阶段0拍板 §1/§5)。
     env 层序:``strategy_feature_env < strategy_accel_env < config_file_env``。
 
-    本阶段(阶段 1)仅 standalone;multi_node / PD 明确降级出本次范围
-    (阶段0拍板 §3/§4:multi_node 为阶段 2,PD 单独立项)。
+    当前支持 standalone 和 multi_node；PD 拓扑仍不在 custom-config 范围内。
 
     Args:
         env: 已解析环境(config_root / hardware / engine_version)。
@@ -2697,18 +2795,29 @@ def resolve_custom_config(
         config_file: 已加载并校验的 config-file(params + env)。
         user_input: 用户 CLI 意图(含 user_cli 覆盖层——custom 对第 1/2 页 CLI 复用,
             保证 model/served_model_name 落入最高层)。
-        device_count: 下发卡数(仅记录到 notes;standalone 无并行协调语义)。
-        placement: 分布式集群寻址(本阶段 standalone 恒 None)。
+        device_count: 下发到当前 Pod 的卡数；multi_node 用于派生运行时并行参数。
+        placement: multi_node 分布式集群寻址；standalone 可不提供。
 
     Returns:
         ResolvedConfig(含 config_file 审计;渲染/审计/validator 可直接复用)。
 
     Raises:
-        NotImplementedError: topology 非 STANDALONE(custom 仅支持 standalone)。
+        NotImplementedError: topology 不是 STANDALONE 或 MULTI_NODE。
         ValueError: config-file 未提供 model(经 CLI 第 1 页)时,缺 model 直接报错。
     """
     engine = target.engine
     topology = target.topology
+
+    validate_resolved_version(engine, env.engine_version.requested, env.engine_version.resolved)
+    validate_topology(engine, topology.value)
+    _placement = placement or ClusterPlacement()
+    validate_placement(
+        engine,
+        topology.value,
+        list(_placement.node_ips or []) or None,
+        rank_ip=_placement.rank_ip,
+        master_ip=_placement.master_ip,
+    )
 
     # custom 支线:STANDALONE 与 MULTI_NODE 支持;PD(阶段0拍板 §3/§4 单独立项)不支持。
     if topology not in (Topology.STANDALONE, Topology.MULTI_NODE):
@@ -2728,7 +2837,6 @@ def resolve_custom_config(
     user_cli_overrides = user_input.cli_overrides or {}
     user_cli_dropped = user_input.cli_dropped
     feature_switches = user_input.feature_switches
-    _placement = placement or ClusterPlacement()
 
     # 1. config-file params:_to_snake + 引擎 canonical 别名归并 + 黑名单过滤(§4.1/§4.4.1,
     #    静默弃用记审计)。别名归并保证用户写简写/双长名(tp/dp/n/r/tp-size/nccl_init_addr)
@@ -2790,7 +2898,8 @@ def resolve_custom_config(
     accel_env: Dict[str, str] = {}
     accel = AccelResult()
     accel_switches = collect_accel_switches(os.environ)
-    accel_enabled = any(
+    drop_accel, accel_notes = _resolve_accel_policy(engine, os.environ)
+    accel_enabled = not drop_accel and any(
         v is True for k, v in accel_switches.items() if k.endswith("_enabled")
     )
     if accel_enabled:
@@ -2902,6 +3011,7 @@ def resolve_custom_config(
         "wings_ctl_version": WINGS_CTL_VERSION,
     }
     resolution_notes.update(feature_inject_notes)
+    resolution_notes.update(accel_notes)
     resolution_notes.update(mn_notes)
     resolution_notes.update(network_env_notes)
 
@@ -2914,6 +3024,27 @@ def resolve_custom_config(
             commands=mn_system_commands,
             source_file="<strategy:multinode_custom>",
             source_path="strategy.multinode_custom",
+        )
+
+    if has_engine_delivery_contract(engine):
+        expected_node_index = (
+            int(mn_notes["multi_node_index"])
+            if "multi_node_index" in mn_notes
+            else None
+        )
+        expected_multi_node_tp = None
+        expected_rendezvous_address = None
+        if topology == Topology.MULTI_NODE:
+            if device_count is not None and _placement.node_ips:
+                expected_multi_node_tp = len(_placement.node_ips) * device_count
+            expected_rendezvous_address = mn_engine_config.get("dist_init_addr")
+        validate_final_parallelism(
+            engine,
+            topology.value,
+            engine_config_traces,
+            expected_node_index=expected_node_index,
+            expected_tp=expected_multi_node_tp,
+            expected_rendezvous_address=expected_rendezvous_address,
         )
 
     return ResolvedConfig(
