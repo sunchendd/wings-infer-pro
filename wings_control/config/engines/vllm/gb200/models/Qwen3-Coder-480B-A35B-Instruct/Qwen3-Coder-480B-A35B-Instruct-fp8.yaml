@@ -110,7 +110,7 @@ scenarios:
           engine_config:
             model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
             enable_expert_parallel: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 0
@@ -122,7 +122,7 @@ scenarios:
           engine_config:
             model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
             enable_expert_parallel: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 1
@@ -138,7 +138,7 @@ scenarios:
         head:  # Head Node 节点配置
           engine_config:
             model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 0
@@ -149,7 +149,7 @@ scenarios:
         worker:  # Node 1 节点配置
           engine_config:
             model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 1

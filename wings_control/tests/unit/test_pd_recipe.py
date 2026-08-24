@@ -178,6 +178,16 @@ def test_select_pd_recipe_pair_rejects_rpc_placeholder() -> None:
         select_pd_recipe_pair(model, "explicit_allocation")
 
 
+def test_select_pd_recipe_pair_rejects_quoted_numeric_rpc_port() -> None:
+    """验证 YAML 中带引号的数字不是可执行的整数端口。"""
+    model = _model()
+    nodes = model["scenarios"]["pd_disaggregation"]["strategies"]["pd_cluster"]["nodes"]
+    nodes[0]["engine_config"]["data_parallel_rpc_port"] = "12321"
+
+    with pytest.raises(ValueError, match=r"实际端口.*'12321'"):
+        select_pd_recipe_pair(model, "explicit_allocation")
+
+
 def test_select_pd_recipe_pair_rejects_wrong_input_policy() -> None:
     """验证非 1P1D recipe 必须使用 MaaS 六字段显式 allocation。"""
     with pytest.raises(ValueError, match="explicit_allocation"):

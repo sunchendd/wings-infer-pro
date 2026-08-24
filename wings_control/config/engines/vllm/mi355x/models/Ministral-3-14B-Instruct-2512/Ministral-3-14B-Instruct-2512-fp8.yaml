@@ -81,7 +81,7 @@ scenarios:
             model: mistralai/Ministral-3-14B-Instruct-2512-FP8
             tokenizer_mode: mistral
             kv_cache_dtype: fp8
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 0
@@ -97,7 +97,7 @@ scenarios:
             model: mistralai/Ministral-3-14B-Instruct-2512-FP8
             tokenizer_mode: mistral
             kv_cache_dtype: fp8
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 1

@@ -72,7 +72,7 @@ scenarios:
           engine_config:
             model: nvidia/Llama-3.3-70B-Instruct-FP8
             kv_cache_dtype: fp8
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 0
@@ -92,7 +92,7 @@ scenarios:
           engine_config:
             model: nvidia/Llama-3.3-70B-Instruct-FP8
             kv_cache_dtype: fp8
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 1

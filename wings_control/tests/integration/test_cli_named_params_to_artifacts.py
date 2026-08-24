@@ -33,7 +33,7 @@ def test_named_params_translate_to_argv_and_audit(config_root_real, tmp_path):
     }
     translated, dropped = CLITranslator.translate_overrides(raw_overrides, "vllm-ascend")
 
-    os.environ["ENGINE_VERSION"] = "0.18.0"
+    os.environ["ENGINE_VERSION"] = "v0.18.0"
     try:
         out_dir = tmp_path / "named_params"
         resolved, _, _, audit_path = run_pipeline(

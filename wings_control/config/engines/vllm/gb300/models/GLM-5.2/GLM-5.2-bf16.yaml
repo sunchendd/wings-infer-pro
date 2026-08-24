@@ -89,7 +89,7 @@ scenarios:
             model: zai-org/GLM-5.2
             kv_cache_dtype: fp8_e4m3
             enable_expert_parallel: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 0
@@ -102,7 +102,7 @@ scenarios:
             model: zai-org/GLM-5.2
             kv_cache_dtype: fp8_e4m3
             enable_expert_parallel: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 1
@@ -119,7 +119,7 @@ scenarios:
           engine_config:
             model: zai-org/GLM-5.2
             kv_cache_dtype: fp8_e4m3
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 0
@@ -131,7 +131,7 @@ scenarios:
           engine_config:
             model: zai-org/GLM-5.2
             kv_cache_dtype: fp8_e4m3
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 1

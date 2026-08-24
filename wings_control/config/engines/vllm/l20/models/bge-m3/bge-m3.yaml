@@ -50,6 +50,8 @@ scenarios:
           trust_remote_code: true
           host: 0.0.0.0
           port: 17000
+          max_model_len: 2048
           tensor_parallel_size: 1
+          enforce_eager: true
           runner: pooling
         env: {}

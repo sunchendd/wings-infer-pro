@@ -43,13 +43,33 @@ features:
     args: [--reasoning-parser, glm45]
   kv_offloading:
     description: KV cache native offloading to reduce GPU memory usage
-    args: [--kv-offloading-backend, native, --kv-offloading-size, 200]
+    args: [--kv-offloading-backend, native, --kv-offloading-size, "200"]
   spec_decoding:
     description: Multi-Token Prediction speculative decoding (3 draft tokens)
-    args: [--speculative-config.method, mtp, --speculative-config.num_speculative_tokens, 3]
+    args: [--speculative-config.method, mtp, --speculative-config.num_speculative_tokens, "3"]
+  sparse_index:
+    description: Sparse attention index cache configuration via HF overrides
+    args: [--hf-overrides, "{\"use_index_cache\": true, \"index_topk_freq\": 4}"]
 
 # 部署场景
 scenarios:
+  standalone:
+    source_ref: "glm_5_fp8_manual#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: zai-org/GLM-5
+          trust_remote_code: true
+          chat_template_content_format: string
+          cc.pass_config.fuse_allreduce_rms: false
+          tensor_parallel_size: 16
+        env: {}
   multi_node:
     source_ref: "glm_5_fp8_manual#multi_node_tp"
     match:
@@ -65,7 +85,7 @@ scenarios:
             model: zai-org/GLM-5-FP8
             trust_remote_code: true
             chat_template_content_format: string
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 0
@@ -78,7 +98,7 @@ scenarios:
             model: zai-org/GLM-5-FP8
             trust_remote_code: true
             chat_template_content_format: string
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 1

@@ -19,7 +19,7 @@ def test_resolution_notes_normal(config_root_real, tmp_path):
         encoding="utf-8",
     )
 
-    os.environ["ENGINE_VERSION"] = "0.18.0"
+    os.environ["ENGINE_VERSION"] = "v0.18.0"
     try:
         out_dir = tmp_path / "normal"
         _, _, _, audit_path = run_pipeline(
@@ -81,7 +81,7 @@ def test_resolution_notes_fallback(config_root_real, tmp_path):
             config_root_real, "ascend-a3", engine="vllm-ascend"
         ).resolved
         assert notes["resolved_version"] == latest_version
-        assert notes["resolved_version_dir"].endswith(f"v{latest_version}")
+        assert notes["resolved_version_dir"].endswith(latest_version)
     finally:
         os.environ.pop("ENGINE_VERSION", None)
 
@@ -92,7 +92,7 @@ def test_load_model_config_returns_pattern(config_root_real):
         config_root=config_root_real,
         hardware_family="ascend-a3",
         engine="vllm-ascend",
-        version="0.18.0",
+        version="v0.18.0",
         model_name="DeepSeek-V4-Flash",
     )
     assert isinstance(pattern, str)
@@ -112,7 +112,7 @@ def test_no_match_fallback_success_with_warn_and_flag(config_root_real, tmp_path
         encoding="utf-8",
     )
 
-    os.environ["ENGINE_VERSION"] = "0.18.0"
+    os.environ["ENGINE_VERSION"] = "v0.18.0"
     try:
         hardware = resolve_hardware(hardware_info_path)
         engine_version = resolve_engine_version(

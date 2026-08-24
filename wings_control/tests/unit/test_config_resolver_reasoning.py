@@ -123,7 +123,7 @@ def test_model_yaml_reasoning_takes_precedence(monkeypatch) -> None:
     monkeypatch.setattr(config_resolver, "load_reasoning_table", lambda _: loaded)
     monkeypatch.setattr(config_resolver, "resolve_reasoning", fail_resolve)
 
-    features, result, source = config_resolver._prepare_feature_context(
+    features, result, source, _ = config_resolver._prepare_feature_context(
         Path("/config"),
         "Qwen3",
         "vllm",
@@ -157,7 +157,7 @@ def test_public_table_is_used_when_model_yaml_has_no_reasoning(monkeypatch) -> N
     monkeypatch.setattr(config_resolver, "load_reasoning_table", lambda _: loaded)
     monkeypatch.setattr(config_resolver, "resolve_reasoning", lambda *args, **kwargs: resolution)
 
-    features, result, source = config_resolver._prepare_feature_context(
+    features, result, source, _ = config_resolver._prepare_feature_context(
         Path("/config"),
         "Qwen3",
         "vllm",
@@ -176,7 +176,7 @@ def test_reasoning_feature_is_not_loaded_when_switch_is_disabled(monkeypatch) ->
         raise AssertionError("public reasoning table must not be loaded")
 
     monkeypatch.setattr(config_resolver, "load_reasoning_table", fail_load)
-    features, result, source = config_resolver._prepare_feature_context(
+    features, result, source, _ = config_resolver._prepare_feature_context(
         Path("/config"),
         "Qwen3",
         "vllm",

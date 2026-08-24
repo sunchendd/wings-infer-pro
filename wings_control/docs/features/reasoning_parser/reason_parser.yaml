@@ -99,7 +99,9 @@ architectures:
       GLM-5-FP8:    {vllm: glm45, vllm_ascend: glm45}
       GLM-5-w4a8:   {vllm: glm45, vllm_ascend: glm45}
       GLM-5.1:      {vllm: glm45, vllm_ascend: glm45}
+      GLM-5.1-w4a8: {vllm: glm45, vllm_ascend: glm45}
       GLM-5.1-w8a8: {vllm: glm45, vllm_ascend: glm45}
+      GLM-5.1-w8a8c8: {vllm: glm45, vllm_ascend: glm45}
       GLM-5.1-FP8:  {vllm: glm45, vllm_ascend: glm45}
       GLM-5.2:      {vllm: glm45, vllm_ascend: glm45}
       GLM-5.2-w8a8: {vllm: glm45, vllm_ascend: glm45}
@@ -216,6 +218,7 @@ architectures:
       Intern-S2-Preview-fp8: {vllm: qwen3, vllm_ascend: qwen3}
       Kimi-K2-Thinking-int4: {vllm: kimi_k2, vllm_ascend: kimi_k2}
       Kimi-K2-Thinking-nvfp4: {vllm: kimi_k2, vllm_ascend: kimi_k2}
+      Kimi-K3-w4a8: {vllm: kimi_k3, vllm_ascend: kimi_k3}
       Laguna-M.1: {vllm: poolside_v1, vllm_ascend: poolside_v1}
       Laguna-M.1-fp8: {vllm: poolside_v1, vllm_ascend: poolside_v1}
       Laguna-M.1-nvfp4: {vllm: poolside_v1, vllm_ascend: poolside_v1}

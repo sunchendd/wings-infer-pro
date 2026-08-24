@@ -1,0 +1,149 @@
+upstream_sources:
+  - id: vllm_ascend_kimi_k3_w4a8_manual
+    kind: manual
+    repo: null
+    file: null
+    url: null
+    note: 用户提供 vLLM Ascend 多节点启动命令，手工录入。
+
+model:
+  name: Kimi-K3
+  provider: moonshotai
+  model_id: moonshotai/Kimi-K3-w4a8
+  min_engine_version: kimi-k3-a3
+  match:
+    - name_pattern: "(?i)kimi[-.]?k3"
+  variant_name: Kimi-K3-w4a8
+
+hardware_profile:
+  gpu_count: 16
+  vram_gb: 1024
+  multi_node: true
+
+features:
+  tool_calling:
+    description: Enable Kimi K3 automatic tool calling.
+    args: [--enable-auto-tool-choice, --tool-call-parser, kimi_k3]
+  reasoning:
+    description: Enable Kimi K3 reasoning parser.
+    args: [--reasoning-parser, kimi_k3]
+
+scenarios:
+  multi_node:
+    source_ref: "vllm_ascend_kimi_k3_w4a8_manual#multi_node"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        display_name: Multi-Node
+        default_strategy: true
+        head:
+          engine_config:
+            model: /data/Kimi-K3-w4a8
+            served_model_name: kimi-k3
+            port: 18000
+            allowed_local_media_path: /
+            trust_remote_code: true
+            tensor_parallel_size: 16
+            data_parallel_size: 4
+            data_parallel_size_local: 1
+            data_parallel_address: $LOCAL_IP
+            data_parallel_rpc_port: 27777
+            enable_prefix_caching: true
+            enable_expert_parallel: true
+            max_num_seqs: 16
+            max_model_len: 131027
+            max_num_batched_tokens: 4096
+            gpu_memory_utilization: 0.9
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+            profiler_config:
+              profiler: torch
+              torch_profiler_dir: ./vllm_profile
+              torch_profiler_with_stack: false
+            mm_processor_cache_gb: 0
+            additional_config:
+              enable_cpu_binding: true
+              enable_flashcomm1: true
+              enable_mc2_hierarchy_comm: true
+            mm_encoder_tp_mode: data
+            limit_mm_per_prompt:
+              vision_chunk: 40
+            kv_offloading_size: 200
+            kv_offloading_backend: native
+            kv_transfer_config:
+              kv_connector_extra_config:
+                lazy_offload: false
+          env:
+            HCCL_IF_IP: $LOCAL_IP
+            GLOO_SOCKET_IFNAME: $NIC_NAME
+            TP_SOCKET_IFNAME: $NIC_NAME
+            HCCL_SOCKET_IFNAME: enp196
+            VLLM_ENGINE_READY_TIMEOUT_S: 7200
+            VLLM_WORKER_MULTIPROC_METHOD: spawn
+            VLLM_USE_SIMPLE_KV_OFFLOAD: 1
+            PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+            OMP_PROC_BIND: "false"
+            OMP_NUM_THREADS: 1
+            TASK_QUEUE_ENABLE: 1
+            HCCL_BUFFSIZE: 800
+            HCCL_INTER_HCCS_DISABLE: "true"
+            HCCL_INTRA_ROCE_ENABLE: 1
+            VLLM_ASCEND_ENABLE_FUSED_MC2: 0
+            HCCL_LOGIC_SUPERPOD_ID: 0
+        worker:
+          engine_config:
+            model: /data/Kimi-K3-w4a8
+            headless: true
+            served_model_name: kimi-k3
+            port: $PORT
+            allowed_local_media_path: /
+            trust_remote_code: true
+            tensor_parallel_size: 16
+            data_parallel_size: 4
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 3
+            data_parallel_address: $NODE0_IP
+            data_parallel_rpc_port: 27777
+            enable_prefix_caching: true
+            enable_expert_parallel: true
+            max_num_seqs: 16
+            max_model_len: 131027
+            max_num_batched_tokens: 4096
+            gpu_memory_utilization: 0.9
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+            profiler_config:
+              profiler: torch
+              torch_profiler_dir: ./vllm_profile
+              torch_profiler_with_stack: false
+            mm_processor_cache_gb: 0
+            additional_config:
+              enable_cpu_binding: true
+              enable_flashcomm1: true
+              enable_mc2_hierarchy_comm: true
+            mm_encoder_tp_mode: data
+            limit_mm_per_prompt:
+              vision_chunk: 40
+            kv_offloading_size: 200
+            kv_offloading_backend: native
+            kv_transfer_config:
+              kv_connector_extra_config:
+                lazy_offload: false
+          env:
+            HCCL_IF_IP: $LOCAL_IP
+            GLOO_SOCKET_IFNAME: $NIC_NAME
+            TP_SOCKET_IFNAME: $NIC_NAME
+            HCCL_SOCKET_IFNAME: enp196
+            VLLM_WORKER_MULTIPROC_METHOD: spawn
+            VLLM_USE_SIMPLE_KV_OFFLOAD: 1
+            PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+            OMP_PROC_BIND: "false"
+            OMP_NUM_THREADS: 1
+            TASK_QUEUE_ENABLE: 1
+            HCCL_BUFFSIZE: 800
+            HCCL_INTER_HCCS_DISABLE: "true"
+            HCCL_INTRA_ROCE_ENABLE: 1
+            VLLM_ASCEND_ENABLE_FUSED_MC2: 0
+            HCCL_LOGIC_SUPERPOD_ID: 3

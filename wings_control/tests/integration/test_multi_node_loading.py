@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from wings_ctl.core.config_resolver import resolve_config
+from wings_ctl.core.config_resolver import _resolve_multi_node, normalize_nodes, resolve_config
 from wings_ctl.core.models import PipelineRequest, ResolvedEnv, Target, UserInput
 from wings_ctl.core.topology import Topology
 from wings_ctl.engines.version_resolver import resolve_engine_version
@@ -23,7 +23,7 @@ from wings_ctl.pipeline import run_pipeline
 _HW = {"hardware_family": "ascend-a2", "device": "ascend", "count": 16}
 _MODEL = "GLM-4.5"
 _ENGINE = "vllm-ascend"
-_ENGINE_VERSION = "0.18.0"
+_ENGINE_VERSION = "v0.18.0"
 
 
 def _hw(tmp_path: Path) -> Path:
@@ -45,6 +45,42 @@ def _run_placeholder(config_root_real: Path, tmp_path: Path, monkeypatch):
         ),
         output_dir=tmp_path / "out",
     )
+
+
+def _node_specs_with_rpc_port(rpc_port: object):
+    strategy = {
+        "head": {
+            "engine_config": {"model": "demo/model", "data_parallel_rpc_port": rpc_port},
+            "env": {},
+        },
+        "worker": {
+            "engine_config": {"model": "demo/model", "data_parallel_rpc_port": rpc_port},
+            "env": {},
+        },
+    }
+    node_specs = normalize_nodes(strategy, "scenarios.multi_node.strategies.test", pod_count=2)
+    assert node_specs is not None
+    return node_specs
+
+
+
+
+def test_multi_node_accepts_numeric_data_parallel_rpc_port() -> None:
+    _, _, _, nodes, _ = _resolve_multi_node(
+        _node_specs_with_rpc_port(12321),
+        model_path="<test-model>",
+        user_layer={},
+        feature_overrides={},
+        feature_trace_sources={},
+        accel_overrides={},
+        accel_env={},
+        device_count=None,
+        rank_ip=None,
+        node_ips=None,
+        master_ip=None,
+    )
+
+    assert nodes is not None
 
 
 def test_placeholder_per_node_deep_merge_and_literal_placeholders(config_root_real, tmp_path, monkeypatch):

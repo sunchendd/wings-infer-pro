@@ -118,8 +118,12 @@ def feature_overlay_transform(engine_config: dict, ctx: dict[str, Any]) -> Featu
 
         parsed = parse_feature_args(args)
         override.update(parsed)
-        source_file = str(ctx.get("reasoning_source_file") or "<strategy:feature>") if feature_key == "reasoning" else "<strategy:feature>"
-        source_prefix = str(ctx.get("reasoning_source_path") or "strategy.feature.reasoning") if feature_key == "reasoning" else "strategy.feature"
+        source_file = (
+            str(ctx.get("reasoning_source_file") or "<strategy:feature>")
+            if feature_key == "reasoning"
+            else str(ctx.get("tool_calling_source_file") or "<strategy:feature>")
+        )
+        source_prefix = str(ctx.get("reasoning_source_path") or "strategy.feature.reasoning") if feature_key == "reasoning" else "features.tool_calling.args"
         for key in parsed:
             trace_path = (
                 source_prefix

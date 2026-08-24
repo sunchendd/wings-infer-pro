@@ -122,7 +122,7 @@ scenarios:
             trust_remote_code: true
             tokenizer_mode: auto
             enable_expert_parallel: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 0
@@ -136,7 +136,7 @@ scenarios:
             trust_remote_code: true
             tokenizer_mode: auto
             enable_expert_parallel: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 1
@@ -154,7 +154,7 @@ scenarios:
             model: moonshotai/Kimi-K2-Instruct
             trust_remote_code: true
             tokenizer_mode: auto
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 0
@@ -167,7 +167,7 @@ scenarios:
             model: moonshotai/Kimi-K2-Instruct
             trust_remote_code: true
             tokenizer_mode: auto
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 1

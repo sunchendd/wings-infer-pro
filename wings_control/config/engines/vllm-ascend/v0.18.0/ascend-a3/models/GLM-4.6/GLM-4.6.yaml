@@ -88,7 +88,7 @@ scenarios:
               data_parallel_size: $3
               data_parallel_rank: $4
               data_parallel_address: $5
-              data_parallel_rpc_port: $6
+              data_parallel_rpc_port: 12321
               tensor_parallel_size: $7
               enable_expert_parallel: true
               seed: 1024
@@ -148,7 +148,7 @@ scenarios:
               data_parallel_size: $3
               data_parallel_rank: $4
               data_parallel_address: $5
-              data_parallel_rpc_port: $6
+              data_parallel_rpc_port: 12321
               tensor_parallel_size: $7
               enable_expert_parallel: true
               seed: 1024
@@ -208,7 +208,7 @@ scenarios:
               data_parallel_size: $3
               data_parallel_rank: $4
               data_parallel_address: $5
-              data_parallel_rpc_port: $6
+              data_parallel_rpc_port: 12322
               tensor_parallel_size: $7
               enable_expert_parallel: true
               seed: 1024
@@ -274,7 +274,7 @@ scenarios:
               data_parallel_size: $3
               data_parallel_rank: $4
               data_parallel_address: $5
-              data_parallel_rpc_port: $6
+              data_parallel_rpc_port: 12322
               tensor_parallel_size: $7
               enable_expert_parallel: true
               seed: 1024

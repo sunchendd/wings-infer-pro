@@ -46,6 +46,17 @@ _ALIAS: Dict[str, str] = {
 }
 
 
+def resolve_version_dir(engine_root: Path, version: str) -> Path:
+    """返回版本配置目录，兼容 ``vX.Y.Z`` 与自定义目录名。
+
+    传统语义化版本使用 ``v{version}`` 目录；其他版本字符串作为自定义版本
+    目录名直接使用。
+    """
+    if re.fullmatch(r"v?\d+\.\d+\.\d+(?:[A-Za-z]+\d*)?", version):
+        return engine_root / f"v{version.lstrip('v')}"
+    return engine_root / version
+
+
 def resolve_family_dir(
     config_root: Path,
     engine: str,
@@ -84,7 +95,7 @@ def resolve_family_dir(
     # 列出该 engine[/version] 下所有含 models/ 的硬件目录,按 casefold 建"归一名→真实名"索引:
     # 匹配大小写无关,命中后回填磁盘真实目录名(config 变体目录用大写 G,不能只比小写)。
     base = config_root / "engines" / engine
-    parent = base / f"v{version.lstrip('v')}" if has_version_dir else base
+    parent = resolve_version_dir(base, version) if has_version_dir else base
     candidates: Dict[str, str] = {}
     if parent.is_dir():
         for child in sorted(parent.iterdir()):
@@ -151,17 +162,17 @@ def build_models_dir(
     """拼接 models 目录路径 —— 全仓唯一的"目录布局规则"来源。
 
     布局:
-    - 有版本层(has_version_dir=True): engines/{engine}/v{version}/{hardware_family}/models
+    - 有版本层(has_version_dir=True): engines/{engine}/{version_dir}/{hardware_family}/models
     - 无版本层(has_version_dir=False): engines/{engine}/{hardware_family}/models
 
-    版本层有无由上游目录自判决定(目录名像不像 vX.Y.Z),不由引擎名决定;
+    版本层有无由上游版本解析决定，不由引擎名决定;
     无版本层引擎(如 vllm)的 version 参数不参与拼接。
 
     Args:
         config_root: 配置根目录,内含 engines/ 子树。
         engine: 引擎名(如 "vllm" / "vllm-ascend")。
         hardware_family: 硬件族标识(如 "h200")。
-        version: 引擎版本字符串;仅 has_version_dir=True 时用于拼 v{version} 层。
+        version: 引擎版本字符串;仅 has_version_dir=True 时用于拼版本目录层。
         has_version_dir: 是否含版本层目录(上游 version_resolver 目录自判产出)。
 
     Returns:
@@ -169,7 +180,7 @@ def build_models_dir(
     """
     base = config_root / "engines" / engine
     if has_version_dir:
-        return base / f"v{version.lstrip('v')}" / hardware_family / "models"
+        return resolve_version_dir(base, version) / hardware_family / "models"
     return base / hardware_family / "models"
 
 
@@ -355,3 +366,75 @@ def load_model_config(
             "多变体请传【带 dtype 后缀的完整变体名】(= 各文件 model.variant_name),"
             f"不要只传家族名。候选: {paths}"
         )
+
+
+def find_tool_calling_config(
+    config_root: Path,
+    engine: str,
+    model_name: str,
+    fallback_engines: Optional[List[str]] = None,
+    canonical_model_name: Optional[str] = None,
+) -> Tuple[Optional[Dict[str, Any]], Optional[Path]]:
+    """扫描目标引擎 YAML，查找同模型的 tool-calling 配置。"""
+    engines = [engine]
+    if fallback_engines:
+        engines.extend(fallback_engines)
+    if any(item not in {"vllm", "vllm-ascend"} for item in engines):
+        return None, None
+
+    for scan_engine in engines:
+        engine_dir = config_root / "engines" / scan_engine
+        if not engine_dir.is_dir():
+            continue
+
+        model_dirs: List[Path] = []
+        if canonical_model_name:
+            for models_dir in engine_dir.glob("**/models"):
+                candidate = models_dir / canonical_model_name
+                if candidate.is_dir():
+                    model_dirs.append(candidate)
+
+        yaml_files = (
+            sorted(yaml_file for model_dir in model_dirs for yaml_file in model_dir.glob("*.yaml"))
+            if model_dirs
+            else sorted(engine_dir.rglob("*.yaml"))
+        )
+        for yaml_file in yaml_files:
+            try:
+                data = load_yaml(yaml_file)
+            except Exception as exc:
+                logger.warning("ConfigLoader: tool-calling fallback skipped %s: %s", yaml_file, exc)
+                continue
+            if not isinstance(data, dict):
+                continue
+            features = data.get("features")
+            tool_calling = features.get("tool_calling") if isinstance(features, dict) else None
+            if not isinstance(tool_calling, dict) or not tool_calling.get("args"):
+                continue
+            model = data.get("model")
+            if not isinstance(model, dict):
+                continue
+            declared_name = model.get("name")
+            if canonical_model_name:
+                matched = (
+                    isinstance(declared_name, str)
+                    and declared_name.casefold() == canonical_model_name.casefold()
+                )
+            else:
+                matched = False
+            if not canonical_model_name:
+                for rule in model.get("match", []):
+                    if not isinstance(rule, dict) or not rule.get("name_pattern"):
+                        continue
+                    try:
+                        if re.search(str(rule["name_pattern"]), model_name):
+                            matched = True
+                            break
+                    except re.error:
+                        continue
+                if not matched:
+                    matched = isinstance(declared_name, str) and declared_name.casefold() == model_name.casefold()
+            if matched:
+                logger.info("ConfigLoader: tool-calling fallback for '%s' from %s", model_name, yaml_file)
+                return data, yaml_file
+    return None, None

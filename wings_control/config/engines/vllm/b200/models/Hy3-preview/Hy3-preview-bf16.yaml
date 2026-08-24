@@ -122,7 +122,7 @@ scenarios:
             model: tencent/Hy3-preview
             trust_remote_code: true
             enable_expert_parallel: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 0
@@ -135,7 +135,7 @@ scenarios:
             model: tencent/Hy3-preview
             trust_remote_code: true
             enable_expert_parallel: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 1
@@ -152,7 +152,7 @@ scenarios:
           engine_config:
             model: tencent/Hy3-preview
             trust_remote_code: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 0
@@ -164,7 +164,7 @@ scenarios:
           engine_config:
             model: tencent/Hy3-preview
             trust_remote_code: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 1

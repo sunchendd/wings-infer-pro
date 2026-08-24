@@ -94,7 +94,7 @@ scenarios:
           engine_config:
             model: baidu/ERNIE-4.5-21B-A3B-PT
             enable_expert_parallel: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 0
@@ -106,7 +106,7 @@ scenarios:
           engine_config:
             model: baidu/ERNIE-4.5-21B-A3B-PT
             enable_expert_parallel: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 1
@@ -122,7 +122,7 @@ scenarios:
         head:  # Head Node 节点配置
           engine_config:
             model: baidu/ERNIE-4.5-21B-A3B-PT
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 0
@@ -133,7 +133,7 @@ scenarios:
         worker:  # Node 1 节点配置
           engine_config:
             model: baidu/ERNIE-4.5-21B-A3B-PT
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 1

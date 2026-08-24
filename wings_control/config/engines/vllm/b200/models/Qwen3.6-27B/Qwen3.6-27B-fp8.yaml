@@ -84,7 +84,7 @@ scenarios:
             model: Qwen/Qwen3.6-27B-FP8
             trust_remote_code: true
             max_num_seqs: 512
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 0
@@ -97,7 +97,7 @@ scenarios:
             model: Qwen/Qwen3.6-27B-FP8
             trust_remote_code: true
             max_num_seqs: 512
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 1

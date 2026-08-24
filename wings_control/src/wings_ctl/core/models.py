@@ -234,9 +234,10 @@ class PdRuntimeSpec:
 
     Attributes:
         topology_input_policy: 接受普通 1P1D 派生输入或 MaaS 显式 topology。
-        prefill_shape: recipe 验收的 P global DP/TP 形状。
-        decode_shape: recipe 验收的 D global DP/TP 形状。
-        instance_member_count: 当前 role 每个 logical Instance 固定包含的 Pod 数。
+        prefill_shape: recipe 验收的 P global DP/TP 推荐形状。
+        decode_shape: recipe 验收的 D global DP/TP 推荐形状。
+        instance_member_count: recipe 示例中当前 role 一个 logical Instance 的 Pod 数；仅作
+            推荐基线，不限制 MaaS 下发的同构成员数。
         process_layout: 当前 Pod 内引擎进程如何展开。
         dp_launch_policy: 是否由每条命令显式携带 external DP rank。
         endpoint_policy: backend endpoint 与进程的对应规则。

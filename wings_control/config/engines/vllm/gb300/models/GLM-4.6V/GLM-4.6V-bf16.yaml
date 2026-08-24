@@ -144,7 +144,7 @@ scenarios:
             mm_encoder_tp_mode: data
             mm_processor_cache_type: shm
             enable_expert_parallel: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 0
@@ -160,7 +160,7 @@ scenarios:
             mm_encoder_tp_mode: data
             mm_processor_cache_type: shm
             enable_expert_parallel: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 1
@@ -181,7 +181,7 @@ scenarios:
             allowed_local_media_path: /
             mm_encoder_tp_mode: data
             mm_processor_cache_type: shm
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 0
@@ -197,7 +197,7 @@ scenarios:
             allowed_local_media_path: /
             mm_encoder_tp_mode: data
             mm_processor_cache_type: shm
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 8
             nnodes: 2
             node_rank: 1

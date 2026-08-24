@@ -188,7 +188,7 @@ _COMMON_NAMED_ARGS = [
         GoldenScene(
             name="scene-a-vllm-ascend",
             engine="vllm-ascend",
-            engine_version="0.18.0",
+            engine_version="v0.18.0",
             hardware={"hardware_family": "ascend-a3", "device": "ascend", "count": 16},
             model_resolver=_constant_model("DeepSeek-V4-Flash"),
             cli_args=list(_COMMON_NAMED_ARGS),
@@ -301,7 +301,7 @@ def test_full_maas_param_passdown(
         engine="vllm-ascend",
         model="DeepSeek-V4-Flash",
         hw_dict={"hardware_family": "ascend-a3", "device": "ascend", "count": 16},
-        engine_version="0.18.0",
+        engine_version="v0.18.0",
         cli_args=full_args,
     )
 
@@ -419,7 +419,7 @@ def test_device_count_computes_dp(
         engine="vllm-ascend",
         model="DeepSeek-V4-Flash",
         hw_dict={"hardware_family": "ascend-a3", "device": "ascend", "count": 16},
-        engine_version="0.18.0",
+        engine_version="v0.18.0",
     )
     base_args = ["--port", "18000"]  # --model-name 由 _run_cli 提供(model=DeepSeek-V4-Flash)
 
@@ -474,7 +474,7 @@ def test_device_count_below_tp_raises_friendly_cli_error(
         json.dumps({"hardware_family": "ascend-a3", "device": "ascend", "count": 16}),
         encoding="utf-8",
     )
-    monkeypatch.setenv("ENGINE_VERSION", "0.18.0")
+    monkeypatch.setenv("ENGINE_VERSION", "v0.18.0")
     monkeypatch.setattr(
         "sys.argv",
         [
@@ -518,7 +518,7 @@ def test_device_count_shrink_e2e_success(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """R-H e2e(flash 场景):cnt=2<TP + gpu_mem=64G + 小权重(10G,过闸)→ 收缩,argv 出 TP=2。"""
-    monkeypatch.setenv("ENGINE_VERSION", "0.18.0")
+    monkeypatch.setenv("ENGINE_VERSION", "v0.18.0")
     monkeypatch.setattr("sys.argv", _shrink_argv(tmp_path, config_root_real, gpu_mem=64, total_size_gb=10))
     cli.main()
     out = capsys.readouterr().out
@@ -530,7 +530,7 @@ def test_device_count_shrink_e2e_capacity_raise(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """R-H e2e:cnt=2<TP 但权重过大(300G):2×64=128G < 1.5×300=450G → 显存闸友好 raise(exit 2)。"""
-    monkeypatch.setenv("ENGINE_VERSION", "0.18.0")
+    monkeypatch.setenv("ENGINE_VERSION", "v0.18.0")
     monkeypatch.setattr("sys.argv", _shrink_argv(tmp_path, config_root_real, gpu_mem=64, total_size_gb=300))
     with pytest.raises(SystemExit) as exc:
         cli.main()
@@ -554,7 +554,7 @@ def test_builtin_default_host_injected_when_template_and_user_absent(
         engine="vllm-ascend",
         model="DeepSeek-V4-Flash",
         hw_dict={"hardware_family": "ascend-a3", "device": "ascend", "count": 16},
-        engine_version="0.18.0",
+        engine_version="v0.18.0",
         cli_args=[],  # 故意不传 --host/--port;--model-name 由 _run_cli 提供
     )
     # host:模板/用户都没给 → builtin 兜底

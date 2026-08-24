@@ -99,6 +99,14 @@ def _build_summary_lines(
             f"local_dp={pd.dp_size_local} ranks={pd.rank_start}..{pd.rank_end_exclusive - 1} "
             f"endpoints={','.join(plan.endpoints)}"
         )
+        recommendation_status = notes.get("pd_recipe_recommendation_status")
+        if recommendation_status:
+            lines.append(
+                "[STARTUP] pd recipe_recommendation "
+                f"status={recommendation_status} "
+                f"shape_match={notes.get('pd_recipe_shape_match', '?')} "
+                f"role_member_count_match={notes.get('pd_recipe_role_member_count_match', '?')}"
+            )
 
     # multi_node 摘要:未注入时展示占位视图;已注入时展示本 Pod 角色和并行信息。
     if resolved.nodes:

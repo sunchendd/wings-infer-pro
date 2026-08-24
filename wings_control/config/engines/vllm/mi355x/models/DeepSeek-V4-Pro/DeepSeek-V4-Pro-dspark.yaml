@@ -175,7 +175,7 @@ scenarios:
             kv_cache_dtype: fp8
             block_size: 256
             enable_expert_parallel: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 0
@@ -198,7 +198,7 @@ scenarios:
             kv_cache_dtype: fp8
             block_size: 256
             enable_expert_parallel: true
-            cc_pass_config_fuse_allreduce_rms: false
+            cc.pass_config.fuse_allreduce_rms: false
             tensor_parallel_size: 16
             nnodes: 2
             node_rank: 1
@@ -244,7 +244,7 @@ scenarios:
               data_parallel_size_local: 8
               data_parallel_start_rank: 0
               data_parallel_address: $PREFILL_NODE_1
-              data_parallel_rpc_port: $PREFILL_DP_RPC_PORT
+              data_parallel_rpc_port: 12321
               data_parallel_hybrid_lb: true
               enable_expert_parallel: true
               enforce_eager: true
@@ -280,7 +280,7 @@ scenarios:
               data_parallel_size_local: 8
               data_parallel_start_rank: 8
               data_parallel_address: $PREFILL_NODE_1
-              data_parallel_rpc_port: $PREFILL_DP_RPC_PORT
+              data_parallel_rpc_port: 12321
               data_parallel_hybrid_lb: true
               enable_expert_parallel: true
               enforce_eager: true
@@ -316,7 +316,7 @@ scenarios:
               data_parallel_size_local: 8
               data_parallel_start_rank: 0
               data_parallel_address: $DECODE_NODE_1
-              data_parallel_rpc_port: $DECODE_DP_RPC_PORT
+              data_parallel_rpc_port: 12322
               data_parallel_hybrid_lb: true
               enable_expert_parallel: true
               max_cudagraph_capture_size: 1024
@@ -352,7 +352,7 @@ scenarios:
               data_parallel_size_local: 8
               data_parallel_start_rank: 8
               data_parallel_address: $DECODE_NODE_1
-              data_parallel_rpc_port: $DECODE_DP_RPC_PORT
+              data_parallel_rpc_port: 12322
               data_parallel_hybrid_lb: true
               enable_expert_parallel: true
               max_cudagraph_capture_size: 1024

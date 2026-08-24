@@ -1,0 +1,60 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_deepseek-r1-distill-llama-8b_bf16_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
+    note: 用户提供 vLLM OpenAI API Server 启动命令，手工录入。
+
+# 模型基本信息
+model:
+  name: DeepSeek-R1-Distill-Llama-8B
+  slug: deepseek-r1-distill-llama-8b
+  provider: DeepSeek
+  description: "DeepSeek-R1 蒸馏到 Llama 8B 的 BF16 dense 推理模型。"
+  model_id: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+  architecture: dense
+  parameter_count: 8B
+  active_parameters: 8B
+  context_length: null
+  vram_minimum_gb: 141
+  tasks: [text]
+  min_engine_version: "0.23.0"
+  match:
+    - name_pattern: "(?i)DeepSeek[-.]?R1[-.]?Distill[-.]?Llama[-.]?8B"
+  variant_name: DeepSeek-R1-Distill-Llama-8B
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 1
+  vram_gb: 141
+  multi_node: false
+
+# 可选功能列表
+features:
+  tool_calling:
+    args: [--tool-call-parser, llama3_json]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_deepseek-r1-distill-llama-8b_bf16_manual#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+          served_model_name: DeepSeek-R1-Distill-Llama-8B
+          host: "0.0.0.0"
+          port: 17000
+          tensor_parallel_size: 1
+          trust_remote_code: true
+          max_model_len: 4096
+          tokenizer_mode: deepseek_v32 # Llama 模型必须配置解决乱码问题，tokenizer不配置 默认取 model路径
+        env: {}

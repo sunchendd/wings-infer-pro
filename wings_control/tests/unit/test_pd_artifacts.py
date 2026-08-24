@@ -59,6 +59,11 @@ def _resolved(process_count: int = 2) -> ResolvedConfig:
         env_traces={},
         source_files=["synthetic.yaml"],
         pd_topology=topology,
+        resolution_notes={
+            "pd_recipe_recommendation_status": "custom",
+            "pd_recipe_shape_match": "false",
+            "pd_recipe_role_member_count_match": "true",
+        },
         process_plan=ProcessPlan(
             layout="per_local_dp_rank" if process_count > 1 else "single_process",
             lifecycle="fail_together" if process_count > 1 else "single",
@@ -97,7 +102,10 @@ def test_pd_audit_contains_topology_processes_and_maas_boundary(tmp_path: Path) 
     assert audit["pd"]["role"] == "D"
     assert audit["pd"]["local_allocation"]["rank_end_exclusive"] == 2
     assert audit["pd"]["maas_assertions"]["pd_index_unique"] == "maas_asserted_not_locally_observable"
+    assert audit["pd"]["maas_assertions"]["peer_role_topology"] == "maas_asserted_not_locally_observable"
+    assert audit["pd"]["maas_assertions"]["network_policy"] == "maas_asserted_not_locally_observable"
     assert len(audit["pd"]["process_plan"]["processes"]) == 2
+    assert audit["resolution_notes"]["pd_recipe_recommendation_status"] == "custom"
 
 
 def test_pd_startup_summary_uses_process_plan_values(tmp_path: Path) -> None:
@@ -117,3 +125,4 @@ def test_pd_startup_summary_uses_process_plan_values(tmp_path: Path) -> None:
     assert "layout=per_local_dp_rank lifecycle=fail_together" in summary
     assert "ranks=0..1" in summary
     assert "10.0.0.1:17000,10.0.0.1:17001" in summary
+    assert "recipe_recommendation status=custom shape_match=false role_member_count_match=true" in summary

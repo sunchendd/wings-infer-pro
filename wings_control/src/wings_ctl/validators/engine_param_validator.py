@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Set
 
 from wings_ctl.core.models import EngineVersion, ParamValidationResult, ResolvedConfig, TracedValue
 from wings_ctl.engines.vllm_adapter import MODEL_KEYS, render_param_tokens
+from wings_ctl.loaders.locator import resolve_version_dir
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ def _resolve_supported_params_path(
 ) -> Path:
     """定位该(引擎,版本)对应的 ``supported_params.txt`` 路径。
 
-    有版本层引擎(sglang / vllm-ascend)→ ``engines/{engine}/v{resolved}/supported_params.txt``;
+    有版本层引擎(sglang / vllm-ascend)→ ``engines/{engine}/{version_dir}/supported_params.txt``;
     无版本层引擎(vllm)→ ``engines/{engine}/supported_params.txt``。
 
     Args:
@@ -37,7 +38,7 @@ def _resolve_supported_params_path(
     """
     engine_root = config_root / "engines" / engine
     if engine_version.has_version_dir and engine_version.resolved:
-        return engine_root / f"v{engine_version.resolved}" / "supported_params.txt"
+        return resolve_version_dir(engine_root, engine_version.resolved) / "supported_params.txt"
     return engine_root / "supported_params.txt"
 
 

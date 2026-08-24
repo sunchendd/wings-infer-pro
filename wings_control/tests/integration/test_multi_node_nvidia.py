@@ -29,7 +29,7 @@ def _hw(tmp_path: Path) -> Path:
 
 
 def _run(tmp_path, monkeypatch, config_root_real, *, rank_ip, tag):
-    monkeypatch.setenv("ENGINE_VERSION", "0.18.0")
+    monkeypatch.setenv("ENGINE_VERSION", "v0.18.0")
     monkeypatch.setenv("WINGS_START_LOG", str(tmp_path / f"{tag}.log"))
     return run_pipeline(
         PipelineRequest(
@@ -84,7 +84,7 @@ def test_nvidia_head_argv_node_rank_0_no_headless(config_root_real, tmp_path, mo
 
 def test_nvidia_placeholder_without_runtime_ctx(config_root_real, tmp_path, monkeypatch):
     """验证无运行时上下文 → nvidia head/worker 也产占位脚本(nodes 展开,exit 3,不可执行)。"""
-    monkeypatch.setenv("ENGINE_VERSION", "0.18.0")
+    monkeypatch.setenv("ENGINE_VERSION", "v0.18.0")
     monkeypatch.setenv("WINGS_START_LOG", str(tmp_path / "ph.log"))
     resolved, start_path, _, _ = run_pipeline(
         PipelineRequest(

@@ -16,6 +16,7 @@ import yaml
 ENGINES = ("vllm", "vllm-ascend", "sglang")
 SCENARIOS = ("standalone", "multi_node", "pd_disaggregation")
 DEFAULT_SCENARIOS = ("standalone", "multi_node", "pd_disaggregation")
+IGNORED_ENV_VARS = frozenset({"ASCEND_RT_VISIBLE_DEVICES"})
 
 
 class DryRunMismatch(ValueError):
@@ -23,7 +24,8 @@ class DryRunMismatch(ValueError):
 
 
 def kebab(name: str) -> str:
-    return "--" + name.replace("_", "-")
+    top_level, dot, nested_path = name.partition(".")
+    return "--" + top_level.replace("_", "-") + dot + nested_path
 
 
 def scalar(value: Any) -> str:
@@ -36,6 +38,8 @@ def scalar(value: Any) -> str:
 
 def normalize_value(value: str) -> str:
     """Ignore shell/YAML serialization differences for JSON-valued arguments."""
+    if value.lower() in {"true", "false"}:
+        return value.lower()
     try:
         parsed = json.loads(value)
     except (TypeError, json.JSONDecodeError):
@@ -55,6 +59,9 @@ def render_command(arguments: dict[str, str]) -> str:
     """Render parsed arguments as a copyable shell command."""
     parts: list[str] = []
     for flag, value in arguments.items():
+        if "." in flag:
+            parts.append(f"{flag}={shlex.quote(value)}")
+            continue
         parts.append(flag)
         if value != "true":
             parts.append(shlex.quote(value))
@@ -63,6 +70,7 @@ def render_command(arguments: dict[str, str]) -> str:
 
 def parse_tokens(tokens: list[str], engine: str) -> dict[str, str]:
     """Parse one engine command into flag/value pairs."""
+    tokens = [str(token) for token in tokens]
     if engine in {"vllm", "vllm-ascend"}:
         try:
             start = tokens.index("serve") + 1
@@ -117,6 +125,8 @@ def command_env(text: str) -> dict[str, str]:
             key, value = token.split("=", 1)
             if not key:
                 raise DryRunMismatch(f"environment export has an empty name: {token!r}")
+            if key in IGNORED_ENV_VARS:
+                continue
             result[key] = value
     return result
 
@@ -157,28 +167,15 @@ def compare_environment(expected: dict[str, str], actual: dict[str, str], label:
 
 
 def command_tokens(text: str) -> list[str]:
-    logical_lines: list[str] = []
-    current = ""
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or line.startswith("export "):
-            continue
-        if line.endswith("\\"):
-            current += line[:-1] + " "
-            continue
-        logical_lines.append(current + line)
-        current = ""
-    if current:
-        logical_lines.append(current)
-    for line in logical_lines:
-        try:
-            tokens = shlex.split(line, comments=True, posix=True)
-        except ValueError:
-            continue
-        if "vllm" in tokens and "serve" in tokens:
-            return tokens[tokens.index("vllm") :]
-        if "sglang" in tokens:
-            return tokens[tokens.index("sglang") :]
+    try:
+        tokens = shlex.split(text, comments=True, posix=True)
+    except ValueError as exc:
+        raise DryRunMismatch(f"invalid shell command: {exc}") from exc
+    tokens = [token.strip() for token in tokens if token.strip()]
+    if "vllm" in tokens and "serve" in tokens:
+        return tokens[tokens.index("vllm") :]
+    if "sglang" in tokens:
+        return tokens[tokens.index("sglang") :]
     raise DryRunMismatch("no supported engine launch command found")
 
 
@@ -231,7 +228,10 @@ def yaml_configs(data: dict[str, Any], scenario: str) -> list[dict[str, Any]]:
 
 
 def compare(
-    expected: dict[str, str], actual: dict[str, str], label: str
+    expected: dict[str, str],
+    actual: dict[str, str],
+    label: str,
+    ignored_flags: frozenset[str] = frozenset(),
 ) -> list[str]:
     # vLLM YAMLs may use a distributable HF/ModelScope ID instead of a
     # machine-local absolute model path. Keep strict comparison for every
@@ -241,6 +241,9 @@ def compare(
     if comparable_actual.get("--model", "").startswith("/"):
         comparable_expected.pop("--model", None)
         comparable_actual.pop("--model", None)
+    for flag in ignored_flags:
+        comparable_expected.pop(flag, None)
+        comparable_actual.pop(flag, None)
 
     missing = sorted(set(comparable_expected) - set(comparable_actual))
     extra = sorted(set(comparable_actual) - set(comparable_expected))
@@ -359,7 +362,8 @@ def check(yaml_path: Path, command_paths: list[Path], engine: str, scenario: str
             ]
         )
         try:
-            report.extend(compare(expected_arguments, actual, label))
+            ignored_flags = frozenset({"--host"}) if scenario == "standalone" else frozenset()
+            report.extend(compare(expected_arguments, actual, label, ignored_flags))
             report.extend(compare_environment(expected_environment, environment, label))
         except DryRunMismatch as exc:
             raise DryRunMismatch("\n".join(report + [str(exc)])) from exc
