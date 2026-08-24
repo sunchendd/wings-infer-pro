@@ -1,0 +1,122 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_ascend_deepseek_r1_0528_w8a8_mtp_quarot
+    kind: manual
+    url: "https://modelscope.cn/models/Eco-Tech/DeepSeek-R1-0528-w8a8-mtp-QuaRot"
+    note: 参考 DeepSeek-R1-0528-w8a8 多机配置手工录入。
+
+# 模型基本信息
+model:
+  name: DeepSeek-R1-0528  # 模型名称
+  provider: Eco-Tech  # 提供者/厂商
+  model_id: Eco-Tech/DeepSeek-R1-0528-w8a8-mtp-QuaRot  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.21.0rc  # 最低引擎版本要求
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)^deepseek[-.]?r1[-.]?0528[-.]?w8a8[-.]?mtp[-.]?quarot$"
+  variant_name: DeepSeek-R1-0528-w8a8-mtp-QuaRot  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8  # 单节点 GPU/NPU 数量
+  vram_gb: 512  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: Enable DeepSeek-R1 tool calling with the deepseek_v3 tool-call parser.
+    args: [--enable-auto-tool-choice, --tool-call-parser, deepseek_v3]
+  reasoning:
+    description: Enable reasoning/thinking mode with the DeepSeek R1 reasoning parser.
+    args: [--reasoning-parser, deepseek_r1]
+  spec_decoding:
+    description: Speculative decoding (MTP draft) to accelerate generation.
+    args: [--speculative-config, "{\"num_speculative_tokens\":3,\"method\":\"mtp\"}"]
+
+# 部署场景
+scenarios:
+  multi_node:
+    source_ref: "vllm_ascend_deepseek_r1_0528_w8a8_mtp_quarot"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        display_name: Multi-Node
+        default_strategy: true
+        head:
+          engine_config:
+            model: Eco-Tech/DeepSeek-R1-0528-w8a8-mtp-QuaRot
+            host: "0.0.0.0"
+            port: 8000
+            data_parallel_size: 4
+            data_parallel_size_local: 2
+            data_parallel_address: $local_ip
+            data_parallel_rpc_port: 13389
+            tensor_parallel_size: 4
+            quantization: ascend
+            seed: 1024
+            served_model_name: deepseek_r1_0528
+            enable_expert_parallel: true
+            max_num_seqs: 16
+            max_model_len: 16384
+            max_num_batched_tokens: 4096
+            trust_remote_code: true
+            gpu_memory_utilization: 0.92
+            compilation_config:
+              cudagraph_capture_sizes: [4, 16, 32, 48, 64]
+              cudagraph_mode: FULL_DECODE_ONLY
+          env:
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            OMP_PROC_BIND: "false"
+            OMP_NUM_THREADS: 1
+            HCCL_BUFFSIZE: 200
+            PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+            VLLM_ASCEND_BALANCE_SCHEDULING: 1
+            HCCL_INTRA_PCIE_ENABLE: 1
+            HCCL_INTRA_ROCE_ENABLE: 0
+            VLLM_USE_MODELSCOPE: "True"
+          system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+            commands: ["nic_name=\"xxxx\"", "local_ip=\"xxxx\""]
+        worker:
+          engine_config:
+            model: Eco-Tech/DeepSeek-R1-0528-w8a8-mtp-QuaRot
+            host: "0.0.0.0"
+            port: 8000
+            headless: true
+            data_parallel_size: 4
+            data_parallel_size_local: 2
+            data_parallel_start_rank: 2
+            data_parallel_address: $node0_ip
+            data_parallel_rpc_port: 13389
+            tensor_parallel_size: 4
+            quantization: ascend
+            seed: 1024
+            served_model_name: deepseek_r1_0528
+            enable_expert_parallel: true
+            max_num_seqs: 16
+            max_model_len: 16384
+            max_num_batched_tokens: 4096
+            trust_remote_code: true
+            gpu_memory_utilization: 0.92
+            compilation_config:
+              cudagraph_capture_sizes: [4, 16, 32, 48, 64]
+              cudagraph_mode: FULL_DECODE_ONLY
+          env:
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            OMP_PROC_BIND: "false"
+            OMP_NUM_THREADS: 1
+            HCCL_BUFFSIZE: 200
+            PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+            VLLM_ASCEND_BALANCE_SCHEDULING: 1
+            HCCL_INTRA_PCIE_ENABLE: 1
+            HCCL_INTRA_ROCE_ENABLE: 0
+            VLLM_USE_MODELSCOPE: "True"
+          system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+            commands: ["nic_name=\"xxxx\"", "local_ip=\"xxxx\"", "node0_ip=\"xxxx\" # same as the local_IP address in node 0"]

@@ -32,11 +32,11 @@ description: 当用户要求根据 vLLM、vLLM-Ascend 或 SGLang 的引擎版本
 必须确认以下输入：
 
 - 引擎：只接受 `vllm`、`vllm-ascend`、`sglang`。
-- 引擎版本：使用用户确认的完整版本，例如 `v0.21.0rc`；不要把 `0.21.rc1` 自动改成另一个版本。
+- 引擎版本：默认使用用户确认的完整版本，例如 `v0.21.0rc`；不要把 `0.21.rc1` 自动改成另一个版本。对于任意用户明确确认、非空的 special/custom 版本字符串（包括但不限于 0day、厂商分支或模型耦合版本），在规范化器中追加 `--allow-special-engine-version`；生成结果必须保留“user-confirmed special/custom release”警告，且不得把它伪称为 semver 已验证版本。
 - 完整启动命令：多节点必须分别提供 head/worker；PD 必须至少提供 prefill/decode。
 - 硬件：profile id、单节点卡数、单节点总显存；已知 profile 可从 `references/hardware-profiles.json` 读取。`hardware_profile.multi_node` 根据用户提供的命令和场景自动判断：standalone 为 `false`，multi_node/PD（存在对应节点角色或分布式参数）为 `true`。
 - 场景：`standalone`、`multi_node`、`pd_disaggregation`。
-- 模型：模型名、可确认的 HuggingFace/ModelScope ID、variant。
+- 模型：模型名、可确认的 HuggingFace/ModelScope ID；variant 仅在用户命令、模型 ID 或用户明确说明中可确认时提供。
 
 先运行输入规范化器：
 
@@ -48,13 +48,12 @@ python3 <skill-dir>/scripts/normalize_input.py \
   --scenario standalone \
   --model-name Qwen3.6-35B-A3B \
   --model-id Qwen/Qwen3.6-35B-A3B \
-  --variant bf16 \
   --command-file /path/to/start.sh
 ```
 
 规范化器报错时停止生成。以下情况必须让用户确认，不能静默修复：
 
-- 引擎拼写错误或版本不满足完整格式。
+- 引擎拼写错误或版本不满足完整格式；唯一例外是用户已明确确认的非空 special/custom 版本字符串，此时必须使用 `--allow-special-engine-version` 并在输出中保留未进行 semver 校验的警告。不得维护或依赖某个模型、厂商或版本名的固定白名单。
 - Shell 语法错误，或出现 `\(`、`\)` 这类疑似转义损坏。
 - multi-node 缺 head/worker 命令。
 - PD 缺 prefill/decode 命令或节点角色不明确。
@@ -77,11 +76,9 @@ python3 <skill-dir>/scripts/normalize_input.py \
 
 ### 输出路径
 
-- vLLM：`wings_control/config/engines/vllm/{profile}/models/{Model}/{Model}-{variant}.yaml`
-- vLLM-Ascend：`config/engines/vllm-ascend/{version}/{profile}/models/{Model}/{Model}-{variant}.yaml`
-- SGLang：`config/engines/sglang/{version}/{profile}/models/{Model}/{Model}-{variant}.yaml`
-
-bf16/b16 全精度权重的文件名统一使用 `-bf16.yaml`。`variant_name` 是否带 bf16 后缀必须服从目标仓库同目录风格；没有目标仓库时按对应 canonical reference 的引擎风格。
+- 显式确认 variant：vLLM 使用 `wings_control/config/engines/vllm/{profile}/models/{Model}/{Model}-{variant}.yaml`；vLLM-Ascend 使用 `config/engines/vllm-ascend/{version}/{profile}/models/{Model}/{Model}-{variant}.yaml`；SGLang 使用 `config/engines/sglang/{version}/{profile}/models/{Model}/{Model}-{variant}.yaml`。
+- 未明确 variant：三种引擎均使用 `{Model}.yaml`，且 `model.variant_name` 使用模型名本身；不得根据模型规模、硬件、默认权重格式或目录惯例推断 `bf16`、`fp8`、`w8a8` 等后缀。
+- 只有用户明确确认 `bf16`/`b16` 全精度权重时，文件名统一使用 `-bf16.yaml`，且 `variant_name` 使用带 `-bf16` 后缀的名称。其它显式 variant 同理遵从目标仓库同目录风格。
 
 ### 顶层与字段顺序
 
@@ -158,11 +155,11 @@ Wings Control 的 `engine_config` 参数名映射以**第一个点号**为边界
 
 - vLLM 手工配置默认把本地模型路径替换成已确认的 HF/ModelScope ID，并默认丢弃 `served_model_name`。
 - vLLM-Ascend 保留命令中的 `served_model_name`。官方 `/weights/...`、`$MODEL_PATH` 可部署占位路径可以保留；用户机器私有路径应替换为已确认的模型 ID 或可部署占位路径。
-- SGLang 保留真实参数名，例如 `model_path`、`tp`/`tp_size`、`dp`、`ep`、`mem_fraction_static`、`disaggregation_mode`，不得改写为 vLLM 参数名。
+- SGLang 保留真实参数名，例如 `model_path`、`tp_size`、`dp_size`、`ep_size`、`mem_fraction_static`、`disaggregation_mode`，不得改写为 vLLM 参数名。并行配置必须使用 Wings Control 可识别的 canonical key：`tp_size` 渲染为 SGLang v0.5.10 的 `--tp-size`；不得在 YAML 中使用 `tp`，即使用户原始命令使用了兼容别名 `--tp`。
 
-### 单机监听地址
+### 监听地址
 
-所有 `standalone` 场景的 `engine_config` 必须写入 `host: "0.0.0.0"`。无论原始启动命令是否提供 `--host`，也无论其值为何，均不得省略该字段或沿用原始值。该规范化仅适用于 standalone；multi-node 和 PD 仍按原始命令及对应 reference 保留节点地址。
+所有 SGLang 场景（`standalone`、`multi_node`、`pd_disaggregation`）的每个 `engine_config` 必须写入 `host: "0.0.0.0"`。无论原始启动命令是否提供 `--host`，也无论其值为何，均不得省略该字段或沿用原始值。其它引擎仅对 `standalone` 场景执行该规范化；multi-node 和 PD 仍按原始命令及对应 reference 保留节点地址。
 
 ### 可选功能
 
@@ -233,6 +230,12 @@ python3 <skill-dir>/scripts/validate_yaml.py \
 `engine_config` 和 `features.*.args` 重建引擎命令，并与生成 YAML 所依据的每个原始
 启动命令比较。
 
+dry-run 默认视为已开启 `tool_calling` 和 `reasoning`：只要 YAML 中存在
+`features.tool_calling` 或 `features.reasoning`，就必须合并其 args 并与用户原始启动命令逐项比较；
+其它已配置 feature 也继续参与比较。`--chat-template` 采用严格来源规则：生成 YAML 只有在用户提供的
+原始启动命令中包含相同的 `--chat-template <value>` 时才能包含该参数。引用 YAML、跨引擎 fallback 或
+其他非用户命令来源带入的 `--chat-template` 必须使 dry-run 失败，不能写入生成结果。
+
 用户可能直接在消息中粘贴多行命令，而不是提供脚本文件。此时必须先将命令原样写入
 临时 command file（保留续行、引号和 JSON 参数），再执行 dry-run；“没有现成的脚本
 文件”不能作为跳过校验的理由。只有用户确实没有提供完整原始命令时，才能报告 dry-run
@@ -248,7 +251,7 @@ python3 <skill-dir>/scripts/check_dry_run.py \
 
 multi-node/PD 对每个节点重复 `--command-file`，顺序必须与 YAML 中的节点顺序一致。
 inline 命令物化后，必须检查 command file 内容与用户消息逐项一致，再运行校验。
-校验失败（缺失参数、额外参数、参数值不一致或节点数量不一致）时停止并修正 YAML。standalone 的 `--host` 是唯一例外：YAML 固定为 `0.0.0.0`，dry-run 不将原始命令中缺失或不同的 `--host` 视为不一致。
+校验失败（缺失参数、额外参数、参数值不一致或节点数量不一致）时停止并修正 YAML。`host` 是唯一例外：所有 SGLang 场景，以及其它引擎的 standalone 场景，YAML 固定为 `0.0.0.0`；dry-run 不将原始命令中缺失或不同的 `--host` 视为不一致。
 对于 multi-node/PD 的 `data_parallel_rpc_port` 回退值：在用户确认真实端口前，不得将含
 `$6` 等非数字端口的原始命令直接与 YAML 宣称为 dry-run 匹配；应报告端口待确认。用户确认
 回退端口后，才可将临时命令中的该参数解析为对应值并完成 dry-run：multi-node 的所有节点为
@@ -275,8 +278,9 @@ inline 命令物化后，必须检查 command file 内容与用户消息逐项�
 用户只提供引擎版本、硬件 profile、卡数和单卡显存，并要求生成 `default_model.yaml` 时，也必须触发本 skill；这类请求不需要模型名、variant 或启动命令。应先查找目标路径 `{engine}/{version}/{hardware_profile}/models/default_model.yaml`：
 
 1. 文件已存在时，只提示已存在及其路径，禁止自动覆盖；用户明确要求更新时再单独确认覆盖范围。
-2. 文件不存在时，提示目标目录缺少默认文件，并根据同引擎/版本的相邻 hardware profile 模板自动创建。总显存按 `gpu_count * vram_per_gpu_gb` 计算，所有默认 TP、PD 的 `tp_size` 等与模板保持一致，仅替换硬件相关值。
-3. 创建后必须执行 default 专用 dry-run；不能使用要求启动命令的普通模型 dry-run。
+2. 新增普通模型 YAML 时，也必须检查其目标硬件配置目录是否存在 `models/default_model.yaml`。若不存在，除非用户明确要求不创建，否则必须同时创建；不得只提示缺失后结束。
+3. 文件不存在时，根据同引擎/版本的相邻 hardware profile 模板自动创建。总显存按 `gpu_count * vram_per_gpu_gb` 计算；单机和 PD 的默认 `tp_size` 使用单节点卡数，双机 `tp_size` 使用两节点卡数总和。模板中不依赖硬件的字段、策略结构和环境变量保持一致。
+4. 创建后必须执行 default 专用 dry-run；不能使用要求启动命令的普通模型 dry-run。
 
 ```bash
 python3 <skill-dir>/scripts/check_dry_run.py \

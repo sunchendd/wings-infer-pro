@@ -15,6 +15,7 @@
     "mi300x": {"gpu_count": 8, "vram_gb": 1536, "multi_node": true},
     "mi325x": {"gpu_count": 8, "vram_gb": 2048, "multi_node": true},
     "mi355x": {"gpu_count": 8, "vram_gb": 2304, "multi_node": true},
+    "rtx_pro_5000_72G": {"gpu_count": 8, "vram_gb": 576, "multi_node": true},
     "ascend-a2": {"gpu_count": 8, "vram_gb": 512, "multi_node": true},
     "ascend-a3": {"gpu_count": 16, "vram_gb": 1024, "multi_node": true},
     "xeon": {"gpu_count": 1, "vram_gb": 0, "multi_node": false}

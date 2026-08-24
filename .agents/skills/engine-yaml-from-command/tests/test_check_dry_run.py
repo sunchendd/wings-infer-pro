@@ -65,7 +65,53 @@ def test_tool_calling_and_reasoning_are_included_in_dry_run(tmp_path: Path) -> N
     assert "YAML 重建命令" in output
     assert "原始启动命令" in output
     assert "node[0]: OK" in output
+    assert "OK       --tool-call-parser" in output
     assert "OK       --reasoning-parser" in output
+
+
+def test_chat_template_requires_user_command_source(tmp_path: Path) -> None:
+    yaml_path, command_path = write_case(
+        tmp_path,
+        feature_args="""  tool_calling:
+    args: [--enable-auto-tool-choice, --tool-call-parser, deepseek_v3, --chat-template, examples/tool_chat_template_deepseekv3.jinja]
+  reasoning:
+    args: [--reasoning-parser, deepseek]""",
+        command_args="--enable-auto-tool-choice --tool-call-parser deepseek_v3 --reasoning-parser deepseek",
+    )
+
+    try:
+        module.check(yaml_path, [command_path], "vllm", "standalone")
+    except module.DryRunMismatch as exc:
+        assert "must originate from the user command" in str(exc)
+    else:
+        raise AssertionError("YAML-only chat template was accepted")
+
+
+def test_chat_template_matches_explicit_user_command(tmp_path: Path) -> None:
+    yaml_path, command_path = write_case(
+        tmp_path,
+        feature_args="""  tool_calling:
+    args: [--enable-auto-tool-choice, --tool-call-parser, deepseek_v3, --chat-template, examples/tool_chat_template_deepseekv3.jinja]
+  reasoning:
+    args: [--reasoning-parser, deepseek]""",
+        command_args="--enable-auto-tool-choice --tool-call-parser deepseek_v3 --chat-template examples/tool_chat_template_deepseekv3.jinja --reasoning-parser deepseek",
+    )
+
+    report = module.check(yaml_path, [command_path], "vllm", "standalone")
+
+    assert "OK       --chat-template" in "\n".join(report)
+
+
+def test_vllm_served_model_name_is_ignored_as_a_deployment_local_alias(tmp_path: Path) -> None:
+    yaml_path, command_path = write_case(
+        tmp_path,
+        feature_args="",
+        command_args="--served-model-name local-demo",
+    )
+
+    report = module.check(yaml_path, [command_path], "vllm", "standalone")
+
+    assert "node[0]: OK" in "\n".join(report)
 
 
 def test_environment_matches_explicit_exports(tmp_path: Path) -> None:
@@ -191,6 +237,33 @@ def test_standalone_host_is_normalized_when_command_differs(tmp_path: Path) -> N
     assert "node[0]: OK" in "\n".join(report)
 
 
+def test_sglang_multi_node_host_is_normalized_when_command_differs(tmp_path: Path) -> None:
+    yaml_path = tmp_path / "multi-node.yaml"
+    yaml_path.write_text(
+        """hardware_profile: {gpu_count: 8, vram_gb: 640, multi_node: true}
+scenarios:
+  multi_node:
+    strategies:
+      head_worker:
+        default_strategy: true
+        head:
+          engine_config: {model: demo/model, host: 0.0.0.0, tp_size: 8}
+        worker:
+          engine_config: {model: demo/model, host: 0.0.0.0, tp_size: 8}
+""",
+        encoding="utf-8",
+    )
+    head = tmp_path / "head.sh"
+    worker = tmp_path / "worker.sh"
+    head.write_text("python3 -m sglang.launch_server --model demo/model --host 10.0.0.1 --tp-size 8\n", encoding="utf-8")
+    worker.write_text("python3 -m sglang.launch_server --model demo/model --host 10.0.0.2 --tp-size 8\n", encoding="utf-8")
+
+    report = module.check(yaml_path, [head, worker], "sglang", "multi_node")
+
+    assert "node[0]: OK" in "\n".join(report)
+    assert "node[1]: OK" in "\n".join(report)
+
+
 def test_multi_node_dry_run_matches_head_and_worker(tmp_path: Path) -> None:
     yaml_path = tmp_path / "multi-node.yaml"
     yaml_path.write_text(
@@ -304,6 +377,29 @@ scenarios:
     output = "\\n".join(report)
     assert "node[0]: OK" in output
     assert "node[1]: OK" in output
+
+
+def test_sglang_tp_alias_is_equivalent_to_tp_size() -> None:
+    expected = {"--tp-size": "8"}
+    actual = {"--tp": "8"}
+
+    assert module.compare(expected, actual, "node[0]", "sglang") == ["node[0]: OK", "  OK       --tp-size: '8'"]
+
+
+def test_rtx_pro_5000_auto_environment_is_ignored_for_dry_run() -> None:
+    expected = {
+        "GLOO_SOCKET_IFNAME": "bond0",
+        "NCCL_P2P_LEVEL": "SYS",
+        "NCCL_SHM_DISABLE": "1",
+    }
+    actual = {"GLOO_SOCKET_IFNAME": "bond0"}
+
+    assert module.compare_environment(
+        expected,
+        actual,
+        "node[0]",
+        module.RTX_PRO_5000_AUTO_ENV_VARS,
+    ) == ["node[0] env: OK", "  OK       GLOO_SOCKET_IFNAME: 'bond0'"]
 
 
 def test_command_tokens_parses_quoted_multiline_json() -> None:

@@ -53,7 +53,6 @@ scenarios:
             num_threads: 64
           mem_frac: 0.95
         env:
-          MASTER_IP: "10.10.0.1 # The IP of Node 0"
           PORT: 30000
           DIST_PORT: 50000
         default_strategy: true

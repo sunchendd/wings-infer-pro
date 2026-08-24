@@ -1,0 +1,104 @@
+upstream_sources:
+  - id: vllm_kimi_k3_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://huggingface.co/moonshotai/Kimi-K3"
+    note: 用户提供 vLLM H20 141G 四节点启动命令，手工录入。
+
+model:
+  name: Kimi-K3
+  slug: kimi-k3
+  provider: moonshotai
+  model_id: moonshotai/Kimi-K3
+  min_engine_version: kimi-k3
+  match:
+    - name_pattern: "(?i)kimi[-.]?k3"
+  variant_name: Kimi-K3
+
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 1128
+  multi_node: true
+
+features:
+  kv_offloading:
+    description: Enable SimpleCPUOffloadConnector KV offloading.
+    args: [--kv-transfer-config, "{\"kv_connector\":\"SimpleCPUOffloadConnector\",\"kv_role\":\"kv_both\",\"kv_connector_extra_config\":{\"cpu_bytes_to_use_per_rank\":5368709120,\"lazy_offload\":false}}"]
+  tool_calling:
+    description: Enable Kimi K3 automatic tool calling.
+    args: [--enable-auto-tool-choice, --tool-call-parser, kimi_k3]
+  reasoning:
+    description: Enable Kimi K3 reasoning parser.
+    args: [--reasoning-parser, kimi_k3]
+
+scenarios:
+  multi_node:
+    source_ref: "vllm_kimi_k3_manual#multi_node_tp"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        head:
+          engine_config:
+            model: moonshotai/Kimi-K3
+            trust_remote_code: true
+            gpu_memory_utilization: 0.98
+            tensor_parallel_size: 32
+            nnodes: 4
+            node_rank: 0
+            master_addr: 10.254.114.238
+            master_port: 29501
+            no_enable_flashinfer_autotune: true
+            cc.pass_config.fuse_allreduce_rms: false
+            moe_backend: marlin
+            disable_custom_all_reduce: true
+            max_num_batched_tokens: 4096
+            max_num_seqs: 10
+            max_model_len: 32768
+            attention_backend: FLASHMLA
+            enable_prefix_caching: true
+            distributed_timeout_seconds: 1200
+            host: 0.0.0.0
+            port: 18000
+          env:
+            NCCL_SOCKET_IFNAME: eth0
+            GLOO_SOCKET_IFNAME: eth0
+            VLLM_ENGINE_READY_TIMEOUT_S: 3600
+            VLLM_USE_V2_MODEL_RUNNER: 1
+            VLLM_USE_RUST_FRONTEND: 1
+          system_setup:
+            commands: [unset PYTORCH_CUDA_ALLOC_CONF, ulimit -l unlimited]
+        worker:
+          engine_config:
+            model: moonshotai/Kimi-K3
+            trust_remote_code: true
+            gpu_memory_utilization: 0.98
+            tensor_parallel_size: 32
+            nnodes: 4
+            node_rank: 1
+            master_addr: 10.254.114.238
+            master_port: 29501
+            headless: true
+            no_enable_flashinfer_autotune: true
+            cc.pass_config.fuse_allreduce_rms: false
+            moe_backend: marlin
+            disable_custom_all_reduce: true
+            max_num_batched_tokens: 4096
+            max_num_seqs: 10
+            max_model_len: 32768
+            attention_backend: FLASHMLA
+            enable_prefix_caching: true
+            distributed_timeout_seconds: 1200
+          env:
+            NCCL_SOCKET_IFNAME: eth0
+            GLOO_SOCKET_IFNAME: eth0
+            VLLM_ENGINE_READY_TIMEOUT_S: 3600
+            VLLM_USE_V2_MODEL_RUNNER: 1
+            VLLM_USE_RUST_FRONTEND: 1
+          system_setup:
+            commands: [unset PYTORCH_CUDA_ALLOC_CONF, ulimit -l unlimited]

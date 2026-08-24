@@ -1,0 +1,89 @@
+# 硬件 + 引擎公共默认值
+
+hardware:
+  gpu_count: 4  # 单节点 GPU/NPU 数量
+  vram_gb: 192  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+engine:
+  name: sglang  # 推理引擎
+  version: v0.5.10  # 引擎版本
+
+scenarios:
+  standalone:
+    source_ref: default#single_node
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Single Node
+        default_strategy: true
+        engine_config:
+          trust_remote_code: true
+          context_length: 4096
+          tp_size: 4
+
+  multi_node:
+    source_ref: default#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        display_name: Multi-Node
+        default_strategy: true
+        head:
+          engine_config:
+            trust_remote_code: true
+            context_length: 4096
+            tp_size: 8
+            nnodes: 2
+            node_rank: 0
+            dist_init_addr: "${HEAD_IP}:5000"
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:
+          engine_config:
+            trust_remote_code: true
+            context_length: 4096
+            tp_size: 8
+            nnodes: 2
+            node_rank: 1
+            dist_init_addr: "${HEAD_IP}:5000"
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+
+  pd_disaggregation:
+    source_ref: default#pd_cluster
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        default_strategy: true
+        nodes:
+          - role: prefill
+            index: 0
+            engine_config:
+              trust_remote_code: true
+              context_length: 4096
+              tp_size: 4
+              disaggregation_mode: prefill
+            env:
+              GLOO_SOCKET_IFNAME: $IFACE_NAME
+              NCCL_SOCKET_IFNAME: $IFACE_NAME
+          - role: decode
+            index: 0
+            engine_config:
+              trust_remote_code: true
+              context_length: 4096
+              tp_size: 4
+              disaggregation_mode: decode
+              dist_init_addr: "${DECODE_NODE_1}:5000"
+            env:
+              GLOO_SOCKET_IFNAME: $IFACE_NAME
+              NCCL_SOCKET_IFNAME: $IFACE_NAME
