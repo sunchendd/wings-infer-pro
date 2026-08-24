@@ -171,6 +171,31 @@ def test_deepseek_mtp_assets_do_not_match_unsupported_models(config_root_real):
     )
 
 
+def _model_variant_keys_by_hardware(root: Path) -> set[tuple[str, str]]:
+    """收集 ``(hardware, variant_name)`` 资产身份(跨版本合并)。
+
+    vLLM engine 目录无版本维度(``{hardware}/models/...``),而 smart-accel 有
+    (``v{version}/{hardware}/models/...``),故对比时以 ``(hardware, variant_name)``
+    为键,并跨 smart-accel 所有版本目录合并。
+    """
+    keys: set[tuple[str, str]] = set()
+    for path in root.glob("**/models/*/*.yaml"):
+        parts = path.parts
+        try:
+            models_idx = parts.index("models")
+        except ValueError:
+            continue
+        hardware = parts[models_idx - 1]
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        model = data.get("model") if isinstance(data, dict) else None
+        if not isinstance(model, dict):
+            continue
+        variant_name = model.get("variant_name")
+        if isinstance(variant_name, str) and variant_name.strip():
+            keys.add((hardware, variant_name.strip().casefold()))
+    return keys
+
+
 def test_vllm_ascend_engine_variants_have_smart_assets(config_root_real):
     """每个 vLLM-Ascend engine variant 必须有同版本、同硬件、同身份的 SmartAccel 资产。"""
     engine_keys = _model_variant_keys(config_root_real / "engines" / "vllm-ascend")
@@ -180,5 +205,23 @@ def test_vllm_ascend_engine_variants_have_smart_assets(config_root_real):
 
     assert not engine_only, (
         "以下 vLLM-Ascend engine variant 缺少同版本、同硬件、同身份的 SmartAccel 资产：\n"
+        + "\n".join(map(str, engine_only))
+    )
+
+
+def test_vllm_engine_variants_have_smart_assets(config_root_real):
+    """每个 vLLM engine variant 必须有同硬件、同身份的 SmartAccel 资产。
+
+    vLLM engine 目录无版本维度(``config/engines/vllm/{hardware}/models/...``),
+    smart-accel 有版本维度(``smart-accel/vllm/v{version}/{hardware}/models/...``),
+    故以 ``(hardware, variant_name)`` 为键对比,并跨 smart-accel 所有版本合并。
+    """
+    engine_keys = _model_variant_keys_by_hardware(config_root_real / "engines" / "vllm")
+    smart_root = Path(__file__).resolve().parents[2] / "src" / "wings_accel" / "smart-accel" / "vllm"
+    smart_keys = _model_variant_keys_by_hardware(smart_root)
+    engine_only = sorted(engine_keys - smart_keys)
+
+    assert not engine_only, (
+        "以下 vLLM engine variant 缺少同硬件、同身份的 SmartAccel 资产：\n"
         + "\n".join(map(str, engine_only))
     )
