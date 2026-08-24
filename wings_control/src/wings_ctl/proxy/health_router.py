@@ -26,6 +26,7 @@ from dataclasses import dataclass
 import httpx
 
 
+from wings_ctl.engines.extension import get_engine_extension
 from wings_ctl.proxy import proxy_config as C
 from wings_ctl.proxy.tags import build_backend_url
 
@@ -83,18 +84,13 @@ def _is_engine_container_alive() -> bool:
         return False
 
 
-def _is_mindie() -> bool:
-    """根据 ENGINE 环境变量判断当前 backend 是否为 MindIE。"""
-    return _ENGINE == "mindie"
-
-
 def _is_sglang() -> bool:
     """根据 ENGINE 环境变量判断当前 backend 是否为 sglang。"""
     return _ENGINE == "sglang"
 
 
 def _force_port(url: str, host: str, port: int) -> str:
-    # 把原 URL 的 host/port 强制替换掉，主要给 MindIE 健康探测使用。
+    # 引擎 profile 可声明独立管理端点；这里只替换地址，不理解具体引擎协议。
     scheme, rest = url.split("://", 1)          # "http", "<ip>:17000/health"
     hostport, path = rest.split("/", 1)         # "<ip>:17000", "health"
     return f"{scheme}://{host}:{port}/{path}"
@@ -103,12 +99,15 @@ def _force_port(url: str, host: str, port: int) -> str:
 async def _strict_probe_backend_health(client: httpx.AsyncClient) -> Tuple[bool, int, int, str]:
     """严格探测 backend `/health` 端点，返回 (ok, http_code, latency_ms, err_kind) 四元组。"""
     url = build_backend_url("/health")
-    if _is_mindie():
+    health_profile = get_engine_extension(_ENGINE).health
+    if health_profile is not None:
+        # 数据端口与管理健康端口的差异由 extension 声明。公共状态机只消费
+        # profile，不理解 MindIE daemon、MIES 配置或具体端口来源。
         url = _force_port(
             url,
-            os.getenv("MINDIE_HEALTH_HOST", "127.0.0.2"),
-            int(os.getenv("MINDIE_HEALTH_PORT", "1026")),
-        )  # mindie health probe
+            os.getenv(health_profile.host_env, health_profile.default_host),
+            int(os.getenv(health_profile.port_env, str(health_profile.default_port))),
+        )
 
     t0 = time.perf_counter()
     code = 0

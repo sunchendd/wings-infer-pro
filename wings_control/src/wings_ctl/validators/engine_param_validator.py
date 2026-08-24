@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from wings_ctl.core.models import EngineVersion, ParamValidationResult, ResolvedConfig, TracedValue
+from wings_ctl.engines.extension import get_engine_extension
 from wings_ctl.engines.vllm_adapter import MODEL_KEYS, render_param_tokens
 
 logger = logging.getLogger(__name__)
@@ -160,6 +161,13 @@ def validate_engine_params(resolved: ResolvedConfig, config_root: Path) -> None:
     Returns:
         None(副作用:设置 ``resolved.param_validation``)。
     """
+    # 结构化配置引擎由 extension 校验自身的完整领域计划。未注册 validator 的
+    # argv 引擎继续走 supported_params.txt，PD 逐 process 逻辑保持不变。
+    extension_validator = get_engine_extension(resolved.engine).validator
+    if extension_validator is not None:
+        resolved.param_validation = extension_validator(resolved)
+        return
+
     path = _resolve_supported_params_path(config_root, resolved.engine, resolved.engine_version)
     supported = _load_supported_params(path)
 

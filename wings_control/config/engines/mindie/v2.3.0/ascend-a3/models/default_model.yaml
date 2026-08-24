@@ -1,0 +1,58 @@
+schema_version: "1.0"
+
+# MindIE 2.3.0 单双机共享基线。模型路径与服务名必须由 MaaS/CLI 显式下发，
+# 避免默认资产意外指向不存在或错误的权重目录。
+# A3 当前与 A2 使用同一套已验证共享字段，但仍保留独立资产目录：未来硬件默认值
+# 分化时可在资产层调整，不需要把 hardware_family 判断写进 Python 主流水线。
+engine_config_defaults: &engine_config_defaults
+  # 总序列窗口必须覆盖最大输入 + 最大迭代输出；extension 会再次做关系校验。
+  max_seq_len: 4096
+  max_input_token_len: 2048
+  max_iter_times: 2048
+  # prefill 上限不能小于 max_input_token_len，否则合法输入也无法进入调度。
+  max_prefill_tokens: 8192
+  # 安全缺省为 false；只有 MaaS 显式传 --trust-remote-code 才覆盖为 true。
+  trust_remote_code: false
+  # 该比例由 ATB runtime 通过 NPU_MEMORY_FRACTION 消费，必须位于 (0, 1]。
+  npu_memory_fraction: 0.96
+  # 未下发 device-count 时作单卡兜底；双机由部署上下文计算并要求与固定 ranktable 一致。
+  local_device_count: 1
+
+# 这里只声明静态运行缺省。CANN/ATB/MindIE 的 source 顺序和节点动态 HCCL 值仍由
+# runtime 负责；厂商 set_env 完成后，runtime 会重新导出这里的最终 trace 值。
+platform_env: &platform_env
+  MINDIE_LOG_TO_STDOUT: "1"
+  NPU_MEMORY_FRACTION: "0.96"
+  PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+  OMP_NUM_THREADS: "10"
+  HCCL_DETERMINISTIC: "false"
+  HCCL_OP_EXPANSION_MODE: "AIV"
+  ATB_LLM_HCCL_ENABLE: "1"
+  ATB_LLM_COMM_BACKEND: "hccl"
+  INF_NAN_MODE_ENABLE: "0"
+  ATB_WORKSPACE_MEM_ALLOC_ALG_TYPE: "3"
+  ATB_WORKSPACE_MEM_ALLOC_GLOBAL: "1"
+  TASK_QUEUE_ENABLE: "2"
+  CPU_AFFINITY_CONF: "1"
+  ATB_LAYER_INTERNAL_TENSOR_REUSE: "1"
+  ATB_OPERATION_EXECUTE_ASYNC: "1"
+  ATB_CONVERT_NCHW_TO_ND: "1"
+  ATB_CONTEXT_WORKSPACE_SIZE: "0"
+  ATB_LAUNCH_KERNEL_WITH_TILING: "1"
+  ATB_LLM_ENABLE_AUTO_TRANSPOSE: "0"
+  ATB_LLM_LCOC_ENABLE: "0"
+  HCCL_CONNECT_TIMEOUT: "7200"
+  HCCL_EXEC_TIMEOUT: "600"
+  ASCEND_GLOBAL_LOG_LEVEL: "3"
+  ASCEND_SLOG_PRINT_TO_STDOUT: "0"
+
+# 当前 ConfigResolver 对平台 fallback 与具体模型使用同一 topology schema。
+# 单双机共享静态基线，节点、rank、全局规模和 HCCL 动态值仍由 MindIE extension
+# 在 prepare/runtime 阶段计算，不能写入本文件形成第二份拓扑事实。
+scenarios:
+  standalone:
+    engine_config: *engine_config_defaults
+    env: *platform_env
+  multi_node:
+    engine_config: *engine_config_defaults
+    env: *platform_env

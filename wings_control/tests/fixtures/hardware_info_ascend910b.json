@@ -1,0 +1,10 @@
+{
+  "hardware_family": "ascend-a2",
+  "device": "ascend",
+  "count": 8,
+  "npu": {
+    "name": "Ascend 910B",
+    "memory_gb": 64,
+    "cann_version": "8.0.RC2"
+  }
+}

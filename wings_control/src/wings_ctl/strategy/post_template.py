@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
+from wings_ctl.engines.extension import get_engine_extension
 from wings_ctl.strategy.parallelism import resolve_replica_tp_dp
 
 logger = logging.getLogger(__name__)
@@ -82,8 +83,22 @@ def device_count_transform(engine_config: dict, ctx: dict[str, Any]) -> tuple[di
     return {"data_parallel_size": resolved_dp}, notes
 
 
-# 固定顺序:当前仅 DeviceCount;后续追加 TopologyRuntimeInject / FeatureOverlay。
+# 通用 argv 引擎的固定策略链。特殊引擎可以通过 extension 替换整条链，避免
+# MindIE 的 local_device_count 被公共 TP/DP 协调误解释。
 TRANSFORMS: list[Transform] = [device_count_transform]
+
+
+def _transforms_for_engine(engine: str | None) -> list[Transform]:
+    """返回引擎声明的策略链；未声明时保持历史通用行为。"""
+    extension = get_engine_extension(engine or "")
+    if extension.post_template_transforms is not None:
+        return list(extension.post_template_transforms)
+    return TRANSFORMS
+
+
+def requires_parallelism_preflight(engine: str) -> bool:
+    """判断当前策略链是否会执行公共 TP/DP 收缩预检。"""
+    return device_count_transform in _transforms_for_engine(engine)
 
 
 def post_template_strategy(engine_config: dict, ctx: dict[str, Any]) -> tuple[dict, dict]:
@@ -101,7 +116,8 @@ def post_template_strategy(engine_config: dict, ctx: dict[str, Any]) -> tuple[di
     """
     overrides: dict = {}
     notes: dict = {}
-    for transform in TRANSFORMS:
+    # 引擎差异只通过 extension 能力进入；公共策略层不导入 MindIE 领域实现。
+    for transform in _transforms_for_engine(ctx.get("engine")):
         override, note = transform(engine_config, ctx)
         overrides.update(override)
         notes.update(note)

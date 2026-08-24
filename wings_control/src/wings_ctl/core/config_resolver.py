@@ -73,7 +73,10 @@ from wings_ctl.pd.recipe import select_pd_recipe_pair
 from wings_ctl.strategy.feature_inject import feature_inject_transform
 from wings_ctl.strategy.feature_overlay import feature_overlay_transform
 from wings_ctl.strategy.parallelism import check_capacity, dp_start_rank
-from wings_ctl.strategy.post_template import post_template_strategy
+from wings_ctl.strategy.post_template import (
+    post_template_strategy,
+    requires_parallelism_preflight,
+)
 from wings_ctl.strategy.reasoning_resolver import (
     build_model_identity,
     resolve_reasoning,
@@ -1332,6 +1335,7 @@ def _resolve_platform_fallback(
     platform_path: Any,
     platform_env: dict,
     topology: Topology,
+    engine: str,
     model_name: str,
     user_layer: dict,
     feature_overrides: dict,
@@ -1437,12 +1441,13 @@ def _resolve_platform_fallback(
     ):
         scenario_engine_config["model"] = model_name
 
-    # 单段 fallback 也必须经过与正常 recipe 相同的 TP/DP 策略处理，
-    # 这样 device_count 等用户输入仍能产生一致的 trace 和校验结果。
-    _preflight_shrink_gate(scenario_engine_config, device_count, hardware, weights_path)
+    # 只有实际采用公共 TP/DP transform 的 argv 引擎才执行权重/显存预检。
+    # MindIE 的 device_count 表示本地设备规模，由其 extension 自己校验和计算。
+    if requires_parallelism_preflight(engine):
+        _preflight_shrink_gate(scenario_engine_config, device_count, hardware, weights_path)
     strategy_overrides, strategy_notes = post_template_strategy(
         scenario_engine_config,
-        {"device_count": device_count, "topology": topology},
+        {"device_count": device_count, "topology": topology, "engine": engine},
     )
     # 按统一优先级合并平台默认值、策略覆盖、特性注入、智能加速和用户参数，
     # 并为每个最终参数保留来源链。
@@ -2275,6 +2280,7 @@ def resolve_config(
             platform_path=platform_path,
             platform_env=platform_env,
             topology=topology,
+            engine=engine,
             model_name=model_name,
             user_layer=user_layer,
             feature_overrides=feature_overrides,
@@ -2319,10 +2325,11 @@ def resolve_config(
             )
         else:
             scenario_engine_config = scenario["engine_config"]
-            _preflight_shrink_gate(scenario_engine_config, device_count, hardware, weights_path)
+            if requires_parallelism_preflight(engine):
+                _preflight_shrink_gate(scenario_engine_config, device_count, hardware, weights_path)
             strategy_overrides, strategy_notes = post_template_strategy(
                 scenario_engine_config,
-                {"device_count": device_count, "topology": topology},
+                {"device_count": device_count, "topology": topology, "engine": engine},
             )
             scenario_env = scenario["env"]
             scenario_engine_config_source_prefix = scenario["engine_config_source_prefix"]

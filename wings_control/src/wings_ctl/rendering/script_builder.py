@@ -21,6 +21,7 @@ from typing import Dict, List, Optional, Tuple
 from wings_ctl.common.settings import settings
 from wings_ctl.core.models import ResolvedConfig, SystemSetup, TracedValue
 from wings_ctl.core.topology import Topology
+from wings_ctl.engines.registry import build_launch_plan
 from wings_ctl.engines.vllm_adapter import (
     MODEL_KEYS,
     build_argv,
@@ -350,6 +351,7 @@ def _render_start_command_sh(
     accel_pre_serve_client: Optional[List[str]] = None,
     kv_disk_offload_path: Optional[str] = None,
     analyzer_preamble: Optional[str] = None,
+    engine_pre_start: Optional[List[str]] = None,
 ) -> str:
     """生成 start_command.sh 内容。简洁执行脚本。
 
@@ -370,6 +372,8 @@ def _render_start_command_sh(
         analyzer_preamble: log_analyzer 进度监控 shell 片段;None → 不注入。
             在 env export 之前插入,确保分析器在引擎启动前就开始监控日志。
             启动后台分析器进程并注册 trap 清理。
+        engine_pre_start: extension 生成的引擎专属启动前片段。公共渲染层只保证
+            它位于通用 env/accel 准备之后、唯一引擎生命周期之前，不解释内容。
     """
     lines = [
         "#!/usr/bin/env bash",
@@ -431,6 +435,11 @@ def _render_start_command_sh(
     # KV 磁盘卸载残留清理(仅 disk 开启):vllm serve 前清空卸载目录,保证重启后占用不超规划容量
     lines.extend(_render_kv_disk_cleanup_section(kv_disk_offload_path))
 
+
+    # MindIE 等结构化配置引擎在这里准备外部 config、固定 ranktable 和动态环境。
+    # extension 不能自行启动后台进程；进程回收和 analyzer cleanup 仍由公共层持有。
+    if engine_pre_start:
+        lines.extend(engine_pre_start)
     # 后台化引擎进程(而非 exec 替换 shell),使 trap cleanup_analyzer 保持有效。
     # exec 会替换 shell 进程导致 trap 失效:引擎退出时 cleanup 无法触发,
     # log_analyzer 成为孤儿进程。后台化 + wait 保持 shell 存活,trap 正常工作,
@@ -445,6 +454,33 @@ def _render_start_command_sh(
         "",
     ]
     return "\n".join(lines)
+
+
+def _render_plan_repro_sh(
+    resolved: ResolvedConfig,
+    start_content: str,
+    trace_comment_lines: List[str],
+) -> str:
+    """为结构化启动计划在实际脚本上补充来源注释。
+
+    不能把 MindIE 的嵌套配置反向渲染成 ``--flag``。因此直接复用已经生成的
+    start 内容，只在 shebang 后插入注释，保证 pre-start、daemon argv 与公共
+    后台等待生命周期完全一致。
+    """
+    lines = start_content.splitlines()
+    header = [
+        "# ─── Reproducibility Script ───",
+        f"# Generated from: {', '.join(resolved.source_files)}",
+        f"# Hardware: {resolved.hardware.hardware_family}",
+        f"# Engine: {resolved.engine} v{resolved.engine_version.resolved}",
+        f"# Topology: {resolved.topology.value}",
+        "",
+        *trace_comment_lines,
+        "",
+    ]
+    if not lines:
+        return "\n".join(header) + "\n"
+    return "\n".join([lines[0], *header, *lines[1:]]) + "\n"
 
 
 def _render_repro_sh(resolved: ResolvedConfig) -> str:
@@ -692,9 +728,10 @@ def build_scripts(
     # health 接口 /v1/startup/accel 读它回显页面(对齐老仓库 wings_entry 时机)。
     _write_advanced_features_json(resolved)
 
-    # accel.engine_config 已作为 strategy_accel 合并层并入 engine_config_traces,
-    # build_argv 自动渲染(深合并 + 去重 + 带 trace),无需在此 append。
-    argv = build_argv(resolved.engine_config_traces, engine=resolved.engine)
+    # registry 是 CLI、正式渲染和摘要共用的唯一 adapter 分发点。公共层只消费
+    # 启动计划，不判断 MindIE，也不读取其 engine_state。
+    launch_plan = build_launch_plan(resolved)
+    argv = launch_plan.argv
     analyzer_preamble = _build_analyzer_preamble(resolved)
     start_content = _render_start_command_sh(
         argv,
@@ -710,11 +747,19 @@ def build_scripts(
         accel_pre_serve_client=resolved.accel.pre_serve_client,
         kv_disk_offload_path=resolved.accel.kv_disk_offload_path,
         analyzer_preamble=analyzer_preamble,
+        engine_pre_start=launch_plan.pre_start_lines,
     )
     start_path.write_text(start_content, encoding="utf-8")
     start_path.chmod(0o755)
 
-    repro_content = _render_repro_sh(resolved)
+    if launch_plan.repro_trace_lines is not None:
+        repro_content = _render_plan_repro_sh(
+            resolved,
+            start_content,
+            launch_plan.repro_trace_lines,
+        )
+    else:
+        repro_content = _render_repro_sh(resolved)
     repro_path.write_text(repro_content, encoding="utf-8")
     repro_path.chmod(0o755)
 

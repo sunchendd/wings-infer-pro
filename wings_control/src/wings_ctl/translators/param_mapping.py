@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from wings_ctl.engines.extension import get_engine_extension
+
 _DROP = ""  # 空串 = 丢弃
 
 # vllm / vllm-ascend 共用:改名集 + 丢弃集均引擎无关
@@ -109,13 +111,21 @@ _DROP_REASONS = {
 
 
 def translate(key: str, engine: str) -> str | None:
-    """按映射表执行改名 / 缺省同名直通 / 空串丢弃。"""
+    """按扩展能力或公共映射表执行改名、直通和丢弃。"""
+    profile = get_engine_extension(engine).parameter_translation
+    if profile is not None and key in profile.mapping:
+        return profile.mapping[key]
     mapped = _PARAM_MAPPING.get(engine, {}).get(key, key)  # 缺省同名直通
     return None if mapped == _DROP else mapped  # 空串=丢弃→None
 
 
 def drop_reason(key: str, engine: str) -> str | None:
     """返回被丢弃参数的审计原因。"""
+    profile = get_engine_extension(engine).parameter_translation
+    if profile is not None and key in profile.mapping:
+        if profile.mapping[key] is not None:
+            return None
+        return profile.drop_reasons.get(key, "maas_status=丢弃")
     mapped = _PARAM_MAPPING.get(engine, {}).get(key, key)
     if mapped != _DROP:
         return None
