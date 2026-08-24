@@ -13,6 +13,7 @@ from wings_ctl.audit.emitter import emit_audit
 from wings_ctl.audit.startup_log import emit_startup_summary
 from wings_ctl.core.config_resolver import resolve_config, resolve_custom_config
 from wings_ctl.core.models import CustomConfigFile, PipelineRequest, ResolvedConfig, ResolvedEnv
+from wings_ctl.engines.extension import get_engine_extension
 from wings_ctl.engines.version_resolver import resolve_engine_version
 from wings_ctl.hardware.resolver import resolve_hardware
 from wings_ctl.loaders.config_root import resolve_config_root
@@ -38,6 +39,18 @@ def resolve_pipeline(request: PipelineRequest) -> ResolvedConfig:
     """
     resolved_root = resolve_config_root(request.config_root)
     hardware = resolve_hardware(request.hardware_info_path)
+    extension = get_engine_extension(request.target.engine)
+    # topology 能力必须在 ConfigResolver 前校验。否则 MindIE 收到 PD_ROLE 时会先
+    # 进入当前 argv 引擎的 ProcessPlan 构建，扩展根本没有机会按自己的边界失败。
+    if (
+        extension.supported_topologies is not None
+        and request.target.topology not in extension.supported_topologies
+    ):
+        supported = ", ".join(item.value for item in extension.supported_topologies)
+        raise NotImplementedError(
+            f"Engine {request.target.engine!r} does not support topology "
+            f"{request.target.topology.value!r}; supported: {supported}"
+        )
     engine_version = resolve_engine_version(
         resolved_root,
         hardware.hardware_family,
@@ -55,6 +68,10 @@ def resolve_pipeline(request: PipelineRequest) -> ResolvedConfig:
     )
     if request.pd_role_missing_legacy:
         resolved.resolution_notes["pd_role_input"] = "missing_legacy_standard"
+    # 基础 resolver 只产出通用 trace。扩展 prepare 返回的不透明领域计划只挂载
+    # 到 ResolvedConfig，公共 Pipeline 不读取其中的 HCCL、EP 或 config 字段。
+    if extension.prepare is not None:
+        resolved.engine_state = extension.prepare(resolved, request)
     # 参数支持校验:只写审计结果,不修改最终参数。
     validate_engine_params(resolved, resolved_root)
     return resolved
@@ -132,6 +149,11 @@ def run_pipeline(request: PipelineRequest, output_dir: Path) -> Tuple[ResolvedCo
         (ResolvedConfig, start_command.sh path, repro.sh path, audit.json path)
     """
     resolved = resolve_pipeline(request)
+    extension = get_engine_extension(resolved.engine)
+    if extension.control_prepare is not None:
+        # Shared inputs must be complete before start_command.sh becomes visible
+        # to the engine container.
+        extension.control_prepare(resolved)
 
     start_path, repro_path = build_scripts(resolved, output_dir)
     audit_path = emit_audit(resolved, output_dir)

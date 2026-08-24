@@ -39,6 +39,7 @@ from typing import Any, Dict, List
 from wings_ctl.common.log_config import LOGGER_LAUNCHER, setup_root_logging
 from wings_ctl.core.config_resolver import DEFAULT_ENGINE_PORT
 from wings_ctl.core.models import ClusterPlacement, CustomConfigFile, PipelineRequest, Target, UserInput
+from wings_ctl.engines.registry import format_launch_preview, format_launch_summary
 from wings_ctl.engines.vllm_adapter import build_argv
 from wings_ctl.pd.input_contract import parse_pd_runtime_input
 from wings_ctl.pipeline import resolve_pipeline, resolve_pipeline_custom, run_pipeline, run_pipeline_custom
@@ -511,14 +512,14 @@ def _run_dry_mode(
                 print(shlex.join(process.argv))
             return
 
-        # accel.engine_config 已并入 engine_config_traces,build_argv 输出即最终命令。
-        argv = build_argv(resolved.engine_config_traces, engine=engine)
     except (ValueError, FileNotFoundError, NotImplementedError) as exc:
         parser.error(str(exc))
         return
 
     _print_env_dry_run(resolved.env_traces)
-    print(shlex.join(argv))
+    # 普通 argv 与结构化配置引擎统一通过启动计划展示。MindIE 预览包含外部
+    # config 路径和领域覆盖摘要，但不会在 dry-run 阶段执行任何文件副作用。
+    print(format_launch_preview(resolved))
 
 
 def _validate_unknown_args(unknown_args: List[str]) -> None:
@@ -677,6 +678,9 @@ def main() -> None:
 
     try:
         engine = _resolve_engine(args.engine)
+        # ENGINE 是 health 等子进程选择扩展 profile 的跨进程事实。在入口显式
+        # 传播规范化结果，避免 CLI 与部署 env 识别不一致。
+        os.environ["ENGINE"] = engine
         hardware_info_path = _resolve_hardware_info_path(args.hardware_info)
         device_count = _resolve_device_count(args.device_count)
         # 显式副作用:把 --port(对外/代理端口)写入 env PORT,供 proxy 子系统读取(独立成步,不藏在参数收集里)。
@@ -779,7 +783,7 @@ def main() -> None:
         pd_role_missing_legacy=pd_role_missing_legacy,
     )
 
-    # 自定义传参方式(--config-file)分派:有 → 走独立 custom 支线(跳过 recipe);
+# 自定义传参方式(--config-file)分派:有 → 走独立 custom 支线(跳过 recipe);
     # 无 → 走现有 resolve_pipeline(完全不变,§2.3 支线 A)。
     # 贯彻"用户自管":params 与 env 均未传时**仍走 custom 支线**,不等价于 --config-file 未传
     # (用户显式传入 --config-file 即表达"走自定义、参数以我为准、由我负责"的意图)。
@@ -821,9 +825,7 @@ def main() -> None:
                 shlex.join(process.argv),
             )
     else:
-        # accel 已并入 traces,不再 append。shlex.join 与 exec 行同款。
-        argv = build_argv(resolved.engine_config_traces, engine=engine)
-        logger.info("argv: %s", shlex.join(argv))
+        logger.info("%s", format_launch_summary(resolved))
     logger.info("start_command: %s", start_path)
     logger.info("repro:         %s", repro_path)
     logger.info("audit:         %s", audit_path)

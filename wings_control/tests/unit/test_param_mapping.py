@@ -51,8 +51,13 @@ def test_translate_drop_keys():
 
 
 def test_translate_unknown_engine_passthrough():
-    """未注册引擎 → 缺省同名直通(sglang 已注册,改用未接入的 mindie 验直通)。"""
-    assert translate("model_path", "mindie") == "model_path"
+    """未注册引擎 → 缺省同名直通。"""
+    assert translate("model_path", "some-new-engine") == "model_path"
+
+
+def test_translate_mindie_uses_extension_mapping():
+    """已注册的 MindIE 引擎使用扩展参数映射。"""
+    assert translate("model_path", "mindie") == "model"
 
 
 def test_maas_contract_allowlist_excludes_quant_and_caching_keys():

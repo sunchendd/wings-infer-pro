@@ -128,8 +128,9 @@ class UserInput:
 class ClusterPlacement:
     """分布式集群寻址:本 Pod / 全集群 / master 的运行时 IP。
 
-    仅分布式拓扑(multi_node + PD 分离)使用;单机 / 无运行时上下文时整个 placement 为 None。
-    名字拓扑无关(不叫 MultiNodePlacement),便于 multi_node 与 PD 复用同一概念。
+    multi_node、PD 分离用于集群寻址；单机引擎也可只消费 ``rank_ip`` 作为当前 Pod 的服务
+    监听地址。无运行时上下文时整个 placement 为 None。名字拓扑无关(不叫
+    MultiNodePlacement)，便于引擎扩展复用同一概念而不向公共模型增加专有字段。
 
     Attributes:
         rank_ip: 本 Pod IP(multi_node 选 node 用)。
@@ -374,7 +375,8 @@ class PipelineRequest:
             解析后的真实根见 ResolvedEnv.config_root(勿混淆二者的生命周期)。
         user_input: 用户 CLI 意图。
         device_count: 下发卡数(全程规模:单机驱动 DP、多机参与协调;None=不触发)。
-        placement: multi_node 或 PD 的集群寻址;单机/无运行时上下文为 None。
+        placement: 运行时寻址；multi_node/PD 消费完整集群信息，单机可只消费 rank_ip；
+            无运行时上下文为 None。
         pd_input: PD 当前 Pod 的原子输入；标准推理为 None。
         pd_role_missing_legacy: ``PD_ROLE`` 完全缺失时的迁移标记；仅写入解析说明，
             不把标准推理改判为 PD。
@@ -388,7 +390,6 @@ class PipelineRequest:
     placement: Optional[ClusterPlacement] = None
     pd_input: Optional[PdRuntimeInput] = None
     pd_role_missing_legacy: bool = False
-
 
 @dataclass(frozen=True)
 class CustomConfigFile:
@@ -428,7 +429,7 @@ class SystemSetup:
 
     sysctls: Dict[str, Any] = field(default_factory=dict)
     sysfs_writes: List[Dict[str, str]] = field(default_factory=list)
-    # 所有拓扑均按注释形式渲染 commands，框架不执行其中命令。
+    # standalone 路径按注释渲染;multi_node 已注入路径会 inline 执行其中的运行时命令。
     commands: List[str] = field(default_factory=list)
     source_file: str = ""  # 来源文件(用于 audit)
     source_path: str = ""  # YAML 路径
@@ -526,3 +527,6 @@ class ResolvedConfig:
     # PD 可执行配置只存在于 process_plan；标准推理两字段恒 None，继续使用顶层 traces。
     pd_topology: Optional[ResolvedPdTopology] = None
     process_plan: Optional[ProcessPlan] = None
+
+    # Opaque engine-specific state prepared after generic resolution.
+    engine_state: Any = None

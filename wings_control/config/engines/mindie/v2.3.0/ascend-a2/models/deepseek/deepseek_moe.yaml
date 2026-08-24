@@ -1,0 +1,57 @@
+schema_version: "1.0"
+
+# 该 profile 只声明已经验证可由 MindIE 2.3.0 使用 EP 的 DeepSeek MoE 家族。
+# R1-Distill 权重通常采用稠密 Qwen/Llama 架构，必须排除，不能因名称包含 R1 开启 EP。
+model:
+  min_engine_version: "2.3.0"
+  match:
+    - name_pattern: "(?i)^deepseek[-_ ]?(?!r1[-_ ]?distill)(v2|v3(?:\\.1)?|r1)(?:[-_ ].*)?$"
+
+x-engine-config: &engine_config
+  max_seq_len: 4096
+  max_input_token_len: 2048
+  max_iter_times: 2048
+  max_prefill_tokens: 8192
+  trust_remote_code: false
+  npu_memory_fraction: 0.96
+  local_device_count: 1
+  mindie_is_moe: true
+  mindie_ep_enabled: true
+  mindie_ep_policy: full_world
+  mindie_moe_tp: 1
+  mindie_ep_level: 1
+  mindie_model_family: deepseekv2
+
+x-runtime-env: &runtime_env
+  MINDIE_LOG_TO_STDOUT: "1"
+  NPU_MEMORY_FRACTION: "0.96"
+  PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+  OMP_NUM_THREADS: "10"
+  HCCL_DETERMINISTIC: "false"
+  HCCL_OP_EXPANSION_MODE: "AIV"
+  ATB_LLM_HCCL_ENABLE: "1"
+  ATB_LLM_COMM_BACKEND: "hccl"
+  INF_NAN_MODE_ENABLE: "0"
+  ATB_WORKSPACE_MEM_ALLOC_ALG_TYPE: "3"
+  ATB_WORKSPACE_MEM_ALLOC_GLOBAL: "1"
+  TASK_QUEUE_ENABLE: "2"
+  CPU_AFFINITY_CONF: "1"
+  ATB_LAYER_INTERNAL_TENSOR_REUSE: "1"
+  ATB_OPERATION_EXECUTE_ASYNC: "1"
+  ATB_CONVERT_NCHW_TO_ND: "1"
+  ATB_CONTEXT_WORKSPACE_SIZE: "0"
+  ATB_LAUNCH_KERNEL_WITH_TILING: "1"
+  ATB_LLM_ENABLE_AUTO_TRANSPOSE: "0"
+  ATB_LLM_LCOC_ENABLE: "0"
+  HCCL_CONNECT_TIMEOUT: "7200"
+  HCCL_EXEC_TIMEOUT: "600"
+  ASCEND_GLOBAL_LOG_LEVEL: "3"
+  ASCEND_SLOG_PRINT_TO_STDOUT: "0"
+
+scenarios:
+  standalone:
+    engine_config: *engine_config
+    env: *runtime_env
+  multi_node:
+    engine_config: *engine_config
+    env: *runtime_env
