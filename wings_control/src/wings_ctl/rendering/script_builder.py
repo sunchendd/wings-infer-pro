@@ -135,20 +135,15 @@ def _write_advanced_features_json(resolved: ResolvedConfig) -> None:
         resolved: 配置解析最终产物(``resolved.accel`` 承载 wings-accel 产出)。
     """
     accel = resolved.accel
-    # features:有选中 scheme 即该特性最终生效(scheme 名即 variants 策略)
+    # features:有选中 scheme 即该特性最终生效(scheme 名即 variants 策略);
+    # sparse_kv 只按 MaaS 开关开且 smart 命中 sparse scheme 回显(recipe 基线 fp8 不算)
     decoding_scheme = accel.audit.get("smart_decoding_scheme") if accel.audit else None
     sparse_scheme = accel.audit.get("smart_kv_sparse_scheme") if accel.audit else None
     offload_scheme = accel.audit.get("smart_kv_cache_scheme") if accel.audit else None
-    kv_cache_dtype = (
-        resolved.engine_config_traces["kv_cache_dtype"].final_value
-        if "kv_cache_dtype" in resolved.engine_config_traces
-        else None
-    )
-    fp8_kv_cache_enabled = kv_cache_dtype == "fp8"
 
     features = {
         "speculative_decode": bool(decoding_scheme),
-        "sparse_kv": bool(sparse_scheme) or fp8_kv_cache_enabled,
+        "sparse_kv": bool(sparse_scheme),
         "kv_offload": bool(offload_scheme),
         "rag_acc": False,  # RAG 加速不走 wings-accel(proxy 子系统按 RAG_ACC_ENABLED 自行判定)
     }

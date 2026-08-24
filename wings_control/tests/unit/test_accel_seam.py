@@ -176,8 +176,8 @@ def test_build_scripts_writes_advanced_features_disabled(tmp_path, monkeypatch):
     assert data["others"]["speculative_decode"] is None
 
 
-def test_build_scripts_reports_fp8_kv_cache_as_sparse(tmp_path, monkeypatch):
-    """最终 recipe 启用精确 fp8 KV cache 时，即使未选 sparse scheme 页面也回显稀疏。"""
+def test_build_scripts_reports_sparse_scheme_as_sparse_kv(tmp_path, monkeypatch):
+    """MaaS 开 SPARSE 且命中 yaml scheme → 页面回显稀疏；纯 recipe fp8（未开 SPARSE）不算。"""
     import json as _json
     from wings_ctl.common.settings import settings
 
@@ -191,12 +191,13 @@ def test_build_scripts_reports_fp8_kv_cache_as_sparse(tmp_path, monkeypatch):
     build_scripts(resolved, tmp_path)
 
     data = _json.loads(target.read_text(encoding="utf-8"))
-    assert data["features"]["sparse_kv"] is True
+    # 无选中 sparse scheme（SPARSE 未开/未命中）→ 即使 recipe 基线是 fp8 也不回显稀疏
+    assert data["features"]["sparse_kv"] is False
     assert data["variants"]["sparse_kv"] is None
 
 
 def test_build_scripts_does_not_report_fp8_e4m3_as_sparse(tmp_path, monkeypatch):
-    """仅精确值 fp8 属于本次 sparse 回显语义，fp8_e4m3 不触发。"""
+    """仅选中 sparse scheme 才回显稀疏；fp8_e4m3 等其他 dtype 不影响该口径。"""
     import json as _json
     from wings_ctl.common.settings import settings
 
