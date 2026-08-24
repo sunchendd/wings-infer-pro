@@ -40,6 +40,19 @@ def test_sparse_accuracy_hit():
     assert out.engine_params.engine_config["hf_overrides"]["index_topk_freq"] == 4
 
 
+def test_sparse_fp8_scheme_keeps_kv_cache_dtype():
+    block = [
+        {"name": "performance_first", "cli_params": {"kv_cache_dtype": "fp8"}, "envs": {}},
+        {"name": "accuracy_first", "cli_params": {"kv_cache_dtype": "fp8"}, "envs": {}},
+    ]
+
+    out = smart_sparse_expander(
+        SmartKVSparseConfig(enabled=True, mode="performance_first"), block, PlaceholderContext()
+    )
+
+    assert out.engine_params.engine_config["kv_cache_dtype"] == "fp8"
+
+
 def test_sparse_performance_miss_degrade_to_accuracy():
     block = [
         {

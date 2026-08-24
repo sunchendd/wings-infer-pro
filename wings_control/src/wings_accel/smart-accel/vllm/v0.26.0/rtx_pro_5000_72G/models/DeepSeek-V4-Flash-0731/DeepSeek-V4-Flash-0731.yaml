@@ -25,12 +25,14 @@ smart_accel:
         sparse:
         - name: performance_first
           cli_params:
+            kv_cache_dtype: fp8
             hf_overrides:
               use_index_cache: true
               index_topk_freq: 8
           envs: {}
         - name: accuracy_first
           cli_params:
+            kv_cache_dtype: fp8
             hf_overrides:
               use_index_cache: true
               index_topk_freq: 4

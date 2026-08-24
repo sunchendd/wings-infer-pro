@@ -20,6 +20,15 @@ smart_accel:
             kv_offloading_backend: native
             kv_offloading_size: '{memory_capacity_gb}'
           envs: {}
+        sparse:
+        - name: performance_first
+          cli_params:
+            kv_cache_dtype: fp8
+          envs: {}
+        - name: accuracy_first
+          cli_params:
+            kv_cache_dtype: fp8
+          envs: {}
   multi_node:
     source_ref: smart_accel#multi_node
     match:
@@ -33,4 +42,13 @@ smart_accel:
           cli_params:
             kv_offloading_backend: native
             kv_offloading_size: '{memory_capacity_gb}'
+          envs: {}
+        sparse:
+        - name: performance_first
+          cli_params:
+            kv_cache_dtype: fp8
+          envs: {}
+        - name: accuracy_first
+          cli_params:
+            kv_cache_dtype: fp8
           envs: {}

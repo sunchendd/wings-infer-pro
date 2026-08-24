@@ -139,10 +139,16 @@ def _write_advanced_features_json(resolved: ResolvedConfig) -> None:
     decoding_scheme = accel.audit.get("smart_decoding_scheme") if accel.audit else None
     sparse_scheme = accel.audit.get("smart_kv_sparse_scheme") if accel.audit else None
     offload_scheme = accel.audit.get("smart_kv_cache_scheme") if accel.audit else None
+    kv_cache_dtype = (
+        resolved.engine_config_traces["kv_cache_dtype"].final_value
+        if "kv_cache_dtype" in resolved.engine_config_traces
+        else None
+    )
+    fp8_kv_cache_enabled = kv_cache_dtype == "fp8"
 
     features = {
         "speculative_decode": bool(decoding_scheme),
-        "sparse_kv": bool(sparse_scheme),
+        "sparse_kv": bool(sparse_scheme) or fp8_kv_cache_enabled,
         "kv_offload": bool(offload_scheme),
         "rag_acc": False,  # RAG 加速不走 wings-accel(proxy 子系统按 RAG_ACC_ENABLED 自行判定)
     }
