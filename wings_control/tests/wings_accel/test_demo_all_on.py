@@ -68,13 +68,15 @@ def test_all_on_real_output(model):
         # kv_cache_dtype 由 engine_config baseline 提供,smart-accel sparse 块不再重复声明
         assert "kv_cache_dtype" not in ec
     elif model == "MiniMax-M2.7":
-        # decoding=suffix(features.spec_decoding method=suffix;无 kv_offload/sparse 块)
+        # decoding=suffix + kv_offload=cpu(资产新增独立 cpu scheme:仅开内存时走 lmcache cpu-only)
         assert out.smart_decoding_scheme == "suffix"
-        assert out.smart_kv_cache_scheme is None
+        assert out.smart_kv_cache_scheme == "cpu"
         assert out.smart_kv_sparse_scheme is None
-        assert "speculative_config" in ec and "kv_transfer_config" not in ec
+        assert "speculative_config" in ec and "kv_transfer_config" in ec
         assert ec["speculative_config"]["method"] == "suffix"
-        assert out.packages == []  # arctic-inference 默认已预装,不再声明为 pip 依赖
+        assert env["LMCACHE_LOCAL_CPU"] == "True"  # 内存侧保留
+        assert not any("DISK" in k for k in env)  # cpu-only:env 无 DISK 相关键
+        assert out.packages == []  # 资产未声明 packages(lmcache 镜像预装)
     else:  # Qwen3.5-397B-A17B
         # decoding + kv_offload(cpu)(yaml 无 sparse 块)
         assert out.smart_decoding_scheme == "mtp"
