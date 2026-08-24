@@ -38,7 +38,7 @@ def parse_pd_role(raw_role: str | None) -> tuple[PdRole | None, bool]:
         ValueError: 值为空串或不属于 ``none/P/D``。
     """
     if raw_role is None:
-        logger.warning("PD_ROLE 未设置，迁移期按标准推理处理；MaaS 应显式下发 PD_ROLE=none")
+        logger.warning("PD_ROLE is unset; treating this as standard inference during migration. MaaS should explicitly send PD_ROLE=none")
         return None, True
     if raw_role == "none":
         return None, False
@@ -46,7 +46,7 @@ def parse_pd_role(raw_role: str | None) -> tuple[PdRole | None, bool]:
         return PdRole.PREFILL, False
     if raw_role == PdRole.DECODE.value:
         return PdRole.DECODE, False
-    raise ValueError(f"PD_ROLE 必须是 'none'、'P' 或 'D'，当前值为 {raw_role!r}；空串也不表示标准推理。")
+    raise ValueError(f"PD_ROLE must be 'none', 'P', or 'D'; got {raw_role!r}. An empty string is not standard inference.")
 
 
 def _parse_integer_field(env: Mapping[str, str], name: str, *, allow_zero: bool) -> int:
@@ -65,16 +65,16 @@ def _parse_integer_field(env: Mapping[str, str], name: str, *, allow_zero: bool)
     """
     raw = env[name]
     if raw == "":
-        raise ValueError(f"PD 字段 {name} 不能为空。")
+        raise ValueError(f"PD field {name} must not be empty")
     try:
         value = int(raw, 10)
     except ValueError as exc:
-        raise ValueError(f"PD 字段 {name} 必须是十进制整数，当前值为 {raw!r}。") from exc
+        raise ValueError(f"PD field {name} must be a decimal integer; got {raw!r}") from exc
     if allow_zero:
         if value < 0:
-            raise ValueError(f"PD 字段 {name} 必须大于等于 0，当前值为 {value}。")
+            raise ValueError(f"PD field {name} must be greater than or equal to 0; got {value}")
     elif value <= 0:
-        raise ValueError(f"PD 字段 {name} 必须是正整数，当前值为 {value}。")
+        raise ValueError(f"PD field {name} must be a positive integer; got {value}")
     return value
 
 
@@ -95,7 +95,7 @@ def parse_explicit_pd_topology(env: Mapping[str, str]) -> ExplicitPdTopology | N
         return None
     if len(present) != len(PD_TOPOLOGY_FIELDS):
         missing = [name for name in PD_TOPOLOGY_FIELDS if name not in env]
-        raise ValueError(f"PD topology 六字段必须全部存在或全部缺失；已存在={present}，缺失={missing}。")
+        raise ValueError(f"All six PD topology fields must be present or absent; present={present}, missing={missing}")
 
     return ExplicitPdTopology(
         pd_index=_parse_integer_field(env, "PD_INDEX", allow_zero=True),
@@ -131,17 +131,17 @@ def _normalize_single_pod_placement(placement: ClusterPlacement | None) -> Clust
             ``MASTER_IP``/``NODE_IPS`` 与 singleton 不一致。
     """
     if placement is None or not placement.rank_ip:
-        raise ValueError("PD 单 Pod Instance 必填 RANK_IP（当前 Pod IP）；MASTER_IP/NODE_IPS 可缺省。")
+        raise ValueError("A single-Pod PD instance requires RANK_IP; MASTER_IP and NODE_IPS are optional")
     if placement.node_ips and placement.node_ips != [placement.rank_ip]:
         raise ValueError(
-            "PD 单 Pod Instance 的 NODE_IPS 如存在必须等于 [RANK_IP]；"
-            f"NODE_IPS={placement.node_ips!r}，RANK_IP={placement.rank_ip!r}。"
-            "多个 Pod 属跨 Pod 场景，应下发 --distributed 并给完整 placement。"
+            "For a single-Pod PD instance, NODE_IPS must equal [RANK_IP] when provided; "
+            f"NODE_IPS={placement.node_ips!r}, RANK_IP={placement.rank_ip!r}. "
+            "Multiple Pods require --distributed and complete placement."
         )
     if placement.master_ip is not None and placement.master_ip != placement.rank_ip:
         raise ValueError(
-            "PD 单 Pod Instance 的 MASTER_IP 如存在必须等于 RANK_IP；"
-            f"MASTER_IP={placement.master_ip!r}，RANK_IP={placement.rank_ip!r}。"
+            "For a single-Pod PD instance, MASTER_IP must equal RANK_IP when provided; "
+            f"MASTER_IP={placement.master_ip!r}, RANK_IP={placement.rank_ip!r}."
         )
     return ClusterPlacement(
         rank_ip=placement.rank_ip,
@@ -165,27 +165,27 @@ def validate_pd_placement(placement: ClusterPlacement) -> None:
         ValueError: placement 缺失、成员少于 2、顺序错误、成员重复或当前 Pod 不在成员中。
     """
     if not placement.master_ip:
-        raise ValueError("PD 跨 Pod 场景必填 MASTER_IP，值应为当前 logical Instance 的首个 Pod IP。")
+        raise ValueError("Cross-Pod PD requires MASTER_IP, which must be the first Pod IP of the current logical instance")
     if not placement.rank_ip:
-        raise ValueError("PD 跨 Pod 场景必填 RANK_IP，值应为当前 Pod IP。")
+        raise ValueError("Cross-Pod PD requires RANK_IP for the current Pod")
     if not placement.node_ips:
-        raise ValueError("PD 跨 Pod 场景必填非空 NODE_IPS，且只包含当前 logical Instance 成员。")
+        raise ValueError("Cross-Pod PD requires non-empty NODE_IPS containing only current logical-instance members")
     if len(placement.node_ips) < 2:
         raise ValueError(
-            "PD 跨 Pod 场景(--distributed)要求 NODE_IPS 至少 2 个成员；"
-            f"当前为单 Pod {placement.node_ips!r}，应走单 Pod 解析而不下发 --distributed。"
+            "Cross-Pod PD (--distributed) requires at least two NODE_IPS members; "
+            f"got a single Pod {placement.node_ips!r}. Use single-Pod PD without --distributed."
         )
     if len(set(placement.node_ips)) != len(placement.node_ips):
-        raise ValueError(f"PD NODE_IPS 不允许重复成员，当前值为 {placement.node_ips!r}。")
+        raise ValueError(f"PD NODE_IPS must not contain duplicate members; got {placement.node_ips!r}")
     if placement.master_ip != placement.node_ips[0]:
         raise ValueError(
-            "PD MASTER_IP 必须等于 NODE_IPS[0]；"
-            f"MASTER_IP={placement.master_ip!r}，NODE_IPS[0]={placement.node_ips[0]!r}。"
+            "PD MASTER_IP must equal NODE_IPS[0]; "
+            f"MASTER_IP={placement.master_ip!r}, NODE_IPS[0]={placement.node_ips[0]!r}."
         )
     if placement.node_ips.count(placement.rank_ip) != 1:
         raise ValueError(
-            "PD RANK_IP 必须在 NODE_IPS 中恰好出现一次；"
-            f"RANK_IP={placement.rank_ip!r}，NODE_IPS={placement.node_ips!r}。"
+            "PD RANK_IP must appear exactly once in NODE_IPS; "
+            f"RANK_IP={placement.rank_ip!r}, NODE_IPS={placement.node_ips!r}."
         )
 
 
@@ -218,14 +218,14 @@ def parse_pd_runtime_input(
     present = [name for name in PD_TOPOLOGY_FIELDS if name in env]
     if role is None:
         if present:
-            raise ValueError(f"标准推理不允许残留 PD topology 字段：{present}。")
+            raise ValueError(f"Standard inference must not retain PD topology fields: {present}")
         return None, missing_legacy_standard
 
     explicit_topology = parse_explicit_pd_topology(env)
 
     if distributed:
         if placement is None:
-            raise ValueError("PD 跨 Pod 场景(--distributed)必填 MASTER_IP、RANK_IP 和 NODE_IPS。")
+            raise ValueError("Cross-Pod PD (--distributed) requires MASTER_IP, RANK_IP, and NODE_IPS")
         validate_pd_placement(placement)
     else:
         placement = _normalize_single_pod_placement(placement)

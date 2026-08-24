@@ -55,7 +55,7 @@ def test_cnt_less_than_m_shrinks_tp() -> None:
 
 def test_cnt_less_than_m_non_power_of_two_raises() -> None:
     """R-H:cnt<M 但非 2 的幂(3<4)→ ValueError(收缩守卫)。"""
-    with pytest.raises(ValueError, match="2 的幂"):
+    with pytest.raises(ValueError, match="power of two"):
         device_count_transform(_cfg(tp=4), {"device_count": 3})
 
 
@@ -72,7 +72,7 @@ def test_shrink_collapses_template_dp_to_one() -> None:
 
 def test_cnt_not_multiple_of_m_raises() -> None:
     """cnt 非 M 整数倍(10%4≠0)→ ValueError(走公共核,不向下取整)。"""
-    with pytest.raises(ValueError, match="整数倍"):
+    with pytest.raises(ValueError, match="not divisible"):
         device_count_transform(_cfg(tp=4), {"device_count": 10})
 
 

@@ -60,7 +60,7 @@ def parse_feature_args(args: list[str]) -> dict[str, Any]:
         token = str(args[i])
         if not token.startswith("--"):
             # 遇到非 flag 游离 token 时仅告警并跳过,不阻断流程。
-            logger.warning("features.args 出现非 flag 游离 token,已跳过:%r", token)
+            logger.warning("features.args contains a non-flag stray token; skipping: %r", token)
             i += 1
             continue
         key = flag_to_key(token)
@@ -110,7 +110,7 @@ def feature_overlay_transform(engine_config: dict, ctx: dict[str, Any]) -> Featu
             # 开关开了但 yaml 没这特性: 记录 warning,不中断流程。
             notes[f"feature_overlay.{feature_key}"] = f"switch_on_but_absent(switch={switch_key})"
             logger.warning(
-                "特性开关 %s 已开,但 model.yaml features.%s 缺失或无 args,跳过(warn-skip)",
+                "Feature switch %s is enabled, but model.yaml features.%s is missing or has no args; skipping in warn-only mode",
                 switch_key,
                 feature_key,
             )
@@ -133,7 +133,7 @@ def feature_overlay_transform(engine_config: dict, ctx: dict[str, Any]) -> Featu
             trace_sources[key] = (source_file, trace_path)
         notes[f"feature_overlay.{feature_key}"] = "applied: " + " ".join(str(a) for a in args)
         logger.info(
-            "特性覆盖生效:%s(开关 %s)→ 附加 %s",
+            "Feature overlay applied: %s (switch %s) -> adding %s",
             feature_key,
             switch_key,
             parsed,

@@ -235,14 +235,14 @@ def _derive_max_model_len(input_length: int | None, output_length: int | None) -
         return None
     if input_length <= 0 or output_length <= 0:
         logger.warning(
-            "input_length=%s / output_length=%s 含非正值,跳过 max_model_len 派生",
+            "input_length=%s / output_length=%s contains a non-positive value; skipping max_model_len derivation",
             input_length,
             output_length,
         )
         return None
     mml = input_length + output_length
     logger.info(
-        "派生 max_model_len = input_length(%d) + output_length(%d) = %d(覆盖 recipe)",
+        "Derived max_model_len = input_length(%d) + output_length(%d) = %d; overriding recipe value",
         input_length,
         output_length,
         mml,
@@ -284,7 +284,7 @@ def _resolve_output_dir(cli_value: Path | None) -> Path:
     if cli_value is not None:
         return cli_value
     if SHARED_VOLUME_DIR.is_dir():
-        logger.info("未传 --output-dir,检测到共享卷 → 三件产物落 %s(engine 从此读 start_command.sh)", SHARED_VOLUME_DIR)
+        logger.info("--output-dir was not provided; using shared volume %s for generated artifacts", SHARED_VOLUME_DIR)
         return SHARED_VOLUME_DIR
     return Path(".")
 
@@ -306,7 +306,7 @@ def _resolve_hardware_info_path(cli_path: Path | None) -> Path:
     if cli_path is not None:
         return cli_path
     logger.info(
-        "未传 --hardware-info,默认读固定目录 %s(wings-engine 探测产物)",
+        "--hardware-info was not provided; using default hardware discovery output %s",
         DEFAULT_HARDWARE_INFO_PATH,
     )
     return DEFAULT_HARDWARE_INFO_PATH
@@ -325,7 +325,7 @@ def _resolve_device_count(cli_value: int | None) -> int | None:
         try:
             return int(env_val)
         except ValueError:
-            logger.warning("DEVICE_COUNT env '%s' 非整数,忽略(按 unset 处理)", env_val)
+            logger.warning("DEVICE_COUNT environment value '%s' is not an integer; treating it as unset", env_val)
             return None
     return None
 
@@ -352,9 +352,9 @@ def _resolve_model_name(model_name: str | None, model_path: str | None) -> str:
         return model_name
     if model_path:
         name = Path(model_path).name  # basename;应匹配 recipe 的 name_pattern
-        logger.info("未传 --model-name,从 --model-path 推导配方标识: %s", name)
+        logger.info("--model-name was not provided; derived recipe identifier from --model-path: %s", name)
         return name
-    raise ValueError("需要 --model-name 或 --model-path 以确定配方(MaaS 下发 --model-name 模型名称)")
+    raise ValueError("Either --model-name or --model-path is required to identify the recipe")
 
 
 def _collect_subsystem_switches(args: argparse.Namespace) -> List[str]:
@@ -397,20 +397,20 @@ def _load_config_file(path: Path) -> CustomConfigFile:
         ValueError: 文件缺失、JSON 解析失败、或结构非法(供 main 友好报错)。
     """
     if not path.exists():
-        raise ValueError(f"config-file 不存在: {path}")
+        raise ValueError(f"config-file does not exist: {path}")
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"config-file JSON 解析失败({path}): {exc}") from exc
+        raise ValueError(f"Failed to parse config-file JSON ({path}): {exc}") from exc
     if not isinstance(data, dict):
-        raise ValueError(f"config-file 必须是 JSON 对象,得到 {type(data).__name__}({path})")
+        raise ValueError(f"config-file must be a JSON object, got {type(data).__name__} ({path})")
     params = data.get("params", {})
     env = data.get("env", {})
     if not isinstance(params, dict):
-        raise ValueError(f"config-file.params 必须是 JSON 对象,得到 {type(params).__name__}({path})")
+        raise ValueError(f"config-file.params must be a JSON object, got {type(params).__name__} ({path})")
     if not isinstance(env, dict):
-        raise ValueError(f"config-file.env 必须是 JSON 对象,得到 {type(env).__name__}({path})")
+        raise ValueError(f"config-file.env must be a JSON object, got {type(env).__name__} ({path})")
     return CustomConfigFile(params=dict(params), env=dict(env))
 
 
@@ -451,7 +451,7 @@ def _print_multi_node_dry_run(engine: str, nodes: List[Any]) -> None:
     """
     for node in nodes:
         node_argv = build_argv(node.engine_config_traces, engine=engine)
-        print(f"# node[{node.role}] (multi_node 占位,未注入 $占位符)")
+        print(f"# node[{node.role}] (multi_node placeholder; runtime variables are not injected)")
         _print_env_dry_run(node.env_traces)
         print(shlex.join(node_argv))
 
@@ -467,7 +467,7 @@ def _print_multi_node_summary(engine: str, nodes: List[Any]) -> None:
         None。
     """
     logger.info(
-        "multi_node: %s 节点(占位,未注入;start_command.sh 为占位脚本,部署时各 Pod 携 RANK_IP/NODE_IPS 重跑)",
+        "multi_node: %s nodes (placeholder; runtime variables are not injected; rerun wings-ctl in each Pod with RANK_IP/NODE_IPS)",
         len(nodes),
     )
     for node in nodes:
@@ -568,7 +568,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--distributed",
         action="store_true",
         default=None,
-        help="分布式判定总开关(MaaS 下发);topology 由大策略层从此 + PD_ROLE/NODE_IPS/MASTER_IP 推导",
+        help="Distributed mode switch from MaaS; topology is derived from this flag plus PD_ROLE/NODE_IPS/MASTER_IP",
     )
     parser.add_argument(
         "--engine",
@@ -585,9 +585,9 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help=(
-            "对外/代理端口(sidecar:proxy 对外端口,默认 18000)。"
-            "注意:它**不设引擎端口**——引擎监听 backend(默认 17000),"
-            "引擎端口请用 ENGINE_PORT 环境变量调整。"
+            "External proxy port (sidecar proxy default: 18000). "
+            "This does not set the engine port: the engine listens on backend port 17000 by default. "
+            "Use ENGINE_PORT to configure the engine port."
         ),
     )
     parser.add_argument(
@@ -626,7 +626,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--device-count",
         type=int,
         default=None,
-        help="GPU 卡数(MaaS 下发,fallback: DEVICE_COUNT env)。驱动 DP 协调(DP=cnt//TP,TP 静态;写 trace),未传则不触发。",
+        help="GPU count from MaaS (fallback: DEVICE_COUNT env). Drives DP coordination (DP=count//TP; static TP; traced).",
     )
     parser.add_argument(
         "--dry-run",
@@ -645,9 +645,9 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="PATH",
         help=(
-            "自定义 JSON 配置文件路径(自定义传参方式)。传入后走 resolve_custom_config 路径:"
-            "参数以 JSON 的 `params` 为准,不匹配 recipe/YAML;`env` 在 engine 启动前注入。"
-            "JSON 结构: {\\\"params\\\": {...}, \\\"env\\\": {...}};两字段均可选。"
+            "Path to a custom JSON configuration. Uses resolve_custom_config: params come from JSON `params` "
+            "instead of recipe/YAML, and `env` is injected before engine startup. "
+            "JSON shape: {\\\"params\\\": {...}, \\\"env\\\": {...}}; both fields are optional."
         ),
     )
     return parser
@@ -667,13 +667,13 @@ def main() -> None:
     # 子系统特性开关留痕(实际消费见下方 feature_switches / proxy 子系统)。
     _received_subsys_switches = _collect_subsystem_switches(args)
     if _received_subsys_switches:
-        logger.info("已接收子系统特性开关:%s", _received_subsys_switches)
+        logger.info("Received subsystem feature switches: %s", _received_subsys_switches)
 
     # --trust-remote-code 未显式开启时给出告警,但不阻断启动。
     if not args.trust_remote_code:
         logger.warning(
-            "未传 --trust-remote-code:引擎将不信任远程代码;若模型依赖 HuggingFace 自定义代码,"
-            "请显式传 --trust-remote-code。"
+            "--trust-remote-code was not provided. The engine will not trust remote code; "
+            "pass --trust-remote-code if the model requires custom Hugging Face code."
         )
 
     try:

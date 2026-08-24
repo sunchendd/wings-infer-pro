@@ -76,7 +76,7 @@ def device_count_transform(engine_config: dict, ctx: dict[str, Any]) -> tuple[di
         # 收缩:TP=cnt、DP=1(容量/heads 校验在 resolver 前置完成)
         notes["device_count_tp_eff"] = str(tp_eff)
         notes["device_count_status"] = "tp_shrunk"
-        logger.info("device-count=%d < TP=%d:收缩 TP→%d、DP=1", device_count, tp, tp_eff)
+        logger.info("device-count=%d < TP=%d: shrinking TP to %d and setting DP=1", device_count, tp, tp_eff)
         return build_parallelism_override(engine=engine, tp=tp_eff, dp=resolved_dp), notes
 
     if resolved_dp == template_dp:

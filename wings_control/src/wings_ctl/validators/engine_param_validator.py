@@ -137,7 +137,8 @@ def _collect_and_warn(
         if node_label is not None:
             item["node"] = node_label
         logger.warning(
-            "EngineParamValidator: %s参数 '%s'(渲染为 %s)不在 %s 支持清单中(warn-only,不删参);来源 %s#%s",
+            "EngineParamValidator: %sparameter '%s' (rendered as %s) is not in the %s supported parameter list "
+            "(warn-only; parameter is retained); source %s#%s",
             node_hint,
             item["param"],
             item["rendered_as"],
@@ -175,7 +176,7 @@ def validate_engine_params(resolved: ResolvedConfig, config_root: Path) -> None:
     if supported is None:
         # 缺清单时只告警并跳过,不阻塞启动。
         logger.warning(
-            "EngineParamValidator: supported_params 清单缺失/为空(%s);按 warn-skip 跳过参数校验,不阻塞启动。",
+            "EngineParamValidator: supported_params list is missing or empty (%s); skipping validation in warn-only mode.",
             path,
         )
         resolved.param_validation = ParamValidationResult(
@@ -211,7 +212,7 @@ def validate_engine_params(resolved: ResolvedConfig, config_root: Path) -> None:
             )
             unsupported.extend(process_unsupported)
         logger.info(
-            "EngineParamValidator: 校验完成(PD) engine=%s file=%s processes=%d unsupported=%d",
+            "EngineParamValidator: validation completed (PD) engine=%s file=%s processes=%d unsupported=%d",
             resolved.engine,
             path,
             len(resolved.process_plan.processes),
@@ -229,7 +230,7 @@ def validate_engine_params(resolved: ResolvedConfig, config_root: Path) -> None:
                 )
             )
         logger.info(
-            "EngineParamValidator: 校验完成(multi_node)engine=%s file=%s nodes=%d unsupported=%d",
+            "EngineParamValidator: validation completed (multi_node) engine=%s file=%s nodes=%d unsupported=%d",
             resolved.engine,
             path,
             len(resolved.nodes),
@@ -238,7 +239,7 @@ def validate_engine_params(resolved: ResolvedConfig, config_root: Path) -> None:
     else:  # standalone:校验顶层 traces
         unsupported = _collect_and_warn(resolved.engine_config_traces, supported, resolved.engine)
         logger.info(
-            "EngineParamValidator: 校验完成 engine=%s file=%s unsupported=%d",
+            "EngineParamValidator: validation completed engine=%s file=%s unsupported=%d",
             resolved.engine,
             path,
             len(unsupported),

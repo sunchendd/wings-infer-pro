@@ -51,19 +51,19 @@ def test_select_node_p4_supported():
 
 def test_select_node_raises_when_rank_not_in_node_ips():
     """验证 RANK_IP 不在 NODE_IPS 时强校验 raise。"""
-    with pytest.raises(ValueError, match="不在 NODE_IPS"):
+    with pytest.raises(ValueError, match="is not in NODE_IPS"):
         select_node(2, rank_ip="10.9.9.9", node_ips=["10.0.0.1", "10.0.0.2"], master_ip="10.0.0.1")
 
 
 def test_select_node_raises_when_length_mismatch():
     """验证集群规模与 recipe 条数不一致时 raise。"""
-    with pytest.raises(ValueError, match="不一致"):
+    with pytest.raises(ValueError, match="does not match|mismatch"):
         select_node(3, rank_ip="10.0.0.1", node_ips=["10.0.0.1", "10.0.0.2"], master_ip="10.0.0.1")
 
 
 def test_select_node_raises_when_master_not_first():
     """D1 修复:MASTER_IP 非 NODE_IPS 首位 → raise(否则 master Pod 拿 worker 配置,静默错配)。"""
-    with pytest.raises(ValueError, match="首位"):
+    with pytest.raises(ValueError, match="first NODE_IPS entry"):
         select_node(2, rank_ip="10.0.0.1", node_ips=["10.0.0.2", "10.0.0.1"], master_ip="10.0.0.1")
 
 
@@ -111,13 +111,13 @@ def test_coord_a_p4():
 
 def test_coord_a_raises_cnt_lt_tp():
     """验证 A 类 cnt<TP(装不下一个 TP 组)→ raise。"""
-    with pytest.raises(ValueError, match="装不下"):
+    with pytest.raises(ValueError, match="insufficient devices"):
         coordinate_parallelism(_A, device_count=4, pod_count=2, index=0)
 
 
 def test_coord_a_raises_non_divisible_no_floor():
     """验证 A 类 cnt%TP≠0 → raise(不向下取整)。"""
-    with pytest.raises(ValueError, match="整数倍"):
+    with pytest.raises(ValueError, match="not divisible"):
         coordinate_parallelism(_A, device_count=12, pod_count=2, index=0)
 
 
@@ -151,7 +151,7 @@ def test_coord_b_uses_all_cards_when_non_divisible():
 
 def test_coord_b_non_power_of_two_override_is_rejected():
     """验证 B 类非整除时调整后的 world_size 仍必须是 2 的幂。"""
-    with pytest.raises(ValueError, match="2 的幂"):
+    with pytest.raises(ValueError, match="power of two"):
         coordinate_parallelism(_B, device_count=5, pod_count=2, index=0)
 
 
@@ -162,7 +162,7 @@ def test_coord_b_non_divisible_keeps_template_dp(caplog):
         override, notes = coordinate_parallelism(ec, device_count=8, pod_count=1, index=0)
     assert override == {"tensor_parallel_size": 8}
     assert notes["multinode_dp_resolved_dp"] == "3"
-    assert "下发参数与模板不一致" in caplog.text
+    assert "runtime values differ from the TP-across template" in caplog.text
 
 
 def test_coord_b_shrinks_tp_when_world_size_is_smaller():
@@ -189,7 +189,7 @@ def test_coord_b_shrink_keeps_template_dp():
 
 def test_coord_b_rejects_non_power_of_two_shrink():
     """验证 B 类 world_size<TP 且非 2 的幂时失败。"""
-    with pytest.raises(ValueError, match="2 的幂"):
+    with pytest.raises(ValueError, match="power of two"):
         coordinate_parallelism(_B, device_count=3, pod_count=2, index=0)
 
 
@@ -210,14 +210,14 @@ def test_coord_b_warns_multiple_tp_groups_without_changing_dp(caplog):
         override, notes = coordinate_parallelism(ec, device_count=4, pod_count=4, index=0)
     assert override == {"tensor_parallel_size": 16}
     assert notes["multinode_dp_resolved_dp"] == "3"
-    assert "下发参数与模板不一致" in caplog.text
+    assert "runtime values differ from the TP-across template" in caplog.text
 
 
 # ─── coordinate_parallelism · PP 保险 / 非法 ─────────────────────────────────
 
 def test_coord_pp_raises():
     """验证选中含 pipeline_parallel_size>1 的策略 → raise"PP 暂不支持"。"""
-    with pytest.raises(ValueError, match="PP 暂不支持"):
+    with pytest.raises(ValueError, match="pipeline parallelism is not supported"):
         coordinate_parallelism(
             {"tensor_parallel_size": 4, "pipeline_parallel_size": 2, "node_rank": 0},
             device_count=4, pod_count=2, index=0,
@@ -226,7 +226,7 @@ def test_coord_pp_raises():
 
 def test_coord_raises_cnt_le_zero():
     """验证 device_count≤0 → raise。"""
-    with pytest.raises(ValueError, match="非法"):
+    with pytest.raises(ValueError, match="invalid"):
         coordinate_parallelism(_A, device_count=0, pod_count=2, index=0)
 
 
@@ -237,7 +237,7 @@ def test_coord_a_raises_dp_inconsistent_when_no_device_count():
     """
     ec = {"tensor_parallel_size": 8, "data_parallel_size": 8,
           "data_parallel_size_local": 4, "data_parallel_start_rank": 8}
-    with pytest.raises(ValueError, match="不一致"):
+    with pytest.raises(ValueError, match="does not match|mismatch"):
         coordinate_parallelism(ec, device_count=None, pod_count=3, index=2)
 
 

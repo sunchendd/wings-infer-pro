@@ -107,11 +107,11 @@ def test_inject_audit_and_startup_log_reflect_injection(config_root_real, tmp_pa
 
 def test_inject_raises_when_rank_not_in_node_ips(config_root_real, tmp_path, monkeypatch):
     """验证 RANK_IP 不在 NODE_IPS 时强校验 raise(R-2)。"""
-    with pytest.raises(ValueError, match="不在 NODE_IPS"):
+    with pytest.raises(ValueError, match="is not in NODE_IPS"):
         _run(tmp_path, monkeypatch, config_root_real, rank_ip="10.9.9.9")
 
 
 def test_inject_raises_when_tp_not_divides_device_count(config_root_real, tmp_path, monkeypatch):
     """验证 R-G:TP(8)不整除 device-count(12)时 raise。"""
-    with pytest.raises(ValueError, match="整数倍"):
+    with pytest.raises(ValueError, match="not divisible"):
         _run(tmp_path, monkeypatch, config_root_real, rank_ip="10.0.0.1", device_count=12)

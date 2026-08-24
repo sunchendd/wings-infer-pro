@@ -33,7 +33,7 @@ def resolve_weight_bytes(model_path: str) -> int:
     """
     root = Path(model_path)
     if not root.is_dir():
-        raise ValueError(f"model-path 不是可读目录:{model_path!r}(显存闸需读权重体积)")
+        raise ValueError(f"model-path is not a readable directory: {model_path!r}; weight size is required")
 
     # 首选:safetensors index 的 metadata.total_size(精确)
     index = root / "model.safetensors.index.json"
@@ -42,21 +42,20 @@ def resolve_weight_bytes(model_path: str) -> int:
             meta = json.loads(index.read_text(encoding="utf-8")).get("metadata") or {}
             total = meta.get("total_size")
             if isinstance(total, int) and total > 0:
-                logger.debug("weight_bytes 取自 index.json total_size=%d", total)
+                logger.debug("weight_bytes read from index.json total_size=%d", total)
                 return total
         except (json.JSONDecodeError, OSError) as exc:
-            logger.warning("读 %s 失败(%s),回退遍历 *.safetensors", index, exc)
+            logger.warning("Failed to read %s (%s); falling back to *.safetensors enumeration", index, exc)
 
     # 兜底:遍历 *.safetensors 累加字节
     shards = sorted(root.glob("*.safetensors"))
     if shards:
         total = sum(p.stat().st_size for p in shards)
-        logger.debug("weight_bytes 取自 %d 个 *.safetensors 累加=%d", len(shards), total)
+        logger.debug("weight_bytes summed from %d *.safetensors files: %d", len(shards), total)
         return total
 
     raise ValueError(
-        f"无法判定权重体积:{model_path!r} 下既无 model.safetensors.index.json 也无 *.safetensors"
-        "(显存闸缺输入)"
+        f"Cannot determine weight size: {model_path!r} contains neither model.safetensors.index.json nor *.safetensors"
     )
 
 
@@ -77,5 +76,5 @@ def read_num_attention_heads(model_path: str) -> Optional[int]:
         heads = json.loads(cfg.read_text(encoding="utf-8")).get("num_attention_heads")
         return heads if isinstance(heads, int) and heads > 0 else None
     except (json.JSONDecodeError, OSError) as exc:
-        logger.warning("读 %s 失败(%s),跳过 head 整除守卫(warn-skip)", cfg, exc)
+        logger.warning("Failed to read %s (%s); skipping the attention-head divisibility guard", cfg, exc)
         return None

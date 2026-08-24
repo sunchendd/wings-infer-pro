@@ -56,7 +56,7 @@ def test_normalize_nodes_unknown_form_returns_none():
 
 def test_normalize_nodes_worker_without_head_raises():
     """T1.3:形态像多机(有 worker 却缺 head)→ fail-fast raise,列出 strategy 键。"""
-    with pytest.raises(ValueError, match="缺 'head'"):
+    with pytest.raises(ValueError, match="lacks 'head'"):
         normalize_nodes({"worker": {"engine_config": {}}}, "p", pod_count=2)
 
 
@@ -69,7 +69,7 @@ def test_normalize_nodes_head_worker_raises_when_nnodes_mismatch():
         "head": {"engine_config": {"tensor_parallel_size": 8, "nnodes": 2, "node_rank": 0}},
         "worker": {"engine_config": {"tensor_parallel_size": 8, "nnodes": 2, "node_rank": 0}},
     }
-    with pytest.raises(ValueError, match="nnodes|集群规模"):
+    with pytest.raises(ValueError, match="nnodes|Cluster size"):
         normalize_nodes(strategy, "p", pod_count=3)
 
 

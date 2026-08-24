@@ -47,7 +47,7 @@ def filter_maas_contract_overrides(
             continue
         reason = "maas_status=not_in_maas_contract_allowlist"
         logger.warning(
-            "参数 '%s' 未进入 MaaS contract allowlist,按 warn-only 丢弃(不阻塞启动)",
+            "Parameter '%s' is not in the MaaS contract allowlist; dropping it in warn-only mode",
             key,
         )
         dropped.append({"key": key, "value": value, "reason": reason})
@@ -73,9 +73,9 @@ class CLITranslator:
                 reason = drop_reason(key, engine) or "maas_status=丢弃"
                 if key == "enable_auto_think_choice":
                     logger.warning(
-                        "enable_auto_think_choice 不作为 user_cli 参数直通;"
-                        "由 FeatureOverlay 的 reasoning gate 接管,"
-                        "最终是否渲染 reasoning 参数(如 --reasoning-parser)取决于 model.yaml features.reasoning.args。"
+                        "enable_auto_think_choice is not passed through as a user_cli parameter; "
+                        "FeatureOverlay reasoning gate handles it. Whether reasoning parameters such as "
+                        "--reasoning-parser are rendered depends on model.yaml features.reasoning.args."
                     )
                 dropped.append({"key": key, "value": value, "reason": reason})
                 continue

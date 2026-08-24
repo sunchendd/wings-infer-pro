@@ -174,7 +174,7 @@ def test_select_pd_recipe_pair_rejects_rpc_placeholder() -> None:
     nodes = model["scenarios"]["pd_disaggregation"]["strategies"]["pd_cluster"]["nodes"]
     nodes[0]["engine_config"]["data_parallel_rpc_port"] = "$6"
 
-    with pytest.raises(ValueError, match=r"实际端口.*\$6"):
+    with pytest.raises(ValueError, match=r"integer port.*\$6"):
         select_pd_recipe_pair(model, "explicit_allocation")
 
 
@@ -184,7 +184,7 @@ def test_select_pd_recipe_pair_rejects_quoted_numeric_rpc_port() -> None:
     nodes = model["scenarios"]["pd_disaggregation"]["strategies"]["pd_cluster"]["nodes"]
     nodes[0]["engine_config"]["data_parallel_rpc_port"] = "12321"
 
-    with pytest.raises(ValueError, match=r"实际端口.*'12321'"):
+    with pytest.raises(ValueError, match=r"integer port.*'12321'"):
         select_pd_recipe_pair(model, "explicit_allocation")
 
 
@@ -226,7 +226,7 @@ def test_select_pd_recipe_pair_requires_rpc_port_for_explicit_allocation() -> No
     for node in nodes:
         node["engine_config"].pop("data_parallel_rpc_port")
 
-    with pytest.raises(ValueError, match="缺少实际 DP RPC"):
+    with pytest.raises(ValueError, match="missing concrete DP RPC"):
         select_pd_recipe_pair(model, "explicit_allocation")
 
 
@@ -234,7 +234,7 @@ def test_select_pd_recipe_pair_requires_exactly_one_default() -> None:
     model = _model()
     model["scenarios"]["pd_disaggregation"]["strategies"]["pd_cluster"]["default_strategy"] = False
 
-    with pytest.raises(ValueError, match="恰好一个"):
+    with pytest.raises(ValueError, match="exactly one"):
         select_pd_recipe_pair(model, "explicit_allocation")
 
 
@@ -254,7 +254,7 @@ def test_select_pd_recipe_pair_rejects_role_static_config_drift() -> None:
     nodes = model["scenarios"]["pd_disaggregation"]["strategies"]["pd_cluster"]["nodes"]
     nodes[1]["engine_config"]["max_model_len"] = 123
 
-    with pytest.raises(ValueError, match="静态 engine_config 不一致"):
+    with pytest.raises(ValueError, match="inconsistent static engine_config"):
         select_pd_recipe_pair(model, "explicit_allocation")
 
 
@@ -272,7 +272,7 @@ def test_select_pd_recipe_pair_rejects_role_shape_mismatch() -> None:
     nodes = model["scenarios"]["pd_disaggregation"]["strategies"]["pd_cluster"]["nodes"]
     nodes[-1]["engine_config"]["kv_transfer_config"]["kv_connector_extra_config"]["decode"]["dp_size"] = 8
 
-    with pytest.raises(ValueError, match="P/D shape 不一致"):
+    with pytest.raises(ValueError, match="inconsistent P/D shape"):
         select_pd_recipe_pair(model, "explicit_allocation")
 
 
@@ -282,5 +282,5 @@ def test_select_pd_recipe_pair_rejects_mixed_engine_id_policy() -> None:
     for node in nodes[:2]:
         node["engine_config"]["kv_transfer_config"]["engine_id"] = 0
 
-    with pytest.raises(ValueError, match="全部省略或全部显式"):
+    with pytest.raises(ValueError, match="all omitted or all explicit"):
         select_pd_recipe_pair(model, "explicit_allocation")

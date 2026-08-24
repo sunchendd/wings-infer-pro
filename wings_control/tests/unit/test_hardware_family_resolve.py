@@ -79,7 +79,7 @@ def test_resolve_family_dir_casefold_variant(config_root_real):
 def test_resolve_family_dir_unknown_card_fail_fast(config_root_real):
     """无对应资产的卡(虚构卡型)→ fail-fast，不静默兜底。
     """
-    with pytest.raises(FileNotFoundError, match="无配置资产"):
+    with pytest.raises(FileNotFoundError, match="No configuration assets"):
         resolve_family_dir(config_root_real, "vllm", "NonExistentCard_99G", "", False)
 
 
@@ -120,6 +120,6 @@ def test_resolve_family_dir_alias_bad_target_warns_and_fail(config_root_real, mo
     """别名目标目录不存在(_ALIAS 配错)→ 记 WARNING 并 fail-fast,不静默兜底。"""
     monkeypatch.setitem(locator._ALIAS, "mycard", "nonexistent-dir")
     with caplog.at_level(logging.WARNING):
-        with pytest.raises(FileNotFoundError, match="无配置资产"):
+        with pytest.raises(FileNotFoundError, match="No configuration assets"):
             resolve_family_dir(config_root_real, "vllm", "mycard", "", False)
-    assert "别名" in caplog.text and "nonexistent-dir" in caplog.text
+    assert "alias" in caplog.text and "nonexistent-dir" in caplog.text

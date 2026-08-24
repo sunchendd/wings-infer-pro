@@ -92,20 +92,20 @@ class _IdentityProfile:
 
 def _required_mapping(value: Any, path: str) -> Dict[str, Any]:
     if not isinstance(value, dict):
-        raise ValueError(f"PD recipe {path} 必须是 mapping。")
+        raise ValueError(f"PD recipe {path} must be a mapping")
     return value
 
 
 def _positive_int(value: Any, path: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise ValueError(f"PD recipe {path} 必须是正整数，当前值为 {value!r}。")
+        raise ValueError(f"PD recipe {path} must be a positive integer; got {value!r}")
     return value
 
 
 def _port(value: Any, path: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 65535:
         raise ValueError(
-            f"PD recipe {path} 必须写入 1..65535 的实际端口，不能保留 $6 等脚本占位符，当前值为 {value!r}。"
+            f"PD recipe {path} must contain an integer port in 1..65535, not a script placeholder; got {value!r}"
         )
     return value
 
@@ -131,7 +131,7 @@ def _select_strategy(model_data: Dict[str, Any]) -> tuple[str, str, Dict[str, An
     ]
     if len(defaults) != 1:
         raise ValueError(
-            f"PD recipe {scenario_path}.strategies 必须恰好一个 default_strategy=true，当前为 {defaults}。"
+            f"PD recipe {scenario_path}.strategies must contain exactly one default_strategy=true; got {defaults}"
         )
     name = defaults[0]
     prefix = f"{scenario_path}.strategies.{name}"
@@ -143,11 +143,11 @@ def _normalize_node(raw: Any, path: str, expected_index: int) -> _NormalizedNode
     node = _required_mapping(raw, path)
     role_name = node.get("role")
     if role_name not in _ROLE_NAMES:
-        raise ValueError(f"PD recipe {path}.role 必须是 'prefill' 或 'decode'，当前为 {role_name!r}。")
+        raise ValueError(f"PD recipe {path}.role must be 'prefill' or 'decode'; got {role_name!r}")
     role = _ROLE_NAMES[role_name]
     index = node.get("index")
     if index != expected_index:
-        raise ValueError(f"PD recipe {path}.index 必须按 role 从 0 连续递增，期望 {expected_index}，当前 {index!r}。")
+        raise ValueError(f"PD recipe {path}.index must increase from 0 within its role; expected {expected_index}, got {index!r}")
 
     config_path = f"{path}.engine_config"
     config = deepcopy(_required_mapping(node.get("engine_config"), config_path))
@@ -157,25 +157,25 @@ def _normalize_node(raw: Any, path: str, expected_index: int) -> _NormalizedNode
     transfer = deepcopy(_required_mapping(config.get("kv_transfer_config"), transfer_path))
     connector_name = transfer.get("kv_connector")
     if not isinstance(connector_name, str) or not connector_name.strip():
-        raise ValueError(f"PD recipe {transfer_path}.kv_connector 必须是非空字符串。")
+        raise ValueError(f"PD recipe {transfer_path}.kv_connector must be a non-empty string")
     expected_kv_role = "kv_producer" if role is PdRole.PREFILL else "kv_consumer"
     if transfer.get("kv_role") != expected_kv_role:
         raise ValueError(
-            f"PD recipe {transfer_path}.kv_role 必须是 {expected_kv_role!r}，当前为 {transfer.get('kv_role')!r}。"
+            f"PD recipe {transfer_path}.kv_role must be {expected_kv_role!r}; got {transfer.get('kv_role')!r}"
         )
     kv_port = _port(transfer.get("kv_port"), f"{transfer_path}.kv_port")
     engine_id_raw = transfer.get("engine_id")
     if engine_id_raw is None:
         engine_id = None
     elif isinstance(engine_id_raw, bool) or not isinstance(engine_id_raw, (int, str)):
-        raise ValueError(f"PD recipe {transfer_path}.engine_id 必须是非负整数或省略。")
+        raise ValueError(f"PD recipe {transfer_path}.engine_id must be a non-negative integer or omitted")
     else:
         try:
             engine_id = int(engine_id_raw)
         except ValueError as exc:
-            raise ValueError(f"PD recipe {transfer_path}.engine_id 必须是非负整数，当前为 {engine_id_raw!r}。") from exc
+            raise ValueError(f"PD recipe {transfer_path}.engine_id must be a non-negative integer; got {engine_id_raw!r}") from exc
         if engine_id < 0:
-            raise ValueError(f"PD recipe {transfer_path}.engine_id 必须是非负整数，当前为 {engine_id_raw!r}。")
+            raise ValueError(f"PD recipe {transfer_path}.engine_id must be a non-negative integer; got {engine_id_raw!r}")
 
     extra_path = f"{transfer_path}.kv_connector_extra_config"
     extra = deepcopy(_required_mapping(transfer.get("kv_connector_extra_config"), extra_path))
@@ -185,8 +185,8 @@ def _normalize_node(raw: Any, path: str, expected_index: int) -> _NormalizedNode
     role_shape = prefill_shape if role is PdRole.PREFILL else decode_shape
     if configured_tp not in ("$7", role_shape.tp_size):
         raise ValueError(
-            f"PD recipe {config_path}.tensor_parallel_size 必须是 $7 或当前 role TP={role_shape.tp_size}，"
-            f"当前为 {configured_tp!r}。"
+            f"PD recipe {config_path}.tensor_parallel_size must be $7 or current role TP={role_shape.tp_size}; "
+            f"got {configured_tp!r}"
         )
 
     for field in _RUNTIME_OWNED_ENGINE_FIELDS:
@@ -219,7 +219,7 @@ def _normalize_node(raw: Any, path: str, expected_index: int) -> _NormalizedNode
 def _normalize_nodes(strategy: Dict[str, Any], prefix: str) -> Dict[PdRole, list[_NormalizedNode]]:
     nodes = strategy.get("nodes")
     if not isinstance(nodes, list) or not nodes:
-        raise ValueError(f"PD recipe {prefix}.nodes 必须是非空列表。")
+        raise ValueError(f"PD recipe {prefix}.nodes must be a non-empty list")
     grouped: Dict[PdRole, list[_NormalizedNode]] = {PdRole.PREFILL: [], PdRole.DECODE: []}
     for position, raw in enumerate(nodes):
         role_name = raw.get("role") if isinstance(raw, dict) else None
@@ -229,7 +229,7 @@ def _normalize_nodes(strategy: Dict[str, Any], prefix: str) -> Dict[PdRole, list
         grouped[node.role].append(node)
     for role, role_nodes in grouped.items():
         if not role_nodes:
-            raise ValueError(f"PD recipe {prefix}.nodes 缺少 role={role.value} 的节点。")
+            raise ValueError(f"PD recipe {prefix}.nodes is missing a node with role={role.value}")
     return grouped
 
 
@@ -244,13 +244,13 @@ def _identity_groups(nodes: list[_NormalizedNode]) -> list[tuple[tuple[int | Non
             groups[-1] = (previous, count + 1)
             continue
         if identity in seen:
-            raise ValueError(f"PD recipe logical Instance identity {identity!r} 的成员必须连续排列。")
+            raise ValueError(f"PD recipe logical instance identity {identity!r} members must be contiguous")
         seen.add(identity)
         groups.append((identity, 1))
     member_counts = {count for _, count in groups}
     if len(member_counts) != 1:
         raise ValueError(
-            f"PD recipe 同一 role 的 logical Instance 成员 Pod 数必须一致，当前为 {sorted(member_counts)}。"
+            f"PD recipe logical instances for one role must have equal Pod counts; got {sorted(member_counts)}"
         )
     return groups
 
@@ -266,19 +266,19 @@ def _derive_identity_profile(grouped: Dict[PdRole, list[_NormalizedNode]]) -> _I
         expected = list(range(len(engine_ids)))
         if engine_ids != expected:
             raise ValueError(
-                "PD recipe engine_id 必须按 logical Instance 以 P 在前、D 在后的顺序从 0 连续递增，"
-                f"当前为 {engine_ids}。"
+                "PD recipe engine_id must increase consecutively from 0 in P-then-D logical-instance order; "
+                f"got {engine_ids}"
             )
         engine_id_policy = PD_ENGINE_ID_FROM_INDEX
     else:
-        raise ValueError("PD recipe P/D node 的 engine_id 必须全部省略或全部显式声明。")
+        raise ValueError("PD recipe P/D node engine_id values must be either all omitted or all explicit")
 
     ports = [kv_port for (_, kv_port) in identities]
     if len(set(ports)) != len(ports):
-        raise ValueError(f"PD recipe 不同 logical Instance 的 kv_port 必须唯一，当前为 {ports}。")
+        raise ValueError(f"PD recipe kv_port must be unique across logical instances; got {ports}")
     strides = [right - left for left, right in zip(ports, ports[1:])]
     if not strides or strides[0] <= 0 or any(stride != strides[0] for stride in strides):
-        raise ValueError(f"PD recipe kv_port 必须按 logical Instance 使用正等差序列，当前为 {ports}。")
+        raise ValueError(f"PD recipe kv_port must form a positive arithmetic sequence across logical instances; got {ports}")
     return _IdentityProfile(engine_id_policy, ports[0], strides[0])
 
 
@@ -287,13 +287,13 @@ def _validate_role_nodes(nodes: list[_NormalizedNode], role: PdRole) -> _Normali
     first = nodes[0]
     for node in nodes[1:]:
         if node.engine_config != first.engine_config:
-            raise ValueError(f"PD recipe role={role.value} 的节点静态 engine_config 不一致：{node.source_prefix}。")
+            raise ValueError(f"PD recipe role={role.value} nodes have inconsistent static engine_config: {node.source_prefix}")
         if node.env != first.env:
-            raise ValueError(f"PD recipe role={role.value} 的节点 env 不一致：{node.source_prefix}。")
+            raise ValueError(f"PD recipe role={role.value} nodes have inconsistent env: {node.source_prefix}")
         if (node.prefill_shape, node.decode_shape) != (first.prefill_shape, first.decode_shape):
-            raise ValueError(f"PD recipe role={role.value} 的节点 P/D shape 不一致：{node.source_prefix}。")
+            raise ValueError(f"PD recipe role={role.value} nodes have inconsistent P/D shape: {node.source_prefix}")
         if node.connector_name != first.connector_name or node.rpc_port != first.rpc_port:
-            raise ValueError(f"PD recipe role={role.value} 的 connector 或 DP RPC 端口不一致：{node.source_prefix}。")
+            raise ValueError(f"PD recipe role={role.value} nodes have inconsistent connector or DP RPC port: {node.source_prefix}")
     return first
 
 
@@ -306,7 +306,7 @@ def select_pd_recipe_pair(
     connector identity 在此被识别为 runtime-owned，后续由 planner 以 MaaS 输入派生。
     """
     if topology_input_policy not in _ALLOWED_INPUT_POLICIES:
-        raise ValueError(f"未知 PD topology input policy：{topology_input_policy!r}。")
+        raise ValueError(f"Unknown PD topology input policy: {topology_input_policy!r}")
     strategy_name, prefix, strategy = _select_strategy(model_data)
     grouped = _normalize_nodes(strategy, prefix)
     first = {role: _validate_role_nodes(nodes, role) for role, nodes in grouped.items()}
@@ -314,7 +314,7 @@ def select_pd_recipe_pair(
         first[PdRole.PREFILL].prefill_shape != first[PdRole.DECODE].prefill_shape
         or first[PdRole.PREFILL].decode_shape != first[PdRole.DECODE].decode_shape
     ):
-        raise ValueError("PD recipe P/D 节点必须描述同一份 P/D parallel shape。")
+        raise ValueError("PD recipe P/D nodes must describe the same P/D parallel shape")
     identity = _derive_identity_profile(grouped)
     shape_policy = (
         PD_TOPOLOGY_DERIVED_1P1D
@@ -322,11 +322,11 @@ def select_pd_recipe_pair(
         else PD_TOPOLOGY_EXPLICIT_ALLOCATION
     )
     if topology_input_policy != shape_policy:
-        raise ValueError(f"PD recipe 只接受 {shape_policy!r}，当前输入为 {topology_input_policy!r}。")
+        raise ValueError(f"PD recipe accepts only {shape_policy!r}; got {topology_input_policy!r}")
     if shape_policy == PD_TOPOLOGY_EXPLICIT_ALLOCATION:
         missing_rpc_roles = [role.value for role, node in first.items() if node.rpc_port is None]
         if missing_rpc_roles:
-            raise ValueError(f"PD explicit_allocation recipe 缺少实际 DP RPC 端口：roles={missing_rpc_roles}。")
+            raise ValueError(f"PD explicit_allocation recipe is missing concrete DP RPC ports: roles={missing_rpc_roles}")
     pair: Dict[PdRole, PdRoleRecipe] = {}
     for role, topology in ((PdRole.PREFILL, Topology.PD_PREFILL), (PdRole.DECODE, Topology.PD_DECODE)):
         node = first[role]

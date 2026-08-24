@@ -67,7 +67,7 @@ def test_exact_variant_name_conflict_raises(tmp_path):
     md = _models_dir(tmp_path)
     _write(md, "M", "a.yaml", name="M", name_pattern="(?i)m", variant_name="M-x")
     _write(md, "M", "b.yaml", name="M", name_pattern="(?i)m", variant_name="M-x")
-    with pytest.raises(ValueError, match="variant_name 冲突"):
+    with pytest.raises(ValueError, match="variant_name conflict"):
         _load(tmp_path, "M-x")
 
 
@@ -85,7 +85,7 @@ def test_multi_variant_family_name_ambiguous_raises(tmp_path):
     md = _models_dir(tmp_path)
     _write(md, "DeepSeek", "d-fp8.yaml", name="DeepSeek", name_pattern="(?i)deepseek", variant_name="DeepSeek-fp8")
     _write(md, "DeepSeek", "d-nvfp4.yaml", name="DeepSeek", name_pattern="(?i)deepseek", variant_name="DeepSeek-nvfp4")
-    with pytest.raises(ValueError, match="完整变体名"):
+    with pytest.raises(ValueError, match="complete variant name"):
         _load(tmp_path, "DeepSeek")
 
 

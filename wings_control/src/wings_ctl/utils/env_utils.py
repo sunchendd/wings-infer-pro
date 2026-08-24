@@ -53,7 +53,7 @@ def parse_bool(raw: Optional[str], default: bool) -> bool:
     if v in _BOOL_FALSE:
         return False
     # 非法值不静默:打 WARNING 后回退 default(便于线上排查拼写/取值错误)。
-    logger.warning("parse_bool: 非法布尔值 %r,回退默认值 %s", raw, default)
+    logger.warning("parse_bool: invalid boolean value %r; falling back to default %s", raw, default)
     return default
 
 

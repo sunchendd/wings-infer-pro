@@ -101,7 +101,7 @@ def test_derived_1p1d_rejects_invalid_device_count(device_count: int) -> None:
     pair = _pair("derived_1p1d")
     pd_input = PdRuntimeInput(PdRole.PREFILL, None, _placement(["10.0.0.1"]))
 
-    with pytest.raises(ValueError, match="正整数|2 的幂"):
+    with pytest.raises(ValueError, match="positive integer|power of two"):
         resolve_pd_topology(pd_input, pair, device_count=device_count)
 
 
@@ -114,7 +114,7 @@ def test_derived_1p1d_rejects_multi_pod_instance() -> None:
         _placement(["10.0.0.1", "10.0.0.2"]),
     )
 
-    with pytest.raises(ValueError, match="恰好一个 Pod"):
+    with pytest.raises(ValueError, match="exactly one Pod"):
         resolve_pd_topology(pd_input, pair, device_count=8)
 
 
@@ -212,7 +212,7 @@ def test_explicit_allocation_rejects_idle_devices() -> None:
     )
     pd_input = PdRuntimeInput(PdRole.PREFILL, explicit, _placement(["10.0.0.1"]))
 
-    with pytest.raises(ValueError, match="满卡闭合"):
+    with pytest.raises(ValueError, match="use all allocated devices"):
         resolve_pd_topology(pd_input, pair, device_count=8)
 
 
@@ -227,7 +227,7 @@ def test_explicit_allocation_rejects_insufficient_devices() -> None:
     )
     pd_input = PdRuntimeInput(PdRole.PREFILL, explicit, _placement(["10.0.0.1"]))
 
-    with pytest.raises(ValueError, match="卡数不足"):
+    with pytest.raises(ValueError, match="Insufficient devices"):
         resolve_pd_topology(pd_input, pair, device_count=4)
 
 
@@ -243,7 +243,7 @@ def test_explicit_allocation_rejects_invalid_device_count(device_count: int) -> 
     )
     pd_input = PdRuntimeInput(PdRole.PREFILL, explicit, _placement(["10.0.0.1"]))
 
-    with pytest.raises(ValueError, match="device_count 必须是正整数"):
+    with pytest.raises(ValueError, match="device_count must be a positive integer"):
         resolve_pd_topology(pd_input, pair, device_count=device_count)
 
 

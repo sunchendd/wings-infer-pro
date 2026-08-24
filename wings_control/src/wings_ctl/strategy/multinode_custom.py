@@ -252,15 +252,15 @@ def _check_custom_parallelism_consistency(
     """
     if device_count is None:
         raise ValueError(
-            "multi_node 自定义传参派生身份键强依赖 --device-count,当前缺失。"
-            "请下发 --device-count(单节点卡数)以派生 per-node 参数。"
+            "multi_node custom parameter derivation requires --device-count; it is currently missing. "
+            "Provide --device-count for the current Pod to derive per-node parameters."
         )
     dp = engine_config.get("data_parallel_size") or 1
     dp_local = engine_config.get("data_parallel_size_local")
     if dp_local is not None and dp_local > dp:
         raise ValueError(
-            f"自定义传参并行一致性校验失败:data_parallel_size_local={dp_local} "
-            f"> data_parallel_size={dp};dp_local 不得超过全局 DP。"
+            f"Custom parameter parallelism validation failed: data_parallel_size_local={dp_local} "
+            f"> data_parallel_size={dp}; dp_local must not exceed global DP."
         )
 
 
@@ -336,7 +336,7 @@ def multinode_custom_derive(
         "multinode_custom.dp": str(dp),
     }
     logger.info(
-        "multi_node custom 派生:engine=%s role=%s index=%d pod_count=%d params=%s",
+        "multi_node custom derivation: engine=%s role=%s index=%d pod_count=%d params=%s",
         engine, sel.role, sel.index, len(ctx.node_ips), sorted(params),
     )
     return MultinodeDerive(
