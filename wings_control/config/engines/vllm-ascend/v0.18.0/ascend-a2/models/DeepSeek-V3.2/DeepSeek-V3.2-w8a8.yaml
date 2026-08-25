@@ -4,15 +4,15 @@ upstream_sources:
     kind: official_doc
     repo: vllm-ascend
     file: docs/source/tutorials/models/DeepSeek-V3.2.md
-    url: "https://github.com/vllm-project/vllm-ascend/blob/releases/v0.21.0rc/docs/source/tutorials/models/DeepSeek-V3.2.md"
+    url: "https://github.com/vllm-project/vllm-ascend/blob/releases/v0.18.0/docs/source/tutorials/models/DeepSeek-V3.2.md"
     note: vLLM Ascend 官方教程文档。自动生成。
 
 # 模型基本信息
 model:
   name: DeepSeek-V3.2  # 模型名称
   provider: vllm-ascend  # 提供者/厂商
-  model_id: vllm-ascend/DeepSeek-V3.2-Exp-W8A8  # HuggingFace/ModelScope 模型 ID
-  min_engine_version: v0.21.0rc  # 最低引擎版本要求
+  model_id: vllm-ascend/DeepSeek-V3.2-W8A8  # HuggingFace/ModelScope 模型 ID
+  min_engine_version: v0.18.0  # 最低引擎版本要求
   match:  # 模型名匹配规则
     - name_pattern: "(?i)deepseek[-.]?v3.2"
   variant_name: DeepSeek-V3.2-W8A8  # 模型量化版本精确名称

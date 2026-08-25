@@ -1,0 +1,82 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_ascend_glm-5.2
+    kind: official_doc
+    repo: vllm-ascend
+    file: docs/source/tutorials/models/GLM5.2.md
+    url: "https://github.com/vllm-project/vllm-ascend/blob/releases/v0.23.0/docs/source/tutorials/models/GLM5.2.md"
+    note: vLLM Ascend 官方教程文档。基于官方 GLM-5.2-w4a8c8 配置新增的兼容别名；运行时模型路径与参数保持 GLM-5.2-w4a8c8 官方命令。
+
+# 模型基本信息
+model:
+  name: GLM-5.2
+  provider: Eco-Tech
+  model_id: Eco-Tech/GLM-5.2-w4a8
+  min_engine_version: v0.23.0
+  match:
+    - name_pattern: "(?i)glm[-.]?5.2"
+  variant_name: GLM-5.2-w4a8
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 16
+  vram_gb: 1024
+  multi_node: false
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: Enable automatic tool/function calling via the model's tool-call parser.
+    args: [--tool-call-parser, glm47, --enable-auto-tool-choice]
+  reasoning:
+    description: Enable the model's reasoning-content parser.
+    args: [--reasoning-parser, glm45]
+  spec_decoding:
+    description: Enable MTP speculative decoding.
+    args: [--speculative-config, "{\"num_speculative_tokens\": 3, \"method\": \"deepseek_mtp\",\"enforce_eager\":true}"]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_ascend_glm-5.2#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: /root/.cache/modelscope/hub/models/vllm-ascend/GLM-5.2-w4a8
+          host: "0.0.0.0"
+          port: 8077
+          api_server_count: 1
+          data_parallel_size: 2
+          enable_expert_parallel: true
+          tensor_parallel_size: 8
+          seed: 1024
+          served_model_name: glm-5
+          max_num_seqs: 12
+          max_model_len: 135000
+          max_num_batched_tokens: 8192
+          trust_remote_code: true
+          gpu_memory_utilization: 0.92
+          quantization: ascend
+          compilation_config:
+            cudagraph_mode: FULL_DECODE_ONLY
+          additional_config:
+            enable_dsa_cp: true
+            enable_sparse_li_c8: true
+            enable_balance_scheduling: true
+            multistream_overlap_shared_expert: true
+        env:
+          HCCL_OP_EXPANSION_MODE: AIV
+          HCCL_TRANSFER_TIMEOUT: 600
+          HCCL_EXEC_TIMEOUT: 3600
+          HCCL_CONNECT_TIMEOUT: 3600
+          OMP_PROC_BIND: "false"
+          OMP_NUM_THREADS: 1
+          HCCL_BUFFSIZE: 200
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          VLLM_ASCEND_ENABLE_FLASHCOMM1: 1  # 解决GLM5.2 v0.23.0 运行乱码问题
+          VLLM_ASCEND_ENABLE_FUSED_MC2: 0  # 解决GLM5.2 v0.23.0 运行乱码问题

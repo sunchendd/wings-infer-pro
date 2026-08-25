@@ -23,6 +23,12 @@ features:
     args:
     - --hf-overrides
     - '{"use_index_cache":true,"index_topk_freq":4}'
+  tool_calling:
+    description: Enable automatic tool/function calling via the model's tool-call parser.
+    args: [--enable-auto-tool-choice, --tool-call-parser, glm47]
+  reasoning:
+    description: Enable the model's reasoning-content parser.
+    args: [--reasoning-parser, glm45]
 scenarios:
   multi_node:
     source_ref: vllm_ascend_glm-5.1#multi_node
@@ -162,9 +168,6 @@ scenarios:
             quantization: ascend
             gpu_memory_utilization: 0.95
             enforce_eager: true
-            enable_auto_tool_choice: true
-            tool_call_parser: glm47
-            reasoning_parser: glm45
             kv_transfer_config:
               kv_connector: MooncakeConnectorV1
               kv_role: kv_producer
@@ -225,9 +228,6 @@ scenarios:
             quantization: ascend
             gpu_memory_utilization: 0.95
             enforce_eager: true
-            enable_auto_tool_choice: true
-            tool_call_parser: glm47
-            reasoning_parser: glm45
             kv_transfer_config:
               kv_connector: MooncakeConnectorV1
               kv_role: kv_producer
@@ -288,9 +288,6 @@ scenarios:
             quantization: ascend
             gpu_memory_utilization: 0.95
             enforce_eager: true
-            enable_auto_tool_choice: true
-            tool_call_parser: glm47
-            reasoning_parser: glm45
             kv_transfer_config:
               kv_connector: MooncakeConnectorV1
               kv_role: kv_producer
@@ -351,9 +348,6 @@ scenarios:
             quantization: ascend
             gpu_memory_utilization: 0.95
             enforce_eager: true
-            enable_auto_tool_choice: true
-            tool_call_parser: glm47
-            reasoning_parser: glm45
             kv_transfer_config:
               kv_connector: MooncakeConnectorV1
               kv_role: kv_producer
@@ -414,9 +408,6 @@ scenarios:
             max_num_seqs: 8
             gpu_memory_utilization: 0.92
             quantization: ascend
-            enable_auto_tool_choice: true
-            tool_call_parser: glm47
-            reasoning_parser: glm45
             kv_transfer_config:
               kv_connector: MooncakeConnectorV1
               kv_role: kv_consumer
@@ -478,9 +469,6 @@ scenarios:
             max_num_seqs: 8
             gpu_memory_utilization: 0.92
             quantization: ascend
-            enable_auto_tool_choice: true
-            tool_call_parser: glm47
-            reasoning_parser: glm45
             kv_transfer_config:
               kv_connector: MooncakeConnectorV1
               kv_role: kv_consumer
@@ -542,9 +530,6 @@ scenarios:
             max_num_seqs: 8
             gpu_memory_utilization: 0.92
             quantization: ascend
-            enable_auto_tool_choice: true
-            tool_call_parser: glm47
-            reasoning_parser: glm45
             kv_transfer_config:
               kv_connector: MooncakeConnectorV1
               kv_role: kv_consumer
@@ -606,9 +591,6 @@ scenarios:
             max_num_seqs: 8
             gpu_memory_utilization: 0.92
             quantization: ascend
-            enable_auto_tool_choice: true
-            tool_call_parser: glm47
-            reasoning_parser: glm45
             kv_transfer_config:
               kv_connector: MooncakeConnectorV1
               kv_role: kv_consumer

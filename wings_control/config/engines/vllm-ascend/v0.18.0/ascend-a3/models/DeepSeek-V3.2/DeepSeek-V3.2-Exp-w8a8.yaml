@@ -15,7 +15,7 @@ model:
   min_engine_version: v0.18.0  # 最低引擎版本要求
   match:  # 模型名匹配规则
     - name_pattern: "(?i)deepseek[-.]?v3.2"
-  variant_name: DeepSeek-V3.2-w8a8  # 模型量化版本精确名称
+  variant_name: DeepSeek-V3.2-Exp-W8A8  # 模型量化版本精确名称
 
 # 硬件信息
 hardware_profile:

@@ -123,9 +123,6 @@ scenarios:
             quantization: ascend
             gpu_memory_utilization: 0.95
             enforce_eager: true
-            enable_auto_tool_choice: true
-            tool_call_parser: glm47
-            reasoning_parser: glm45
             kv_transfer_config:
               kv_connector: MooncakeConnectorV1
               kv_role: kv_producer
@@ -191,9 +188,6 @@ scenarios:
             quantization: ascend
             gpu_memory_utilization: 0.95
             enforce_eager: true
-            enable_auto_tool_choice: true
-            tool_call_parser: glm47
-            reasoning_parser: glm45
             kv_transfer_config:
               kv_connector: MooncakeConnectorV1
               kv_role: kv_producer
@@ -259,9 +253,6 @@ scenarios:
             max_num_seqs: 8
             gpu_memory_utilization: 0.92
             quantization: ascend
-            enable_auto_tool_choice: true
-            tool_call_parser: glm47
-            reasoning_parser: glm45
             kv_transfer_config:
               kv_connector: MooncakeConnectorV1
               kv_role: kv_consumer
@@ -328,9 +319,6 @@ scenarios:
             max_num_seqs: 8
             gpu_memory_utilization: 0.92
             quantization: ascend
-            enable_auto_tool_choice: true
-            tool_call_parser: glm47
-            reasoning_parser: glm45
             kv_transfer_config:
               kv_connector: MooncakeConnectorV1
               kv_role: kv_consumer
@@ -397,9 +385,6 @@ scenarios:
             max_num_seqs: 8
             gpu_memory_utilization: 0.92
             quantization: ascend
-            enable_auto_tool_choice: true
-            tool_call_parser: glm47
-            reasoning_parser: glm45
             kv_transfer_config:
               kv_connector: MooncakeConnectorV1
               kv_role: kv_consumer
@@ -466,9 +451,6 @@ scenarios:
             max_num_seqs: 8
             gpu_memory_utilization: 0.92
             quantization: ascend
-            enable_auto_tool_choice: true
-            tool_call_parser: glm47
-            reasoning_parser: glm45
             kv_transfer_config:
               kv_connector: MooncakeConnectorV1
               kv_role: kv_consumer

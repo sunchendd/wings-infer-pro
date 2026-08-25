@@ -68,7 +68,7 @@ scenarios:
           trust_remote_code: true
           chat_template_content_format: string
           cc.pass_config.fuse_allreduce_rms: false
-          tensor_parallel_size: 16
+          tensor_parallel_size: 8
         env: {}
   multi_node:
     source_ref: "glm_5_fp8_manual#multi_node_tp"
