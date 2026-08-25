@@ -487,7 +487,7 @@ def test_device_count_below_tp_raises_friendly_cli_error(
         cli.main()
     assert exc.value.code == 2
     # cnt<TP → 收缩前置闸;此 fixture hardware_family 无 _<N>G 后缀 → 拿不到显存 → 友好报错。
-    assert "gpu_mem" in capsys.readouterr().err
+    assert "single-device memory is unavailable" in capsys.readouterr().err
 
 
 def _shrink_argv(tmp_path, config_root_real, *, gpu_mem, total_size_gb, heads=32, device_count=2):
@@ -535,7 +535,7 @@ def test_device_count_shrink_e2e_capacity_raise(
     with pytest.raises(SystemExit) as exc:
         cli.main()
     assert exc.value.code == 2
-    assert "容量不足" in capsys.readouterr().err
+    assert "Insufficient capacity" in capsys.readouterr().err
 
 
 def test_builtin_default_host_injected_when_template_and_user_absent(

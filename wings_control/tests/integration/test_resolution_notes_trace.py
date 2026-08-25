@@ -126,7 +126,9 @@ def test_no_match_fallback_success_with_warn_and_flag(config_root_real, tmp_path
 
         notes = resolved.resolution_notes
         assert notes["fallback"] is True
-        assert any("无 model recipe,按平台基线兜底" in rec.message for rec in caplog.records)
+        assert any(
+            "No model recipe matched; falling back to platform defaults" in rec.message for rec in caplog.records
+        )
 
         layers = {entry.final_layer for entry in resolved.engine_config_traces.values()}
         # 兜底分支:命中层只能来自 builtin_default / default_model / strategy_device_count / user_cli,绝无 model_scenario

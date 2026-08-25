@@ -238,7 +238,7 @@ def test_nonexistent_hardware_friendly_error_not_crash(config_root_real, tmp_pat
         cli.main()
     assert exc.value.code == 2
     err = capsys.readouterr().err
-    assert "无配置资产" in err and "hardware_family" in err
+    assert "No configuration assets" in err and "hardware_family" in err
 
 
 def test_engine_fallback_from_env(monkeypatch):
