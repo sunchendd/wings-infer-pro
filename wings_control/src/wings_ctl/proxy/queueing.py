@@ -18,6 +18,8 @@ release() 调用时:
 QUEUE_OVERFLOW_MODE: block / drop_oldest / reject
 """
 
+from __future__ import annotations
+
 import time
 import asyncio
 import json

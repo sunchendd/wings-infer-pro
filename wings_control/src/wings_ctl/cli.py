@@ -202,6 +202,16 @@ def _export_smartqos_env(enable_smartqos: bool | None) -> None:
         os.environ["ENABLE_SMARTQOS"] = "true"
 
 
+def _export_rag_acc_env(enable_rag_acc: bool | None) -> None:
+    """Export the CLI RAG switch for the proxy child process.
+
+    Preserve an existing environment value when the CLI switch is omitted for
+    backwards compatibility; an explicit CLI enable always wins.
+    """
+    if enable_rag_acc:
+        os.environ["RAG_ACC_ENABLED"] = "true"
+
+
 def _canonicalize_engine(name: str) -> str:
     """归一引擎名到 config 目录命名(连字符)。
 
@@ -328,6 +338,36 @@ def _resolve_device_count(cli_value: int | None) -> int | None:
             logger.warning("DEVICE_COUNT environment value '%s' is not an integer; treating it as unset", env_val)
             return None
     return None
+
+
+def _apply_gpu_usage_mode(
+    user_cli_overrides: Dict[str, Any],
+    gpu_usage_mode: str | None,
+    engine: str,
+) -> Dict[str, Any]:
+    """把 GPU 使用模式转换为引擎原生参数覆盖。
+
+    ``enpu`` 模式配合 vLLM-Ascend 时向最高优先级 ``user_cli``
+    层注入 ``enforce_eager=True``，最终由 argv 渲染器输出 ``--enforce-eager``。
+    其他引擎或模式保持原配置。
+
+    Args:
+        user_cli_overrides: 已完成 MaaS 契约过滤和引擎参数翻译的覆盖层。
+        gpu_usage_mode: ``--gpu-usage-mode`` 原始值。
+        engine: 已归一化的引擎名。
+
+    Returns:
+        新的 user_cli 覆盖层；不会原地修改入参。
+    """
+    result = dict(user_cli_overrides)
+    if (gpu_usage_mode or "").strip().casefold() != "enpu":
+        return result
+    if engine != "vllm-ascend":
+        return result
+
+    result["enforce_eager"] = True
+    logger.info("gpu-usage-mode=enpu: injecting --enforce-eager")
+    return result
 
 
 def _resolve_model_name(model_name: str | None, model_path: str | None) -> str:
@@ -637,7 +677,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--gpu-usage-mode",
         type=str,
         default="full",
-        help="Specify gpu usage mode (default: full)",
+        help="GPU usage mode; enpu injects --enforce-eager for vLLM-Ascend (default: full)",
     )
     parser.add_argument(
         "--config-file",
@@ -688,6 +728,7 @@ def main() -> None:
 
         # ENABLE_SMARTQOS 需要被 proxy 子进程消费（Anthropic 协议转换门控）。
         _export_smartqos_env(args.enable_smartqos)
+        _export_rag_acc_env(args.enable_rag_acc)
         raw_user_cli_overrides = _collect_user_cli_overrides(
             host=args.host,
             port=args.port,
@@ -715,6 +756,11 @@ def main() -> None:
             enable_metrics=args.enable_metrics,
         )
         user_cli_overrides, user_cli_dropped = CLITranslator.translate_overrides(raw_user_cli_overrides, engine)
+        user_cli_overrides = _apply_gpu_usage_mode(
+            user_cli_overrides,
+            args.gpu_usage_mode,
+            engine,
+        )
         # 特性开关本身不直接渲染进 argv,只提取为 ON 的开关传入 resolve_config:
         #   enable_auto_tool_choice / enable_auto_think_choice → feature_overlay 按 model.yaml features 渲染;
         #   enable_smartqos / enable_otlp_traces / enable_metrics → feature_inject 按引擎类型注入 engine_config/env。
@@ -729,6 +775,8 @@ def main() -> None:
             )
             if raw_user_cli_overrides.get(k)
         }
+        if args.enable_rag_acc:
+            feature_switches["enable_rag_acc"] = True
     except ValueError as exc:
         parser.error(str(exc))
         return

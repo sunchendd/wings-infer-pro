@@ -28,6 +28,7 @@ from wings_ctl.core.models import (
 )
 from wings_ctl.core.topology import Topology
 from wings_ctl.engines.version_resolver import resolve_engine_version
+from wings_ctl.engines.vllm_adapter import build_argv
 from wings_ctl.hardware.resolver import resolve_hardware
 
 # FOAI 旧版前端模板的 params(与设计文档的示例一致)。
@@ -139,6 +140,27 @@ def test_a2_vllm_opposite_len_passthrough(config_root, hardware_info_path):
 
 
 # ─── (b) vllm 用户添加键透传 ───
+
+
+def test_a3_vllm_ascend_gpu_usage_mode_enpu_translates_to_enforce_eager(
+    config_root, hardware_info_path
+):
+    params = dict(LEGACY_PARAMS)
+    params["gpu-usage-mode"] = "enpu"
+
+    resolved = _resolve(
+        config_root,
+        hardware_info_path,
+        engine="vllm-ascend",
+        params=params,
+    )
+    argv = build_argv(resolved.engine_config_traces, engine="vllm-ascend")
+
+    assert resolved.engine_config_traces["enforce_eager"].final_value is True
+    assert "gpu_usage_mode" not in resolved.engine_config_traces
+    assert "--enforce-eager" in argv
+    assert "--gpu-usage-mode" not in argv
+    assert "gpu_usage_mode" in _dropped_keys(resolved)
 
 
 def test_b_vllm_user_added_passthrough(config_root, hardware_info_path):

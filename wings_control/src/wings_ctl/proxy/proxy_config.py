@@ -93,7 +93,7 @@ GLOBAL_QUEUE_MAXSIZE = int(os.getenv("GLOBAL_QUEUE_MAXSIZE", "1024"))
 _MAX_PROXY_WORKERS = 32
 WORKERS = min(int(os.getenv("PROXY_WORKERS", "32")), _MAX_PROXY_WORKERS)
 WORKER_INDEX = int(os.getenv("WORKER_INDEX", "-1"))
-RAG_ACC_ENABLED = os.getenv("RAG_ACC_ENABLED", "false").lower() != "false"
+RAG_ACC_ENABLED = os.getenv("RAG_ACC_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _split_strict(total: int, workers: int, idx: int) -> int:
