@@ -49,7 +49,7 @@ def test_parse_bool_invalid_warns_and_returns_default(caplog):
     with caplog.at_level(logging.WARNING):
         assert parse_bool("banana", default=True) is True
         assert parse_bool("banana", default=False) is False
-    assert any("非法布尔值" in r.message for r in caplog.records)
+    assert any("invalid boolean value" in r.message for r in caplog.records)
 
 
 def test_env_bool_reads_environment(monkeypatch):

@@ -250,7 +250,7 @@ def test_validate_missing_file_skips(tmp_path, caplog):
     assert pv.status == "skipped_missing_file"
     assert pv.supported_params_file is None
     assert pv.unsupported == []
-    assert any("缺失" in r.message or "warn-skip" in r.getMessage() for r in caplog.records)
+    assert any("supported_params list is missing or empty" in r.message for r in caplog.records)
 
 
 def test_validate_is_warn_only_does_not_touch_traces(tmp_path):

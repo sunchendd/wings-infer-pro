@@ -279,7 +279,7 @@ def test_process_plan_rejects_ambient_engine_port(monkeypatch: pytest.MonkeyPatc
 
 def test_process_plan_rejects_listener_conflict() -> None:
     """验证 RPC 与 API listener 冲突在脚本生成前失败。"""
-    with pytest.raises(ValueError, match="listener 冲突"):
+    with pytest.raises(ValueError, match="PD listener conflict"):
         _build_pd_process_plan(_resolved(head=True), _runtime(rpc_port=17000), device_count=2)
 
 

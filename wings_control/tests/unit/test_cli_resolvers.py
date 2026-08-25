@@ -167,7 +167,7 @@ def test_main_accepts_and_logs_v3_subsystem_switches(config_root, tmp_path, monk
     )
     with caplog.at_level(logging.INFO):
         cli.main()  # 不应抛 SystemExit(unrecognized arguments)
-    assert any("已接收子系统特性开关" in r.message for r in caplog.records)
+    assert any("Received subsystem feature switches" in r.message for r in caplog.records)
 
 
 # ─── main() 错误路径 + dry-run 多节点占位分支 ────────────────────────────────

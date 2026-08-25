@@ -57,7 +57,7 @@ cleanup_analyzer() {
             local elapsed
             elapsed=$(( $(date +%s) - SCRIPT_START_EPOCH ))
             cat >> "/shared-volume/progress.jsonl" <<EARLY_FAIL_EOF
-{"progress": 0, "phase_code": "script_error", "phase_name": "启动脚本执行失败", "status": "failed", "key_log": "引擎启动前脚本异常退出，退出码: $exit_code", "curr_time": "$curr_time", "start_time": "$start_time", "elapsed_time_s": $elapsed}
+{"progress": 0, "phase_code": "script_error", "phase_name": "startup script failed", "status": "failed", "key_log": "startup script exited before engine start, exit_code: $exit_code", "curr_time": "$curr_time", "start_time": "$start_time", "elapsed_time_s": $elapsed}
 EARLY_FAIL_EOF
         fi
     fi

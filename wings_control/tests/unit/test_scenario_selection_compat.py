@@ -88,7 +88,7 @@ def test_select_scenario_strategies_no_default_fallbacks_to_first_with_warning(c
     assert scenario["strategy_selection_source"] == "fallback_first_no_default"
     assert scenario["strategy_default_candidates"] == []
     assert any(
-        "无 default_strategy=true,按顺序取第一个策略 'first_dep'" in r.message
+        "has no default_strategy=true; selecting first strategy 'first_dep' by order" in r.message
         for r in caplog.records
     )
 
@@ -129,7 +129,7 @@ def test_select_scenario_strategies_multiple_defaults_fallbacks_to_first_default
     assert scenario["strategy_selection_source"] == "fallback_first_multiple_defaults"
     assert scenario["strategy_default_candidates"] == ["first_dep", "second_tp"]
     assert any(
-        "存在多个 default_strategy=true (first_dep,second_tp),按顺序取第一个 default 'first_dep' (官网数据异常)"
+        "has multiple default_strategy=true values (first_dep,second_tp); selecting first default 'first_dep' by order"
         in r.message
         for r in caplog.records
     )
