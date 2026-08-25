@@ -1,3 +1,5 @@
+import pytest
+
 from wings_accel import func_smart_accel
 from wings_accel.schemas import (
     SmartAccelInput,
@@ -8,6 +10,7 @@ from wings_accel.schemas import (
     SmartKVCacheConfig,
     SmartKVSparseConfig,
     DeploymentMode,
+    GeneratedFile,
 )
 
 
@@ -109,6 +112,32 @@ def test_empty_smart_accel():
     """smart_accel 为空 → decoding 输出 None。"""
     out = func_smart_accel(make_input(dec_enabled=True, smart_accel={}))
     assert out.smart_decoding_scheme is None
+
+
+def test_offload_generated_files_are_aggregated_without_writing(monkeypatch, tmp_path):
+    """func_smart_accel 将 offload 文件计划交给公开输出，不在解析期写盘。"""
+    monkeypatch.setenv("SHARED_VOLUME_PATH", str(tmp_path))
+    kv_cfg = SmartKVCacheConfig(
+        enabled=True,
+        disk_offload_enabled=True,
+        disk_capacity_gb=200,
+        disk_path="/mnt/kv",
+    )
+    smart_accel = {"kv_offload": [{
+        "name": "disk",
+        "envs": {"LMCACHE_CONFIG_FILE": "/shared-volume/lmcache_config.yaml"},
+        "files": [{"name": "lmcache_config.yaml", "mode": "0644",
+                   "content": "disk = {disk_path}\n"}],
+    }]}
+
+    out = func_smart_accel(make_input(kv_cache_config=kv_cfg, smart_accel=smart_accel))
+
+    assert [item.path for item in out.generated_files] == [
+        str(tmp_path / "lmcache_config.yaml"),
+    ]
+    assert out.generated_files[0].content == "disk = /mnt/kv\n"
+    assert out.generated_files[0].mode == "0644"
+    assert not (tmp_path / "lmcache_config.yaml").exists()
 
 
 def test_decoding_degrade_writes_diagnostics():
@@ -318,3 +347,16 @@ def test_kv_disk_offload_path_offload_absent():
     out = func_smart_accel(make_input(offload_enabled=True, kv_cache_config=kv,
                                       smart_accel={"decoding": []}))  # 无 kv_offload 块 → offload None
     assert out.kv_disk_offload_path is None
+
+
+def test_generated_file_paths_must_be_unique():
+    """同一路径的多个计划会导致交付文件语义不确定，必须在 SmartAccel 侧拒绝。"""
+    from wings_accel.core import _ensure_unique_generated_file_paths
+
+    duplicate_files = [
+        GeneratedFile(path="/shared-volume/plan.json", content="first"),
+        GeneratedFile(path="/shared-volume/plan.json", content="second"),
+    ]
+
+    with pytest.raises(ValueError, match="generated file paths must be unique"):
+        _ensure_unique_generated_file_paths(duplicate_files)

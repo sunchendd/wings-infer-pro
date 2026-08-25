@@ -31,11 +31,30 @@ from wings_accel.custom import smart_custom_features_expander
 from wings_accel.decoders import smart_decoding_expander
 from wings_accel.offload import smart_kv_offload_expander
 from wings_accel.render import PlaceholderContext, merge_engine_params
-from wings_accel.schemas import EngineParams, SmartAccelInput, SmartAccelOutput
+from wings_accel.schemas import (
+    EngineParams,
+    GeneratedFile,
+    SmartAccelInput,
+    SmartAccelOutput,
+)
 from wings_accel.sparse import smart_sparse_expander
 from wings_accel.validators import collect_smart_accel_warnings
 
 logger = logging.getLogger(__name__)
+
+
+def _ensure_unique_generated_file_paths(files: list[GeneratedFile]) -> None:
+    """Reject ambiguous generated-file plans before they reach wings-control."""
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for generated_file in files:
+        if generated_file.path in seen:
+            duplicates.append(generated_file.path)
+        else:
+            seen.add(generated_file.path)
+    if duplicates:
+        paths = ", ".join(dict.fromkeys(duplicates))
+        raise ValueError(f"SmartAccel generated file paths must be unique: {paths}")
 
 
 def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
@@ -100,6 +119,7 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
     pre_serve: list = []
     pre_serve_master: list = []
     pre_serve_client: list = []
+    generated_files: list[GeneratedFile] = []
     for feature in (decoding, offload, sparse, custom):
         if feature:
             engine_params = merge_engine_params(engine_params, feature.engine_params)
@@ -107,6 +127,8 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
             pre_serve.extend(feature.pre_serve)
             pre_serve_master.extend(feature.pre_serve_master)
             pre_serve_client.extend(feature.pre_serve_client)
+            generated_files.extend(feature.generated_files)
+    _ensure_unique_generated_file_paths(generated_files)
     # 去重保序:同一依赖/命令被多个特性声明时只取一次
     packages = list(dict.fromkeys(packages))
     pre_serve = list(dict.fromkeys(pre_serve))
@@ -129,6 +151,7 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
         pre_serve=pre_serve,
         pre_serve_master=pre_serve_master,
         pre_serve_client=pre_serve_client,
+        generated_files=generated_files,
     )
 
 
@@ -217,4 +240,6 @@ def _build_placeholder_context(smart_input: SmartAccelInput) -> PlaceholderConte
         tp_size=kv.tp_size,
         dp_size=kv.dp_size,
         config_root=smart_input.config_root,
+        source_file=smart_input.source_file,
+        source_path=smart_input.source_path,
     )

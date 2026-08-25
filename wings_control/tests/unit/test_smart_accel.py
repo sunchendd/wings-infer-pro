@@ -140,6 +140,60 @@ def test_collect_output_flattens_incl_custom_cli():
     assert r.env == {"E": "1"} and r.audit["wings_accel"] == {"overall": "ok"}
 
 
+def test_collect_output_maps_generated_files():
+    """验证 output.generated_files → AccelResult.generated_files(归一为 GeneratedFileSpec)。"""
+    gf = types.SimpleNamespace(
+        path="/shared-volume/lmcache_config.yaml",
+        content="chunk_size: 256\n",
+        mode="0644",
+        scope="all",
+        source_file="model.yaml",
+        source_path="smart_accel.kv_offload[0].files[0]",
+    )
+    out = types.SimpleNamespace(
+        engine_params=types.SimpleNamespace(engine_config={"x": "1"}, env={"E": "1"}),
+        generated_files=[gf],
+    )
+    r = collect_output(out)
+    assert len(r.generated_files) == 1
+    spec = r.generated_files[0]
+    assert spec.path == "/shared-volume/lmcache_config.yaml"
+    assert spec.content == "chunk_size: 256\n"
+    assert spec.mode == "0644" and spec.scope == "all"
+    assert spec.source_file == "model.yaml"
+    assert spec.source_path == "smart_accel.kv_offload[0].files[0]"
+
+
+def test_collect_output_generated_files_absent_defaults_empty():
+    """验证旧/stub 输出无 generated_files → 空列表(向后兼容,不崩)。"""
+    out = types.SimpleNamespace(
+        engine_params=types.SimpleNamespace(engine_config={"x": "1"}, env={"E": "1"}),
+    )
+    r = collect_output(out)
+    assert r.generated_files == []
+
+
+def test_collect_output_plan_only_marks_accel_enabled():
+    """文件计划、依赖和 pre-serve 本身也是有效 accel 运行时产出。"""
+    out = types.SimpleNamespace(
+        engine_params=types.SimpleNamespace(engine_config={}, env={}),
+        generated_files=[
+            types.SimpleNamespace(path="/shared-volume/config.yaml", content="enabled: true\n")
+        ],
+        packages=["lmcache:v0.3.15"],
+        pre_serve=["mkdir -p /shared-volume"],
+    )
+
+    result = collect_output(out)
+
+    assert result.enabled is True
+    assert result.packages == ["lmcache:v0.3.15"]
+    assert result.pre_serve == ["mkdir -p /shared-volume"]
+    assert len(result.generated_files) == 1
+
+
+
+
 def test_apply_module_absent_is_noop():
     """验证 wings-accel 模块未在场 → 空 AccelResult(no-op,不打断启动)。"""
     monkey = types.SimpleNamespace()  # 占位,确保 _import_accel 真实路径

@@ -11,6 +11,7 @@ audit.json 结构:
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -233,6 +234,21 @@ def _build_audit_dict(resolved: ResolvedConfig) -> Dict[str, Any]:
     # 内容为各 OutputParams 的 wings_accel_params + 顶层汇总;空(未接通/关闭)→ 不写。
     if resolved.accel.audit:
         audit["wings_accel"] = resolved.accel.audit
+
+    # wings-accel 待写文件计划:仅记元数据与内容摘要,不写原始 content(避免敏感内容落审计)。
+    # 供排查"本轮 accel 生成了哪些文件/来源/内容是否一致"。
+    if resolved.accel.generated_files:
+        audit["accel_generated_files"] = [
+            {
+                "path": gf.path,
+                "mode": gf.mode,
+                "scope": gf.scope,
+                "source_file": gf.source_file,
+                "source_path": gf.source_path,
+                "sha256": hashlib.sha256(gf.content.encode("utf-8")).hexdigest(),
+            }
+            for gf in resolved.accel.generated_files
+        ]
 
     # EngineParamValidator:warn-only 支持参数校验结果。非空即写(含 skip 兜底态),
     # would-warn 参数带来源链;供 lint/CI/offline 消费(runtime 只 warn 不删)。

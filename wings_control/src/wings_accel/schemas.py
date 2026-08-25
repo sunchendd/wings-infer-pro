@@ -77,6 +77,19 @@ class EngineParams:
 
 
 @dataclass
+class GeneratedFile:
+    """解析期生成的文件计划,由 wings-control 在产物阶段负责写盘。"""
+
+    path: str
+    content: str
+    mode: Optional[str] = None
+    scope: str = "all"
+    source_file: str = ""
+    source_path: str = ""
+    runtime_vars: List[str] = field(default_factory=list)
+
+
+@dataclass
 class EngineConfig:
     """引擎标识 — 名称 + 版本,用于版本解析与能力分流。"""
 
@@ -229,6 +242,9 @@ class SmartAccelInput:
     # smart-accel 根目录(_resolve_smart_accel_root 结果);files 条目 src 解析基准。非 MaaS 参数,
     # 由 yaml_loader.load_smart_accel_from_config 在构造时填入。
     config_root: str = ""
+    # Actual selected SmartAccel YAML and routed source path for generated-file audit.
+    source_file: str = ""
+    source_path: str = ""
 
 
 @dataclass
@@ -248,6 +264,7 @@ class _FeatureOutput:
     pre_serve: List[str] = field(default_factory=list) # 所有节点在 vllm serve 前运行的 shell 命令(如 heredoc 生成 mooncake.json)
     pre_serve_master: List[str] = field(default_factory=list) # 仅 master 节点运行的 daemon 启动命令(mooncake_master / MetaService &)
     pre_serve_client: List[str] = field(default_factory=list) # 仅 client 节点(非 master)运行的命令(如 client-only 配置文件生成)
+    generated_files: List[GeneratedFile] = field(default_factory=list) # 已渲染、未写盘的文件计划;由 wings-control 在产物阶段消费
 
 
 @dataclass
@@ -282,3 +299,4 @@ class SmartAccelOutput:
     pre_serve: List[str] = field(default_factory=list) # 聚合:所有节点 pre-serve 命令(去重保序);script_builder 在 vllm serve 前渲染
     pre_serve_master: List[str] = field(default_factory=list) # 聚合:仅 master 的 daemon 启动命令(去重保序);包 RANK_IP==MASTER_IP 条件
     pre_serve_client: List[str] = field(default_factory=list) # 聚合:仅 client(非 master)pre-serve 命令(去重保序);包 RANK_IP!=MASTER_IP 条件
+    generated_files: List[GeneratedFile] = field(default_factory=list) # 已渲染、未写盘的文件计划;交由 wings-control 在非 dry-run 产物阶段写入

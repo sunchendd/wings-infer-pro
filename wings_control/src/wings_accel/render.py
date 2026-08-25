@@ -14,8 +14,8 @@
 - bool / scalar / dict / list 均保留原类型;最终 argv 由 wings-control 渲染。
 - 占位符:cli_params / envs 的字符串值支持 {name} 占位符与 $path 令牌,
   由 PlaceholderContext 解析(见 _fill_str)。
-- files:scheme 可声明要落盘的配置文件({name, content}),由 write_scheme_files
-  填占位符后写到 SHARED_VOLUME_PATH/<name>(任意文本:YAML/JSON/conf)。
+- files:scheme 可声明待生成的配置文件({name, content}),由 plan_scheme_files
+    填占位符后作为计划交给 wings-control 写入(任意文本:YAML/JSON/conf)。
 
 合并:
 - deep_merge_dicts:合并【未渲染】的 cli_params(dict 级深合并),用于同一特性内
@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from wings_accel.schemas import EngineParams, _FeatureOutput
+from wings_accel.schemas import EngineParams, GeneratedFile, _FeatureOutput
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +80,8 @@ class PlaceholderContext:
     tp_size: int = 0 # 张量并行度;lmcache {lookup_server_worker_ids} → "0,..,tp_size-1"
     dp_size: int = 0 # 数据并行度;对齐 tp_size,供 {= expr } 算术用(如 per-pod 段大小派生)
     config_root: str = "" # smart-accel 根目录;files 条目 src 解析基准(_resolve_smart_accel_root 结果)
+    source_file: str = "" # 实际命中的 SmartAccel YAML 文件,供生成文件审计使用
+    source_path: str = "" # 已路由的 YAML 路径前缀,供生成文件审计使用
 
 
 # ───────────────────────────────────────────────
@@ -262,7 +264,7 @@ def _fill_str_substr(value: str, ctx: PlaceholderContext) -> str:
 
     与 ``_fill_str`` 的整值精确匹配不同,本函数把文本里**每个** ``{placeholder}`` 出现处都替换为
     ``_resolve_token`` 的解析值;未识别 / 条件未满足的占位符原样保留。``$path`` / ``$draft_model_path``
-    同样子串替换。用于 files 块的 content(任意文本:YAML/JSON/conf),使落盘配置文件的占位符全部填实。
+    同样子串替换。用于 files 块的 content(任意文本:YAML/JSON/conf),使文件计划内容的占位符全部填实。
 
     Args:
         value: 配置文件文本(可能含多个 {占位符} 子串)。
@@ -353,12 +355,13 @@ def _resolve_file_entry(
     }
 
 
-def write_scheme_files(
+def plan_scheme_files(
     files: Optional[List[Dict[str, Any]]],
     ctx: PlaceholderContext,
     volume: Optional[str] = None,
-) -> List[Dict[str, Any]]:
-    """把 scheme 的 ``files:`` 块渲染(填占位符)并写到共享卷,返回每文件运行时信息。
+    source_path_prefix: str = "",
+) -> List[GeneratedFile]:
+    """把 scheme 的 ``files:`` 块渲染为文件计划,不执行任何写盘操作。
 
     files 条目**自描述 schema**:
       - ``path``(必填,容器内路径;或 ``name`` 兼容 → ``<volume>/<name>``)
@@ -371,46 +374,49 @@ def write_scheme_files(
     Args:
         files: scheme 的 ``files`` 列表;``None``/空 → 返回 ``[]``(不建目录、不写盘)。
         ctx: 占位符上下文(填充 ``content`` 里的 ``{name}``/``$path``;``config_root`` 供 ``src`` 解析)。
-        volume: 写盘根目录;``None`` → 取 ``SHARED_VOLUME_PATH`` 环境变量,缺省 ``/shared-volume``。
+        volume: 计划路径根目录;``None`` → 取 ``SHARED_VOLUME_PATH`` 环境变量,缺省 ``/shared-volume``。
+        source_path_prefix: 选中 smart_accel 配置块的 YAML 路径前缀,用于 audit 溯源。
 
     Returns:
-        ``[{path, scope, mode, runtime_vars}]``(保持输入顺序,跳过无效条目)。
-        ``runtime_vars`` = 写盘内容里检测到的 ``${VAR}`` 列表(如 ``["MASTER_IP","RANK_IP"]``),
-        供 offload 生成 envsubst 步骤;无运行时变量 → ``[]``。整体为空 → ``[]``。
-
-    Raises:
-        OSError: 创建目录或写文件失败时由文件系统抛出。
+        ``GeneratedFile`` 列表(保持输入顺序,跳过无效条目)。每项的 ``content`` 已填充
+        解析期占位符，``runtime_vars`` 是内容中检测到的 ``${VAR}`` 列表，供 offload
+        合成运行时 envsubst 步骤。整体为空 → ``[]``。
     """
     if not files:
         return []
     vol = Path(volume or os.getenv("SHARED_VOLUME_PATH", "/shared-volume"))
-    out: List[Dict[str, Any]] = []
-    for f in files:
+    out: List[GeneratedFile] = []
+    for file_index, f in enumerate(files):
         entry = _resolve_file_entry(f, ctx, vol)
         if entry is None:
             continue
-        path = Path(entry["path"])
         content = entry["content"]
         # content 是任意文本(YAML/JSON/conf):子串替换填占位符(整值匹配填不了多行文本)。
         filled = _fill_str_substr(content, ctx) if isinstance(content, str) else content
         text = "" if filled is None else str(filled)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
         mode = entry.get("mode")
-        if mode is not None:
-            try:
-                path.chmod(int(str(mode), 8))
-            except (ValueError, OSError):
-                logger.warning("smart_accel: files %s chmod mode=%r 失败", path, mode)
         runtime_vars = sorted(set(_RUNTIME_VAR_RE.findall(text)))
-        out.append({
-            "path": str(path),
-            "scope": entry["scope"],
-            "mode": mode,
-            "runtime_vars": runtime_vars,
-        })
-        logger.info("smart_accel: wrote config file %s (runtime_vars=%s)", path, runtime_vars)
+        source_path = (
+            f"{source_path_prefix}.files[{file_index}]"
+            if source_path_prefix
+            else ""
+        )
+        out.append(GeneratedFile(
+            path=entry["path"],
+            content=text,
+            mode=mode,
+            scope=entry["scope"],
+            source_file=ctx.source_file,
+            source_path=source_path,
+            runtime_vars=runtime_vars,
+        ))
+        logger.info(
+            "smart_accel: planned config file %s (runtime_vars=%s)",
+            entry["path"], runtime_vars,
+        )
     return out
+
+
 
 
 def extract_packages(scheme: Dict[str, Any]) -> List[str]:

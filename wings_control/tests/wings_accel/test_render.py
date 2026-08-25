@@ -5,10 +5,10 @@ from wings_accel.render import (
     deep_merge_dicts,
     fill_envs,
     merge_engine_params,
+    plan_scheme_files,
     render_engine_config,
-    write_scheme_files,
 )
-from wings_accel.schemas import EngineParams
+from wings_accel.schemas import EngineParams, GeneratedFile
 
 
 def ctx(**kw):
@@ -83,11 +83,11 @@ def test_merge_engine_params():
     assert a.env == {"A": "1"}
 
 
-# ── 通用 files: 写文件(write_scheme_files)──────────────────────────────────
+# ── 通用 files: 计划文件(plan_scheme_files) ─────────────────────────────────
 
 
-def test_write_scheme_files_renders_multiple_formats(monkeypatch, tmp_path):
-    """验证多文件(JSON + .conf)落盘:占位符子串填充正确 + 返回已写路径(保持输入顺序)。"""
+def test_plan_scheme_files_renders_multiple_formats_without_writing(monkeypatch, tmp_path):
+    """验证多文件渲染为计划,并且不创建目录或文件。"""
     monkeypatch.setenv("SHARED_VOLUME_PATH", str(tmp_path))
     c = ctx(
         disk_offload_enabled=True, disk_path="/mnt/kv",
@@ -99,52 +99,71 @@ def test_write_scheme_files_renders_multiple_formats(monkeypatch, tmp_path):
         {"name": "mmc_local.conf",
          "content": "ock.mmc.local_service.dram.size = 10GB\nlocal_disk = {disk_path}\n"},
     ]
-    written = write_scheme_files(files, c)
-    # 返回每文件的运行时信息;path = SHARED_VOLUME_PATH/<name>,顺序与输入一致
-    assert [w["path"] for w in written] == [
+    planned = plan_scheme_files(files, c)
+    assert [item.path for item in planned] == [
         str(tmp_path / "mooncake.json"), str(tmp_path / "mmc_local.conf")
     ]
-    # 无 ${VAR} 运行时占位符 → runtime_vars=[]
-    assert all(w["runtime_vars"] == [] for w in written)
-    # 占位符子串全部填实(多行文本里的 {占位符} 整体替换)
-    assert (tmp_path / "mooncake.json").read_text(encoding="utf-8") == (
+    assert all(item.runtime_vars == [] for item in planned)
+    assert planned[0] == GeneratedFile(
+        path=str(tmp_path / "mooncake.json"),
+        content=(
         '{"local_disk": "/mnt/kv", "instance_num": 4}\n'
+        ),
     )
-    assert (tmp_path / "mmc_local.conf").read_text(encoding="utf-8") == (
-        "ock.mmc.local_service.dram.size = 10GB\nlocal_disk = /mnt/kv\n"
-    )
+    assert planned[1].content == "ock.mmc.local_service.dram.size = 10GB\nlocal_disk = /mnt/kv\n"
+    assert not (tmp_path / "mooncake.json").exists()
+    assert not (tmp_path / "mmc_local.conf").exists()
 
 
-def test_write_scheme_files_empty_no_write(monkeypatch, tmp_path):
-    """验证 files=None / 空列表 → 返回 [],且不创建目录、不写盘(早退)。"""
+def test_plan_scheme_files_empty_does_not_create_a_directory(monkeypatch, tmp_path):
+    """验证 files=None / 空列表 → 返回 [],且不创建目录。"""
     target = tmp_path / "shared"  # 不应被创建
     monkeypatch.setenv("SHARED_VOLUME_PATH", str(target))
-    assert not write_scheme_files(None, ctx())
-    assert not write_scheme_files([], ctx())
-    assert not target.exists()  # 早退,未 mkdir
+    assert not plan_scheme_files(None, ctx())
+    assert not plan_scheme_files([], ctx())
+    assert not target.exists()
 
 
-def test_write_scheme_files_explicit_volume_overrides_env(monkeypatch, tmp_path):
-    """验证显式 volume 参数覆盖 SHARED_VOLUME_PATH 环境变量。"""
+def test_plan_scheme_files_explicit_volume_overrides_env(monkeypatch, tmp_path):
+    """验证显式 volume 参数覆盖 SHARED_VOLUME_PATH,并且不写盘。"""
     monkeypatch.setenv("SHARED_VOLUME_PATH", "/should-not-be-used")
     target = tmp_path / "out"
-    written = write_scheme_files(
+    planned = plan_scheme_files(
         [{"name": "a.txt", "content": "enabled: {qat_enabled}\n"}],
         ctx(qat_enabled=True),
         volume=str(target),
     )
-    assert [w["path"] for w in written] == [str(target / "a.txt")]
-    assert (target / "a.txt").read_text(encoding="utf-8") == "enabled: true\n"
+    assert [item.path for item in planned] == [str(target / "a.txt")]
+    assert planned[0].content == "enabled: true\n"
+    assert not target.exists()
 
 
-def test_write_scheme_files_unresolved_token_kept_literal(monkeypatch, tmp_path):
-    """验证条件未满足的占位符(disk 未启用时的 {disk_path})原样保留字面量。"""
+def test_plan_scheme_files_unresolved_token_kept_literal(monkeypatch, tmp_path):
+    """验证条件未满足的占位符仍保留在文件计划内容中。"""
     monkeypatch.setenv("SHARED_VOLUME_PATH", str(tmp_path))
-    write_scheme_files([{"name": "c.yaml", "content": "local_disk: {disk_path}\n"}], ctx())
-    # disk_offload_enabled=False → {disk_path} 不解析,保留字面量
-    assert (tmp_path / "c.yaml").read_text(encoding="utf-8") == "local_disk: {disk_path}\n"
+    planned = plan_scheme_files(
+        [{"name": "c.yaml", "content": "local_disk: {disk_path}\n"}], ctx()
+    )
+    assert planned[0].content == "local_disk: {disk_path}\n"
+    assert not (tmp_path / "c.yaml").exists()
 
 
+
+def test_plan_scheme_files_preserves_source_metadata(monkeypatch, tmp_path):
+    """文件计划必须保留实际 YAML 文件和 files[] 来源路径，供 audit 追溯。"""
+    monkeypatch.setenv("SHARED_VOLUME_PATH", str(tmp_path))
+    planned = plan_scheme_files(
+        [{"name": "config.json", "content": "{}\n"}],
+        ctx(
+            source_file="/config/smart-accel/model.yaml",
+            source_path="smart_accel.standalone.strategies.single_node.kv_offload[0]",
+        ),
+        source_path_prefix="smart_accel.standalone.strategies.single_node.kv_offload[0]",
+    )
+    assert planned[0].source_file == "/config/smart-accel/model.yaml"
+    assert planned[0].source_path == (
+        "smart_accel.standalone.strategies.single_node.kv_offload[0].files[0]"
+    )
 # ── {= expr} 算术求值(content / cli_params / envs 通用)───────────────────────
 
 
@@ -186,14 +205,16 @@ def test_expr_in_files_content(monkeypatch, tmp_path):
     """files content 多行文本里 {name} 与 {= expr} 共存:{rank_ip}/{master_ip}/{lookup_server_worker_ids} + {= ...}。"""
     monkeypatch.setenv("SHARED_VOLUME_PATH", str(tmp_path))
     c = ctx(memory_capacity_gb=8, gpu_count=4, tp_size=4)
-    write_scheme_files(
+    planned = plan_scheme_files(
         [{"name": "mooncake.json",
           "content": "local = {rank_ip}\nmaster = {master_ip}\n"
                      "segment = {= memory_capacity_gb // gpu_count}GB\n"
                      "workers = {lookup_server_worker_ids}\n"}],
         c,
     )
-    assert (tmp_path / "mooncake.json").read_text(encoding="utf-8") == (
+    assert planned[0].content == (
         "local = ${RANK_IP}\nmaster = ${MASTER_IP}\n"
         "segment = 2GB\nworkers = 0,1,2,3\n"
     )
+    assert planned[0].runtime_vars == ["MASTER_IP", "RANK_IP"]
+    assert not (tmp_path / "mooncake.json").exists()

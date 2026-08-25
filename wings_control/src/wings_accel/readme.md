@@ -92,7 +92,7 @@ src/wings_accel/
 ├── schemas.py           数据契约层(SystemConfig / ModelConfig / ... / SmartAccelOutput)
 ├── yaml_loader.py       YAML → SmartAccelInput + 三层路径匹配 + LoadFlags
 ├── memory_estimator.py  智能内存估算(auto 模式,CPU 卸载容量)
-├── render.py            渲染层(占位符填充 + 配置文件落盘 + 合并)
+├── render.py            渲染层(占位符填充 + 配置文件计划 + 合并)
 ├── validators.py        输入提示(4 条 warn-only 规则)
 ├── decoders.py          SmartDecoding expander
 ├── sparse.py            SmartSparse expander
@@ -107,11 +107,11 @@ src/wings_accel/
 |---|---|---|
 | `schemas.py` | 226 | 全部输入输出 dataclass + MaaS 来源注释 |
 | `yaml_loader.py` | 488 | YAML 解析、三层路径匹配、LoadFlags、auto 内存 |
-| `render.py` | 324 | 占位符单一判定点 + files 落盘 + 两种合并 |
+| `render.py` | 324 | 占位符单一判定点 + files 计划 + 两种合并 |
 | `core.py` | 166 | 7 步管线编排 + 占位符上下文派生 |
 | `memory_estimator.py` | 118 | 单常数最坏值内存估算 |
 | `decoders.py` | 97 | model_based / no_model 双分支 + priority |
-| `offload.py` | 138 | 三 scheme 三选一 + fallback + QAT 门控 + files 落盘 |
+| `offload.py` | 138 | 三 scheme 三选一 + fallback + QAT 门控 + files 计划 |
 | `sparse.py` | 96 | mode 匹配 + perf→acc 降级 |
 | `custom.py` | 64 | always-on 方案深合并 |
 | `api.py` | 51 | 自闭环入口 |
@@ -337,15 +337,15 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
 - NPU(vllm-ascend):`num_cpu_blocks`(块数),占位符 `{mem_gb_to_blocks}`(GiB→块,÷16 KiB)。
 - 原生 vLLM(CUDA)≥v0.14:`cpu_bytes_to_use`(字节,全 TP 合计),占位符 `{mem_gb_to_bytes}`(GiB→字节)。原生侧静默忽略 `num_cpu_blocks`,故 CUDA 配置必须用 `cpu_bytes_to_use`。生产 `rtx_pro_5000_*/Qwen3.5` 用此形态。
 
-**QAT 门控 + 配置文件落盘**(`offload.py:117-128`):
+**QAT 门控 + 配置文件计划**(`offload.py`):
 
 disk / cpu_disk 命中且 scheme 有 `files:` 块时:
 1. 算 `effective_qat = cfg.qat_enabled and engine_name == "vllm"`(三门:`cfg.qat_enabled` + vllm + disk 命中)。
 2. `render_ctx = replace(ctx, qat_enabled=effective_qat)`。
-3. `write_scheme_files(files, render_ctx)` 把每个文件 `content` 填占位符后写到 `SHARED_VOLUME_PATH/<name>`(如 `lmcache_config.yaml`)。
+3. `plan_scheme_files(files, render_ctx)` 只渲染 `GeneratedFile` 计划；wings-control 在正式产物阶段写入共享卷。
 4. 注入派生 env `LMCACHE_QAT_ENABLED = "True"/"False"`(随 effective_qat)。
 
-disk 命中但缺 `files:` 块 → 仅 WARN,不写盘、不注入(不阻塞启动)。
+disk 命中但缺 `files:` 块 → 仅 warning，不产生文件计划也不注入(不阻塞启动)。
 
 > `LMCACHE_CONFIG_FILE` 等指向文件的 env 由 scheme 的 `envs:` 字面量声明(作者写),**不再代码注入**;**仅 `LMCACHE_QAT_ENABLED` 一项仍代码注入**(它是派生 env,值依赖 engine ∧ qat,无法静态写死)。见 §8.2。
 
@@ -394,19 +394,17 @@ disk 命中但缺 `files:` 块 → 仅 WARN,不写盘、不注入(不阻塞启�
 
 > 公式就地写死在 `_resolve_token` 里是**显式 Python 表达式**,不是字符串公式,**禁止 eval/exec**(不造公式 DSL)。改公式 = 改这一处代码 + 注释。
 
-### 6.3 配置文件落盘 `write_scheme_files`
+### 6.3 文件计划 `plan_scheme_files`
 
 ```python
-def write_scheme_files(files, ctx, volume=None) -> List[str]
+def plan_scheme_files(files, ctx, volume=None, source_path_prefix="") -> List[GeneratedFile]
 ```
 
-通用配置文件落盘(`render.py:194-235`):`files` 形如 `[{"name": <filename>, "content": <text>}, ...]`,`content` 为任意文本(YAML / JSON / .conf),支持与 cli_params/envs 相同的 `{name}` 占位符与 `$path` 令牌(子串替换)。每个文件写到 `<volume>/<name>`;`volume` 缺省取 `SHARED_VOLUME_PATH` 环境变量,缺省 `/shared-volume`。
+函数把 `files` 中的文本填充为 `GeneratedFile` 计划，不创建目录、不写文件。每项带目标路径、内容、权限、scope、运行时变量和 YAML 来源；wings-control 仅在非 dry-run 的产物阶段校验并写入共享卷。
 
-- `None` / 空 → 返回 `[]`(不创建目录、不写盘);
-- 元素非 dict 或缺 `name` → 跳过;
-- 返回已写文件的绝对路径列表(保持输入顺序)。
-
-**用途**:lmcache_config.yaml / mooncake.json / mmc_local.conf 等任意配置文件统一由本函数落盘,无需为每种配置写专门代码(`docs/54`)。指向文件的 env(如 `LMCACHE_CONFIG_FILE`)由 scheme 的 `envs:` 字面量声明。
+- `None` / 空 → 返回 `[]`，无文件系统副作用；
+- 元素非 dict 或缺 `name` / `path` → 跳过；
+- 返回计划保持输入顺序，调用方不得假定目标文件已存在。
 
 ### 6.4 两种合并
 
@@ -654,7 +652,7 @@ kv_offload:
           cpu_bytes_to_use: "{mem_gb_to_bytes}"   # CUDA 字节口径;NPU 用 num_cpu_blocks: "{mem_gb_to_blocks}"
     envs: {}
 
-  # disk:纯磁盘卸载,lmcache。需 lmcache 包 + lmcache_config.yaml(files 落盘)。
+  # disk:纯磁盘卸载,lmcache。需 lmcache 包 + lmcache_config.yaml(files 计划)。
   - name: disk
     packages:
       lmcache: v0.3.15
@@ -722,7 +720,7 @@ custom_features:
 | `build_smart_accel_yaml_path(...)` | 拼固定路径(兼容旧调用) |
 | `LoadFlags` | MaaS 开关覆盖(全默认 False) |
 | `PlaceholderContext` | 占位符上下文 |
-| `render_engine_config` / `fill_envs` / `render_scheme` / `write_scheme_files` | 渲染工具(供单测复用) |
+| `render_engine_config` / `fill_envs` / `render_scheme` / `plan_scheme_files` | 渲染工具(供单测复用) |
 | `deep_merge_dicts` / `merge_engine_params` | 合并工具 |
 | 全部 schema dataclass | `SmartAccelInput` / `SmartAccelOutput` / `EngineParams` / `SystemConfig` / `ModelConfig` / `EngineConfig` / `SmartDecodingConfig` / `SmartKVCacheConfig` / `SmartKVSparseConfig` / `DeploymentMode` |
 
@@ -735,9 +733,9 @@ custom_features:
 | D1 | 删 `LoadFlags.no_auto` + auto-enable 分支 | 消除「yaml 存在即开」旁路,特性启用 100% 由 MaaS flag 决定 | `yaml_loader.py` |
 | D2 | `LoadFlags` 全 flag 默认 False(含 `decoding_enabled`) | 裸 `LoadFlags()` = 全关真 no-op | `yaml_loader.py` |
 | D3 | QAT 三门门控:`cfg.qat_enabled` + `engine=="vllm"` + `disk_selected` | 非 vllm 不支持 QAT 硬件压缩;QAT 依赖 LMCache 磁盘卸载 | `offload.py:117-128` |
-| D4 | QAT `lmcache_config.yaml` 模板化 | QAT 配置进 yaml `files:`(占位符 + MaaS 填充),删 Python 硬编码 | `offload.py` + `render.write_scheme_files` |
+| D4 | QAT `lmcache_config.yaml` 模板化 | QAT 配置进 yaml `files:`(占位符 + MaaS 填充),删 Python 硬编码 | `offload.py` + `render.plan_scheme_files` |
 | D5 | priority 按需:sparse 删 / decoding model_based 删(取首序)/ decoding no_model 保留 | mode 唯一 / 有草稿即选定 ⇒ 不需 priority;无草稿兜底才需 | `decoders.py` / `sparse.py` |
-| D6 | 通用 `files:` 配置文件渲染 | lmcache / mooncake / mmc 统一落盘,一种机制覆盖任意格式(`docs/54`) | `render.write_scheme_files` |
+| D6 | 通用 `files:` 配置文件渲染 | lmcache / mooncake / mmc 统一生成计划,一种机制覆盖任意格式(`docs/54`) | `render.plan_scheme_files` |
 | D7 | 占位符单一判定点 `_resolve_token` | cli_params/envs(整值)与 files content(子串)共用,杜绝两处各判一次 | `render.py:64` |
 | D8 | 状态码简化为 None / `_FeatureOutput` | 旧 `disabled`/`fallback_disabled`/`enabled` 字符串分类多余,降级用 `degraded` 标记 | 各 expander + `schemas._FeatureOutput` |
 | D9 | 扁平 dict 承载诊断 | 与 wings_ctl trace 解耦,模块可独立发版 | `schemas.SmartAccelOutput.diagnostics` |
@@ -751,10 +749,9 @@ custom_features:
 
 1. **生产 yaml 缺 disk scheme**:DeepSeek-V4-Flash / Qwen3.5 等目前 `kv_offload` 只有 `cpu`。要真正端到端用 QAT,需补 `disk` / `cpu_disk` scheme(带 `files:` 模板)。disk/cpu_disk 目前仅存在于测试 fixture。
 2. **`LMCACHE_QAT_ENABLED` 仍代码注入**:它是派生 env(值依赖 engine ∧ qat),不是静态字面量,故未移入 yaml `envs:`。若要完全 yaml 化,需引入「effective-qat 大写布尔」占位符(当前无)。
-3. **写盘是渲染期副作用**:`func_smart_accel` 运行即落盘(`write_scheme_files`)。更纯的「收集到 `SmartAccelOutput.files` 再由 wings-control 落盘」架构留作未来债。
+3. **解析期无文件系统副作用**：`func_smart_accel` 只返回 `SmartAccelOutput.generated_files`；wings-control 在正式产物阶段写入文件，dry-run 不写盘。
 4. **mooncake / mmc scheme 未落地**:它们是 KV 传输连接器,不套用现 `cpu/disk/cpu_disk` 选择模型;`files:` 语法已就位,等 scheme 落地时直接复用。
-5. **`async_scheduling × suffix` 是作者约定**:`api.py` 看不到 `async_scheduling`,运行时不强制;写新 yaml 需自查(§12.6)。
-6. **`content` 占位符来源限 PlaceholderContext 现有字段**:mooncake 若要参数化 `master_server_address` / `world_size` 等,需先在 `PlaceholderContext` + `LoadFlags` 增字段。
+5. **`content` 占位符来源限 PlaceholderContext 现有字段**:mooncake 若要参数化 `master_server_address` / `world_size` 等,需先在 `PlaceholderContext` + `LoadFlags` 增字段。
 
 ---
 
@@ -767,10 +764,10 @@ custom_features:
 | `test_core.py` | 7 步管线 + sglang 短路 + custom 门控 + diagnostics |
 | `test_decoders.py` | model_based 命中/miss→降级、no_model priority、空 methods、PD prefill |
 | `test_sparse.py` | mode 命中、perf→acc 降级 |
-| `test_offload.py` | cpu/disk/cpu_disk 三选一、fallback、QAT 门控、files 落盘、占位符 |
+| `test_offload.py` | cpu/disk/cpu_disk 三选一、fallback、QAT 门控、files 计划、占位符 |
 | `test_custom_features.py` | always-on 深合并、空 block→None |
 | `test_conflict.py` | no-op 原样返回 |
-| `test_render.py` | 占位符整值/子串、files 落盘多格式、合并、packages 提取 |
+| `test_render.py` | 占位符整值/子串、files 计划多格式、合并、packages 提取 |
 | `test_validators.py` | 4 条 warn-only 规则 |
 | `test_schemas.py` | dataclass 默认值 |
 | `test_memory_estimator.py` | auto 估算公式 + 阈值关闭 |
@@ -825,7 +822,7 @@ PYTHONPATH=src python3 tests/wings_accel/smart_accel_io.py <yaml> --print input
    ```
 3. **改 expander 时先看**:
    - `decoders.py:30-71`(model_based / no_model 双分支)
-   - `offload.py:82-105`(三选一 + fallback)+ `117-128`(QAT 门控 + files 落盘)
+   - `offload.py:82-105`(三选一 + fallback)+ `117-128`(QAT 门控 + files 计划)
    - `custom.py:35-64`(always-on 深合并)
 4. **改占位符时**:**只改 `render._resolve_token` 一处**(单一判定点),勿在 expander 另写填充逻辑。带换算的公式就地写死 + 注释。同步更新本文 §6.2 总表。
 5. **改 YAML 格式时**:同时改对应 expander(读)+ fixture(参照)+ 跑生产 YAML 验证不破坏。

@@ -112,7 +112,11 @@ def test_mooncake_renders_and_synthesizes_pre_serve(monkeypatch, tmp_path):
     out = smart_kv_offload_expander(cfg, mooncake_block(), ctx)
     assert out.scheme == "cpu"  # name=介质 cpu(mooncake 是工具,由 connector+backend 区分,不进 scheme 名)
     # {rank_ip}/{master_ip} → ${RANK_IP}/${MASTER_IP};{= memory_capacity_gb // gpu_count}GB → "2GB"(8//4)
-    body = (tmp_path / "mooncake.json").read_text(encoding="utf-8")
+    body = next(
+        item.content
+        for item in out.generated_files
+        if item.path == str(tmp_path / "mooncake.json")
+    )
     assert '"local_hostname": "${RANK_IP}"' in body
     assert '"master_server_address": "${MASTER_IP}:50088"' in body
     assert '"global_segment_size": "2GB"' in body
@@ -128,6 +132,7 @@ def test_mooncake_renders_and_synthesizes_pre_serve(monkeypatch, tmp_path):
     psm = "\n".join(out.pre_serve_master)
     assert "bash " in psm and "start_kv_serve.sh &" in psm
     assert "/dev/tcp" not in psm
+    assert not (tmp_path / "mooncake.json").exists()
 
 
 def test_client_scope_file_routes_to_pre_serve_client(monkeypatch, tmp_path):
@@ -167,7 +172,11 @@ def test_memcache_renders_protocol_dram(monkeypatch, tmp_path):
     out = smart_kv_offload_expander(cfg, memcache_block(), ctx)
     assert out.scheme == "cpu"  # name=介质 cpu(memcache 是工具,由 connector+backend 区分)
     # mmc_local.conf(scope=all):world_size 字面量、protocol 字面量、dram per-card GB、master ${MASTER_IP}
-    local = (tmp_path / "mmc_local.conf").read_text(encoding="utf-8")
+    local = next(
+        item.content
+        for item in out.generated_files
+        if item.path == str(tmp_path / "mmc_local.conf")
+    )
     assert "world_size = 256" in local          # 字面量,不经占位符
     assert "protocol = device_rdma" in local
     assert "dram = 2GB" in local                # {= memory_capacity_gb // gpu_count}GB → "<per_card>GB"(8GB//4 卡)
@@ -179,6 +188,7 @@ def test_memcache_renders_protocol_dram(monkeypatch, tmp_path):
     assert "envsubst" in psm and "mmc_meta.conf" in psm
     assert "bash " in psm and "start_kv_serve.sh &" in psm
     assert "/dev/tcp" not in psm
+    assert not (tmp_path / "mmc_local.conf").exists()
 
 
 def test_backend_missing_falls_back_to_cpu():
@@ -242,9 +252,13 @@ def test_real_yaml_mooncake_end_to_end(monkeypatch, tmp_path):
     )
     assert out is not None
     assert out.smart_kv_cache_scheme == "cpu"  # name=介质 cpu(MiniMax 用 mooncake 工具,scheme 名即介质)
-    # mooncake.json 落盘 + 占位符填实:
+    # mooncake.json 计划 + 占位符填实:
     #   {= memory_capacity_gb // gpu_count}GB → "1GB"(8GB//8 卡);{rank_ip}/{master_ip} → ${RANK_IP}/${MASTER_IP}
-    body = (tmp_path / "mooncake.json").read_text(encoding="utf-8")
+    body = next(
+        item.content
+        for item in out.generated_files
+        if item.path == str(tmp_path / "mooncake.json")
+    )
     assert '"global_segment_size": "1GB"' in body
     assert '"local_hostname": "${RANK_IP}"' in body
     assert '"master_server_address": "${MASTER_IP}:50088"' in body
@@ -260,6 +274,7 @@ def test_real_yaml_mooncake_end_to_end(monkeypatch, tmp_path):
     assert ktc["kv_connector"] == "AscendStoreConnector"
     assert ktc["kv_connector_extra_config"]["backend"] == "mooncake"
     assert out.engine_params.env["MOONCAKE_CONFIG_PATH"] == "/shared-volume/mooncake.json"
+    assert not (tmp_path / "mooncake.json").exists()
 
 
 def test_real_yaml_mooncake_auto_derives_capacity(monkeypatch, tmp_path):
@@ -280,7 +295,11 @@ def test_real_yaml_mooncake_auto_derives_capacity(monkeypatch, tmp_path):
         gpu_count=8,
     )
     assert out is not None
-    body = (tmp_path / "mooncake.json").read_text(encoding="utf-8")
+    body = next(
+        item.content
+        for item in out.generated_files
+        if item.path == str(tmp_path / "mooncake.json")
+    )
     # {= expr} 解析为真实 "<n>GB"(估算后按 8 卡均分),不留字面 {= ...}
     assert '"global_segment_size": "{= memory_capacity_gb // gpu_count}GB"' not in body
     m = re.search(r'"global_segment_size":\s*"(\d+)GB"', body)
