@@ -74,16 +74,20 @@ def _env(config_root: Path, hardware_info_path: Path) -> ResolvedEnv:
     os.environ["ENGINE_VERSION"] = "0.19.0"
     try:
         hardware = resolve_hardware(hardware_info_path)
-        engine_version = resolve_engine_version(
-            config_root, hardware.hardware_family, engine="vllm"
-        )
+        engine_version = resolve_engine_version(config_root, hardware.hardware_family, engine="vllm")
         return ResolvedEnv(config_root=config_root, hardware=hardware, engine_version=engine_version)
     finally:
         os.environ.pop("ENGINE_VERSION", None)
 
 
-def _resolve(config_root: Path, hardware_info_path: Path, *, config_file=CONFIG_FILE,
-             user_input=None, topology=Topology.STANDALONE):
+def _resolve(
+    config_root: Path,
+    hardware_info_path: Path,
+    *,
+    config_file=CONFIG_FILE,
+    user_input=None,
+    topology=Topology.STANDALONE,
+):
     user_input = user_input or UserInput(cli_overrides=CLI_OVERRIDES)
     return resolve_custom_config(
         _env(config_root, hardware_info_path),
@@ -131,7 +135,8 @@ def test_b_custom_overrides_recipe_and_cli_highest(config_root, hardware_info_pa
     assert model_tr.final_layer == "user_cli"
 
     resolved2 = _resolve(
-        config_root, hardware_info_path,
+        config_root,
+        hardware_info_path,
         user_input=UserInput(cli_overrides={**CLI_OVERRIDES, "max_num_seqs": 512}),
     )
     assert resolved2.engine_config_traces["max_num_seqs"].final_value == 512
@@ -207,10 +212,10 @@ def test_c4_blacklist_is_per_engine(config_root, hardware_info_path):
 
     vllm_bl = _config_file_params_blacklist("vllm")
     sglang_bl = _config_file_params_blacklist("sglang")
-    # data_parallel_size(全局 DP)用户自管,两引擎都不拦;data_parallel_size_local 等派生键仅 vllm 系拦。
+    # data_parallel_size(全局 DP)与 data_parallel_size_local 用户自管,两引擎都不拦;
+    # multi_node custom 下 size_local 要求用户填写,PD custom 下用户优先/MaaS 兜底。
     assert "data_parallel_size" not in vllm_bl and "data_parallel_size" not in sglang_bl
-    assert "data_parallel_size_local" in vllm_bl
-    assert "data_parallel_size_local" not in sglang_bl
+    assert "data_parallel_size_local" not in vllm_bl and "data_parallel_size_local" not in sglang_bl
     assert "model" in vllm_bl and "model" in sglang_bl
     # master_addr/headless 仅 vllm 系(CLI --master-addr/--headless);sglang 用 --dist-init-addr
     assert "master_addr" in vllm_bl and "headless" in vllm_bl
@@ -220,9 +225,13 @@ def test_c4_blacklist_is_per_engine(config_root, hardware_info_path):
     unknown_bl = _config_file_params_blacklist("mindie")
     assert "model" in unknown_bl and "dist_init_addr" not in unknown_bl
     assert "master_addr" not in unknown_bl and "headless" not in unknown_bl
-    # env 黑名单:vllm-ascend 才拦 HCCL_IF_IP;vllm 不拦
+    # env 黑名单:vllm-ascend 才拦 HCCL_IF_IP/ASCEND_RT_VISIBLE_DEVICES;vllm 拦 CUDA_VISIBLE_DEVICES,不拦 HCCL。
     assert "HCCL_IF_IP" in _config_file_env_blacklist("vllm-ascend")
     assert "HCCL_IF_IP" not in _config_file_env_blacklist("vllm")
+    assert "ASCEND_RT_VISIBLE_DEVICES" in _config_file_env_blacklist("vllm-ascend")
+    assert "ASCEND_RT_VISIBLE_DEVICES" not in _config_file_env_blacklist("vllm")
+    assert "CUDA_VISIBLE_DEVICES" in _config_file_env_blacklist("vllm")
+    assert "CUDA_VISIBLE_DEVICES" not in _config_file_env_blacklist("vllm-ascend")
 
     # vllm 端到端:data_parallel_size(全局 DP)用户自管 → 保留(非黑名单)。
     from wings_ctl.core.models import CustomConfigFile
@@ -233,9 +242,7 @@ def test_c4_blacklist_is_per_engine(config_root, hardware_info_path):
 
     # sglang 过滤函数单测:data_parallel_size 用户自管(留);dist_init_addr 现不在黑名单
     # (端口用户可填),故同样保留——端口由用户 config-file 填,host 由派生层覆盖。
-    kept, dropped = _filter_config_file_blacklist(
-        {"data_parallel_size": 8, "dist_init_addr": "x"}, engine="sglang"
-    )
+    kept, dropped = _filter_config_file_blacklist({"data_parallel_size": 8, "dist_init_addr": "x"}, engine="sglang")
     assert "data_parallel_size" in kept
     assert "dist_init_addr" in kept
     assert dropped == []
@@ -273,9 +280,11 @@ def test_e2_env_trace_allow_unsafe_default_false(config_root, hardware_info_path
     """sigma: 非 config_file env 层的 TracedValue.allow_unsafe 默认 False。"""
     from wings_ctl.core.config_resolver import MergeLayer, trace_merge
 
-    merged = trace_merge([
-        MergeLayer("normal_env", {"A": "1"}, "f.yaml", "env"),
-    ])
+    merged = trace_merge(
+        [
+            MergeLayer("normal_env", {"A": "1"}, "f.yaml", "env"),
+        ]
+    )
     assert merged["A"].allow_unsafe is False
 
 
@@ -304,7 +313,7 @@ def test_f_three_artifacts_generated(config_root, hardware_info_path, tmp_path):
     assert "--nnodes" not in shlex.join(argv)
     # config_file env 注入
     start_content = start_path.read_text()
-    assert '$(hostname)' in start_content
+    assert "$(hostname)" in start_content
 
     subprocess.run(["bash", "-n", str(start_path)], check=True)
     subprocess.run(["bash", "-n", str(repro_path)], check=True)
@@ -331,14 +340,14 @@ def test_g_audit_config_and_user_cli_params(config_root, hardware_info_path, tmp
 
 @pytest.mark.parametrize("topology", [Topology.PD_PREFILL, Topology.PD_DECODE])
 def test_h_pd_raises(config_root, hardware_info_path, topology):
-    """custom 路径 PD 分离 → NotImplementedError(阶段0拍板 §3 单独立项,阶段2 仍未实现)。"""
-    with pytest.raises(NotImplementedError, match="multi_node"):
+    """custom 路径 PD 分离:已实现;但缺规范化 pd_input 时 fail-fast(不再 NotImplementedError)。"""
+    with pytest.raises(ValueError, match="pd_input"):
         _resolve(config_root, hardware_info_path, topology=topology)
 
 
 def test_h_multinode_missing_placement_raises(config_root, hardware_info_path):
     """custom multi_node 缺运行时 placement(NODE_IPS/RANK_IP)→ ValueError 引导早爆。"""
-    with pytest.raises(ValueError, match="distributed runtime placement"):
+    with pytest.raises(ValueError, match="requires distributed runtime context"):
         _resolve(config_root, hardware_info_path, topology=Topology.MULTI_NODE)
 
 
@@ -349,7 +358,8 @@ def test_i_pipeline_custom_missing_model_raises(config_root, hardware_info_path)
     """CLI 未提供 model(user_cli 无 model)→ resolve_custom_config 直接报错(引导早爆)。"""
     with pytest.raises(ValueError, match="model"):
         _resolve(
-            config_root, hardware_info_path,
+            config_root,
+            hardware_info_path,
             user_input=UserInput(cli_overrides={}),  # 无 model
         )
 

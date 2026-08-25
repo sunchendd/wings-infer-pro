@@ -17,6 +17,7 @@ from wings_ctl.core.topology import Topology
 # 对应的 Literal 供类型检查；新增取值时必须同步 recipe 归一化、运行时校验和测试。
 PD_TOPOLOGY_DERIVED_1P1D = "derived_1p1d"  # 六字段缺失，由当前 Pod 卡数派生普通 1P1D。
 PD_TOPOLOGY_EXPLICIT_ALLOCATION = "explicit_allocation"  # MaaS 六字段完整下发显式拓扑。
+PD_TOPOLOGY_CUSTOM_CONFIG = "custom_config"  # custom --config-file 路径：并行度由 config-file(及 MaaS 兜底)驱动，不复用 recipe derived_1p1d 语义。
 PD_PROCESS_LAYOUT_SINGLE = "single_process"  # 当前 Pod 只生成一条引擎命令。
 PD_PROCESS_LAYOUT_PER_LOCAL_RANK = "per_local_dp_rank"  # 每个 local DP rank 生成一条命令。
 PD_DP_LAUNCH_NONE = "none"  # 命令不携带外部 DP rank 参数。
@@ -30,7 +31,7 @@ PD_KV_LISTENER_DEVICE_COUNT_PLUS_ONE = "device_count_plus_one"  # 按 connector 
 PD_LISTENER_OWNER_PER_PROCESS = "per_process"  # 当前 Pod 的每个进程各自登记 KV listener。
 PD_LISTENER_OWNER_PER_POD_CONNECTOR_GROUP = "per_pod_connector_group"  # 同 Pod connector 组只登记一次。
 
-PdTopologyInputPolicy = Literal["derived_1p1d", "explicit_allocation"]
+PdTopologyInputPolicy = Literal["derived_1p1d", "explicit_allocation", "custom_config"]
 PdProcessLayout = Literal["single_process", "per_local_dp_rank"]
 PdDpLaunchPolicy = Literal["none", "external_rank"]
 PdEndpointPolicy = Literal["per_process"]
@@ -530,3 +531,9 @@ class ResolvedConfig:
 
     # Opaque engine-specific state prepared after generic resolution.
     engine_state: Any = None
+    # custom PD 并行三字段解析审计(DP/TP/DP_LOCAL 各一,含 source/status/maas_env/mismatch)。
+    # 仅走 custom PD 时非空;默认空列表 → audit 不写该键。
+    pd_parallel_resolution: List[Dict[str, Any]] = field(default_factory=list)
+
+    # custom PD engine_id 派生审计(engine_id/pd_index/source/user_value)。默认空 → audit 不写。
+    pd_engine_id_audit: Dict[str, Any] = field(default_factory=dict)

@@ -99,6 +99,7 @@ def resolve_pipeline_custom(
         user_input=request.user_input,
         device_count=request.device_count,
         placement=request.placement,
+        pd_input=request.pd_input,
     )
     # 参数支持校验:只写审计结果,不修改最终参数(与 resolve_pipeline 一致)。
     validate_engine_params(resolved, resolved_root)
