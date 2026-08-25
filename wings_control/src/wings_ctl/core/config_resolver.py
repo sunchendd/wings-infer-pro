@@ -34,6 +34,7 @@ from wings_ctl.core.models import (
     EngineProcessPlan,
     HardwareContext,
     ListenerPlan,
+    ParallelShape,
     PD_DP_LAUNCH_EXTERNAL_RANK,
     PD_DP_LAUNCH_NONE,
     PD_ENDPOINT_PER_PROCESS,
@@ -46,6 +47,7 @@ from wings_ctl.core.models import (
     PD_LISTENER_OWNER_PER_POD_CONNECTOR_GROUP,
     PD_PROCESS_LAYOUT_PER_LOCAL_RANK,
     PD_PROCESS_LAYOUT_SINGLE,
+    PD_TOPOLOGY_CUSTOM_CONFIG,
     PD_TOPOLOGY_DERIVED_1P1D,
     PD_TOPOLOGY_EXPLICIT_ALLOCATION,
     PdRole,
@@ -99,7 +101,11 @@ from wings_ctl.strategy.reasoning_resolver import (
 )
 
 from wings_ctl.strategy.legacy_json_adapter import adapt_legacy_config_params
-from wings_ctl.strategy.multinode_custom import MultinodeCtx, multinode_custom_derive
+from wings_ctl.strategy.multinode_custom import (
+    MultinodeCtx,
+    derive_common_network_env,
+    multinode_custom_derive,
+)
 from wings_ctl.strategy.post_merge import apply_network_env_strategy, apply_post_merge_strategy
 
 from wings_ctl.strategy.topology_inject import (
@@ -200,11 +206,12 @@ def _prepare_feature_context(
     # 返回补全后的特性集合，供 FeatureOverlay 处理。
     return features, reasoning_resolution, reasoning_table_source, tool_calling_source
 
-# ─── config-file 黑名单(§4.1,实现层内部规则,不对用户强调)──────────────
+
+# ─── config-file 黑名单──────────────
 # 走自定义传参方式(--config-file)时,user_params 里命中黑名单的 key 被静默忽略,
 # 采用框架派生/CLI 侧的值,记 audit(config_file_dropped) + debug 日志,不阻断启动。
-# params 与 env **分开两张表**(可行性分析 §3.2:二者走独立 merge 链);
-# 且按 engine **分引擎**叠加(不同引擎框架派生的参数不同,§阶段0 拍板 §3)。
+# params 与 env **分开两张表**;
+# 且按 engine **分引擎**叠加。
 #
 # params 黑名单(engine_config canonical 键,下划线形态):
 #   - 归 CLI(第 1/2 页):host/port/model/model_path/served_model_name 由 CLI 侧提供
@@ -220,44 +227,58 @@ CONFIG_FILE_PARAMS_BLACKLIST_COMMON: frozenset = frozenset({
     "nnodes", "node_rank",
 })
 
-# 引擎级 params 黑名单增量(叠加在 common 之上):该引擎 **custom 路径下 framework 权威派生**
-# 的键。注意:不是 recipe 路径的坐标注入键(custom 不调用 coordinate_parallelism,§4.4)。
+# 引擎级 params 黑名单增量(叠加在 common 之上):该引擎 **custom 路径下 framework 权威派生**的键。
 # 全局 data_parallel_size 由用户自管(并行度决策,未填默认 DP=1)→ 两引擎都不拦;
-# 派生层据用户填的 data_parallel_size 判布局,DP_across 时派生 size_local/start_rank/address。
-# vllm 与 vllm-ascend 派生逻辑一致(nvidia 同样注册 --data-parallel-size-local/-start-rank/-address,
-# 见 arg_utils.py:1012-1025;用户配 DP 时框架派生这些 per-node 键)→ 两引擎黑名单相同。
+# 派生层据用户填的 data_parallel_size 判布局,DP_across 时派生 start_rank/address。
+# data_parallel_size_local **不在黑名单**(用户自管):multi_node custom 要求用户填写,
+# PD custom 用户填优先、未填由 MaaS ENV(DP_SIZE_LOCAL)兜底;框架不再自动派生它。
 _CONFIG_FILE_PARAMS_BLACKLIST_BY_ENGINE: Dict[str, frozenset] = {
     "vllm": frozenset({
-        # data_parallel_size_local/start_rank:DP_across 时由框架按 index/device_count/TP 派生。
+        # start_rank:DP_across 时由框架按 index/device_count/TP 派生。
         # data_parallel_address:per-node 通信用 master IP(各节点一致),框架权威。
-        # data_parallel_rank:不传引擎(§5.1.5 交引擎从 start_rank+size_local 推断)。
+        # data_parallel_rank:不传引擎。
         # headless 仅 vllm/ascend 存在(cli_args --headless)。master_addr 用 --master-addr。
-        "data_parallel_size_local", "data_parallel_start_rank",
+        "data_parallel_start_rank",
         "data_parallel_address", "data_parallel_rank", "headless", "master_addr",
     }),
     "vllm-ascend": frozenset({
         # 与 vllm 相同(见上);ascend 额外有 HCCL env 黑名单(env 侧)。
-        "data_parallel_size_local", "data_parallel_start_rank",
+        # data_parallel_size_local 不在黑名单(用户自管,同 vllm)。
+        "data_parallel_start_rank",
         "data_parallel_address", "data_parallel_rank", "headless", "master_addr",
     }),
     # sglang:nnodes/node_rank 已在 common(不重复);TP/DP 用户可填,不拦。
-    # dist_init_addr **不在黑名单**(设计 §5.1.3 端口用户可填):端口由用户 config-file 填,
+    # dist_init_addr **不在黑名单**:端口由用户 config-file 填,
     # host(master IP)由 multinode_custom 派生层覆盖(层序高于 config_file,自动覆盖用户 host)。
     "sglang": frozenset(),
 }
 
 # env 黑名单(环境变量名):通信/身份类键由框架派生(网卡探测 / rank IP),用户填不出。
+# GLOO/NCCL_SOCKET_IFNAME:网卡类,由运行时按本 Pod IP 所属网卡探测,全引擎通用 → common。
 CONFIG_FILE_ENV_BLACKLIST_COMMON: frozenset = frozenset({
     "RANK_IP", "MASTER_IP", "NODE_IPS",
+    "GLOO_SOCKET_IFNAME", "NCCL_SOCKET_IFNAME",
 })
 
 _CONFIG_FILE_ENV_BLACKLIST_BY_ENGINE: Dict[str, frozenset] = {
-    "vllm": frozenset({"GLOO_SOCKET_IFNAME", "NCCL_SOCKET_IFNAME", "TP_SOCKET_IFNAME"}),
-    "vllm-ascend": frozenset({
-        "HCCL_IF_IP", "HCCL_SOCKET_IFNAME",
-        "GLOO_SOCKET_IFNAME", "NCCL_SOCKET_IFNAME", "TP_SOCKET_IFNAME",
-    }),
-    "sglang": frozenset({"GLOO_SOCKET_IFNAME", "NCCL_SOCKET_IFNAME"}),
+    "vllm": frozenset(
+        {
+            # TP_SOCKET_IFNAME:TP 网卡类,vllm 系(NVIDIA 无 HCCL)才注册 → 保留引擎级。
+            "TP_SOCKET_IFNAME",
+            # 设备可见性由框架按 hardware.device 分配(CUDA_VISIBLE_DEVICES),用户填不出。
+            "CUDA_VISIBLE_DEVICES",
+        }
+    ),
+    "vllm-ascend": frozenset(
+        {
+            "HCCL_IF_IP",
+            "HCCL_SOCKET_IFNAME",
+            "TP_SOCKET_IFNAME",
+            # 设备可见性由框架按 hardware.device 分配(ASCEND_RT_VISIBLE_DEVICES),用户填不出。
+            "ASCEND_RT_VISIBLE_DEVICES",
+        }
+    ),
+    "sglang": frozenset(),
 }
 
 
@@ -281,7 +302,7 @@ CONFIG_FILE_ENV_LAYER_NAME = "config_file_env"   # env 层
 CONFIG_FILE_SOURCE_FILE = "<config-file>"        # trace 溯源
 CONFIG_FILE_ENV_ALLOW_UNSAFE = True              # config_file env 层放行 $(...) 渲染
 
-# multi_node custom 派生层名(§5.1.5 strategy_multinode_custom):排 config_file 后,
+# multi_node custom 派生层名:排 config_file 后,
 # 框架权威派生键覆盖用户误传值;env 派生层另名(排 config_file_env 后)。
 MULTINODE_CUSTOM_LAYER = "strategy_multinode_custom"
 MULTINODE_CUSTOM_ENV_LAYER = "strategy_multinode_custom_env"
@@ -2642,7 +2663,7 @@ def _to_snake(key: str) -> str:
     return key.strip().replace("-", "_").replace(" ", "_")
 
 
-# config-file params 的 canonical 别名归并(§4.4.1,open_engines 核实)。
+# config-file params 的 canonical 别名归并。
 # 用户可能写引擎原生 flag 的长名 / 简写 / sglang 双长名;统一归一到 canonical 键,
 # 使黑名单、派生层 cfg.get、渲染 key_to_flag 三处都用 canonical 键,不遗漏不透传。
 # 结构:engine -> {alias_key: canonical_key}。canonical 键即黑名单/派生层认的键。
@@ -2711,7 +2732,7 @@ def _filter_config_file_blacklist(
     *,
     engine: str,
 ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
-    """过滤 config-file params 黑名单(§4.1):命中的 key 静默弃用,记 dropped 条目。
+    """过滤 config-file params 黑名单:命中的 key 静默弃用,记 dropped 条目。
 
     黑名单内键无论用户怎么填,都采用框架派生/CLI 侧值;此处只收集弃用审计,
     不修改最终参数、不阻断启动。黑名单按 engine 分引擎叠加(不同引擎框架派生的参数不同)。
@@ -2743,7 +2764,7 @@ def _filter_config_file_env_blacklist(
     *,
     engine: str,
 ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
-    """过滤 config-file env 黑名单(§4.1 + 可行性分析 §3.2):命中的 env key 静默弃用。
+    """过滤 config-file env 黑名单:命中的 env key 静默弃用。
 
     env 与 params 走独立 merge 链,故单独一张(按引擎叠加)的 env 黑名单。
     黑名单内 env key 由框架派生(网卡/rank IP 等),用户填不出;此处只收集弃用审计。
@@ -2769,6 +2790,775 @@ def _filter_config_file_env_blacklist(
     return kept, dropped
 
 
+# ─── custom PD 分离(custom config-file 路径 PD 支持)─────────────────────────
+# 与 recipe PD(_resolve_pd_config)不同:custom 跳过 recipe,角色并行形状不来自 YAML,
+# 而是「config-file 三字段优先、MaaS ENV(PD_* 六字段)兜底」；本 Pod 的 local DP 展开
+# 直接复用 ProcessPlan 模型与 per-process 渲染。accel 完全忽略(不 merge、不报错),版本
+# 不接 require_exact(版本完全用户自管)。
+#
+# PD 派生器注册表:custom PD 的 ProcessPlan 展开 / 身份 / 网络 / 设备 env 与引擎相关,
+# 采用与 multinode_custom 同构的「注册表 + 引擎分派 + skip 兜底」。首期登记 vllm /
+# custom PD 支持的引擎(白名单,入口强校验)。进程派生器(下隔一段 @_register_pd_process)
+# 只登记 vllm / vllm-ascend(vllm 系进程布局/DP 通信/网络 env 语义一致,共用派生器)。
+# 用白名单而非"排除 sglang"黑名单:未来新增引擎(如 mindie)若漏登记,
+# 会被这里显式拒绝(NotImplementedError),而非静默落入网络派生后才 net_env 未赋值(
+# UnboundLocalError)。后续加引擎:新增 @_register 派生器 + 加入本集合即可。
+_CUSTOM_PD_SUPPORTED_ENGINES: frozenset = frozenset({"vllm", "vllm-ascend"})
+
+# custom PD 进程层派生器注册表:engine → 派生函数(topology, local_index, ...) -> overrides。
+_PD_PROCESS_DERIVE_REGISTRY: Dict[str, Any] = {}
+
+
+def _register_pd_process(engine: str):
+    """装饰器:注册某引擎的 custom PD 进程层派生器。"""
+
+    def deco(fn):
+        _PD_PROCESS_DERIVE_REGISTRY[engine] = fn
+        return fn
+
+    return deco
+
+
+# 各 role 的 MaaS ENV 名
+def _pd_maas_env_names(role: PdRole) -> Dict[str, str]:
+    """返回当前 role 下 DP/TP/DP_LOCAL 对应对 MaaS ENV 名。"""
+    role_pfx = "PD_PREFILL" if role is PdRole.PREFILL else "PD_DECODE"
+    return {
+        "data_parallel_size": f"{role_pfx}_DP_SIZE",
+        "tensor_parallel_size": f"{role_pfx}_TP_SIZE",
+        # DP_SIZE_LOCAL 两 role 相同。
+        "data_parallel_size_local": "DP_SIZE_LOCAL",
+    }
+
+
+def _resolve_custom_pd_parallel_values(
+    cfg_params: Dict[str, Any],
+    pd_input: PdRuntimeInput,
+) -> tuple[Dict[str, int], List[Dict[str, Any]]]:
+    """解析 custom PD 生效三字段 DP/TP/DP_LOCAL(config-file 优先、MaaS ENV 兜底)。
+
+    DP/TP/DP_LOCAL 各自独立「config-file 优先、MaaS 兜底」;显式 ``None`` ≠ 缺失
+    (config-file 显式 null 视为缺失,走兜底)。PD 大 EP 六字段(MaaS ENV)以原子组存在。
+
+    Args:
+        cfg_params: config-file 已归一 snake params(含用户填的 DP/TP/DP_LOCAL)。
+        pd_input: 已规范化的 PD 输入(含 MaaS role/placement/explicit_topology)。
+
+    Returns:
+        ``(effective, resolution)``:
+          - effective: ``{"data_parallel_size":.., "tensor_parallel_size":..,
+            "data_parallel_size_local":..}`` 全部为正整数的生效三元组。
+          - resolution: 三字段逐项审计(config_file_value/maas_value/maas_env/source/status/severity),
+            供 ``pd_parallel_resolution`` audit。
+
+    Raises:
+        ValueError: 生效三字段任一缺失或非法;MaaS 六字段缺失时 config-file 也未提供。
+    """
+    explicit = pd_input.explicit_topology
+    role_shape = None
+    if explicit is not None:
+        role_shape = explicit.prefill if pd_input.role is PdRole.PREFILL else explicit.decode
+    maas_env_names = _pd_maas_env_names(pd_input.role)
+
+    def _maas_value(key: str):
+        if key == "data_parallel_size":
+            return role_shape.dp_size if role_shape else None
+        if key == "tensor_parallel_size":
+            return role_shape.tp_size if role_shape else None
+        return explicit.dp_size_local if explicit else None
+
+    def _config_value(key: str) -> Any:
+        raw = cfg_params.get(key)
+        if raw is None:
+            return None  # key 缺失
+        if isinstance(raw, bool) or not isinstance(raw, int):
+            return None  # 非法值 → 视为缺失,交给 MaaS 兜底
+        return raw
+
+    def _resolve_field(key: str) -> tuple[int, Dict[str, Any]]:
+        cfg_v = _config_value(key)
+        maas_v = _maas_value(key)
+        if cfg_v is not None:
+            effective = cfg_v  # 用户值优先
+            if maas_v is not None:
+                if cfg_v == maas_v:
+                    status, severity, source = "consistent", "info", "config_file"
+                else:
+                    status, severity, source = "mismatch", "warning", "config_file"
+            else:
+                status, severity, source = "config_file", "info", "config_file"
+        elif maas_v is not None:
+            status, severity, source = "fallback", "info", "maas_env"
+            effective = maas_v
+        else:
+            raise ValueError(f"custom PD parallel parameter {key} is missing or invalid")
+        resolution = {
+            "field": key,
+            "effective_value": effective,
+            "source": source,
+            "config_file_value": cfg_v,
+            "maas_value": maas_v,
+            "maas_env": maas_env_names[key] if maas_v is not None else None,
+            "status": status,
+            "severity": severity,
+        }
+        return effective, resolution
+
+    dp, dp_res = _resolve_field("data_parallel_size")
+    tp, tp_res = _resolve_field("tensor_parallel_size")
+    dp_local, dp_local_res = _resolve_field("data_parallel_size_local")
+    effective = {
+        "data_parallel_size": dp,
+        "tensor_parallel_size": tp,
+        "data_parallel_size_local": dp_local,
+    }
+    return effective, [dp_res, tp_res, dp_local_res]
+
+
+def _validate_custom_pd_effective_parallel_values(effective: Dict[str, int]) -> None:
+    """custom PD 生效三元组**基础合法性**校验(仅此 raise)。
+
+    修订:只保留「三字段是非负整数」这一必须满足的阻塞——进程展开 / 端口 / rank / 设备
+    切片都依赖合法数值。DP_LOCAL<=DP、TP*DP_LOCAL<=device_count 等**并行准确性交由用户负责**,
+    不再 raise,只做 warn-only 审计(见 _warn_custom_pd_parallel_issues)。device_count 不需校验
+    (无容量阻塞语义)。
+
+    注意:这里不再重复 isinstance(bool)——bool 是 int 的子类,且解析层 _resolve_custom_pd_parallel_values
+    已把非 int(含 bool/字符串)归一为 None 走 MaaS 兜底,故此处直接查「int 且 >0」即可。
+
+    Args:
+        effective: 生效三元组(已解析出的 DP/TP/DP_LOCAL)。
+
+    Raises:
+        ValueError: 任一字段非正整数——无法生成合法的进程展开。
+    """
+    for name in ("data_parallel_size", "tensor_parallel_size", "data_parallel_size_local"):
+        value = effective[name]
+        if not isinstance(value, int) or value <= 0:
+            raise ValueError(f"custom PD effective {name} must be a positive integer; got {value!r}")
+
+
+def _warn_custom_pd_parallel_issues(effective: Dict[str, int], device_count: int | None, tp: int) -> List[str]:
+    """custom PD 并行准确性**warn-only**审计(不 raise,交用户负责)。
+
+    - DP_LOCAL > DP:进程展开逻辑一致性,仅告警。
+    - TP × DP_LOCAL > device_count:本 Pod 设备容量不足,仅告警。
+    - TP × DP_LOCAL < device_count:未满卡——**不告警**(容量足够,不要求在 Pod 内强制闭合)。
+
+    Returns:
+        告警文案列表(空 = 无问题),由 _resolve_custom_pd_config 写入 resolution_notes。
+
+    Args:
+        effective: 生效三元组。
+        device_count: 当前 Pod 卡数(可为 None,则跳过容量类告警)。
+        tp: 当前 Pod 生效 TP。
+    """
+    warnings: List[str] = []
+    dp = effective["data_parallel_size"]
+    dp_local = effective["data_parallel_size_local"]
+    if dp_local > dp:
+        warnings.append(f"DP_LOCAL={dp_local} > DP={dp}")
+    if device_count is not None:
+        required = tp * dp_local
+        if required > device_count:
+            warnings.append(
+                f"TP={tp} * DP_LOCAL={dp_local} = {required} requires {required} devices, "
+                f"but device_count={device_count}; continuing in custom-config mode and "
+                "relying on user-supplied topology."
+            )
+    return warnings
+
+
+# PD 场景分两种(与 recipe 一致,见 planner._resolve_*):
+# - derived_1p1d:六字段缺失 / dp_local=1,prefill=decode=(dp=1, tp=生效TP),P=0/D=1。
+# - explicit_allocation:六字段下发 / dp_local>1,prefill/decode 取 config-file
+#   kv_connector_extra_config 的对应 role 真实 shape(用户同时填了两侧 dp/tp;Pod 视角
+#   只感知自己一侧,故由用户保证准确性)。
+#
+# 引擎感知的「PD 两侧 shape 来源路径」:vllm 系从 kv_transfer_config.kv_connector_extra_config
+# 取 prefill/decode;其它引擎(未来 sglang 等)结构不同,此处按引擎可配、预留注入点。
+_PD_EXTRA_CONFIG_SHAPE_PATHS: Dict[str, tuple] = {
+    # engine -> (顶层 kv_transfer_config 键, extra_config 内 prefill/decode 子键)
+    "vllm": ("kv_transfer_config", "kv_connector_extra_config"),
+    "vllm-ascend": ("kv_transfer_config", "kv_connector_extra_config"),
+}
+
+# 对侧 shape 未知的哨兵值。custom PD 下 Pod 只能感知自己一侧(prefill 或 decode),
+# 另一侧拓扑信息无法从 config-file 获取时,用 -1 填充(绝不编造本 Pod 视角看不到的数)。
+# ResolvedPdTopology / ParallelShape 是 custom PD 与配置传参 PD 共用的类(int 契约不变,
+# 不动 recipe 路径);-1 与合法正整数永不冲突,且 recipe 路径对不同侧恒为真实闭合取值,
+# 绝不会读到 -1。
+_PD_PEER_SHAPE_UNKNOWN = -1
+
+
+def _extract_custom_pd_pair_shapes(
+    config_layer: Dict[str, Any], engine: str
+) -> tuple[Dict[str, Optional[int]], Dict[str, Optional[int]]]:
+    """从 config-file 逐侧、逐字段抽取 P/D global shape(填一个覆盖一个,不校验)。
+
+    config-file 的 ``kv_transfer_config.kv_connector_extra_config.prefill/decode`` 由用户
+    保证准确性(P/D 两侧 dp/tp 用户同时填出;Pod 视角只感知自己一侧,无法自核跨侧信息)。
+    无论 derived_1p1d 还是 explicit_allocation,用户都应填该结构。
+
+    逐侧独立、逐字段独立:用户填了哪个字段就用哪个,**不做 int/正数校验**(由用户负责,
+    与生效三元组不同——生效三元组是进程展开必需,这里只是对侧参考)。未填/非法(非 dict、
+    键缺失、值非 int)的字段保留 ``None``。结构缺失(extra_config 整块不在)→ 双侧全 None。
+    不整对判死:对侧只填了一侧或只填了一个字段也照常返回。
+
+    Returns:
+        ``({"dp_size": int|None, "tp_size": int|None},
+          {"dp_size": int|None, "tp_size": int|None})`` —— (prefill, decode)。
+
+    Args:
+        config_layer: config_file 黑名单过滤后的 params(config_file_layer)。
+        engine: 引擎名(决定 extra config 的嵌套键路径,预留 sglang 等)。
+    """
+    empty = {"dp_size": None, "tp_size": None}
+    prefill = dict(empty)
+    decode = dict(empty)
+    path = _PD_EXTRA_CONFIG_SHAPE_PATHS.get(engine)
+    if path is None:
+        return prefill, decode
+    kv_key, extra_key = path
+    kv_cfg = config_layer.get(kv_key)
+    if not isinstance(kv_cfg, dict):
+        return prefill, decode
+    extra_cfg = kv_cfg.get(extra_key)
+    if not isinstance(extra_cfg, dict):
+        return prefill, decode
+    for role_name, target in (("prefill", prefill), ("decode", decode)):
+        shape = extra_cfg.get(role_name)
+        if not isinstance(shape, dict):
+            continue
+        for field in ("dp_size", "tp_size"):
+            value = shape.get(field)
+            if isinstance(value, int):
+                target[field] = value
+    return prefill, decode
+
+
+def _pair_shapes_or_effective(
+    pair_shapes: tuple[Dict[str, Optional[int]], Dict[str, Optional[int]]],
+    effective: Dict[str, int],
+    role: PdRole,
+) -> tuple[ParallelShape, ParallelShape]:
+    """pair shape 逐字段收敛为 recipe 共用类:当前 role 恒用 effective,对侧缺字段用 -1 哨兵。
+
+    custom 与配置传参 PD 共用的 ``ResolvedPdTopology`` 要求 P/D 双侧都是闭合的
+    ``ParallelShape(int, int)``。**唯一权威是 effective(当前 Pod 生效三元组)**:
+
+    - **当前 role 侧**:恒用 effective 的 DP/TP。effective 同时是进程展开 / 设备切分 /
+      ``pd_parallel_resolution`` audit 的唯一来源;若当前 role 的 nested shape
+      (``kv_connector_extra_config``)与 effective 冲突,以 effective 为准(避免 argv
+      与 audit 不一致)。nested 只供对侧参考并原样透传,不覆盖进程级并行度。
+    - **对侧**:本 Pod 不可感知,抽到哪个字段用哪个,缺的字段用 ``-1`` 哨兵占位(绝不编造)。
+
+    返回二元组恒为 ``ParallelShape``,满足共用类 int 契约、不碰 recipe 路径。
+    """
+    prefill_raw, decode_raw = pair_shapes
+    dp = effective["data_parallel_size"]
+    tp = effective["tensor_parallel_size"]
+
+    def _current() -> ParallelShape:
+        # 当前 role 恒用 effective:进程派生读到与 audit 一致的 DP/TP。
+        return ParallelShape(dp_size=dp, tp_size=tp)
+
+    def _peer(shape_raw: Dict[str, Optional[int]]) -> ParallelShape:
+        # 对侧:抽到哪个字段用哪个;缺的字段用 -1 哨兵(本 Pod 不可感知,绝不编造)。
+        return ParallelShape(
+            dp_size=(
+                shape_raw["dp_size"]
+                if shape_raw["dp_size"] is not None
+                else _PD_PEER_SHAPE_UNKNOWN
+            ),
+            tp_size=(
+                shape_raw["tp_size"]
+                if shape_raw["tp_size"] is not None
+                else _PD_PEER_SHAPE_UNKNOWN
+            ),
+        )
+
+    if role is PdRole.PREFILL:
+        # 当前 role = prefill:prefill 用 effective;decode 为对侧,缺字段用 -1。
+        return _current(), _peer(decode_raw)
+    # 当前 role = decode:decode 用 effective;prefill 为对侧,缺字段用 -1。
+    return _peer(prefill_raw), _current()
+
+
+def _build_custom_pd_topology(
+    pd_input: PdRuntimeInput,
+    effective: Dict[str, int],
+    prefill_shape: ParallelShape,
+    decode_shape: ParallelShape,
+    device_count: int | None,
+    engine: str,
+) -> ResolvedPdTopology:
+    """从 custom PD 生效三元组构造规范 ResolvedPdTopology。
+
+    custom PD 恒以 ``effective`` 并行度为真实展开依据,input_policy 恒为
+    ``custom_config``(不复用 recipe 的 derived_1p1d / explicit_allocation 语义):
+    - dp_size_local / rank 按 effective 的 DP_LOCAL 展开(含单 Pod:用户 JSON 显式
+      DP_LOCAL 被真实采用,而非 recipe 固定 1P1D)。
+    - instance_index 有 MaaS 六字段(PD_INDEX)则用之,否则按 role 固定 P=0/D=1。
+    - prefill/decode shape 由调用方经 _extract_custom_pd_pair_shapes 抽取后,
+      经 _pair_shapes_or_effective 收敛:current role 恒用 effective(唯一权威,
+      与 audit/设备切分一致)、peer 用 -1 哨兵,见 _pair_shapes_or_effective。
+    - 不再重复调用 _validate_...(合法性与 warn 由 _resolve_custom_pd_config 统一做一次)。
+
+    Args:
+        pd_input: 规范化 PD 输入。
+        effective: 生效三元组(DP/TP/DP_LOCAL)。
+        prefill_shape / decode_shape: 已从 config-file 抽取的 P/D global shape。
+        device_count: 当前 Pod 卡数。
+        engine: 引擎名(日志用)。
+
+    Returns:
+        含 role/instance/rank/placement 的规范 topology。
+
+    Raises:
+        ValueError: placement 缺失。
+    """
+    placement = pd_input.placement
+    node_ips = placement.node_ips or [placement.rank_ip] if placement.rank_ip else []
+    if not node_ips or not placement.rank_ip:
+        raise ValueError("custom PD requires RANK_IP (current pod IP).")
+    member_index = node_ips.index(placement.rank_ip)
+    dp_local = effective["data_parallel_size_local"]
+
+    # custom PD 一律按 effective 并行度展开(不复用 recipe 的 derived_1p1d / explicit_allocation)。
+    # dp_size_local/rank 恒取 effective 的 DP_LOCAL——config-file 显式并行度被真实采用;
+    # instance_index 有 MaaS 六字段(PD_INDEX)则用之,否则按 role 固定 P=0/D=1。
+    if pd_input.explicit_topology is not None:
+        instance_index = pd_input.explicit_topology.pd_index
+    else:
+        instance_index = 0 if pd_input.role is PdRole.PREFILL else 1
+    rank_start = member_index * dp_local
+    return ResolvedPdTopology(
+        input_policy=PD_TOPOLOGY_CUSTOM_CONFIG,
+        role=pd_input.role,
+        instance_index=instance_index,
+        prefill=prefill_shape,
+        decode=decode_shape,
+        dp_size_local=dp_local,
+        placement=placement,
+        member_index=member_index,
+        rank_start=rank_start,
+        rank_end_exclusive=rank_start + dp_local,
+    )
+
+
+def _pd_process_identity_overrides(topology: ResolvedPdTopology) -> Dict[str, Any]:
+    """PD 身份层(every-process 通用):engine_id 由 PD_INDEX(instance_index)派生。
+
+    经 ``_overlay_pd_process_traces`` 的 dict deep-merge,用户 config-file 填写的
+    ``kv_transfer_config`` 其他键(connector/kv_role/kv_port 等)被保留,仅 ``engine_id``
+    由派生层覆盖——即用户填了也以派生值为准,用户未填则由派生层补充。
+    """
+    master = topology.placement.master_ip or (
+        topology.placement.node_ips[0] if topology.placement.node_ips else None
+    )
+    overrides: Dict[str, Any] = {
+        # PD identity:engine_id 恒由 PD_INDEX 派生,用户不可最终拥有。
+        "kv_transfer_config": {"engine_id": str(topology.instance_index)},
+        "data_parallel_address": master,
+    }
+    return overrides
+
+
+def _pd_process_cross_pod_overrides(topology: ResolvedPdTopology) -> Dict[str, Any]:
+    """跨 Pod PD 继承 multi_node 基线:nnodes/node_rank/master_addr。
+
+    仅多 Pod(跨 Pod PD = 特殊 multi_node)派生;单 Pod(特殊 standalone)不派生这些键。
+    """
+    node_ips = topology.placement.node_ips or []
+    if len(node_ips) <= 1 or not topology.placement.rank_ip:
+        return {}
+    member = node_ips.index(topology.placement.rank_ip)
+    return {
+        "nnodes": len(node_ips),
+        "node_rank": member,
+        "master_addr": topology.placement.master_ip or node_ips[0],
+    }
+
+
+@_register_pd_process("vllm")
+@_register_pd_process("vllm-ascend")
+def _pd_process_derive_vllm(topology: ResolvedPdTopology, local_index: int, port: int) -> Dict[str, Any]:
+    """vllm 系(vllm / vllm-ascend)custom PD 进程层派生器。
+
+    vllm 与 vllm-ascend 的进程布局/DP 通信/身份/网络语义一致,共用此派生器。派生:
+    - 每进程 port / TP / DP / dp_rank / dp_size_local=1(per-rank 恒 1,Pod 级 DP_LOCAL 见 topology);
+    - 身份层(engine_id from PD_INDEX + data_parallel_address);
+    - 跨 Pod 时继承 multi_node 的 nnodes/node_rank/master_addr。
+    """
+    role_shape = topology.prefill if topology.role is PdRole.PREFILL else topology.decode
+    rank = topology.rank_start + local_index
+    overrides: Dict[str, Any] = {
+        "port": port,
+        "tensor_parallel_size": role_shape.tp_size,
+        "data_parallel_size": role_shape.dp_size,
+        "data_parallel_rank": rank,
+        "data_parallel_size_local": 1,  # 进程级恒 1(Pod 级 DP_LOCAL 由 topology 承载)
+    }
+    overrides.update(_pd_process_identity_overrides(topology))
+    overrides.update(_pd_process_cross_pod_overrides(topology))
+    return overrides
+
+
+def _build_custom_pd_process_overrides(
+    topology: ResolvedPdTopology,
+    local_index: int,
+    port: int,
+    engine: str,
+) -> Dict[str, Any]:
+    """按引擎注册表分派构造一个 custom PD local process 的 PD-owned 参数覆盖。
+
+    未登记引擎走 skip 兜底(返回空;入口已拦截 sglang,此处防御性兜底不崩溃)。
+    """
+    deriver = _PD_PROCESS_DERIVE_REGISTRY.get(engine)
+    if deriver is None:
+        return {}
+    return deriver(topology, local_index, port)
+
+
+def _build_custom_pd_process_env_traces(
+    resolved: ResolvedConfig,
+    local_index: int,
+    visible_devices: tuple[int, ...],
+    topology: ResolvedPdTopology,
+) -> Dict[str, TracedValue]:
+    """为一个 custom PD local process 追加可见设备环境变量 trace。
+
+    **必须保留 allow_unsafe**(对比 recipe 的 ``_build_pd_process_env_traces`` 会丢
+    ``$(hostname)``):custom config-file env 层 allow_unsafe=True,复制时要透传该标志,
+    否则每进程 env 会静默丢 ``$(hostname)`` 等 shell 构造。
+    """
+    visible_env_name = {"ascend": "ASCEND_RT_VISIBLE_DEVICES", "nvidia": "CUDA_VISIBLE_DEVICES"}.get(
+        resolved.hardware.device
+    )
+    env_override = {visible_env_name: ",".join(str(item) for item in visible_devices)} if visible_env_name else {}
+    result = {
+        key: TracedValue(
+            final_value=traced.final_value,
+            final_layer=traced.final_layer,
+            source_file=traced.source_file,
+            source_path=traced.source_path,
+            events=list(traced.events),
+            allow_unsafe=traced.allow_unsafe,
+        )
+        for key, traced in resolved.env_traces.items()
+    }
+    for key, value in env_override.items():
+        event = SourceEvent(
+            action="override" if key in result else "set",
+            layer="strategy_pd_process",
+            value=value,
+            source_file="<strategy:pd_process>",
+            source_path=f"pd.processes[{local_index}].env.{key}",
+        )
+        events = result[key].events + [event] if key in result else [event]
+        result[key] = TracedValue(
+            final_value=value,
+            final_layer="strategy_pd_process",
+            source_file="<strategy:pd_process>",
+            source_path=f"pd.processes[{local_index}].env.{key}",
+            events=events,
+            allow_unsafe=False,
+        )
+    return result
+
+
+def _build_custom_pd_process_plan(
+    resolved: ResolvedConfig,
+    topology: ResolvedPdTopology,
+    device_count: int,
+) -> ProcessPlan:
+    """从 custom PD 规范 topology 构造当前 Pod 唯一有序进程计划(每 local DP rank 一进程)。
+
+    - DP_LOCAL=1 → 1 进程/1 endpoint/single。
+    - DP_LOCAL>1 → DP_LOCAL 个进程、端口 17000+i、rank 连续、每进程 size_local=1、
+      设备切片(每进程独占连续 TP 卡组)、fail-together。
+    - 每进程 env 复制保留 allow_unsafe(不丢 ``$(hostname)``)。
+    """
+    role_shape = topology.prefill if topology.role is PdRole.PREFILL else topology.decode
+    local_count = topology.dp_size_local
+    base_port = DEFAULT_ENGINE_PORT  # 17000
+    listeners: List[ListenerPlan] = []
+    processes: List[EngineProcessPlan] = []
+    endpoints: List[str] = []
+    for local_index in range(local_count):
+        port = base_port + local_index
+        rank = topology.rank_start + local_index
+        host = topology.placement.rank_ip
+        endpoint = f"{host}:{port}"
+
+        process_overrides = _build_custom_pd_process_overrides(topology, local_index, port, resolved.engine)
+        traces = _overlay_pd_process_traces(resolved.engine_config_traces, process_overrides, local_index)
+
+        visible_start = local_index * role_shape.tp_size
+        visible_devices = tuple(range(visible_start, visible_start + role_shape.tp_size))
+        env_traces = _build_custom_pd_process_env_traces(resolved, local_index, visible_devices, topology)
+        listeners.append(ListenerPlan("api", "0.0.0.0", port, port, f"process[{local_index}]"))
+        endpoints.append(endpoint)
+        processes.append(
+            EngineProcessPlan(
+                process_index=local_index,
+                local_index=local_index,
+                dp_rank=rank,
+                visible_devices=visible_devices,
+                advertised_endpoint=endpoint,
+                engine_config_traces=traces,
+                env_traces=env_traces,
+                argv=build_argv(traces, engine=resolved.engine),
+                listeners=[ListenerPlan("api", "0.0.0.0", port, port, f"process[{local_index}]")],
+            )
+        )
+    _validate_pd_listener_conflicts(listeners)
+    return ProcessPlan(
+        layout="per_local_rank",
+        lifecycle="single" if local_count == 1 else "fail_together",
+        processes=processes,
+        endpoints=endpoints,
+        listeners=listeners,
+    )
+
+
+def _resolve_custom_pd_config(
+    env: ResolvedEnv,
+    target: Target,
+    config_file: CustomConfigFile,
+    user_input: UserInput,
+    device_count: int | None,
+    pd_input: PdRuntimeInput,
+    placement: ClusterPlacement | None,
+) -> ResolvedConfig:
+    """解析 custom PD(config-file 路径)并产出规范 ProcessPlan。
+
+    custom PD 差异(对比 recipe _resolve_pd_config):
+    - 并行形状来自 config-file 三字段优先、MaaS ENV 兜底(_resolve_custom_pd_parallel_values)。
+    - 不触碰 recipe/feature_overlay/device_count_transform。
+    - accel **完全忽略**:不获取、不 merge、不报错。
+    - 版本不接 require_exact(custom 全局版本自管)。
+    - 每进程 env 保留 allow_unsafe。
+    """
+    engine = target.engine
+    if not isinstance(pd_input, PdRuntimeInput) or pd_input.role not in (PdRole.PREFILL, PdRole.DECODE):
+        raise ValueError("custom PD requires a normalized pd_input (PdRuntimeInput).")
+
+    # config-file params:snake + canonical + 黑名单(与 resolve_custom_config 共用)。
+    # 注意:**不走 adapt_legacy_config_params**(FOAI 旧版前端模板适配,TP 未填会补=device_count,
+    # 与 MaaS ENV 兜底冲突)。custom PD 是独立新能力,TP/DP/DP_LOCAL 来源由
+    # _resolve_custom_pd_parallel_values 统一处理(config-file 优先、MaaS 兜底)。
+    raw_params = {_to_snake(k): v for k, v in (config_file.params or {}).items()}
+    snake_params = _canonicalize_config_file_params(raw_params, engine=engine)
+    config_file_layer, config_file_dropped = _filter_config_file_blacklist(snake_params, engine=engine)
+    config_file_env_layer, config_file_env_dropped = _filter_config_file_env_blacklist(
+        dict(config_file.env or {}), engine=engine
+    )
+
+    effective, pd_parallel_resolution = _resolve_custom_pd_parallel_values(snake_params, pd_input)
+    # 合法性校验:仅三字段非负 int(进程展开必需),此一处调用;DP_LOCAL>DP 等只 warn。
+    _validate_custom_pd_effective_parallel_values(effective)
+    # P/D 两侧 global shape 来自 config-file kv_connector_extra_config(用户保证准确性,
+    # 两种场景都应填),逐侧独立抽取。**当前 role 实际并行度唯一权威是 effective**
+    # (进程展开 / 设备切分 / pd_parallel_resolution audit 都基于它);nested
+    # kv_connector_extra_config 仅作对侧参考并原样透传,不覆盖进程级 DP/TP——若当前 role
+    # 的 nested shape 与 effective 冲突,以 effective 为准并告警(避免 argv 与 audit 不一致)。
+    # 对侧保留 -1 哨兵(本 Pod 不可感知对侧,绝不编造)+ 告警。不阻塞——引擎命令里的
+    # kv_connector_extra_config 为用户原样透传,用户对参数负责。
+    pair_shapes = _extract_custom_pd_pair_shapes(config_file_layer, engine)
+    # 当前 role 的 nested shape(用于与 effective 冲突告警);对侧 shape 由
+    # _pair_shapes_or_effective 收敛为 -1 哨兵 / 真实值。
+    current_role_nested = (
+        pair_shapes[0] if pd_input.role is PdRole.PREFILL else pair_shapes[1]
+    )
+    prefill_shape, decode_shape = _pair_shapes_or_effective(pair_shapes, effective, pd_input.role)
+    topology = _build_custom_pd_topology(
+        pd_input, effective, prefill_shape, decode_shape, device_count, engine
+    )
+    # 并行准确性 warn-only(不 raise,交用户负责):DP_LOCAL>DP / 容量不足。
+    # 容量告警的 TP 统一取 effective(与设备切分 / audit 一致,而非 nested)。
+    pd_warnings = _warn_custom_pd_parallel_issues(
+        effective, device_count, effective["tensor_parallel_size"]
+    )
+    # 当前 role 的 nested shape 与 effective 冲突 → 告警(最终 argv 以 effective 为准)。
+    current_role_name = "prefill" if pd_input.role is PdRole.PREFILL else "decode"
+    if (
+        current_role_nested["tp_size"] is not None
+        and current_role_nested["tp_size"] != effective["tensor_parallel_size"]
+    ) or (
+        current_role_nested["dp_size"] is not None
+        and current_role_nested["dp_size"] != effective["data_parallel_size"]
+    ):
+        pd_warnings.append(
+            f"kv_connector_extra_config.{current_role_name} dp/tp "
+            f"({current_role_nested['dp_size']}/{current_role_nested['tp_size']}) differs from "
+            f"top-level effective ({effective['data_parallel_size']}/{effective['tensor_parallel_size']}); "
+            "using top-level effective values for this pod's process layout and argv"
+        )
+    # 对侧 shape 未知哨兵(kv_connector_extra_config 对侧未配置/字段缺失)→ 告警,不阻塞:
+    # Pod 视角无法获取对侧拓扑信息,对侧缺字段以 -1 标记;跨侧准确性由用户保证。
+    peer_shape = topology.decode if topology.role is PdRole.PREFILL else topology.prefill
+    if peer_shape.dp_size == _PD_PEER_SHAPE_UNKNOWN or peer_shape.tp_size == _PD_PEER_SHAPE_UNKNOWN:
+        pd_warnings.append(
+            f"kv_connector_extra_config missing full dp/tp for the "
+            f"{'decode' if topology.role is PdRole.PREFILL else 'prefill'} peer; "
+            "missing peer fields marked with -1 (pod cannot observe the peer side, "
+            "please ensure kv_connector_extra_config accuracy)"
+        )
+    device_capacity_note = "; ".join(pd_warnings) if pd_warnings else None
+
+    # 特性注入层(custom 复用):SmartQoS/Trace/Metrics。
+    user_cli_overrides = user_input.cli_overrides or {}
+    feature_switches = user_input.feature_switches
+    strategy_feature_inject_overrides, strategy_env_layer, feature_inject_notes = feature_inject_transform(
+        feature_switches or {}, engine
+    )
+
+    # engine_config 层序(低→高):builtin_default < strategy_feature_inject < config_file < user_cli。
+    ec_layers: List[MergeLayer] = [
+        MergeLayer("builtin_default", _BUILTIN_DEFAULTS, "<builtin_default>", "builtin_default"),
+    ]
+    if strategy_feature_inject_overrides:
+        ec_layers.append(
+            MergeLayer(
+                "strategy_feature_inject",
+                strategy_feature_inject_overrides,
+                "<strategy:feature_inject>",
+                "strategy.feature_inject",
+            )
+        )
+    if config_file_layer:
+        ec_layers.append(
+            MergeLayer(
+                CONFIG_FILE_LAYER_NAME,
+                config_file_layer,
+                CONFIG_FILE_SOURCE_FILE,
+                "config_file.params",
+            )
+        )
+    ec_layers.append(MergeLayer("user_cli", user_cli_overrides, "<user_cli>", "user_cli"))
+    engine_config_traces = trace_merge(ec_layers)
+
+    # env 层序(低→高):strategy_feature_env < config_file_env(allow_unsafe=True)。
+    env_layers: List[MergeLayer] = []
+    if strategy_env_layer:
+        env_layers.append(
+            MergeLayer(
+                "strategy_feature_env",
+                strategy_env_layer,
+                "<strategy:feature_env_inject>",
+                "strategy.feature_env_inject",
+            )
+        )
+    if config_file_env_layer:
+        env_layers.append(
+            MergeLayer(
+                CONFIG_FILE_ENV_LAYER_NAME,
+                config_file_env_layer,
+                CONFIG_FILE_SOURCE_FILE,
+                "config_file.env",
+                allow_unsafe=CONFIG_FILE_ENV_ALLOW_UNSAFE,
+            )
+        )
+
+    # PD(单 Pod singleton 或跨 Pod):继承引擎网卡/IP env 声明(rank_ip + $IFACE_NAME 占位),
+    # 置于 config_file_env 之上;随后 apply_network_env_strategy 把已声明网卡键覆盖为真实值。
+    # 单 Pod 与跨 Pod 都派生,对齐 recipe PD 单机产物(start_command_P/D.sh 的通信 env)。
+    # 网络键已被 env 黑名单拦截,用户填不进来。
+    placement = pd_input.placement
+    if placement is not None:
+        net_env = derive_common_network_env(
+            engine,
+            MultinodeCtx(
+                engine=engine,
+                device_count=device_count,
+                rank_ip=placement.rank_ip,
+                node_ips=list(placement.node_ips or []),
+                master_ip=placement.master_ip,
+            ),
+        )
+        env_layers.append(
+            MergeLayer(
+                "strategy_pd_network_env",
+                net_env,
+                "<strategy:pd_network>",
+                "strategy.pd_network_env",
+            )
+        )
+    env_traces = trace_merge(env_layers)
+    env_traces, network_env_notes = apply_network_env_strategy(env_traces)
+
+    if resolve_model_traced(engine_config_traces) is None:
+        raise ValueError(
+            "config-file custom PD requires a model; provide --model-path or --model-name"
+        )
+
+    notes: Dict[str, str] = {
+        "config_file": "custom",
+        "matched_model_yaml": "<config-file>",
+        "fallback": "false",
+        "pd_topology_input_policy": PD_TOPOLOGY_CUSTOM_CONFIG,
+        "pd_accel": "ignored",
+        "device_count": str(device_count) if device_count is not None else "unset",
+        "custom_pd_dp": str(effective["data_parallel_size"]),
+        "custom_pd_tp": str(effective["tensor_parallel_size"]),
+        "custom_pd_dp_local": str(effective["data_parallel_size_local"]),
+        "custom_pd_is_cross_pod": (
+            "yes" if (placement is not None and len(placement.node_ips or []) > 1) else "no"
+        ),
+        "custom_pd_engine_id": str(topology.instance_index),
+    }
+    if device_capacity_note is not None:
+        notes["custom_pd_device_capacity"] = device_capacity_note
+    notes.update(feature_inject_notes)
+    notes.update(network_env_notes)
+
+    user_cli_audit_entries = _build_user_cli_audit_entries(user_cli_overrides, user_input.cli_dropped)
+    config_file_audit_entries = [{"key": k, "value": v, "status": "applied"} for k, v in config_file_layer.items()]
+    config_file_audit_entries.extend(
+        {"key": d["key"], "value": d["value"], "status": "dropped", "reason": d["reason"]}
+        for d in config_file_dropped + config_file_env_dropped
+    )
+
+    # engine_id 派生审计:恒由 PD_INDEX(instance_index)派生;用户若也填了,追加 user_value。
+    engine_id_value = str(topology.instance_index)
+    engine_id_audit: Dict[str, Any] = {
+        "engine_id": engine_id_value,
+        "pd_index": topology.instance_index,
+        "source": "pd_index",
+        "derived": True,
+    }
+    user_kv = snake_params.get("kv_transfer_config")
+    if isinstance(user_kv, dict) and "engine_id" in user_kv:
+        engine_id_audit["user_value"] = user_kv.get("engine_id")
+
+    resolved = ResolvedConfig(
+        topology=target.topology,
+        hardware=env.hardware,
+        engine=engine,
+        engine_version=env.engine_version,
+        engine_config_traces=engine_config_traces,
+        env_traces=env_traces,
+        source_files=[CONFIG_FILE_SOURCE_FILE],
+        system_setup=None,
+        resolution_notes=notes,
+        user_cli_params=user_cli_audit_entries,
+        config_file_params=config_file_audit_entries,
+        nodes=None,
+        accel=AccelResult(),
+        pd_topology=topology,
+        pd_parallel_resolution=pd_parallel_resolution,
+        pd_engine_id_audit=engine_id_audit,
+    )
+    resolved.process_plan = _build_custom_pd_process_plan(
+        resolved, topology, device_count if device_count is not None else 1
+    )
+    resolved.engine_config_traces = {}
+    resolved.env_traces = {}
+    return resolved
+
+
 def resolve_custom_config(
     env: ResolvedEnv,
     target: Target,
@@ -2776,21 +3566,18 @@ def resolve_custom_config(
     user_input: UserInput = UserInput(),
     device_count: int | None = None,
     placement: ClusterPlacement | None = None,
+    pd_input: PdRuntimeInput | None = None,
 ) -> ResolvedConfig:
     """自定义传参方式(--config-file)的配置解析。
 
-    与 ``resolve_config`` 的根本差异(custom 支线):
-    - **不匹配 recipe/YAML**:跳过场景选择 / feature_overlay / device_count_transform /
-      coordinate_parallelism。引擎参数原则以 config-file params 为准(用户负责),仅黑名单
-      拦截($4.1)。**model 供给依赖本函数显式复用第 1/2 页 CLI 的 translator**,
-      经 user_cli 层落入最高优先级(见下),防被"纯 json 旁路"重构打断。
-    - **除 recipe 参数外最大化复用**:feature_inject/accel、渲染/审计/argv/env/validator 全复用。
+    支持 standalone、multi_node、pd_prefill 和 pd_decode。
+    custom config-file 不使用官方 recipe；引擎参数以用户 JSON 为主，
+    必要的运行时身份、网络和安全黑名单参数由 wings-control 派生。
 
     层序(低→高):``builtin_default < strategy_feature_inject < strategy_accel
-    < config_file < user_cli``(user_cli 含 model/served_model_name/host/port,§阶段0拍板 §1/§5)。
+    < config_file < user_cli``(user_cli 含 model/served_model_name/host/port)。
     env 层序:``strategy_feature_env < strategy_accel_env < config_file_env``。
 
-    当前支持 standalone 和 multi_node；PD 拓扑仍不在 custom-config 范围内。
 
     Args:
         env: 已解析环境(config_root / hardware / engine_version)。
@@ -2798,18 +3585,48 @@ def resolve_custom_config(
         config_file: 已加载并校验的 config-file(params + env)。
         user_input: 用户 CLI 意图(含 user_cli 覆盖层——custom 对第 1/2 页 CLI 复用,
             保证 model/served_model_name 落入最高层)。
-        device_count: 下发到当前 Pod 的卡数；multi_node 用于派生运行时并行参数。
-        placement: multi_node 分布式集群寻址；standalone 可不提供。
+        device_count: 下发到当前 Pod 的卡数；custom 仅记录到 notes(standalone 无并行协调语义)。
+        placement: 分布式集群寻址(standalone 恒 None;multi_node/PD 场景提供)。
+        pd_input: PD 场景规范化输入(role/placement/explicit_topology);仅
+            PD_PREFILL/PD_DECODE 需要。
 
     Returns:
         ResolvedConfig(含 config_file 审计;渲染/审计/validator 可直接复用)。
 
     Raises:
-        NotImplementedError: topology 不是 STANDALONE 或 MULTI_NODE。
+        NotImplementedError: topology 非 STANDALONE/MULTI_NODE/PD(custom 支持范围内)。
         ValueError: config-file 未提供 model(经 CLI 第 1 页)时,缺 model 直接报错。
     """
     engine = target.engine
     topology = target.topology
+
+    # custom PD 分离支线:PD_PREFILL / PD_DECODE 需规范化 pd_input,进入 _resolve_custom_pd_config。
+    # 白名单检查**先于**通用 validate_*(版本/拓扑/placement):custom PD 仅支持 vllm 系,
+    # 白名单外引擎(含 sglang)须在此被明确拒绝为 NotImplementedError,不能被前置的
+    # validate_topology(对 sglang 等 supported_topologies 不含 PD)先抛 ValueError 掩盖,
+    # 否则未来新增引擎会绕过白名单入口。白名单内引擎(vllm/vllm-ascend 走 _DEFAULT_CONTRACT,
+    # validate_* 对其 no-op)不受影响,仍走下方通用校验后进入 _resolve_custom_pd_config。
+    if topology in (Topology.PD_PREFILL, Topology.PD_DECODE):
+        if pd_input is None:
+            raise ValueError(
+                f"config-file PD(topology '{topology.value}') requires a normalized pd_input"
+            )
+        if engine not in _CUSTOM_PD_SUPPORTED_ENGINES:
+            raise NotImplementedError(
+                f"config-file PD does not support engine {engine}; "
+                "supported engines: vllm, vllm-ascend"
+            )
+        validate_resolved_version(engine, env.engine_version.requested, env.engine_version.resolved)
+        validate_topology(engine, topology.value)
+        _placement = placement or ClusterPlacement()
+        validate_placement(
+            engine,
+            topology.value,
+            list(_placement.node_ips or []) or None,
+            rank_ip=_placement.rank_ip,
+            master_ip=_placement.master_ip,
+        )
+        return _resolve_custom_pd_config(env, target, config_file, user_input, device_count, pd_input, placement)
 
     validate_resolved_version(engine, env.engine_version.requested, env.engine_version.resolved)
     validate_topology(engine, topology.value)
@@ -2822,27 +3639,27 @@ def resolve_custom_config(
         master_ip=_placement.master_ip,
     )
 
-    # custom 支线:STANDALONE 与 MULTI_NODE 支持;PD(阶段0拍板 §3/§4 单独立项)不支持。
+    # custom 支线:STANDALONE 与 MULTI_NODE 支持。
     if topology not in (Topology.STANDALONE, Topology.MULTI_NODE):
         raise NotImplementedError(
-            f"config-file custom mode does not support topology '{topology.value}' "
-            "(only standalone / multi_node are supported)"
+            f"config-file custom passthrough does not support topology '{topology.value}'"
+            "(only standalone / multi_node / pd_prefill / pd_decode)"
         )
     # multi_node custom 派生身份键强依赖运行时 placement(rank_ip/node_ips/master_ip)。
     if topology == Topology.MULTI_NODE and (
         placement is None or not placement.node_ips or not placement.rank_ip
     ):
         raise ValueError(
-            "config-file multi_node requires distributed runtime placement: "
-            "NODE_IPS / RANK_IP / MASTER_IP are required to derive per-node identity parameters"
+            "config-file multi_node requires distributed runtime context (placement):"
+            "missing NODE_IPS / RANK_IP / MASTER_IP prevents deriving per-node identity params"
         )
 
     user_cli_overrides = user_input.cli_overrides or {}
     user_cli_dropped = user_input.cli_dropped
     feature_switches = user_input.feature_switches
 
-    # 1. config-file params:_to_snake + 引擎 canonical 别名归并 + 黑名单过滤(§4.1/§4.4.1,
-    #    静默弃用记审计)。别名归并保证用户写简写/双长名(tp/dp/n/r/tp-size/nccl_init_addr)
+    # 1. config-file params:_to_snake + 引擎 canonical 别名归并 + 黑名单过滤。
+    # 别名归并保证用户写简写/双长名(tp/dp/n/r/tp-size/nccl_init_addr)
     #    也能命中黑名单与派生层 cfg.get,不遗漏不透传。
     raw_params = {_to_snake(k): v for k, v in (config_file.params or {}).items()}
     # 1a. FOAI 旧版前端模板过渡适配(临时;过渡完成后连同 legacy_json_adapter 一起删除):
@@ -2864,7 +3681,7 @@ def resolve_custom_config(
 
     # 1c. multi_node custom 派生层(strategy_multinode_custom):按 engine × 节点身份主动派生
     #     per-node 参数/ENV(nnodes/node_rank/master_addr/headless + DP 通信 + 网卡/IP env),
-    #     与 config-file 是否填了派生行无关(§4.4/§5.1.5)。STANDALONE 跳过(无派生)。
+    #     与 config-file 是否填了派生行无关。STANDALONE 跳过(无派生)。
     mn_engine_config: Dict[str, Any] = {}
     mn_env: Dict[str, str] = {}
     mn_notes: Dict[str, str] = {}
@@ -2886,7 +3703,6 @@ def resolve_custom_config(
         mn_env = mn.env
         mn_notes = mn.notes
         mn_system_commands = mn.system_setup_commands
-
 
     # 2. 复用特性注入层(SmartQoS/Trace/Metrics:只依赖 feature_switches + engine,与 recipe 解耦)。
     strategy_feature_inject_overrides, strategy_env_layer, feature_inject_notes = feature_inject_transform(
@@ -2939,12 +3755,14 @@ def resolve_custom_config(
             allow_unsafe=CONFIG_FILE_ENV_ALLOW_UNSAFE,
         ))
     # multi_node 派生 env 层:排 config_file_env 后(最高),框架权威派生键覆盖用户误传值。
-    # 值含 $IFACE_NAME(运行时探测),须 allow_unsafe=True 双引号渲染。
+    # 派生值仅含网卡/IP($IFACE_NAME 占位 + RANK_IP),安全渲染器已支持 $NAME,
+    # 且 apply_network_env_strategy 随后在 Python 侧覆盖为真实值——**不标 allow_unsafe**。
+    # (config_file_env 层=用户自写值、经评审保留 $(...) 放行;此处是框架派生值,不应继承
+    # 该 unsafe 信任。)
     if mn_env:
         env_layers.append(MergeLayer(
             MULTINODE_CUSTOM_ENV_LAYER, dict(mn_env),
             "<strategy:multinode_custom>", "strategy.multinode_custom_env",
-            allow_unsafe=CONFIG_FILE_ENV_ALLOW_UNSAFE,
         ))
     env_traces = trace_merge(env_layers)
     # 网卡/IP 通信变量 Python 侧解析覆盖(对齐 recipe 路径,15ffcc6 架构):

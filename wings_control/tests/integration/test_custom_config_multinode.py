@@ -68,17 +68,22 @@ def _env(config_root: Path, hardware_info_path: Path, engine: str) -> ResolvedEn
     os.environ["ENGINE_VERSION"] = "0.19.0"
     try:
         hardware = resolve_hardware(hardware_info_path)
-        engine_version = resolve_engine_version(
-            config_root, hardware.hardware_family, engine=engine
-        )
+        engine_version = resolve_engine_version(config_root, hardware.hardware_family, engine=engine)
         return ResolvedEnv(config_root=config_root, hardware=hardware, engine_version=engine_version)
     finally:
         os.environ.pop("ENGINE_VERSION", None)
 
 
-def _resolve(config_root: Path, hardware_info_path: Path, *, engine="vllm",
-             config_file=CONFIG_FILE_VLLM, placement=PLACEMENT_WORKER,
-             device_count: int | None = 2, user_input=None):
+def _resolve(
+    config_root: Path,
+    hardware_info_path: Path,
+    *,
+    engine="vllm",
+    config_file=CONFIG_FILE_VLLM,
+    placement=PLACEMENT_WORKER,
+    device_count: int | None = 2,
+    user_input=None,
+):
     user_input = user_input or UserInput(cli_overrides=CLI_OVERRIDES)
     return resolve_custom_config(
         _env(config_root, hardware_info_path, engine),
@@ -139,20 +144,41 @@ def test_b_ascend_derives_dp(config_root, hardware_info_path):
         node_ips=["10.0.0.1", "10.0.0.2", "10.0.0.3"],
         master_ip="10.0.0.1",
     )
-    # 用户显式配全局 DP=2 → DP_across;TP 未填 → 1;device_count=8, tp=1 → dp_local=8
+    # 用户显式配全局 DP=2 且填写 DP_LOCAL=2 → DP_across。
+    # size_local **由用户填写**(不再 device_count//tp 自动派生);start_rank=index*size_local。
     derive = multinode_custom_derive(
-        "vllm-ascend", ctx, config_file_engine_config={"data_parallel_size": 2}
+        "vllm-ascend",
+        ctx,
+        config_file_engine_config={"data_parallel_size": 2, "data_parallel_size_local": 2},
     )
     ec = derive.engine_config
     assert ec["nnodes"] == 3
     assert ec["node_rank"] == 2
     assert ec["master_addr"] == "10.0.0.1"
     assert ec["headless"] is True
-    # DP_across:dp_local = 8//1 = 8;start_rank = index*8 = 16;address=master_ip
-    assert ec["data_parallel_size_local"] == 8
-    assert ec["data_parallel_start_rank"] == 16
+    # size_local 由用户填写,不再由派生器产出(因而非黑名单时由 config_file 层承载);
+    # 派生器基于用户 size_local 派生 start_rank = index*size_local = 2*2 = 4。
+    assert "data_parallel_size_local" not in ec  # 派生层不再输出(用户自管)
+    assert ec["data_parallel_start_rank"] == 4
     assert ec["data_parallel_address"] == "10.0.0.1"
     assert derive.notes["multinode_custom.layout"] == "DP_across"
+
+
+def test_b1_ascend_dp_across_missing_size_local_blocks(config_root, hardware_info_path):
+    """DP_across 下用户未填 data_parallel_size_local → 阻断(不再自动派生)。"""
+    ctx = MultinodeCtx(
+        engine="vllm-ascend",
+        device_count=8,
+        rank_ip="10.0.0.3",
+        node_ips=["10.0.0.1", "10.0.0.2", "10.0.0.3"],
+        master_ip="10.0.0.1",
+    )
+    with pytest.raises(ValueError, match="data_parallel_size_local"):
+        multinode_custom_derive(
+            "vllm-ascend",
+            ctx,
+            config_file_engine_config={"data_parallel_size": 2},
+        )
 
 
 def test_b2_ascend_tp_across_no_dp(config_root, hardware_info_path):
@@ -165,9 +191,7 @@ def test_b2_ascend_tp_across_no_dp(config_root, hardware_info_path):
         master_ip="10.0.0.1",
     )
     # TP=8(跨 over device_count=4)→ TP_across
-    derive = multinode_custom_derive(
-        "vllm-ascend", ctx, config_file_engine_config={"tensor_parallel_size": 8}
-    )
+    derive = multinode_custom_derive("vllm-ascend", ctx, config_file_engine_config={"tensor_parallel_size": 8})
     ec = derive.engine_config
     assert derive.notes["multinode_custom.layout"] == "TP_across"
     assert "data_parallel_size_local" not in ec
@@ -202,7 +226,8 @@ def test_b3_default_dp1_none_layout(config_root, hardware_info_path):
 
 def test_c_rpc_port_user_provided_wins(config_root, hardware_info_path):
     resolved = _resolve(
-        config_root, hardware_info_path,
+        config_root,
+        hardware_info_path,
         config_file=CustomConfigFile(params={"data_parallel_rpc_port": 20000}, env={}),
     )
     assert resolved.engine_config_traces["data_parallel_rpc_port"].final_value == 20000
@@ -215,8 +240,11 @@ def test_d_ascend_env_derived(config_root, hardware_info_path):
     derive = multinode_custom_derive(
         "vllm-ascend",
         MultinodeCtx(
-            engine="vllm-ascend", device_count=8, rank_ip="10.0.0.3",
-            node_ips=["10.0.0.1", "10.0.0.2", "10.0.0.3"], master_ip="10.0.0.1",
+            engine="vllm-ascend",
+            device_count=8,
+            rank_ip="10.0.0.3",
+            node_ips=["10.0.0.1", "10.0.0.2", "10.0.0.3"],
+            master_ip="10.0.0.1",
         ),
     )
     env = derive.env
@@ -233,8 +261,11 @@ def test_d2_vllm_env_derived(config_root, hardware_info_path):
     derive = multinode_custom_derive(
         "vllm",
         MultinodeCtx(
-            engine="vllm", device_count=8, rank_ip="10.0.0.3",
-            node_ips=["10.0.0.1", "10.0.0.2", "10.0.0.3"], master_ip="10.0.0.1",
+            engine="vllm",
+            device_count=8,
+            rank_ip="10.0.0.3",
+            node_ips=["10.0.0.1", "10.0.0.2", "10.0.0.3"],
+            master_ip="10.0.0.1",
         ),
     )
     env = derive.env
@@ -263,8 +294,11 @@ def test_e_sglang_derive():
     derive = multinode_custom_derive(
         "sglang",
         MultinodeCtx(
-            engine="sglang", device_count=8, rank_ip="10.0.0.3",
-            node_ips=["10.0.0.1", "10.0.0.2", "10.0.0.3"], master_ip="10.0.0.1",
+            engine="sglang",
+            device_count=8,
+            rank_ip="10.0.0.3",
+            node_ips=["10.0.0.1", "10.0.0.2", "10.0.0.3"],
+            master_ip="10.0.0.1",
         ),
     )
     assert derive.engine_config["nnodes"] == 3
@@ -282,8 +316,11 @@ def test_e_sglang_derive():
     derive2 = multinode_custom_derive(
         "sglang",
         MultinodeCtx(
-            engine="sglang", device_count=8, rank_ip="10.0.0.3",
-            node_ips=["10.0.0.1", "10.0.0.2", "10.0.0.3"], master_ip="10.0.0.1",
+            engine="sglang",
+            device_count=8,
+            rank_ip="10.0.0.3",
+            node_ips=["10.0.0.1", "10.0.0.2", "10.0.0.3"],
+            master_ip="10.0.0.1",
         ),
         config_file_engine_config={"dist_init_addr": "10.0.0.99:29999"},
     )
@@ -294,8 +331,11 @@ def test_e_sglang_derive():
         multinode_custom_derive(
             "sglang",
             MultinodeCtx(
-                engine="sglang", device_count=None, rank_ip="10.0.0.3",
-                node_ips=["10.0.0.1", "10.0.0.2", "10.0.0.3"], master_ip="10.0.0.1",
+                engine="sglang",
+                device_count=None,
+                rank_ip="10.0.0.3",
+                node_ips=["10.0.0.1", "10.0.0.2", "10.0.0.3"],
+                master_ip="10.0.0.1",
             ),
         )
 
@@ -355,10 +395,7 @@ def test_e2_vllm_placeholder_dropped(config_root, hardware_info_path):
     assert "autofill" not in str(resolved.engine_config_traces)
     assert "autofill" not in str(resolved.env_traces)
     # audit:占位符键记 dropped
-    dropped = {
-        d["key"] for d in resolved.config_file_params
-        if d["status"] == "dropped"
-    }
+    dropped = {d["key"] for d in resolved.config_file_params if d["status"] == "dropped"}
     for key in ("master_addr", "nnodes", "node_rank", "headless", "data_parallel_address"):
         assert key in dropped
     # env 网卡占位符同样被弃
@@ -376,12 +413,16 @@ def test_e2_sglang_placeholder_covered():
     覆盖——common 黑名单两引擎一致。
     """
     ctx = MultinodeCtx(
-        engine="sglang", device_count=8, rank_ip="10.0.0.3",
-        node_ips=["10.0.0.1", "10.0.0.2", "10.0.0.3"], master_ip="10.0.0.1",
+        engine="sglang",
+        device_count=8,
+        rank_ip="10.0.0.3",
+        node_ips=["10.0.0.1", "10.0.0.2", "10.0.0.3"],
+        master_ip="10.0.0.1",
     )
     # 模板默认:<autofill:master_ip>:5000 —— host 占位符 + port 缺省 5000
     derive = multinode_custom_derive(
-        "sglang", ctx,
+        "sglang",
+        ctx,
         config_file_engine_config={"dist_init_addr": "<autofill:master_ip>:5000"},
     )
     ec = derive.engine_config
@@ -400,8 +441,11 @@ def test_f_missing_device_count_blocks(config_root, hardware_info_path):
         multinode_custom_derive(
             "vllm",
             MultinodeCtx(
-                engine="vllm", device_count=None, rank_ip="10.0.0.3",
-                node_ips=["10.0.0.1", "10.0.0.2", "10.0.0.3"], master_ip="10.0.0.1",
+                engine="vllm",
+                device_count=None,
+                rank_ip="10.0.0.3",
+                node_ips=["10.0.0.1", "10.0.0.2", "10.0.0.3"],
+                master_ip="10.0.0.1",
             ),
         )
 
@@ -441,10 +485,12 @@ def test_h_vllm_short_flags_canonicalized(config_root, hardware_info_path):
     cf = CustomConfigFile(
         params={
             # 简写(Clippy):n/r 应在黑名单过滤;tp/dp 应被派生层读成 canonical 键。
+            # dpl(data_parallel_size_local)现不在黑名单(用户自管,新行为)→ canonical 后保留。
             "n": 3,
             "r": 1,
             "tp": 2,
             "dp": 4,
+            "dpl": 2,
         },
         env={},
     )
@@ -457,11 +503,15 @@ def test_h_vllm_short_flags_canonicalized(config_root, hardware_info_path):
     assert tr["tensor_parallel_size"].final_layer == "config_file"
     assert tr["data_parallel_size"].final_value == 4
     assert tr["data_parallel_size"].final_layer == "config_file"
+    # dpl → data_parallel_size_local(不再黑名单,用户自管)→ config_file 层保留。
+    assert tr["data_parallel_size_local"].final_value == 2
+    assert tr["data_parallel_size_local"].final_layer == "config_file"
     # 黑名单弃置记录:canonical nnodes/node_rank(n/r 归并后)被弃(vllm 框架权威派生),
-    # 记 dropped 而不透传;data_parallel_size 用户自管不透传。
+    # 记 dropped 而不透传;data_parallel_size/data_parallel_size_local 用户自管不透传。
     dropped = {d["key"] for d in resolved.config_file_params if d["status"] == "dropped"}
     assert "nnodes" in dropped and "node_rank" in dropped
     assert "data_parallel_size" not in dropped
+    assert "data_parallel_size_local" not in dropped
 
 
 def test_h1_dp_short_flags_canonicalized(config_root, hardware_info_path):
@@ -491,6 +541,7 @@ def test_h3_sglang_aliases_canonicalized(config_root, hardware_info_path):
         _canonicalize_config_file_params,
         _filter_config_file_blacklist,
     )
+
     canon = _canonicalize_config_file_params(
         {"tp_size": 8, "dp_size": 2, "nccl_init_addr": "10.0.0.1:29500"},
         engine="sglang",

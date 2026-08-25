@@ -115,6 +115,15 @@ def _build_audit_dict(resolved: ResolvedConfig) -> Dict[str, Any]:
     if resolved.config_file_params:
         audit["config_file_params"] = list(resolved.config_file_params)
 
+    # custom PD 并行三字段解析审计(DP/TP/DP_LOCAL,含 source/status/maas_env/mismatch)。
+    # 仅 custom PD 时非空;默认空列表 → 不写该键。
+    if resolved.pd_parallel_resolution:
+        audit["pd_parallel_resolution"] = list(resolved.pd_parallel_resolution)
+
+    # custom PD engine_id 派生审计(engine_id/pd_index/source/derived,可选 user_value)。
+    if resolved.pd_engine_id_audit:
+        audit["pd_engine_id"] = dict(resolved.pd_engine_id_audit)
+
     # 解析注记(如 platform_default: absent)
     if resolved.resolution_notes:
         audit["resolution_notes"] = dict(resolved.resolution_notes)

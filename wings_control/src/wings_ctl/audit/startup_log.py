@@ -107,6 +107,11 @@ def _build_summary_lines(
                 f"shape_match={notes.get('pd_recipe_shape_match', '?')} "
                 f"role_member_count_match={notes.get('pd_recipe_role_member_count_match', '?')}"
             )
+        # custom PD warn-only(DP_LOCAL>DP / 容量不足 / 对侧 shape 缺失)投影到人读日志,
+        # 使用户在 wings_start.log 可见,而非仅存 audit.json。
+        custom_pd_warning = notes.get("custom_pd_device_capacity")
+        if custom_pd_warning:
+            lines.append(f"[STARTUP] WARNING: {custom_pd_warning}")
 
     # multi_node 摘要:未注入时展示占位视图;已注入时展示本 Pod 角色和并行信息。
     if resolved.nodes:

@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, NamedTuple, Optional
 
-from wings_ctl.strategy.parallelism import dp_local_from_device_count, dp_start_rank
+from wings_ctl.strategy.parallelism import dp_start_rank
 from wings_ctl.strategy.topology_inject import select_node
 
 logger = logging.getLogger(__name__)
@@ -126,20 +126,49 @@ def _derive_common(ctx: MultinodeCtx, sel) -> Dict[str, Any]:
     return out
 
 
-def _derive_dp(ctx: MultinodeCtx, sel, device_count: int, tp: int, dp: int) -> Dict[str, Any]:
-    """vllm-ascend DP 通信参数:data_parallel_size_local/start_rank/address。
+def _derive_dp(ctx: MultinodeCtx, sel, size_local: int) -> Dict[str, Any]:
+    """vllm-ascend DP 通信参数:data_parallel_start_rank/address。
 
-    DP_across:TP 在单 Pod 内,DP 跨 Pod。dp_local = device_count // tp。
+    DP_across:TP 在单 Pod 内,DP 跨 Pod。``data_parallel_size_local`` **由用户填写**
+    (custom 用户自管,不在黑名单);这里只派生框架权威的 start_rank 与 address:
+    start_rank = 本 Pod index × 用户 size_local。
     """
-    dp_local = dp_local_from_device_count(device_count, tp)
-    start_rank = dp_start_rank(sel.index, dp_local)
+    start_rank = dp_start_rank(sel.index, size_local)
     return {
-        "data_parallel_size_local": dp_local,
         "data_parallel_start_rank": start_rank,
         # DP 通信的 master 地址(head IP),各节点一致(recipe: head/worker 均 $HEAD_IP)。
         # $5.1.3 归框架派生(用户填不出,黑名单内 data_parallel_address)。
         "data_parallel_address": ctx.master_ip or ctx.node_ips[0],
     }
+
+
+def _require_user_size_local(cfg: Dict[str, Any], engine: str) -> int:
+    """DP_across 下取用户填写的 data_parallel_size_local;未填 → 阻断。
+
+    设计:custom multi_node 的 ``data_parallel_size_local`` 用户能填出来(每 Pod 分配的
+    local DP 副本数),故不再由框架按 ``device_count // tp`` 自动派生,**完全要求用户填写**。
+    DP_across(用户配全局 DP>1)为跨 Pod DP 布局,size_local 是派生 start_rank 的前置;
+    缺失则无法展开,直接报错并提示用户填写。
+
+    Args:
+        cfg: config-file 已归一 snake params。
+        engine: 引擎名,用于报错文案。
+
+    Returns:
+        用户填写的正整数 data_parallel_size_local。
+
+    Raises:
+        ValueError: DP_across 未填写 data_parallel_size_local 或值非法。
+    """
+    raw = cfg.get("data_parallel_size_local")
+    if raw is None:
+        raise ValueError(
+            f"multi_node {engine} DP_across layout requires data_parallel_size_local "
+            "(local DP instances per pod); it is user-managed and must be provided."
+        )
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw <= 0:
+        raise ValueError(f"multi_node {engine} data_parallel_size_local must be a positive integer; got {raw!r}.")
+    return raw
 
 
 def _derive_env_common(ctx: MultinodeCtx) -> Dict[str, str]:
@@ -160,6 +189,33 @@ def _derive_env_vllm_common(ctx: MultinodeCtx) -> Dict[str, str]:
         "GLOO_SOCKET_IFNAME": "$IFACE_NAME",
         "NCCL_SOCKET_IFNAME": "$IFACE_NAME",
     }
+
+
+# 引擎 → 网卡/IP env 派生器的固定数据映射(custom PD 网络 env)。
+# 引擎差异收敛为一张查表,而非在 config_resolver 主流程散落 engine 分支:
+# 新增引擎只需在此登记对应派生器,主体派生逻辑不随引擎增长而改。
+_NETWORK_ENV_DERIVERS: Dict[str, Any] = {
+    "vllm": _derive_env_vllm_common,
+    "vllm-ascend": _derive_env_common,
+}
+
+
+def derive_common_network_env(engine: str, ctx: MultinodeCtx) -> Dict[str, str]:
+    """按引擎固定的网卡/IP env 映射派生 common 通信 env(custom PD 跨 Pod 与 multi_node 共用)。
+
+    - ``vllm`` → nvidia 型(GLOO/NCCL);
+    - ``vllm-ascend`` → ascend 型(HCCL_IF_IP + GLOO/TP/HCCL_SOCKET_IFNAME)。
+
+    仅接受 custom PD 白名单内引擎(_CUSTOM_PD_SUPPORTED_ENGINES);其它引擎(未登记于
+    ``_NETWORK_ENV_DERIVERS``)在此明确报错,不静默落入默认分支。
+    """
+    deriver = _NETWORK_ENV_DERIVERS.get(engine)
+    if deriver is None:
+        raise ValueError(
+            f"derive_common_network_env: unsupported engine {engine!r} "
+            f"(expected {sorted(_NETWORK_ENV_DERIVERS)})"
+        )
+    return deriver(ctx)
 
 
 def _extract_dist_port(dist_init_addr: Optional[Any]) -> int:
@@ -201,7 +257,8 @@ def _derive_vllm(ctx: MultinodeCtx, sel, cfg: Dict[str, Any]) -> Dict[str, Any]:
     tp = cfg.get("tensor_parallel_size") or 1
     out = _derive_common(ctx, sel)
     if device_count is not None and _compute_layout(tp, device_count, dp) == LAYOUT_DP_ACROSS:
-        out.update(_derive_dp(ctx, sel, device_count, tp, dp))
+        size_local = _require_user_size_local(cfg, "vllm")
+        out.update(_derive_dp(ctx, sel, size_local))
     return out
 
 
@@ -213,7 +270,8 @@ def _derive_vllm_ascend(ctx: MultinodeCtx, sel, cfg: Dict[str, Any]) -> Dict[str
     tp = cfg.get("tensor_parallel_size") or 1
     out = _derive_common(ctx, sel)
     if device_count is not None and _compute_layout(tp, device_count, dp) == LAYOUT_DP_ACROSS:
-        out.update(_derive_dp(ctx, sel, device_count, tp, dp))
+        size_local = _require_user_size_local(cfg, "vllm-ascend")
+        out.update(_derive_dp(ctx, sel, size_local))
     return out
 
 
@@ -238,9 +296,7 @@ def _derive_sglang(ctx: MultinodeCtx, sel, cfg: Dict[str, Any]) -> Dict[str, Any
     return out
 
 
-def _check_custom_parallelism_consistency(
-    engine_config: Dict[str, Any], *, device_count: int
-) -> None:
+def _check_custom_parallelism_consistency(engine_config: Dict[str, Any], *, device_count: int) -> None:
     """$4.4 框架只校验「派生所需」:缺 device_count → 阻断;dp_local ≤ DP 校验。
 
     Args:
