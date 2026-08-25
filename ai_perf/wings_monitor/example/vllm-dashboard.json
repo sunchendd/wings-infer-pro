@@ -1,0 +1,2745 @@
+{
+ "__inputs": [
+  {
+   "name": "DS_PROMETHEUS",
+   "label": "Prometheus",
+   "description": "Prometheus datasource for vLLM metrics",
+   "type": "datasource",
+   "pluginId": "prometheus",
+   "pluginName": "Prometheus"
+  }
+ ],
+ "__requires": [
+  {
+   "type": "grafana",
+   "id": "grafana",
+   "name": "Grafana",
+   "version": "10.0.0"
+  },
+  {
+   "type": "datasource",
+   "id": "prometheus",
+   "name": "Prometheus",
+   "version": "1.0.0"
+  },
+  {
+   "type": "panel",
+   "id": "bargauge",
+   "name": "Bar gauge",
+   "version": ""
+  },
+  {
+   "type": "panel",
+   "id": "gauge",
+   "name": "Gauge",
+   "version": ""
+  },
+  {
+   "type": "panel",
+   "id": "heatmap",
+   "name": "Heatmap",
+   "version": ""
+  },
+  {
+   "type": "panel",
+   "id": "stat",
+   "name": "Stat",
+   "version": ""
+  },
+  {
+   "type": "panel",
+   "id": "timeseries",
+   "name": "Time series",
+   "version": ""
+  }
+ ],
+ "annotations": {
+  "list": [
+   {
+    "builtIn": 1,
+    "datasource": {
+     "type": "grafana",
+     "uid": "-- Grafana --"
+    },
+    "enable": true,
+    "hide": true,
+    "iconColor": "rgba(0, 211, 255, 1)",
+    "name": "Annotations & Alerts",
+    "target": {
+     "limit": 100,
+     "matchAny": false,
+     "tags": [],
+     "type": "dashboard"
+    },
+    "type": "dashboard"
+   }
+  ]
+ },
+ "description": "基于原版 #24755 的完整中文汉化版本。覆盖 vLLM 推理核心指标：调度器效率、KV Cache 使用率、TTFT/TPOT 延迟、Prefix Cache 命中率、请求完成原因分布等。已适配 Grafana 10.4+，开箱即用。",
+ "editable": true,
+ "fiscalYearStartMonth": 0,
+ "graphTooltip": 1,
+ "id": null,
+ "links": [],
+ "panels": [
+  {
+   "collapsed": false,
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 0
+   },
+   "id": 105,
+   "panels": [],
+   "title": "请求与系统状态",
+   "type": "row"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "description": "无需等待即可立即处理的请求比例。Running/(Running+Waiting)。1.0(100%) 表示所有请求均立即处理。低于 0.5 表示过载。瞬时值，跨节点聚合统计，反映集群当前调度效率。",
+   "fieldConfig": {
+    "defaults": {
+     "mappings": [],
+     "max": 1,
+     "min": 0,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "yellow",
+        "value": 0.7
+       },
+       {
+        "color": "green",
+        "value": 0.9
+       }
+      ]
+     },
+     "unit": "percentunit"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 6,
+    "w": 6,
+    "x": 0,
+    "y": 1
+   },
+   "id": 103,
+   "options": {
+    "colorMode": "value",
+    "graphMode": "area",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "showPercentChange": false,
+    "textMode": "auto",
+    "wideLayout": true
+   },
+   "pluginVersion": "12.3.0",
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "clamp_max((sum(vllm:num_requests_running{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}) + 0.001) / (sum(vllm:num_requests_running{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}) + sum(vllm:num_requests_waiting{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}) + 0.001), 1)",
+     "legendFormat": "Efficiency",
+     "refId": "A"
+    }
+   ],
+   "title": "调度器效率",
+   "type": "stat"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "description": "当前 正在处理(Running) + 等待队列(Waiting) 中的总请求数。急剧增加表示负载激增。瞬时值，跨节点聚合统计，反映集群当前实时负载。",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "thresholds"
+     },
+     "mappings": [],
+     "max": 100,
+     "min": 0,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "yellow",
+        "value": 30
+       },
+       {
+        "color": "red",
+        "value": 60
+       }
+      ]
+     },
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 6,
+    "w": 6,
+    "x": 6,
+    "y": 1
+   },
+   "id": 201,
+   "options": {
+    "minVizHeight": 75,
+    "minVizWidth": 75,
+    "orientation": "auto",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "showThresholdLabels": false,
+    "showThresholdMarkers": true,
+    "sizing": "auto"
+   },
+   "pluginVersion": "12.3.0",
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "sum(vllm:num_requests_running{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}) + sum(vllm:num_requests_waiting{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"})",
+     "legendFormat": "Active Requests",
+     "refId": "A"
+    }
+   ],
+   "title": "活跃请求数",
+   "type": "gauge"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "description": "请求成功率。99.5% 以上为正常(绿色)，98% 以下为危险(红色)。仅统计 finished_reason 为 stop 或 length 的正常完成请求。计算窗口：5分钟滑动窗口，基于速率计算。跨节点聚合统计，反映集群整体成功率。",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "thresholds"
+     },
+     "mappings": [],
+     "max": 100,
+     "min": 0,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "yellow",
+        "value": 98
+       },
+       {
+        "color": "green",
+        "value": 99.5
+       }
+      ]
+     },
+     "unit": "percent"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 6,
+    "w": 6,
+    "x": 12,
+    "y": 1
+   },
+   "id": 202,
+   "options": {
+    "colorMode": "value",
+    "graphMode": "area",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "showPercentChange": false,
+    "textMode": "auto",
+    "wideLayout": true
+   },
+   "pluginVersion": "12.3.0",
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "(sum(rate(vllm:request_success_total{finished_reason=~\"stop|length\", model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[5m])) / clamp_min(sum(rate(vllm:request_success_total{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[5m])), 0.001)) * 100",
+     "legendFormat": "Success Rate",
+     "refId": "A"
+    }
+   ],
+   "title": "请求成功率",
+   "type": "stat"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "description": "每分钟抢占(Preemption)发生次数。因 KV Cache 内存不足而中断正在运行的请求，将内存分配给新请求。频繁发生需扩容 GPU 内存或减小 Batch Size。按节点统计，单位：次/分钟。",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "thresholds"
+     },
+     "mappings": [],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "yellow",
+        "value": 1
+       },
+       {
+        "color": "red",
+        "value": 5
+       }
+      ]
+     },
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 6,
+    "w": 6,
+    "x": 18,
+    "y": 1
+   },
+   "id": 204,
+   "options": {
+    "colorMode": "value",
+    "graphMode": "area",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "showPercentChange": false,
+    "textMode": "auto",
+    "wideLayout": true
+   },
+   "pluginVersion": "12.3.0",
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "increase(vllm:num_preemptions_total{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[1m])",
+     "legendFormat": "{{instance}}",
+     "refId": "A"
+    }
+   ],
+   "title": "抢占发生率",
+   "type": "stat"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "description": "无需等待即可立即处理的请求比例。Running/(Running+Waiting)。1.0(100%) 表示所有请求均立即处理。低于 0.5 表示过载。瞬时值，跨节点聚合统计，反映集群当前调度效率。",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisBorderShow": false,
+      "axisCenteredZero": false,
+      "axisColorMode": "text",
+      "axisLabel": "",
+      "axisPlacement": "auto",
+      "barAlignment": 0,
+      "barWidthFactor": 0.6,
+      "drawStyle": "line",
+      "fillOpacity": 0,
+      "gradientMode": "none",
+      "hideFrom": {
+       "legend": false,
+       "tooltip": false,
+       "viz": false
+      },
+      "insertNulls": false,
+      "lineInterpolation": "smooth",
+      "lineWidth": 2,
+      "pointSize": 5,
+      "scaleDistribution": {
+       "type": "linear"
+      },
+      "showPoints": "never",
+      "spanNulls": false,
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      },
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "mappings": [],
+     "max": 1,
+     "min": 0,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "yellow",
+        "value": 0.7
+       },
+       {
+        "color": "green",
+        "value": 0.9
+       }
+      ]
+     },
+     "unit": "percentunit"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 8,
+    "x": 0,
+    "y": 7
+   },
+   "id": 208,
+   "options": {
+    "legend": {
+     "calcs": [
+      "lastNotNull",
+      "mean",
+      "min"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "hideZeros": false,
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "pluginVersion": "12.3.0",
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "clamp_max((sum(vllm:num_requests_running{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}) + 0.001) / (sum(vllm:num_requests_running{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}) + sum(vllm:num_requests_waiting{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}) + 0.001), 1)",
+     "legendFormat": "调度器效率",
+     "refId": "A"
+    }
+   ],
+   "title": "调度器效率",
+   "type": "timeseries"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "description": "从请求接收到响应完成的总耗时(秒)。Last值基于最近5分钟数据计算；Mean/Max值基于面板显示的整个时间范围统计。",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisBorderShow": false,
+      "axisCenteredZero": false,
+      "axisColorMode": "text",
+      "axisLabel": "",
+      "axisPlacement": "auto",
+      "barAlignment": 0,
+      "barWidthFactor": 0.6,
+      "drawStyle": "line",
+      "fillOpacity": 0,
+      "gradientMode": "none",
+      "hideFrom": {
+       "legend": false,
+       "tooltip": false,
+       "viz": false
+      },
+      "insertNulls": false,
+      "lineInterpolation": "smooth",
+      "lineWidth": 2,
+      "pointSize": 5,
+      "scaleDistribution": {
+       "type": "linear"
+      },
+      "showPoints": "never",
+      "spanNulls": false,
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      },
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "mappings": [],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     },
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 8,
+    "x": 8,
+    "y": 7
+   },
+   "id": 9,
+   "options": {
+    "legend": {
+     "calcs": [
+      "lastNotNull",
+      "mean",
+      "max"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "hideZeros": false,
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "pluginVersion": "12.3.0",
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "histogram_quantile(0.99, sum by(le, instance) (rate(vllm:e2e_request_latency_seconds_bucket{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[5m])))",
+     "legendFormat": "{{instance}} - P99",
+     "refId": "A"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "histogram_quantile(0.95, sum by(le, instance) (rate(vllm:e2e_request_latency_seconds_bucket{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[5m])))",
+     "legendFormat": "{{instance}} - P95",
+     "refId": "B"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "histogram_quantile(0.5, sum by(le, instance) (rate(vllm:e2e_request_latency_seconds_bucket{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[5m])))",
+     "legendFormat": "{{instance}} - P50",
+     "refId": "C"
+    }
+   ],
+   "title": "端到端(E2E)响应延迟",
+   "type": "timeseries"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "description": "请求在队列中等待的时间(秒)。GPU 繁忙时等待时间增加。持续偏高需扩容服务器。Last值基于最近5分钟数据计算；Mean/Max值基于面板显示的整个时间范围统计。",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisBorderShow": false,
+      "axisCenteredZero": false,
+      "axisColorMode": "text",
+      "axisLabel": "",
+      "axisPlacement": "auto",
+      "barAlignment": 0,
+      "barWidthFactor": 0.6,
+      "drawStyle": "line",
+      "fillOpacity": 0,
+      "gradientMode": "none",
+      "hideFrom": {
+       "legend": false,
+       "tooltip": false,
+       "viz": false
+      },
+      "insertNulls": false,
+      "lineInterpolation": "smooth",
+      "lineWidth": 2,
+      "pointSize": 5,
+      "scaleDistribution": {
+       "type": "linear"
+      },
+      "showPoints": "never",
+      "spanNulls": false,
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      },
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "mappings": [],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     },
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 8,
+    "x": 16,
+    "y": 7
+   },
+   "id": 203,
+   "options": {
+    "legend": {
+     "calcs": [
+      "lastNotNull",
+      "mean",
+      "max"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "hideZeros": false,
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "pluginVersion": "12.3.0",
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "histogram_quantile(0.99, sum by(le, instance) (rate(vllm:request_queue_time_seconds_bucket{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[5m])))",
+     "legendFormat": "{{instance}} - P99",
+     "refId": "A"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "histogram_quantile(0.95, sum by(le, instance) (rate(vllm:request_queue_time_seconds_bucket{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[5m])))",
+     "legendFormat": "{{instance}} - P95",
+     "refId": "B"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "histogram_quantile(0.5, sum by(le, instance) (rate(vllm:request_queue_time_seconds_bucket{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[5m])))",
+     "legendFormat": "{{instance}} - P50",
+     "refId": "C"
+    }
+   ],
+   "title": "请求等待时间",
+   "type": "timeseries"
+  },
+  {
+   "collapsed": false,
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 15
+   },
+   "id": 106,
+   "panels": [],
+   "title": "Token 吞吐量",
+   "type": "row"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "description": "每秒处理的 Token 数量。输入=Prefill阶段处理速率，输出=Decode阶段生成速率。吞吐量越高系统效率越好。此面板数据用于计算输入/输出 Token 比率。",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "mappings": [],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "yellow",
+        "value": 500
+       },
+       {
+        "color": "red",
+        "value": 1000
+       }
+      ]
+     },
+     "unit": "tps"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 6,
+    "x": 0,
+    "y": 16
+   },
+   "id": 8,
+   "options": {
+    "colorMode": "value",
+    "graphMode": "area",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "showPercentChange": false,
+    "textMode": "auto",
+    "wideLayout": true
+   },
+   "pluginVersion": "12.3.0",
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "sum(rate(vllm:prompt_tokens_total{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[$__rate_interval]))",
+     "legendFormat": "输入 Token/秒",
+     "refId": "A"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "sum(rate(vllm:generation_tokens_total{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[$__rate_interval]))",
+     "legendFormat": "输出 Token/秒",
+     "refId": "B"
+    }
+   ],
+   "title": "Token吞吐速率",
+   "type": "stat"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "description": "输入 Token 速率与输出 Token 速率的比率。计算公式：输入Token/秒 ÷ 输出Token/秒。大于1表示输入多于输出（短回复场景），小于1表示输出多于输入（长回复场景）。数据来源：Token吞吐速率面板。",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "thresholds"
+     },
+     "mappings": [],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 0.5
+       },
+       {
+        "color": "yellow",
+        "value": 3
+       }
+      ]
+     },
+     "unit": "none"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 6,
+    "x": 6,
+    "y": 16
+   },
+   "id": 205,
+   "options": {
+    "colorMode": "value",
+    "graphMode": "none",
+    "justifyMode": "auto",
+    "orientation": "horizontal",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "showPercentChange": false,
+    "textMode": "auto",
+    "wideLayout": true
+   },
+   "pluginVersion": "12.3.0",
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "sum(rate(vllm:prompt_tokens_total{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[$__rate_interval])) / (sum(rate(vllm:generation_tokens_total{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[$__rate_interval])) + 0.0001)",
+     "legendFormat": "Input/Output",
+     "refId": "A"
+    }
+   ],
+   "title": "Token输入/输出 速率比",
+   "type": "stat"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "description": "生成第一个 Token 所需的时间(秒)。用户感知的初始响应速度。Prefix Cache 命中率越高，TTFT 越低。Last值基于最近5分钟数据计算；Mean/Max值基于面板显示的整个时间范围统计。",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisBorderShow": false,
+      "axisCenteredZero": false,
+      "axisColorMode": "text",
+      "axisLabel": "",
+      "axisPlacement": "auto",
+      "barAlignment": 0,
+      "barWidthFactor": 0.6,
+      "drawStyle": "line",
+      "fillOpacity": 0,
+      "gradientMode": "none",
+      "hideFrom": {
+       "legend": false,
+       "tooltip": false,
+       "viz": false
+      },
+      "insertNulls": false,
+      "lineInterpolation": "smooth",
+      "lineWidth": 2,
+      "pointSize": 5,
+      "scaleDistribution": {
+       "type": "linear"
+      },
+      "showPoints": "never",
+      "spanNulls": false,
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      },
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "mappings": [],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     },
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 6,
+    "x": 12,
+    "y": 16
+   },
+   "id": 5,
+   "options": {
+    "legend": {
+     "calcs": [
+      "lastNotNull",
+      "mean",
+      "max"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "hideZeros": false,
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "pluginVersion": "12.3.0",
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "histogram_quantile(0.99, sum by(le, instance) (rate(vllm:time_to_first_token_seconds_bucket{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[5m])))",
+     "legendFormat": "{{instance}} - P99",
+     "refId": "A"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "histogram_quantile(0.95, sum by(le, instance) (rate(vllm:time_to_first_token_seconds_bucket{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[5m])))",
+     "legendFormat": "{{instance}} - P95",
+     "refId": "B"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "histogram_quantile(0.5, sum by(le, instance) (rate(vllm:time_to_first_token_seconds_bucket{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[5m])))",
+     "legendFormat": "{{instance}} - P50",
+     "refId": "C"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "rate(vllm:time_to_first_token_seconds_sum{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[5m]) / rate(vllm:time_to_first_token_seconds_count{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[5m])",
+     "legendFormat": "{{instance}} - Avg",
+     "refId": "D"
+    }
+   ],
+   "title": "首 Token 延迟 (TTFT)",
+   "type": "timeseries"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "description": "每分钟总请求数(成功+失败)。有助于掌握流量模式。",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisBorderShow": false,
+      "axisCenteredZero": false,
+      "axisColorMode": "text",
+      "axisLabel": "",
+      "axisPlacement": "auto",
+      "barAlignment": 0,
+      "barWidthFactor": 0.6,
+      "drawStyle": "bars",
+      "fillOpacity": 50,
+      "gradientMode": "none",
+      "hideFrom": {
+       "legend": false,
+       "tooltip": false,
+       "viz": false
+      },
+      "insertNulls": false,
+      "lineInterpolation": "linear",
+      "lineWidth": 1,
+      "pointSize": 5,
+      "scaleDistribution": {
+       "type": "linear"
+      },
+      "showPoints": "never",
+      "spanNulls": false,
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      },
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "mappings": [],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     },
+     "unit": "reqpm"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 6,
+    "x": 6,
+    "y": 20
+   },
+   "id": 22,
+   "options": {
+    "legend": {
+     "calcs": [],
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": false
+    },
+    "tooltip": {
+     "hideZeros": false,
+     "mode": "single",
+     "sort": "none"
+    }
+   },
+   "pluginVersion": "12.3.0",
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "increase(vllm:e2e_request_latency_seconds_count{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[1m])",
+     "legendFormat": "请求/分钟",
+     "refId": "A"
+    }
+   ],
+   "title": "每分钟请求数",
+   "type": "timeseries"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "description": "选定时间范围内输入和输出Token的累计总量。反映系统在选定时间段内的总处理能力。",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "thresholds"
+     },
+     "mappings": [],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     },
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 6,
+    "x": 18,
+    "y": 16
+   },
+   "id": 208,
+   "options": {
+    "colorMode": "value",
+    "graphMode": "area",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "showPercentChange": false,
+    "textMode": "auto",
+    "wideLayout": true
+   },
+   "pluginVersion": "12.3.0",
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "sum(increase(vllm:prompt_tokens_total{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[$__range]))",
+     "legendFormat": "输入Token总量",
+     "refId": "A"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "sum(increase(vllm:generation_tokens_total{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[$__range]))",
+     "legendFormat": "输出Token总量",
+     "refId": "B"
+    }
+   ],
+   "title": "Token累计数量",
+   "type": "stat"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "description": "生成单个输出 Token 所需的时间(秒)。决定流式响应的流畅度。越低流式速度越快。Last值基于最近5分钟数据计算；Mean/Max值基于面板显示的整个时间范围统计。",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisBorderShow": false,
+      "axisCenteredZero": false,
+      "axisColorMode": "text",
+      "axisLabel": "",
+      "axisPlacement": "auto",
+      "barAlignment": 0,
+      "barWidthFactor": 0.6,
+      "drawStyle": "line",
+      "fillOpacity": 0,
+      "gradientMode": "none",
+      "hideFrom": {
+       "legend": false,
+       "tooltip": false,
+       "viz": false
+      },
+      "insertNulls": false,
+      "lineInterpolation": "smooth",
+      "lineWidth": 2,
+      "pointSize": 5,
+      "scaleDistribution": {
+       "type": "linear"
+      },
+      "showPoints": "never",
+      "spanNulls": false,
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      },
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "mappings": [],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     },
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 24
+   },
+   "id": 10,
+   "options": {
+    "legend": {
+     "calcs": [
+      "lastNotNull",
+      "mean",
+      "max"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "hideZeros": false,
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "pluginVersion": "12.3.0",
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "histogram_quantile(0.99, sum by(le, instance) (rate(vllm:request_time_per_output_token_seconds_bucket{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[5m])))",
+     "legendFormat": "{{instance}} - P99",
+     "refId": "A"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "histogram_quantile(0.95, sum by(le, instance) (rate(vllm:request_time_per_output_token_seconds_bucket{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[5m])))",
+     "legendFormat": "{{instance}} - P95",
+     "refId": "B"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "histogram_quantile(0.5, sum by(le, instance) (rate(vllm:request_time_per_output_token_seconds_bucket{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[5m])))",
+     "legendFormat": "{{instance}} - P50",
+     "refId": "C"
+    }
+   ],
+   "title": "单 Token 生成时间 (TPOT)",
+   "type": "timeseries"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "description": "按请求的输入(Prompt) Token 数量分布。颜色越深表示该长度的请求越多。",
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "hideFrom": {
+       "legend": false,
+       "tooltip": false,
+       "viz": false
+      },
+      "scaleDistribution": {
+       "type": "linear"
+      }
+     }
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 6,
+    "x": 12,
+    "y": 24
+   },
+   "id": 12,
+   "options": {
+    "calculate": false,
+    "cellGap": 1,
+    "cellValues": {
+     "unit": "none"
+    },
+    "color": {
+     "exponent": 0.5,
+     "fill": "dark-orange",
+     "min": 0,
+     "mode": "scheme",
+     "reverse": false,
+     "scale": "exponential",
+     "scheme": "Spectral",
+     "steps": 64
+    },
+    "exemplars": {
+     "color": "rgba(255,0,255,0.7)"
+    },
+    "filterValues": {
+     "le": 1e-09
+    },
+    "legend": {
+     "show": true
+    },
+    "rowsFrame": {
+     "layout": "auto",
+     "value": "Request count"
+    },
+    "tooltip": {
+     "mode": "single",
+     "showColorScale": false,
+     "yHistogram": true
+    },
+    "yAxis": {
+     "axisLabel": "输入 Token 数",
+     "axisPlacement": "left",
+     "reverse": false,
+     "unit": "none"
+    }
+   },
+   "pluginVersion": "12.3.0",
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "sum by(le) (\n  increase(\n    vllm:request_prompt_tokens_bucket{\n      model_name=\"$model_name\",\n      instance=~\"$node\",\n      le!~\"1.0|2.0|5.0|10.0|20.0|50.0|100.0|200.0|500.0|1000.0|2000.0\", cluster=\"ai-cluster-1\"}[$__rate_interval]\n  )\n)",
+     "format": "heatmap",
+     "legendFormat": "{{le}}",
+     "refId": "A"
+    }
+   ],
+   "title": "输入 Token 分布",
+   "type": "heatmap"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "description": "按请求的输出(Generation) Token 数量分布。颜色越深表示该长度的响应越多。",
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "hideFrom": {
+       "legend": false,
+       "tooltip": false,
+       "viz": false
+      },
+      "scaleDistribution": {
+       "type": "linear"
+      }
+     }
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 6,
+    "x": 18,
+    "y": 24
+   },
+   "id": 13,
+   "options": {
+    "calculate": false,
+    "cellGap": 1,
+    "cellValues": {
+     "unit": "none"
+    },
+    "color": {
+     "exponent": 0.5,
+     "fill": "dark-orange",
+     "min": 0,
+     "mode": "scheme",
+     "reverse": false,
+     "scale": "exponential",
+     "scheme": "Spectral",
+     "steps": 64
+    },
+    "exemplars": {
+     "color": "rgba(255,0,255,0.7)"
+    },
+    "filterValues": {
+     "le": 1e-09
+    },
+    "legend": {
+     "show": true
+    },
+    "rowsFrame": {
+     "layout": "auto",
+     "value": "Request count"
+    },
+    "tooltip": {
+     "mode": "single",
+     "showColorScale": false,
+     "yHistogram": true
+    },
+    "yAxis": {
+     "axisLabel": "输出 Token 数",
+     "axisPlacement": "left",
+     "reverse": false,
+     "unit": "none"
+    }
+   },
+   "pluginVersion": "12.3.0",
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "sum by(le) (\n  increase(\n    vllm:request_generation_tokens_bucket{\n      model_name=\"$model_name\",\n      instance=~\"$node\",\n      le!~\"1.0|2.0|5.0\", cluster=\"ai-cluster-1\"}[$__rate_interval]\n  )\n)",
+     "format": "heatmap",
+     "legendFormat": "{{le}}",
+     "refId": "A"
+    }
+   ],
+   "title": "输出 Token 分布",
+   "type": "heatmap"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "description": "输入 Token 处理速率趋势。反映 Prefill 阶段的吞吐能力。",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisBorderShow": false,
+      "axisCenteredZero": false,
+      "axisColorMode": "text",
+      "axisLabel": "",
+      "axisPlacement": "auto",
+      "barAlignment": 0,
+      "barWidthFactor": 0.6,
+      "drawStyle": "line",
+      "fillOpacity": 0,
+      "gradientMode": "none",
+      "hideFrom": {
+       "legend": false,
+       "tooltip": false,
+       "viz": false
+      },
+      "insertNulls": false,
+      "lineInterpolation": "smooth",
+      "lineWidth": 2,
+      "pointSize": 5,
+      "scaleDistribution": {
+       "type": "linear"
+      },
+      "showPoints": "never",
+      "spanNulls": false,
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      },
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "mappings": [],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     },
+     "unit": "tps"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 32
+   },
+   "id": 206,
+   "options": {
+    "legend": {
+     "calcs": [
+      "lastNotNull",
+      "mean",
+      "max"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "hideZeros": false,
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "pluginVersion": "12.3.0",
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "sum by(instance) (rate(vllm:prompt_tokens_total{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[$__rate_interval]))",
+     "legendFormat": "{{instance}}",
+     "refId": "A"
+    }
+   ],
+   "title": "输入 Token 速率",
+   "type": "timeseries"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "description": "输出 Token 生成速率趋势。反映 Decode 阶段的吞吐能力。",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisBorderShow": false,
+      "axisCenteredZero": false,
+      "axisColorMode": "text",
+      "axisLabel": "",
+      "axisPlacement": "auto",
+      "barAlignment": 0,
+      "barWidthFactor": 0.6,
+      "drawStyle": "line",
+      "fillOpacity": 0,
+      "gradientMode": "none",
+      "hideFrom": {
+       "legend": false,
+       "tooltip": false,
+       "viz": false
+      },
+      "insertNulls": false,
+      "lineInterpolation": "smooth",
+      "lineWidth": 2,
+      "pointSize": 5,
+      "scaleDistribution": {
+       "type": "linear"
+      },
+      "showPoints": "never",
+      "spanNulls": false,
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      },
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "mappings": [],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     },
+     "unit": "tps"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 32
+   },
+   "id": 207,
+   "options": {
+    "legend": {
+     "calcs": [
+      "lastNotNull",
+      "mean",
+      "max"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "hideZeros": false,
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "pluginVersion": "12.3.0",
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "sum by(instance) (rate(vllm:generation_tokens_total{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[$__rate_interval]))",
+     "legendFormat": "{{instance}}",
+     "refId": "A"
+    }
+   ],
+   "title": "输出 Token 速率",
+   "type": "timeseries"
+  },
+  {
+   "collapsed": false,
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 40
+   },
+   "id": 104,
+   "panels": [],
+   "title": "缓存状态",
+   "type": "row"
+  },
+  {
+   "collapsed": false,
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 49
+   },
+   "id": 108,
+   "panels": [],
+   "title": "Prefix Cache 命中率",
+   "type": "row"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "description": "GPU KV Cache 使用率。存储中间计算结果的内存区域。接近 100% 时新请求将堆积并可能触发抢占(Preemption)。",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisBorderShow": false,
+      "axisCenteredZero": false,
+      "axisColorMode": "text",
+      "axisLabel": "",
+      "axisPlacement": "auto",
+      "barAlignment": 0,
+      "barWidthFactor": 0.6,
+      "drawStyle": "line",
+      "fillOpacity": 0,
+      "gradientMode": "none",
+      "hideFrom": {
+       "legend": false,
+       "tooltip": false,
+       "viz": false
+      },
+      "insertNulls": false,
+      "lineInterpolation": "smooth",
+      "lineWidth": 2,
+      "pointSize": 5,
+      "scaleDistribution": {
+       "type": "linear"
+      },
+      "showPoints": "never",
+      "spanNulls": false,
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      },
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "mappings": [],
+     "max": 1,
+     "min": 0,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     },
+     "unit": "percentunit"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 41
+   },
+   "id": 4,
+   "options": {
+    "legend": {
+     "calcs": [
+      "lastNotNull",
+      "mean",
+      "max"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "hideZeros": false,
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "pluginVersion": "12.3.0",
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "vllm:kv_cache_usage_perc{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}",
+     "legendFormat": "{{instance}}",
+     "refId": "A"
+    }
+   ],
+   "title": "KV Cache 使用率",
+   "type": "timeseries"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "description": "Prefix Cache 命中率。复用相同系统提示词或 Few-shot 示例的比例。命中率越高，可跳过 Prefill 计算，降低 TTFT 并节省 GPU 资源。\n\n计算方式：rate(vllm:prefix_cache_hits_total[5m]) / clamp_min(rate(vllm:prefix_cache_queries_total[5m]), 1)\n说明：基于最近5分钟的查询速率计算，用于观察缓存策略调整后的即时效果。\n\n注意：当最近5分钟无新请求时，命中率为0属正常现象，表示无数据更新而非缓存失效。",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisBorderShow": false,
+      "axisCenteredZero": false,
+      "axisColorMode": "text",
+      "axisLabel": "",
+      "axisPlacement": "auto",
+      "barAlignment": 0,
+      "barWidthFactor": 0.6,
+      "drawStyle": "line",
+      "fillOpacity": 0,
+      "gradientMode": "none",
+      "hideFrom": {
+       "legend": false,
+       "tooltip": false,
+       "viz": false
+      },
+      "insertNulls": false,
+      "lineInterpolation": "smooth",
+      "lineWidth": 2,
+      "pointSize": 5,
+      "scaleDistribution": {
+       "type": "linear"
+      },
+      "showPoints": "never",
+      "spanNulls": false,
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      },
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "mappings": [],
+     "max": 1,
+     "min": 0,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     },
+     "unit": "percentunit"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 50
+   },
+   "id": 102,
+   "options": {
+    "legend": {
+     "calcs": [
+      "lastNotNull",
+      "mean",
+      "max"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "hideZeros": false,
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "pluginVersion": "12.3.0",
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "rate(vllm:prefix_cache_hits_total{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[5m]) / clamp_min(rate(vllm:prefix_cache_queries_total{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[5m]), 1)",
+     "legendFormat": "{{instance}}",
+     "refId": "A"
+    }
+   ],
+   "title": "Prefix Cache 命中率",
+   "type": "timeseries"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "description": "外部 Prefix Cache 命中率。跨实例 KV 连接器共享缓存的命中率。命中率越高，从其他实例复用 KV Cache 的比例越高，降低 TTFT 并节省 GPU 资源。\n\n计算方式：rate(vllm:external_prefix_cache_hits_total[5m]) / clamp_min(rate(vllm:external_prefix_cache_queries_total[5m]), 1)\n说明：基于最近5分钟的查询速率计算，用于观察跨实例共享缓存的即时效果。\n\n注意：当最近5分钟无新请求时，命中率为0属正常现象，表示无数据更新而非缓存失效。",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisBorderShow": false,
+      "axisCenteredZero": false,
+      "axisColorMode": "text",
+      "axisLabel": "",
+      "axisPlacement": "auto",
+      "barAlignment": 0,
+      "barWidthFactor": 0.6,
+      "drawStyle": "line",
+      "fillOpacity": 0,
+      "gradientMode": "none",
+      "hideFrom": {
+       "legend": false,
+       "tooltip": false,
+       "viz": false
+      },
+      "insertNulls": false,
+      "lineInterpolation": "smooth",
+      "lineWidth": 2,
+      "pointSize": 5,
+      "scaleDistribution": {
+       "type": "linear"
+      },
+      "showPoints": "never",
+      "spanNulls": false,
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      },
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "mappings": [],
+     "max": 1,
+     "min": 0,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     },
+     "unit": "percentunit"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 50
+   },
+   "id": 209,
+   "options": {
+    "legend": {
+     "calcs": [
+      "lastNotNull",
+      "mean",
+      "max"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "hideZeros": false,
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "pluginVersion": "12.3.0",
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "rate(vllm:external_prefix_cache_hits_total{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[5m]) / clamp_min(rate(vllm:external_prefix_cache_queries_total{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[5m]), 1)",
+     "legendFormat": "{{instance}}",
+     "refId": "A"
+    }
+   ],
+   "title": "External Prefix Cache 命中率",
+   "type": "timeseries"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "description": "Prefix Cache 综合命中率。综合 Prefix Cache 和 External Prefix Cache 的整体缓存效果。\n\n计算公式：Prefix Cache命中率 + (1 - Prefix Cache命中率) × External Prefix Cache命中率\n说明：当 Prefix Cache 未命中时，尝试从 External Prefix Cache 获取。综合命中率反映多级 Prefix Cache 体系的整体命中概率。\n\n注意：当最近5分钟无新请求时，命中率为0属正常现象，表示无数据更新而非缓存失效。",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisBorderShow": false,
+      "axisCenteredZero": false,
+      "axisColorMode": "text",
+      "axisLabel": "",
+      "axisPlacement": "auto",
+      "barAlignment": 0,
+      "barWidthFactor": 0.6,
+      "drawStyle": "line",
+      "fillOpacity": 0,
+      "gradientMode": "none",
+      "hideFrom": {
+       "legend": false,
+       "tooltip": false,
+       "viz": false
+      },
+      "insertNulls": false,
+      "lineInterpolation": "smooth",
+      "lineWidth": 2,
+      "pointSize": 5,
+      "scaleDistribution": {
+       "type": "linear"
+      },
+      "showPoints": "never",
+      "spanNulls": false,
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      },
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "mappings": [],
+     "max": 1,
+     "min": 0,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     },
+     "unit": "percentunit"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 58
+   },
+   "id": 210,
+   "options": {
+    "legend": {
+     "calcs": [
+      "lastNotNull",
+      "mean",
+      "max"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "hideZeros": false,
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "pluginVersion": "12.3.0",
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "(\n  rate(vllm:prefix_cache_hits_total{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[5m]) / clamp_min(rate(vllm:prefix_cache_queries_total{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[5m]), 1)\n) + (\n  1 - (\n    rate(vllm:prefix_cache_hits_total{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[5m]) / clamp_min(rate(vllm:prefix_cache_queries_total{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[5m]), 1)\n  )\n) * (\n  rate(vllm:external_prefix_cache_hits_total{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[5m]) / clamp_min(rate(vllm:external_prefix_cache_queries_total{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[5m]), 1)\n)",
+     "legendFormat": "{{instance}}",
+     "refId": "A"
+    }
+   ],
+   "title": "Prefix Cache 综合命中率",
+   "type": "timeseries"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "description": "KV Cache 使用率与等待请求数的关联。若 Cache 升高同时 Waiting 也增加，表明内存即将耗尽。",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisBorderShow": false,
+      "axisCenteredZero": false,
+      "axisColorMode": "text",
+      "axisLabel": "",
+      "axisPlacement": "auto",
+      "barAlignment": 0,
+      "barWidthFactor": 0.6,
+      "drawStyle": "line",
+      "fillOpacity": 0,
+      "gradientMode": "none",
+      "hideFrom": {
+       "legend": false,
+       "tooltip": false,
+       "viz": false
+      },
+      "insertNulls": false,
+      "lineInterpolation": "smooth",
+      "lineWidth": 2,
+      "pointSize": 5,
+      "scaleDistribution": {
+       "type": "linear"
+      },
+      "showPoints": "never",
+      "spanNulls": false,
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      },
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "mappings": [],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     },
+     "unit": "percentunit"
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": "/等待请求$/"
+      },
+      "properties": [
+       {
+        "id": "custom.axisPlacement",
+        "value": "right"
+       },
+       {
+        "id": "unit",
+        "value": "short"
+       }
+      ]
+     }
+    ]
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 41
+   },
+   "id": 101,
+   "options": {
+    "legend": {
+     "calcs": [],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true,
+     "alignAsTable": true,
+     "rightSide": false,
+     "sort": "asc",
+     "sortDesc": false
+    },
+    "tooltip": {
+     "hideZeros": false,
+     "mode": "multi",
+     "sort": "none"
+    }
+   },
+   "pluginVersion": "12.3.0",
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "vllm:kv_cache_usage_perc{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}",
+     "legendFormat": "{{instance}} - Cache 使用率",
+     "refId": "A"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "vllm:num_requests_waiting{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}",
+     "legendFormat": "{{instance}} - 等待请求",
+     "refId": "B"
+    }
+   ],
+   "title": "Cache 与等待队列关联",
+   "type": "timeseries"
+  },
+  {
+   "collapsed": false,
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 69
+   },
+   "id": 107,
+   "panels": [],
+   "title": "请求详细统计",
+   "type": "row"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "description": "各调度器状态的请求数。Running=GPU 推理中，Waiting=队列等待。",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisBorderShow": false,
+      "axisCenteredZero": false,
+      "axisColorMode": "text",
+      "axisLabel": "",
+      "axisPlacement": "auto",
+      "barAlignment": 0,
+      "barWidthFactor": 0.6,
+      "drawStyle": "line",
+      "fillOpacity": 0,
+      "gradientMode": "none",
+      "hideFrom": {
+       "legend": false,
+       "tooltip": false,
+       "viz": false
+      },
+      "insertNulls": false,
+      "lineInterpolation": "smooth",
+      "lineWidth": 2,
+      "pointSize": 5,
+      "scaleDistribution": {
+       "type": "linear"
+      },
+      "showPoints": "never",
+      "spanNulls": false,
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      },
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "mappings": [],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     },
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 70
+   },
+   "id": 3,
+   "options": {
+    "legend": {
+     "calcs": [
+      "lastNotNull",
+      "mean",
+      "max"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "hideZeros": false,
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "pluginVersion": "12.3.0",
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "vllm:num_requests_running{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}",
+     "legendFormat": "{{instance}} - 运行中",
+     "refId": "A"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "vllm:num_requests_waiting{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}",
+     "legendFormat": "{{instance}} - 等待中",
+     "refId": "B"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "sum(vllm:num_requests_running{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"})",
+     "legendFormat": "集群 - 运行中",
+     "refId": "C"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "sum(vllm:num_requests_waiting{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"})",
+     "legendFormat": "集群 - 等待中",
+     "refId": "D"
+    }
+   ],
+   "title": "调度器状态",
+   "type": "timeseries"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "description": "请求完成原因。stop=正常结束(EOS Token)，length=达到最大长度，abort=已中止。",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisBorderShow": false,
+      "axisCenteredZero": false,
+      "axisColorMode": "text",
+      "axisLabel": "",
+      "axisPlacement": "auto",
+      "barAlignment": 0,
+      "barWidthFactor": 0.6,
+      "drawStyle": "bars",
+      "fillOpacity": 50,
+      "gradientMode": "none",
+      "hideFrom": {
+       "legend": false,
+       "tooltip": false,
+       "viz": false
+      },
+      "insertNulls": false,
+      "lineInterpolation": "linear",
+      "lineWidth": 1,
+      "pointSize": 5,
+      "scaleDistribution": {
+       "type": "linear"
+      },
+      "showPoints": "never",
+      "spanNulls": false,
+      "stacking": {
+       "group": "A",
+       "mode": "normal"
+      },
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "mappings": [],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     },
+     "unit": "short",
+     "decimals": 0
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byFrameRefID",
+       "options": "A"
+      },
+      "properties": [
+       {
+        "id": "custom.hideFrom",
+        "value": {
+         "legend": true,
+         "tooltip": false,
+         "viz": false
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byFrameRefID",
+       "options": "B"
+      },
+      "properties": [
+       {
+        "id": "custom.hideFrom",
+        "value": {
+         "legend": false,
+         "tooltip": true,
+         "viz": true
+        }
+       },
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "transparent"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 70
+   },
+   "id": 11,
+   "options": {
+    "legend": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "hideZeros": false,
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "pluginVersion": "12.3.0",
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "round(sum by(instance, finished_reason) (increase(vllm:request_success_total{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[$__rate_interval])))",
+     "legendFormat": "{{instance}} - {{finished_reason}}",
+     "refId": "A"
+    },
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "sum by(instance, finished_reason) (increase(vllm:request_success_total{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[$__range]))",
+     "legendFormat": "{{instance}} - {{finished_reason}}（总数）",
+     "refId": "B"
+    }
+   ],
+   "title": "按完成原因统计的请求数",
+   "type": "timeseries"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "description": "每分钟成功请求数趋势。可用于分析流量模式。",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisBorderShow": false,
+      "axisCenteredZero": false,
+      "axisColorMode": "text",
+      "axisLabel": "",
+      "axisPlacement": "auto",
+      "barAlignment": 0,
+      "barWidthFactor": 0.6,
+      "drawStyle": "bars",
+      "fillOpacity": 50,
+      "gradientMode": "none",
+      "hideFrom": {
+       "legend": false,
+       "tooltip": false,
+       "viz": false
+      },
+      "insertNulls": false,
+      "lineInterpolation": "linear",
+      "lineWidth": 1,
+      "pointSize": 5,
+      "scaleDistribution": {
+       "type": "linear"
+      },
+      "showPoints": "never",
+      "spanNulls": false,
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      },
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "mappings": [],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     },
+     "unit": "reqpm"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 6,
+    "w": 12,
+    "x": 0,
+    "y": 78
+   },
+   "id": 21,
+   "options": {
+    "legend": {
+     "calcs": [
+      "lastNotNull",
+      "mean",
+      "max"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "hideZeros": false,
+     "mode": "single",
+     "sort": "none"
+    }
+   },
+   "pluginVersion": "12.3.0",
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "round(sum by(instance) (increase(vllm:request_success_total{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"}[1m])))",
+     "legendFormat": "{{instance}} - 成功/分钟",
+     "refId": "A"
+    }
+   ],
+   "title": "每分钟成功请求",
+   "type": "timeseries"
+  },
+  {
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "description": "服务器启动以来的累计成功请求数。正常情况应持续平稳上升。",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "palette-classic"
+     },
+     "custom": {
+      "axisBorderShow": false,
+      "axisCenteredZero": false,
+      "axisColorMode": "text",
+      "axisLabel": "",
+      "axisPlacement": "auto",
+      "barAlignment": 0,
+      "barWidthFactor": 0.6,
+      "drawStyle": "line",
+      "fillOpacity": 0,
+      "gradientMode": "none",
+      "hideFrom": {
+       "legend": false,
+       "tooltip": false,
+       "viz": false
+      },
+      "insertNulls": false,
+      "lineInterpolation": "smooth",
+      "lineWidth": 2,
+      "pointSize": 5,
+      "scaleDistribution": {
+       "type": "linear"
+      },
+      "showPoints": "never",
+      "spanNulls": false,
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      },
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "mappings": [],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     },
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "gridPos": {
+    "h": 6,
+    "w": 12,
+    "x": 12,
+    "y": 78
+   },
+   "id": 20,
+   "options": {
+    "legend": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "hideZeros": false,
+     "mode": "single",
+     "sort": "none"
+    }
+   },
+   "pluginVersion": "12.3.0",
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "sum by(instance) (vllm:request_success_total{model_name=\"$model_name\", instance=~\"$node\", cluster=\"ai-cluster-1\"})",
+     "legendFormat": "{{instance}} - 累计成功",
+     "refId": "A"
+    }
+   ],
+   "title": "累计成功请求",
+   "type": "timeseries"
+  }
+ ],
+ "preload": false,
+ "refresh": "5s",
+ "schemaVersion": 42,
+ "tags": [
+  "vllm",
+  "llm",
+  "inference",
+  "prometheus",
+  "ai",
+  "chinese",
+  "monitoring",
+  "cluster:ai-cluster-1"
+ ],
+ "templating": {
+  "list": [
+   {
+    "current": {
+     "selected": true,
+     "text": "All",
+     "value": "$__all"
+    },
+    "datasource": {
+     "type": "prometheus",
+     "uid": "${DS_PROMETHEUS}"
+    },
+    "definition": "label_values(up{job=\"vllm\", cluster=\"ai-cluster-1\"}, instance)",
+    "includeAll": true,
+    "allValue": ".*",
+    "label": "节点",
+    "multi": true,
+    "name": "node",
+    "options": [],
+    "query": {
+     "query": "label_values(up{job=\"vllm\", cluster=\"ai-cluster-1\"}, instance)",
+     "refId": "StandardVariableQuery"
+    },
+    "refresh": 1,
+    "regex": "",
+    "type": "query",
+    "sort": 1
+   },
+   {
+    "current": {},
+    "datasource": {
+     "type": "prometheus",
+     "uid": "${DS_PROMETHEUS}"
+    },
+    "definition": "label_values(vllm:num_requests_running{cluster=\"ai-cluster-1\"}, model_name)",
+    "includeAll": false,
+    "label": "Model",
+    "name": "model_name",
+    "options": [],
+    "query": {
+     "query": "label_values(vllm:num_requests_running{cluster=\"ai-cluster-1\"}, model_name)",
+     "refId": "StandardVariableQuery"
+    },
+    "refresh": 1,
+    "regex": "",
+    "type": "query"
+   }
+  ]
+ },
+ "time": {
+  "from": "now-15m",
+  "to": "now"
+ },
+ "timepicker": {},
+ "timezone": "",
+ "title": "vLLM Metrics - example",
+ "uid": "78e02a399b",
+ "version": 1,
+ "gnetId": 25237
+}

@@ -1,0 +1,25 @@
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+
+scrape_configs:
+
+- job_name: 'vllm'
+  scrape_interval: 5s
+
+  static_configs:
+    # --- cluster: ai-cluster-1 --- example
+    - targets: ['192.168.0.1:18000']
+      labels:
+        node: nodename
+        role: inference
+        service: vllm
+        cluster: ai-cluster-1
+
+  relabel_configs:
+    - source_labels: [node]
+      target_label: instance
+
+    - target_label: exporter
+      replacement: vllm
+
