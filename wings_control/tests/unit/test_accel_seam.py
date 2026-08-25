@@ -163,6 +163,35 @@ def test_build_scripts_writes_advanced_features_auto_size(tmp_path, monkeypatch)
     assert data["others"]["kv_mem_offload_size"] == 401  # auto 估算值(512-59-51.2→401)
 
 
+def test_build_scripts_reports_rag_acc_from_resolved_env(tmp_path, monkeypatch):
+    import json as _json
+    from wings_ctl.common.settings import settings
+
+    target = tmp_path / "advanced_features.json"
+    monkeypatch.setattr(settings, "ADVANCED_FEATURES_FILE", str(target))
+    resolved = _make_resolved()
+    resolved.env_traces["RAG_ACC_ENABLED"] = TracedValue(
+        final_value="true",
+        final_layer="feature_inject",
+        source_file="<feature-inject>",
+        source_path="feature.rag_acc",
+        events=[],
+    )
+
+    start_path, _ = build_scripts(resolved, tmp_path)
+
+    assert "export RAG_ACC_ENABLED=true" in start_path.read_text(encoding="utf-8")
+    data = _json.loads(target.read_text(encoding="utf-8"))
+    assert data["features"]["rag_acc"] is True
+
+    import asyncio
+    from wings_ctl.proxy import health_service
+
+    response = asyncio.run(health_service.get_startup_accel())
+    payload = _json.loads(response.body)
+    assert payload["data"]["features"]["rag_acc"] is True
+
+
 def test_build_scripts_writes_advanced_features_disabled(tmp_path, monkeypatch):
     """全关 accel → features 全 false,kv_mem_offload_size=null(无有效容量)。"""
     import json as _json

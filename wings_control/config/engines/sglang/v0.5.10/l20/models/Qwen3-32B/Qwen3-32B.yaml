@@ -21,6 +21,24 @@ hardware_profile:
   multi_node: true
 
 scenarios:
+  standalone:
+    source_ref: "sglang_qwen3-32b_bf16_manual#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Single Node
+        engine_config:
+          model: Qwen/Qwen3-32B
+          trust_remote_code: true
+          model_path: Qwen/Qwen3-32B
+          served_model_name: Qwen3-32B
+          port: 18000
+          host: "0.0.0.0"
+          tp_size: 2
+        env: {}
+        default_strategy: true
   multi_node:
     source_ref: "sglang_qwen3-32b_bf16_manual#multi_node"
     match:

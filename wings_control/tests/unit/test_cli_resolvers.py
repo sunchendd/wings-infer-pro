@@ -13,6 +13,22 @@ from wings_ctl import cli
 # ─── _resolve_model_name(配方标识推导)──────────────────────────────────────
 
 
+def test_export_rag_acc_env(monkeypatch):
+    monkeypatch.delenv("RAG_ACC_ENABLED", raising=False)
+
+    cli._export_rag_acc_env(True)
+
+    assert cli.os.environ["RAG_ACC_ENABLED"] == "true"
+
+
+def test_export_rag_acc_env_preserves_legacy_value_when_omitted(monkeypatch):
+    monkeypatch.setenv("RAG_ACC_ENABLED", "true")
+
+    cli._export_rag_acc_env(None)
+
+    assert cli.os.environ["RAG_ACC_ENABLED"] == "true"
+
+
 def test_resolve_model_name_explicit():
     """显式 --model-name 优先。"""
     assert cli._resolve_model_name("Qwen3.5-9B", None) == "Qwen3.5-9B"
@@ -54,6 +70,35 @@ def test_resolve_device_count_unset(monkeypatch):
     """无 CLI、无 env → None。"""
     monkeypatch.delenv("DEVICE_COUNT", raising=False)
     assert cli._resolve_device_count(None) is None
+
+
+# ─── _apply_gpu_usage_mode(enpu → --enforce-eager)──────────────────────────
+
+
+def test_gpu_usage_mode_enpu_injects_enforce_eager_for_vllm_ascend():
+    """仅 enpu + vllm-ascend 注入最高优先级 enforce_eager。"""
+    original = {"max_model_len": 4096}
+    result = cli._apply_gpu_usage_mode(original, "enpu", "vllm-ascend")
+
+    assert result == {"max_model_len": 4096, "enforce_eager": True}
+    assert original == {"max_model_len": 4096}
+
+
+def test_gpu_usage_mode_enpu_is_case_and_whitespace_insensitive():
+    """enpu 模式匹配忽略大小写和首尾空白。"""
+    result = cli._apply_gpu_usage_mode({}, " ENPU ", "vllm-ascend")
+    assert result["enforce_eager"] is True
+
+
+def test_gpu_usage_mode_full_does_not_inject_enforce_eager():
+    """默认 full 模式保持原配置。"""
+    assert cli._apply_gpu_usage_mode({}, "full", "vllm") == {}
+
+
+@pytest.mark.parametrize("engine", ["vllm", "sglang"])
+def test_gpu_usage_mode_enpu_does_not_inject_for_other_engines(engine):
+    """enpu 配合非 vllm-ascend 引擎时保持原配置。"""
+    assert cli._apply_gpu_usage_mode({}, "enpu", engine) == {}
 
 
 # ─── _resolve_engine / _canonicalize_engine(引擎名归一:下划线→连字符)──────────
@@ -129,6 +174,24 @@ def _argv_qwen_dryrun(config_root, hw, *extra):
     ]
 
 
+def test_main_gpu_usage_mode_enpu_does_not_affect_vllm(
+    config_root, tmp_path, monkeypatch, capsys
+):
+    """--gpu-usage-mode enpu 配合普通 vLLM 时不追加 --enforce-eager。"""
+    monkeypatch.setattr("wings_ctl.cli.setup_root_logging", lambda: None)
+    hw = tmp_path / "hw.json"
+    hw.write_text(json.dumps({"hardware_family": "nvidia-RTX5880", "device": "nvidia", "count": 1}))
+    monkeypatch.setenv("ENGINE_VERSION", "0.19.0")
+    monkeypatch.setattr(
+        "sys.argv",
+        _argv_qwen_dryrun(config_root, hw, "--gpu-usage-mode", "enpu"),
+    )
+
+    cli.main()
+
+    assert "--enforce-eager" not in capsys.readouterr().out
+
+
 def test_main_warns_when_no_trust_remote_code(config_root, tmp_path, monkeypatch, caplog):
     """不传 --trust-remote-code → 打 WARNING(不阻断,仍正常 dry-run)。"""
     # cli.main() 内部调用 setup_root_logging()，其 basicConfig(force=True) 会移除
@@ -155,18 +218,21 @@ def test_main_no_warn_when_trust_remote_code_passed(config_root, tmp_path, monke
     assert not any("trust-remote-code" in r.message for r in caplog.records)
 
 
-def test_main_accepts_and_logs_v3_subsystem_switches(config_root, tmp_path, monkeypatch, caplog):
+def test_main_accepts_and_logs_v3_subsystem_switches(config_root, tmp_path, monkeypatch, caplog, capsys):
     """v3 子系统开关(--enable-rag-acc/smartqos/otlp-traces)被接收不崩 + 日志留痕(暂仅保存)。"""
     monkeypatch.setattr("wings_ctl.cli.setup_root_logging", lambda: None)
     hw = tmp_path / "hw.json"
     hw.write_text(json.dumps({"hardware_family": "nvidia-RTX5880", "device": "nvidia", "count": 1}))
     monkeypatch.setenv("ENGINE_VERSION", "0.19.0")
+    monkeypatch.delenv("RAG_ACC_ENABLED", raising=False)
     monkeypatch.setattr(
         "sys.argv",
         _argv_qwen_dryrun(config_root, hw, "--enable-smartqos", "--enable-otlp-traces", "--enable-rag-acc"),
     )
     with caplog.at_level(logging.INFO):
         cli.main()  # 不应抛 SystemExit(unrecognized arguments)
+    assert cli.os.environ["RAG_ACC_ENABLED"] == "true"
+    assert "export RAG_ACC_ENABLED=true" in capsys.readouterr().out
     assert any("Received subsystem feature switches" in r.message for r in caplog.records)
 
 

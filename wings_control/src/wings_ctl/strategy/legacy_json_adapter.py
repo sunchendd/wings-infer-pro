@@ -56,6 +56,12 @@ _SGLANG_RENAME: Dict[str, str] = {
     "seed": "random_seed",
 }
 
+# Declarative mapping from legacy framework settings to native engine parameters.
+# Keep the adapter data-driven instead of branching on engine in the config pipeline.
+_GPU_USAGE_MODE_OVERRIDES: Dict[tuple[str, str], Dict[str, Any]] = {
+    ("vllm-ascend", "enpu"): {"enforce_eager": True},
+}
+
 # vllm / vllm-ascend:旧模板已知键里可透传的(vllm 原生);未列出 → 丢弃。
 _VLLM_TRANSPARENT: frozenset = frozenset({
     "trust_remote_code",
@@ -98,6 +104,7 @@ _LEGACY_KEYS: frozenset = frozenset({
     "enable_prefix_caching",
     "enable_auto_tool_choice",
     "enable_auto_think_choice",
+    "gpu_usage_mode",
 })
 
 
@@ -192,6 +199,9 @@ def adapt_legacy_config_params(
     if engine not in _ENGINES:
         return source, []
 
+    has_gpu_usage_mode = "gpu_usage_mode" in source
+    gpu_usage_mode = source.pop("gpu_usage_mode", None)
+
     adapted: Dict[str, Any] = {}
     dropped: List[Dict[str, Any]] = []
 
@@ -237,4 +247,17 @@ def adapt_legacy_config_params(
                     "reason": "legacy_json_adapter=非 vllm 原生参数,丢弃",
                 })
 
+    if has_gpu_usage_mode:
+        mode = str(gpu_usage_mode or "").strip().casefold()
+        native_overrides = _GPU_USAGE_MODE_OVERRIDES.get((engine, mode))
+        if native_overrides is not None:
+            adapted.update(native_overrides)
+            reason = "legacy_json_adapter=gpu_usage_mode enpu translated to enforce_eager"
+        else:
+            reason = "legacy_json_adapter=gpu_usage_mode consumed as framework-only parameter"
+        dropped.append({
+            "key": "gpu_usage_mode",
+            "value": gpu_usage_mode,
+            "reason": reason,
+        })
     return adapted, dropped

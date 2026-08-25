@@ -89,6 +89,13 @@ def _inject_otlp_traces(switches: dict, engine: str) -> tuple[dict, dict, dict]:
     return override, env, notes
 
 
+def _inject_rag_acc(switches: dict, _engine: str) -> tuple[dict, dict, dict]:
+    """Propagate the proxy-owned RAG switch into generated runtime scripts."""
+    if not switches.get("enable_rag_acc"):
+        return {}, {}, {}
+    return {}, {"RAG_ACC_ENABLED": "true"}, {"feature_inject.rag_acc": "enabled"}
+
+
 def _inject_metrics(switches: dict, engine: str) -> tuple[dict, dict, dict]:
     """Metrics 特性注入：仅 SGLang 需要引擎参数，vLLM 默认开启。"""
     if not switches.get("enable_metrics"):
@@ -113,6 +120,7 @@ def _inject_metrics(switches: dict, engine: str) -> tuple[dict, dict, dict]:
 _FEATURE_INJECTORS: dict[str, Callable[[dict, str], tuple[dict, dict, dict]]] = {
     "enable_smartqos": _inject_smartqos,
     "enable_otlp_traces": _inject_otlp_traces,
+    "enable_rag_acc": _inject_rag_acc,
     "enable_metrics": _inject_metrics,
 }
 

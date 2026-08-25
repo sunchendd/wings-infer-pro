@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shlex
 import tempfile
 from pathlib import Path
@@ -142,12 +143,15 @@ def _write_advanced_features_json(resolved: ResolvedConfig) -> None:
     decoding_scheme = accel.audit.get("smart_decoding_scheme") if accel.audit else None
     sparse_scheme = accel.audit.get("smart_kv_sparse_scheme") if accel.audit else None
     offload_scheme = accel.audit.get("smart_kv_cache_scheme") if accel.audit else None
+    rag_acc_trace = resolved.env_traces.get("RAG_ACC_ENABLED")
+    rag_acc_value = rag_acc_trace.final_value if rag_acc_trace is not None else os.getenv("RAG_ACC_ENABLED")
+    rag_acc_enabled = str(rag_acc_value or "").strip().lower() in {"1", "true", "yes", "on"}
 
     features = {
         "speculative_decode": bool(decoding_scheme),
         "sparse_kv": bool(sparse_scheme),
         "kv_offload": bool(offload_scheme),
-        "rag_acc": False,  # RAG 加速不走 wings-accel(proxy 子系统按 RAG_ACC_ENABLED 自行判定)
+        "rag_acc": rag_acc_enabled,
     }
     variants = {
         "speculative_decode": decoding_scheme or None,

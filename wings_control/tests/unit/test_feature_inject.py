@@ -12,6 +12,7 @@ from __future__ import annotations
 from wings_ctl.strategy.feature_inject import (
     _inject_metrics,
     _inject_otlp_traces,
+    _inject_rag_acc,
     _inject_smartqos,
     feature_inject_transform,
 )
@@ -126,6 +127,20 @@ def test_otlp_switch_off_is_noop() -> None:
 # ── _inject_metrics ───────────────────────────────────────────────────────
 
 
+def test_rag_acc_enabled_injects_proxy_env() -> None:
+    override, env, notes = _inject_rag_acc({"enable_rag_acc": True}, "vllm")
+    assert override == {}
+    assert env == {"RAG_ACC_ENABLED": "true"}
+    assert notes["feature_inject.rag_acc"] == "enabled"
+
+
+def test_rag_acc_disabled_is_noop() -> None:
+    override, env, notes = _inject_rag_acc({}, "vllm")
+    assert override == {}
+    assert env == {}
+    assert notes == {}
+
+
 def test_metrics_sglang() -> None:
     """验证 SGLang 开 Metrics → 注入 enable_metrics=True。"""
     override, env, notes = _inject_metrics({"enable_metrics": True}, "sglang")
@@ -175,6 +190,7 @@ def test_transform_all_switches_sglang(monkeypatch) -> None:
     switches = {
         "enable_smartqos": True,
         "enable_otlp_traces": True,
+        "enable_rag_acc": True,
         "enable_metrics": True,
     }
     override, env, notes = feature_inject_transform(switches, "sglang")
@@ -189,10 +205,12 @@ def test_transform_all_switches_sglang(monkeypatch) -> None:
     assert env["OTEL_SERVICE_NAME"] == "sglang"
     assert env["SGLANG_TRACE_LEVEL"] == "2"
     assert env["OTEL_EXPORTER_OTLP_TRACES_INSECURE"] == "true"
+    assert env["RAG_ACC_ENABLED"] == "true"
 
     # notes 合并(各特性键都在)
     assert "feature_inject.smartqos" in notes
     assert "feature_inject.otlp_traces" in notes
+    assert "feature_inject.rag_acc" in notes
     assert "feature_inject.metrics" in notes
 
 
@@ -203,6 +221,7 @@ def test_transform_all_switches_vllm(monkeypatch) -> None:
     switches = {
         "enable_smartqos": True,
         "enable_otlp_traces": True,
+        "enable_rag_acc": True,
         "enable_metrics": True,
     }
     override, env, notes = feature_inject_transform(switches, "vllm")
@@ -212,6 +231,8 @@ def test_transform_all_switches_vllm(monkeypatch) -> None:
     # vLLM metrics default_on → 不在 override
     assert "enable_metrics" not in override
     assert env["OTEL_SERVICE_NAME"] == "vllm-server"
+    assert env["RAG_ACC_ENABLED"] == "true"
+    assert notes["feature_inject.rag_acc"] == "enabled"
     assert notes["feature_inject.metrics.vllm"] == "default_on, no_inject"
 
 

@@ -1,53 +1,68 @@
 import re
+
 from wings_ctl.proxy.proxy_config import logger
 
 
+_CONTEXT_PATTERN = re.compile(r"<context>\s*(.*?)\s*</context>", re.DOTALL | re.IGNORECASE)
+
+
 def _get_msg_field(msg, field: str, default=""):
-    """Pydantic 模型 / dict 兼容的字段提取。"""
+    """Extract a field from either a Pydantic-style object or a dict."""
     if isinstance(msg, dict):
         return msg.get(field, default)
     return getattr(msg, field, default)
 
 
-def is_dify_scenario(chat_input) -> bool:
-    if len(chat_input.messages) != 2:
-        return False
-    system_msg = None
-    for msg in chat_input.messages:
-        if _get_msg_field(msg, "role") == "system":
-            system_msg = msg
-    if system_msg:
-        content = _get_msg_field(system_msg, "content", "")
-        if "<context>" in content and "</context>" in content:
-            return True
-    return False
+def _get_messages(chat_input):
+    messages = getattr(chat_input, "messages", None)
+    return messages if isinstance(messages, (list, tuple)) else []
+
+
+def _text_content(msg) -> str:
+    content = _get_msg_field(msg, "content", "")
+    return content if isinstance(content, str) else ""
 
 
 def extract_dify_info(chat_input):
-    if not is_dify_scenario(chat_input):
+    """Extract Dify context and the latest user question.
+
+    Detection and extraction intentionally share this implementation so a
+    request cannot be classified as Dify RAG while yielding zero documents.
+    """
+    messages = _get_messages(chat_input)
+    if not messages:
         return None
+
     system_prompt = ""
+    context_content = None
     user_question = ""
-    rag_documents = []
-    for msg in chat_input.messages:
-        if _get_msg_field(msg, "role") == "system":
-            system_prompt = _get_msg_field(msg, "content", "")
-            content = system_prompt
-            logger.debug("Dify system prompt length: %d", len(content))
-            if isinstance(content, str):
-                context_match = re.search(r'<context>\n(.*?)\n</context>', content, re.DOTALL)
-                if context_match:
-                    context_content = context_match.group(1)
-                    doc_chunks = context_content.split('\n')
-                    logger.debug("Extracted context chunks: %d", len(doc_chunks))
-                    doc_chunks = [item.strip() for item in doc_chunks if item.strip()]
-                    rag_documents.extend(doc_chunks)
-                else:
-                    logger.info("No <context> tag found in content.")
-        elif _get_msg_field(msg, "role") == "user":
-            user_question = _get_msg_field(msg, "content", "")
+
+    for msg in messages:
+        role = _get_msg_field(msg, "role", "")
+        content = _text_content(msg)
+        if role == "system" and context_content is None:
+            match = _CONTEXT_PATTERN.search(content)
+            if match:
+                system_prompt = content
+                context_content = match.group(1)
+        elif role == "user" and content.strip():
+            user_question = content.strip()
+
+    if context_content is None or not user_question:
+        return None
+
+    logger.debug("Dify system prompt length: %d", len(system_prompt))
+    rag_documents = [item.strip() for item in context_content.splitlines() if item.strip()]
+    logger.debug("Extracted context chunks: %d", len(rag_documents))
+    if not rag_documents:
+        return None
+
     return {
         "rag_documents": rag_documents,
         "system_prompt": system_prompt,
-        "user_question": user_question
+        "user_question": user_question,
     }
+
+
+def is_dify_scenario(chat_input) -> bool:
+    return extract_dify_info(chat_input) is not None

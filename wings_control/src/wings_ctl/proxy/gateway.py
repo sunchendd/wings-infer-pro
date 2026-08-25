@@ -21,8 +21,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 # RAG 加速
-from wings_ctl.rag_acc.rag_app import is_rag_scenario, rag_acc_chat
-from wings_ctl.rag_acc.extract_dify_info import is_dify_scenario
+from wings_ctl.rag_acc.rag_app import detect_rag_scenario, is_no_rag_scenario, rag_acc_chat
 
 from . import proxy_config as C
 from .anthropic_converter import (
@@ -170,6 +169,22 @@ class _ErrorDedup:
 
 _error_dedup = _ErrorDedup()
 
+
+def _backend_is_starting() -> bool:
+    """Return whether the backend is still within its initial startup grace period."""
+    health = getattr(app.state, "health", None)
+    if not isinstance(health, dict) or health.get("ever_ready", False):
+        return False
+    return map_http_code_from_state(health) == 201
+
+
+def _log_backend_failure(evt: str, **fields) -> None:
+    """Keep expected startup unavailability out of ERROR-level console logs."""
+    if _backend_is_starting():
+        jlog(evt, phase="starting", **fields)
+        return
+    elog(evt, **fields)
+
 # =============================================================================
 # 重试辅助函数
 # =============================================================================
@@ -239,7 +254,7 @@ async def _log_and_wait_status_retry(rid: str | None, attempt: int, status: int,
         interval: 两次重试之间的等待时间（秒）
         t0:       本次尝试的起始时间戳（perf_counter）
     """
-    elog(
+    _log_backend_failure(
         "retry_status",
         rid=rid, attempt=attempt, status=status,
         next_wait_ms=int(interval * 1000), elapsed=ms(time.perf_counter() - t0),
@@ -296,7 +311,7 @@ async def _log_and_maybe_wait_exception(e: Exception, **ctx) -> bool:
         extra = {}
         if suppressed > 0:
             extra["prev_suppressed"] = suppressed
-        elog(
+        _log_backend_failure(
             "retry_exception",
             rid=rid,
             attempt=attempt,
@@ -386,14 +401,14 @@ async def _send_with_fixed_retries(
     #
     if last_exc is not None:
         if isinstance(last_exc, httpx.RequestError):
-            elog("retry_final_fail", rid=rid, tries=total, final_error=str(last_exc))
+            _log_backend_failure("retry_final_fail", rid=rid, tries=total, final_error=str(last_exc))
             raise HTTPException(502, "backend connect error") from last_exc
-        elog("retry_final_fail", rid=rid, tries=total, final_error=str(last_exc))
+        _log_backend_failure("retry_final_fail", rid=rid, tries=total, final_error=str(last_exc))
         raise last_exc
     if last_status is not None:
-        elog("retry_final_fail", rid=rid, tries=total, final_status=last_status)
+        _log_backend_failure("retry_final_fail", rid=rid, tries=total, final_status=last_status)
         raise HTTPException(502, f"backend error after retries (status {last_status})")
-    elog("retry_final_fail", rid=rid, tries=total, reason="unknown")
+    _log_backend_failure("retry_final_fail", rid=rid, tries=total, reason="unknown")
     raise HTTPException(502, "backend error after retries")
 
 
@@ -1118,36 +1133,41 @@ async def _forward_stream(req: Request, upstream_path: str):
 
 
 async def handle_rag_scenario(req: Request, upstream_path: str):
-    """处理 RAG 加速场景的流式请求（v2 新增功能）。
-
-    当 RAG_ACC_ENABLED 为 true 时，检测请求是否匹配 RAG / Dify 场景，
-    若匹配则走 Map-Reduce 加速路径，否则回退到普通流式转发。
-    """
+    """Detect validated RAG requests and otherwise preserve normal forwarding."""
     body = await req.body()
     rid = req.headers.get("x-request-id")
 
-    # 强制跳过
-    if b"/no_rag_acc" in body:
-        jlog("rag acceleration skipped forcibly", rid=rid)
-        return await _forward_stream(req, upstream_path)
-
-    # 将请求体包装为支持属性访问的视图（不依赖 fastchat 校验）
     try:
         payload_dict = json.loads(body)
+        if not isinstance(payload_dict, dict):
+            raise ValueError("request JSON must be an object")
         chat_input = _DictAttrView(payload_dict)
     except Exception as e:
         elog("rag_parse_error", rid=rid, detail=str(e))
         return await _forward_stream(req, upstream_path)
 
-    # 非 RAG 请求
-    is_rag = is_rag_scenario(chat_input, req)
-    is_dify = is_dify_scenario(chat_input)
-    if not is_rag and not is_dify:
-        jlog("not rag and dify scenario", rid=rid)
+    rag_control = req.headers.get("x-wings-rag-acc", "").strip().lower()
+    if rag_control in {"off", "false", "0"} or is_no_rag_scenario(chat_input):
+        jlog("rag acceleration skipped forcibly", rid=rid)
         return await _forward_stream(req, upstream_path)
 
-    jlog("rag acceleration enabled", rid=rid, backend=C.BACKEND_URL)
-    return await rag_acc_chat(chat_input, request=req, backend_url=C.BACKEND_URL + upstream_path)
+    try:
+        detection = detect_rag_scenario(chat_input)
+    except Exception as e:
+        elog("rag_detection_error", rid=rid, detail=str(e))
+        return await _forward_stream(req, upstream_path)
+
+    if detection is None:
+        jlog("not rag scenario", rid=rid)
+        return await _forward_stream(req, upstream_path)
+
+    jlog("rag acceleration enabled", rid=rid, backend=C.BACKEND_URL, scenario=detection.kind)
+    return await rag_acc_chat(
+        chat_input,
+        request=req,
+        backend_url=C.BACKEND_URL + upstream_path,
+        detection=detection,
+    )
 
 
 @app.post("/v1/chat/completions")
@@ -1342,7 +1362,7 @@ async def models_proxy(request: Request):
             media_type=resp.headers.get("content-type", "application/json"),
         )
     except Exception as e:
-        elog("models_proxy_error", rid=rid, detail=str(e))
+        _log_backend_failure("models_proxy_error", rid=rid, detail=str(e))
         raise HTTPException(status_code=502, detail="backend unavailable") from e
 
 
