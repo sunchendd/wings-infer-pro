@@ -120,27 +120,68 @@ function print_summary() {
 }
 
 
+function package_ai_perf() {
+    log_info "打包 ai_perf 目录为 AIPerf_SDK_example.zip ..."
+
+    local ai_perf_dir="${WORK_DIR}/../ai_perf"
+    local zip_name="AIPerf_SDK_example.zip"
+
+    if [ ! -d "$ai_perf_dir" ]; then
+        log_error "ai_perf 目录不存在: $ai_perf_dir"
+        exit 1
+    fi
+
+    if [ -f "${WORK_DIR}/output/${zip_name}" ]; then
+        rm -f "${WORK_DIR}/output/${zip_name}"
+    fi
+
+    cd "${WORK_DIR}/.." || exit 1
+    if zip -r "build/output/${zip_name}" "ai_perf"; then
+        log_info "create ${zip_name} success"
+    else
+        log_error "打包 ${zip_name} 失败"
+        exit 1
+    fi
+}
+
+
 function compose_zip() {
     log_info "compose wings-control image and wings-accel image"
 
     cd "${WORK_DIR}/output" || log_error "${WORK_DIR}/output 不存在"
 
+    # 如果启用了 --ai_perf，则将 AIPerf_SDK_example.zip 一并打入输出件
+    local extra_files=()
+    if [ "$AI_PERF" = "1" ]; then
+        extra_files+=("AIPerf_SDK_example.zip")
+    fi
+
     if [ -f "Wings_control_${WINGS_VERSION}_x86_64.tar" ]; then
         zip "Wings_infer_${WINGS_VERSION}_x86_64.zip" \
             "Wings_accel_${WINGS_VERSION}_x86_64.tar" \
-            "Wings_control_${WINGS_VERSION}_x86_64.tar"
+            "Wings_control_${WINGS_VERSION}_x86_64.tar" \
+            "${extra_files[@]}"
 
         log_info "create Wings_infer_${WINGS_VERSION}_x86_64.zip success"
 
     elif [ -f "Wings_control_${WINGS_VERSION}_aarch64.tar" ];then
         zip "Wings_infer_${WINGS_VERSION}_aarch64.zip" \
             "Wings_accel_${WINGS_VERSION}_aarch64.tar" \
-            "Wings_control_${WINGS_VERSION}_aarch64.tar"
+            "Wings_control_${WINGS_VERSION}_aarch64.tar" \
+            "${extra_files[@]}"
 
         log_info "create Wings_infer_${WINGS_VERSION}_aarch64.zip success"
     else
         log_error "构建有问题，wings-control镜像未构建"
     fi
+
+    # 输出件生成后，清理打入其中的 extra_files 临时文件
+    for f in "${extra_files[@]}"; do
+        if [ -f "$f" ]; then
+            rm -f "$f"
+            log_info "cleanup extra file: $f"
+        fi
+    done
 }
 
 
@@ -150,19 +191,32 @@ function main() {
 
     log_info "create tar file"
 
-    # 版本控制
-    if [ "$#" -eq 1 ]; then
-        # 由CI构建控制最终的出包版本
-        WINGS_VERSION=$1
-    else
-        WINGS_VERSION="26.0.0"
+    # 解析参数：--ai_perf 可选参数（默认关闭），其余位置参数中第一个作为版本号
+    AI_PERF=0
+    WINGS_VERSION="26.0.0"
+    if [ "$#" -gt 0 ]; then
+        for arg in "$@"; do
+            if [ "$arg" = "--ai_perf" ]; then
+                AI_PERF=1
+            elif [ "$WINGS_VERSION" = "26.0.0" ]; then
+                # 由CI构建控制最终的出包版本（取第一个非 --ai_perf 参数）
+                WINGS_VERSION=$arg
+            fi
+        done
     fi
     export WINGS_VERSION=$WINGS_VERSION
     echo "[Wings][INFO] version: $WINGS_VERSION"
+    echo "[Wings][INFO] ai_perf: $AI_PERF"
 
     print_banner
     build_wings_accel
     build_wings_control
+
+    # 如果启用了 --ai_perf，则先打包 AIPerf_SDK_example.zip 以便并入最终输出件
+    if [ "$AI_PERF" = "1" ]; then
+        package_ai_perf
+    fi
+
     compose_zip
     print_summary
 
