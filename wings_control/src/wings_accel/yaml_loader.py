@@ -234,6 +234,39 @@ def _route_smart_accel_block(smart_accel: Any, topology: Optional[str]) -> Dict[
     return _extract_strategy_features(smart_accel.get("standalone"))
 
 
+
+def _routed_source_path(smart_accel: Any, topology: Optional[str]) -> str:
+    """Return the original YAML path prefix for the feature block selected by routing."""
+    if not isinstance(smart_accel, dict) or not smart_accel:
+        return ""
+    topo = (topology or "standalone").strip().lower()
+    scenario_name = "multi_node" if topo == "multi_node" else "pd_disaggregation" if topo in ("pd_prefill", "pd_decode") else "standalone"
+    scenario = smart_accel.get(scenario_name)
+    if not isinstance(scenario, dict):
+        return f"smart_accel.{scenario_name}"
+    strategies = scenario.get("strategies")
+    if not isinstance(strategies, dict) or not strategies:
+        return f"smart_accel.{scenario_name}"
+    strategy_name = next(
+        (
+            name
+            for name, strategy in strategies.items()
+            if isinstance(strategy, dict) and strategy.get("default_strategy") is True
+        ),
+        next((name for name, strategy in strategies.items() if isinstance(strategy, dict)), ""),
+    )
+    base = f"smart_accel.{scenario_name}.strategies.{strategy_name}"
+    if topo not in ("pd_prefill", "pd_decode"):
+        return base
+    strategy = strategies.get(strategy_name)
+    nodes = strategy.get("nodes") if isinstance(strategy, dict) else None
+    wanted = "prefill" if topo == "pd_prefill" else "decode"
+    if isinstance(nodes, list):
+        for index, node in enumerate(nodes):
+            role = str(node.get("role") or "").strip().lower() if isinstance(node, dict) else ""
+            if role in (wanted, wanted[0]):
+                return f"{base}.nodes[{index}]"
+    return base
 def _select_default_strategy(scenario: Any) -> Optional[Dict[str, Any]]:
     """从 scenario 块的 strategies 里选默认策略(对齐 wings_control ``_select_scenario``)。
 
@@ -315,6 +348,7 @@ def load_smart_accel_from_yaml(
     #   standalone/multi_node → 顶层对应键;pd_prefill/pd_decode → pd_disaggregation.{prefill,decode}
     #   缺键即该场景不产出;子块缺失 → 空 dict(全特性不产出)
     smart_accel = _route_smart_accel_block(smart_accel_raw, flags.topology)
+    source_path = _routed_source_path(smart_accel_raw, flags.topology)
 
     hardware_config = SystemConfig(
         gpu_type=hw.get("gpu_type", "A100"),
@@ -411,6 +445,8 @@ def load_smart_accel_from_yaml(
         ),
         smart_kv_sparse_config=SmartKVSparseConfig(enabled=enable_sparse, mode=flags.sparse_level),
         smart_accel=smart_accel,
+        source_file=str(path),
+        source_path=source_path,
     )
     # 内部渲染容量:不作为 SmartKVCacheConfig 入参暴露,由 loader 根据 memory_offload_size_mode 解析。
     setattr(smart_input.smart_kv_cache_config, "_memory_capacity_gb", memory_capacity_gb)

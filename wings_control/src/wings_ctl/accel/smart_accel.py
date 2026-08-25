@@ -31,6 +31,30 @@ _POD_MEM_MASS_SHORTFALL_GB = 15
 
 
 @dataclass
+class GeneratedFileSpec:
+    """wings-accel 产出、由 wings-control 在产物阶段写入的文件计划。
+
+    与 wings_accel.schemas.GeneratedFile 解耦的 wings-ctl 侧表示,避免对
+    guard-import 的 wings_accel 包硬依赖;字段由 :func:`collect_output` 用 getattr 归一。
+
+    Attributes:
+        path: 容器内目标绝对路径(如 ``/shared-volume/lmcache_config.yaml``)。
+        content: 已填解析期占位符的最终文本;``${VAR}`` 保持字面量,运行时由 pre-serve envsubst 展开。
+        mode: 权限(如 ``"0644"``/``"0755"``);None = 用默认权限。
+        scope: all/master/client(accel 内部已消费用于 pre-serve 分流,此处仅审计)。
+        source_file: 溯源文件(可空,仅审计)。
+        source_path: 溯源路径(可空,仅审计)。
+    """
+
+    path: str
+    content: str
+    mode: str | None = None
+    scope: str = "all"
+    source_file: str = ""
+    source_path: str = ""
+
+
+@dataclass
 class AccelResult:
     """wings-accel 三类产出的扁平汇总,供 wings-control append 到 argv / env / audit。
 
@@ -39,6 +63,7 @@ class AccelResult:
         env: 注入容器的环境变量(``engine_params.env``)。
         audit: 选中 scheme 元数据,仅写 audit.json。
         packages: 各选中 scheme 声明的 pip 依赖(``name:version`` 字符串);供 install 段 ``--config``。
+        generated_files: 待写文件计划(解析期不落盘,由 script_builder 在产物阶段写入)。
         enabled: 是否真正调用了 wings-accel(模块在场且成功产出);False = no-op/降级。
     """
 
@@ -60,6 +85,7 @@ class AccelResult:
     pre_serve: list[str] = field(default_factory=list)
     pre_serve_master: list[str] = field(default_factory=list)
     pre_serve_client: list[str] = field(default_factory=list)
+    generated_files: list[GeneratedFileSpec] = field(default_factory=list)
 
 
 def _import_accel():
@@ -217,12 +243,47 @@ def build_smart_input(mod, *, hardware_family: str, gpu_count: int | None, model
     )
 
 
+def _collect_generated_files(raw_files: list) -> list[GeneratedFileSpec]:
+    """把 wings-accel 输出的文件计划归一为 :class:`GeneratedFileSpec` 列表。
+
+    逐项 getattr 读取,避免对 ``wings_accel.schemas.GeneratedFile`` 的字段结构硬依赖
+    (accel 侧增删字段时本适配层不崩)。非文件条目(缺 path)跳过,保持输入顺序。
+
+    Args:
+        raw_files: ``output.generated_files`` 的原始列表(可能含无 path 的条目)。
+
+    Returns:
+        归一后的 :class:`GeneratedFileSpec` 列表;空/缺字段 → 对应默认值。
+    """
+    specs: list[GeneratedFileSpec] = []
+    for raw in raw_files or []:
+        path = str(getattr(raw, "path", "") or "").strip()
+        if not path:
+            continue
+        specs.append(GeneratedFileSpec(
+            path=path,
+            content=str(getattr(raw, "content", "") or ""),
+            mode=getattr(raw, "mode", None),
+            scope=str(getattr(raw, "scope", "all") or "all"),
+            source_file=str(getattr(raw, "source_file", "") or ""),
+            source_path=str(getattr(raw, "source_path", "") or ""),
+        ))
+    return specs
+
+
 def collect_output(output) -> AccelResult:
     """把 wings-accel 输出汇总成 :class:`AccelResult`。"""
     engine_params = getattr(output, "engine_params", None)
     if engine_params is not None:
         engine_config = dict(getattr(engine_params, "engine_config", {}) or {})
         env = dict(getattr(engine_params, "env", {}) or {})
+        packages = list(getattr(output, "packages", []) or [])
+        pre_serve = list(getattr(output, "pre_serve", []) or [])
+        pre_serve_master = list(getattr(output, "pre_serve_master", []) or [])
+        pre_serve_client = list(getattr(output, "pre_serve_client", []) or [])
+        generated_files = _collect_generated_files(
+            getattr(output, "generated_files", None) or []
+        )
         scheme_fields = {
             "smart_decoding_scheme": getattr(output, "smart_decoding_scheme", None),
             "smart_kv_sparse_scheme": getattr(output, "smart_kv_sparse_scheme", None),
@@ -238,17 +299,29 @@ def collect_output(output) -> AccelResult:
             # 裸内容(scheme dict);由 emitter 统一包成 audit["wings_accel"](勿在此预包,否则双层嵌套)
             audit=audit,
             # 选中 scheme 声明的 pip 依赖;getattr 兜底旧/stub 输出无该字段 → []
-            packages=list(getattr(output, "packages", []) or []),
+            packages=packages,
             # KV 存储后端 pre-serve 命令;getattr 兜底旧/stub 输出无该字段 → []
-            pre_serve=list(getattr(output, "pre_serve", []) or []),
-            pre_serve_master=list(getattr(output, "pre_serve_master", []) or []),
-            pre_serve_client=list(getattr(output, "pre_serve_client", []) or []),
+            pre_serve=pre_serve,
+            pre_serve_master=pre_serve_master,
+            pre_serve_client=pre_serve_client,
             # KV 内存卸载页面回显容量(auto 估算/数值 GB);getattr 兜底旧/stub 输出无该字段 → None
             kv_mem_offload_size_gb=getattr(output, "kv_mem_offload_size_gb", None),
             # KV 磁盘卸载路径(disk 开启且产出);getattr 兜底旧/stub 输出无该字段 → None
             kv_disk_offload_path=getattr(output, "kv_disk_offload_path", None),
-            # enabled = 真有产出(对齐 docstring"成功产出";模块跑了但产空 → False,不触发 install 段)
-            enabled=bool(engine_config or env),
+            # 待写文件计划;getattr 兜底旧/stub 输出无该字段 → []。逐项用 getattr 归一,避免硬依赖
+            # wings_accel.GeneratedFile 的具体结构(两侧可独立演进)。
+            generated_files=generated_files,
+            # 任一运行时产出均表示 accel 已生效。文件计划、依赖和 pre-serve 不能因
+            # engine_config/env 为空而漏掉安装或启动准备阶段。
+            enabled=bool(
+                engine_config
+                or env
+                or packages
+                or pre_serve
+                or pre_serve_master
+                or pre_serve_client
+                or generated_files
+            ),
         )
 
     engine_config: dict[str, Any] = {}

@@ -1,7 +1,7 @@
 # docs/55 — smart-accel YAML 作者指南(agent / 维护同学写新资产必读)
 
 > 归类:🟩 稳态核心 / 参考文档。给「写 smart-accel YAML 的 AI agent / 人」看的单一参考:字段怎么填、哪些东西是代码写死注入的(别写进 yaml)、占位符有哪些、以及一条硬性作者规则。
-> 缘起:有人疑问「smart-accel 的 yaml 里为什么没有 `LMCACHE_CONFIG_FILE`?」——**2026-07-10 重构(docs/54)后它已移入 yaml `envs:`**(经通用 `files:` 语法落盘);重构前确为代码注入。这类「写死的环境变量/参数 / 占位符」此前散落在代码注释里,作者无单一参考,容易写错。本文一次讲清。
+> 缘起:有人疑问「smart-accel 的 yaml 里为什么没有 `LMCACHE_CONFIG_FILE`?」——**2026-07-10 重构(docs/54)后它已移入 yaml `envs:`**(经通用 `files:` 语法生成计划，并由 wings-control 在产物阶段写入);重构前确为代码注入。这类「写死的环境变量/参数 / 占位符」此前散落在代码注释里,作者无单一参考,容易写错。本文一次讲清。
 > 真件口径:所有断言回 `src/wings_accel/{schemas.py,decoders.py,offload.py,render.py,yaml_loader.py}` 与 `config/engines/` 真实资产核对(标注 file:line)。代码与本文冲突时,以代码为准。
 
 ---
@@ -53,7 +53,7 @@
 
 - smart-accel YAML 只写**模板**(scenario 子块[对齐 wings_control scenarios:source_ref/match/strategies/nodes[]] + 方案 + cli_params + envs + `files:` 配置文件内容 + `pre_serve` daemon 命令 + 占位符);
 - **smart_accel 按 scenario 拆块**(§1.1):顶层 standalone / multi_node / pd_disaggregation,每块带 source_ref/match/strategies;PD 用 strategies.pd_cluster.nodes[].role 区分 P/D;每个 strategy/node 独立声明 decoding / kv_offload / sparse / custom_features;**缺键即该场景不产出**;
-- 配置文件用**通用 `files:` 语法**落盘(docs/54);**`LMCACHE_CONFIG_FILE` 在 yaml `envs:` 声明**(指向 `files:` 写出的文件),**仅 `LMCACHE_QAT_ENABLED` 一项仍代码写死注入**(§5);
+- 配置文件用**通用 `files:` 语法**生成计划(docs/54)，由 wings-control 在正式产物阶段写入；**`LMCACHE_CONFIG_FILE` 在 yaml `envs:` 声明**(指向 `files:` 的目标路径),**仅 `LMCACHE_QAT_ENABLED` 一项仍代码写死注入**(§5);
 - 占位符 `{xxx}` / `$path` 在 cli_params/envs(整值)与 files content / pre_serve(子串)三处生效,见 §6;
 - **KV 存储后端(memcache/mooncake/lmcache_mp)** 是 KV 内存卸载的一种方法(与 cpu 同级,非第四类介质),带 `pre_serve`/`pre_serve_master` daemon 通道(§4.2、§10);
 - 若该模型的 engine_config 设了 `async_scheduling: true`,**含该 scenario 的 `decoding` 子块不得声明 `suffix`**(§7)。
@@ -140,7 +140,7 @@ smart_accel:
 - **expander(decoders/offload/sparse)完全不感知 scenario / topology / role**,只看扁平 decoding/kv_offload/sparse 列表;
 - 旧的 scheme 级 `deploy_modes` 字段已废弃(`schemas.scheme_supports_deploy_mode` 保留但不再被核心路径使用);**新结构 yaml 不应再声明 `deploy_modes`**。
 
-> topology 由 `wings_ctl/accel/smart_accel._resolve_topology` 从 `PD_ROLE` + `DISTRIBUTED`/`NODE_IPS` 推导,经 `LoadFlags.topology` → `DeploymentMode.topology` → loader。
+> topology 由 wings-control 的 `config_resolver` 统一推导，并作为 `apply_smart_accel(..., topology=...)` 参数传入；适配层不再从环境变量重复推导。
 
 ---
 
@@ -442,11 +442,7 @@ smart_accel:
 
 **为什么 PD-prefill 不声明 decoding**:投机推理语义在 prefill 阶段无意义(prefill 是一次性计算 prompt,投机是 decode 阶段的 token 级加速);故 prefill node 不声明 decoding。
 
-**topology 推导**(`wings_ctl/accel/smart_accel._resolve_topology`,从 env 自洽,不依赖 wings-control Topology 对象):
-- `PD_ROLE=P/prefill` → `pd_prefill` → 路由到 `smart_accel.pd_disaggregation.strategies.{default}.nodes[role=prefill]`
-- `PD_ROLE=D/decode` → `pd_decode` → 路由到 `smart_accel.pd_disaggregation.strategies.{default}.nodes[role=decode]`
-- 否则 `DISTRIBUTED=true` 或 `NODE_IPS` 非空 → `multi_node` → 路由到 `smart_accel.multi_node.strategies.{default}`
-- 否则 → `standalone` → 路由到 `smart_accel.standalone.strategies.{default}`(None/未知也兜底到 standalone)
+**topology 来源**:wings-control 的 `config_resolver` 先完成 topology 决策，再通过 `apply_smart_accel(..., topology=...)` 传入 SmartAccel。loader 只按收到的 `standalone`、`multi_node`、`pd_prefill` 或 `pd_decode` 路由；`None` 或未知值兜底到 standalone。
 
 **实现**:路由在 `yaml_loader._route_smart_accel_block`(单一判定点)完成,按 topology 选 scenario → 选 default strategy → (PD)选 role node,路由后的扁平子块塞进 `SmartAccelInput.smart_accel`;decoders/offload/sparse expander 不感知 scenario / topology / role,只看扁平 decoding/kv_offload/sparse 列表。旧的 `schemas.scheme_supports_deploy_mode` 函数保留但不再被核心路径使用(向后兼容外部 import)。
 
@@ -454,14 +450,14 @@ smart_accel:
 
 ## 5. 🔧 写死的注入项 vs yaml 可配项(直接回答「LMCACHE_CONFIG_FILE 在哪」)
 
-**2026-07-10 重构(docs/54)后**:配置文件落盘改为通用 `files:` 语法,`LMCACHE_CONFIG_FILE` 已**移入 yaml `envs:`**(作者写,指向 `files:` 写出的文件);**仅剩 `LMCACHE_QAT_ENABLED` 一项仍代码注入**(它是派生 env,值依赖 engine∧qat,无法静态写死)。
+**2026-07-10 重构(docs/54)后**:配置文件计划改为通用 `files:` 语法,`LMCACHE_CONFIG_FILE` 已**移入 yaml `envs:`**(作者写，指向 `files:` 的目标路径);**仅剩 `LMCACHE_QAT_ENABLED` 一项仍代码注入**(它是派生 env,值依赖 engine∧qat,无法静态写死)。
 
 | 名称 | 现状 | 触发条件 | 作者该怎么做 |
 |---|---|---|---|
-| `LMCACHE_CONFIG_FILE` | **yaml `envs:` 声明**(字面量指向 `files:` 写出的文件) | disk/cpu_disk scheme 有 `files:` 块 | 在 scheme 的 `envs:` 写 `LMCACHE_CONFIG_FILE: /shared-volume/lmcache_config.yaml`(路径与 `files[].name` 对齐);用 `files:` 提供配置**内容** |
+| `LMCACHE_CONFIG_FILE` | **yaml `envs:` 声明**(字面量指向 `files:` 的目标路径) | disk/cpu_disk scheme 有 `files:` 块 | 在 scheme 的 `envs:` 写 `LMCACHE_CONFIG_FILE: /shared-volume/lmcache_config.yaml`(路径与 `files[].name` 对齐);用 `files:` 提供配置**内容** |
 | `LMCACHE_QAT_ENABLED` | **代码注入**(唯一写死项) | 同上 | **不要**写进 `envs:`;值随 qat 自动 `True`/`False`(effective = vllm 且 `ENABLE_KV_QAT`) |
 
-机制(`offload.py::smart_kv_offload_expander` + `render.py::write_scheme_files`):disk/cpu_disk 命中且有 `files:` 块时,`write_scheme_files` 把每个文件 `content` 填占位符(§6)后写到 `SHARED_VOLUME_PATH/<name>`,并注入 `LMCACHE_QAT_ENABLED`。**disk 命中但缺 `files:` 块** → 仅 WARN,不写盘、不注入。
+机制(`offload.py::smart_kv_offload_expander` + `render.py::plan_scheme_files`):disk/cpu_disk 命中且有 `files:` 块时，SmartAccel 渲染 `GeneratedFile` 计划；wings-control 在非 dry-run 产物阶段写入共享卷，并注入 `LMCACHE_QAT_ENABLED`。disk 命中但缺 `files:` 块时仅 warning，不产生文件计划也不注入该变量。
 
 > 除 `LMCACHE_QAT_ENABLED` 外,**其余 env 一律走 scheme 的 `envs:` 块**(可带占位符,见 §6)。例:`LMCACHE_LOCAL_DISK`、`LMCACHE_MAX_LOCAL_DISK_SIZE`、`LMCACHE_CONFIG_FILE` 都是作者在 `envs:` 里写的(见 §8 disk 示例)。通用 `files:` 机制完整设计见 **docs/54**。
 
@@ -623,7 +619,7 @@ smart_accel:
 
 ### 8.2 disk / cpu_disk scheme(+ `files:` 配置文件)
 
-蓝本取自 `tests/wings_accel/test_offload.py`(`make_block` / `_lmcache_files`)。disk 命中时,`write_scheme_files` 把 `files:` 的 content 填占位符(§6)后写到 `/shared-volume/lmcache_config.yaml`;`LMCACHE_CONFIG_FILE` 在 `envs:` 指过去(§5);`LMCACHE_QAT_ENABLED` 代码注入。
+蓝本取自 `tests/wings_accel/test_offload.py`(`make_block` / `_lmcache_files`)。disk 命中时，`plan_scheme_files` 只渲染 `files:` 内容为计划；wings-control 在正式产物阶段写入 `/shared-volume/lmcache_config.yaml`。`LMCACHE_CONFIG_FILE` 在 `envs:` 指向该路径；`LMCACHE_QAT_ENABLED` 由代码注入。
 
 ```yaml
 smart_accel:
@@ -692,9 +688,9 @@ smart_accel:
 ## 9. 交叉引用
 
 - **docs/48** — 模型多变体选择契约(`variant_name` 精确 + `name_pattern` 兜底)。
-- **docs/54** — 通用 `files:` 配置文件渲染设计(lmcache/mooncake 统一落盘;§5 机制的权威来源)。
+- **docs/54** — 通用 `files:` 配置文件渲染设计(lmcache/mooncake 统一生成计划;§5 机制的权威来源)。
 - **docs/40** — wings-accel 集成;**docs/45** — 引擎参数互操作(含 install 段)。
-- 真码:`src/wings_accel/schemas.py`(数据契约)、`decoders.py`(decoding 选择)、`offload.py`(kv 卸载 + `LMCACHE_QAT_ENABLED` 写死注入 + memcache/mooncake 后端选择)、`render.py`(`write_scheme_files` + 占位符 `_resolve_token` + `render_pre_serve`)、`yaml_loader.py`(yaml 装载)。
+- 真码:`src/wings_accel/schemas.py`(数据契约)、`decoders.py`(decoding 选择)、`offload.py`(kv 卸载 + `LMCACHE_QAT_ENABLED` 写死注入 + memcache/mooncake 后端选择)、`render.py`(`plan_scheme_files` + 占位符 `_resolve_token` + `render_pre_serve`)、`yaml_loader.py`(yaml 装载)。
 - 护栏:`CLAUDE.md` §2.5(占位符公式写死、禁 DSL/eval)、§2.6(env 特性开关不进 user_cli)、§3(不 if-engine)。
 
 ---
@@ -726,7 +722,7 @@ vllm serve 前要起 KV 协调服务(`mooncake_master` / memcache `MetaService`)
 
 | 字段 | 必填 | 含义 |
 |---|---|---|
-| `path` | ✅ | 落盘路径(容器内;相对 `SHARED_VOLUME_PATH` 或绝对 `/...`) |
+| `path` | ✅ | 目标路径(容器内;相对 `SHARED_VOLUME_PATH` 或绝对 `/...`) |
 | `content` / `src` | 二选一 | `content`=**首选**,明文内联(`content: \|` 块标量,任意 JSON/conf/sh);`src`=外置模板相对 `config_root`,仅已有模板需要复用时使用 |
 | `scope` | ❌ | `all`(默认,所有节点)/ `master`(仅 master)/ `client`(仅 client/非 master) |
 | `mode` | ❌ | 权限,如 `"0755"`(脚本执行位) |
@@ -742,7 +738,7 @@ vllm serve 前要起 KV 协调服务(`mooncake_master` / memcache `MetaService`)
 
 例:`dram.size = {= memory_capacity_gb // gpu_count}GB`(8 GiB / 4 卡 → `2GB`)。
 
-**框架自动行为(用户无感,`offload._synthesize_file_pre_serve`):** 任何文件 → `mkdir -p`;写盘内容含 `{rank_ip}`/`{master_ip}`(渲染为 `${VAR}`)→ 运行时 `envsubst` 原地展开(per-node IP);按 `scope` 分流到三个桶:all → 所有节点 / master → 仅 master(包运行时 `RANK_IP==MASTER_IP`)/ client → 仅 client/非 master(包 `RANK_IP!=MASTER_IP`,单机不跑)。**daemon**:名为 **`start_kv_serve.sh`** 的脚本(mooncake/memcache 统一)→ 仅 master 执行 `bash <path> &`(**不监听端口**,避免 vllm 抢跑靠部署侧重试/保证)。脚本内容仍由 `files:` 的 `content`/`src` 声明,框架只按文件名识别「master 跑这个脚本」。
+**框架自动行为(用户无感,`offload._synthesize_file_pre_serve`):** 任何文件计划 → `mkdir -p`;运行时模板内容含 `{rank_ip}`/`{master_ip}`(渲染为 `${VAR}`)→ 运行时 `envsubst` 原地展开(per-node IP);按 `scope` 分流到三个桶:all → 所有节点 / master → 仅 master(包运行时 `RANK_IP==MASTER_IP`)/ client → 仅 client/非 master(包 `RANK_IP!=MASTER_IP`,单机不跑)。**daemon**:名为 **`start_kv_serve.sh`** 的脚本(mooncake/memcache 统一)→ 仅 master 执行 `bash <path> &`(**不监听端口**,避免 vllm 抢跑靠部署侧重试/保证)。脚本内容仍由 `files:` 的 `content`/`src` 声明,框架只按文件名识别「master 跑这个脚本」。
 
 > master pod 内 master 也跑 vllm,故常见配置多为 `all`(master 与 worker 都需)或 `master`(仅 daemon 侧);`client` 供「master 专用、仅 worker 需某配置」的拓扑(如 dedicated master pod)。
 

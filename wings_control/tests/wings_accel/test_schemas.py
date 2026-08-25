@@ -1,6 +1,7 @@
 from wings_accel.schemas import (
     SmartAccelInput,
     SmartAccelOutput,
+    GeneratedFile,
     EngineParams,
     SystemConfig,
     ModelConfig,
@@ -29,6 +30,18 @@ def test_smart_accel_output_diagnostics_default_isolated():
     second = SmartAccelOutput()
     first.diagnostics["decoding"] = {"degraded": True}
     assert second.diagnostics == {}
+
+
+def test_smart_accel_output_generated_files_default_isolated():
+    """验证 generated_files 使用独立默认 list,避免实例间污染。"""
+    first = SmartAccelOutput()
+    second = SmartAccelOutput()
+
+    first.generated_files.append(
+        GeneratedFile(path="/shared-volume/a", content="a")
+    )
+
+    assert second.generated_files == []
 
 
 def test_engine_params_defaults():

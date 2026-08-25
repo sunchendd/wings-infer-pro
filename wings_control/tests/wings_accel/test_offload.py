@@ -200,8 +200,8 @@ def test_offload_cpu_disk_all_missing_returns_none():
 
 # ── lmcache_config.yaml + QAT ───────────────────────────────────────────────
 
-def test_offload_qat_writes_lmcache_yaml(monkeypatch, tmp_path):
-    """disk 命中 + qat 开(vllm)→ 写 lmcache_config.yaml(qat 段 enabled:true)+ 注入 LMCACHE_*。"""
+def test_offload_qat_plans_lmcache_yaml_without_writing(monkeypatch, tmp_path):
+    """disk 命中 + qat 开 → 返回 lmcache 文件计划且不写盘。"""
     monkeypatch.setenv("SHARED_VOLUME_PATH", str(tmp_path))
     cfg = SmartKVCacheConfig(
         enabled=True, disk_offload_enabled=True, disk_capacity_gb=200, disk_path="/mnt/kv",
@@ -213,7 +213,10 @@ def test_offload_qat_writes_lmcache_yaml(monkeypatch, tmp_path):
     out = smart_kv_offload_expander(cfg, make_block(), ctx, engine_name="vllm")
     assert out.engine_params.env["LMCACHE_CONFIG_FILE"] == "/shared-volume/lmcache_config.yaml"
     assert out.engine_params.env["LMCACHE_QAT_ENABLED"] == "True"
-    content = (tmp_path / "lmcache_config.yaml").read_text(encoding="utf-8")
+    assert [item.path for item in out.generated_files] == [
+        str(tmp_path / "lmcache_config.yaml")
+    ]
+    content = out.generated_files[0].content
     # 容量段 + qat 段都渲染(qat 字段原生类型,无引号)
     assert "chunk_size: 256" in content
     assert "local_disk: /mnt/kv" in content
@@ -224,10 +227,11 @@ def test_offload_qat_writes_lmcache_yaml(monkeypatch, tmp_path):
     # qat 走 lmcache_config.yaml + env,不泄漏进 kv_transfer_config
     extra = out.engine_params.engine_config["kv_transfer_config"]["kv_connector_extra_config"]
     assert "qat" not in extra
+    assert not (tmp_path / "lmcache_config.yaml").exists()
 
 
-def test_offload_qat_off_still_writes_yaml(monkeypatch, tmp_path):
-    """disk 命中但 qat 关 → 仍写 lmcache_config.yaml(qat 段 enabled:false)+ LMCACHE_QAT_ENABLED=False。"""
+def test_offload_qat_off_still_plans_yaml(monkeypatch, tmp_path):
+    """disk 命中但 qat 关 → 返回 qat 关闭的 lmcache 文件计划。"""
     monkeypatch.setenv("SHARED_VOLUME_PATH", str(tmp_path))
     cfg = SmartKVCacheConfig(
         enabled=True, disk_offload_enabled=True, disk_capacity_gb=200, disk_path="/mnt/kv",
@@ -236,8 +240,9 @@ def test_offload_qat_off_still_writes_yaml(monkeypatch, tmp_path):
     out = smart_kv_offload_expander(cfg, make_block(), ctx, engine_name="vllm")
     assert out.engine_params.env["LMCACHE_QAT_ENABLED"] == "False"
     assert out.engine_params.env["LMCACHE_CONFIG_FILE"] == "/shared-volume/lmcache_config.yaml"
-    content = (tmp_path / "lmcache_config.yaml").read_text(encoding="utf-8")
+    content = out.generated_files[0].content
     assert "enabled: false" in content
+    assert not (tmp_path / "lmcache_config.yaml").exists()
 
 
 def test_offload_skipped_without_lmcache_template(monkeypatch, tmp_path):
@@ -262,7 +267,7 @@ def test_offload_skipped_without_lmcache_template(monkeypatch, tmp_path):
 
 
 def test_offload_qat_disabled_for_non_vllm(monkeypatch, tmp_path):
-    """非 vllm(vllm-ascend)disk 命中 → qat 段 enabled:false + LMCACHE_QAT_ENABLED=False(yaml 仍写)。"""
+    """非 vllm disk 命中 → qat 关闭的 lmcache 文件计划。"""
     monkeypatch.setenv("SHARED_VOLUME_PATH", str(tmp_path))
     cfg = SmartKVCacheConfig(
         enabled=True, disk_offload_enabled=True, disk_capacity_gb=200, disk_path="/mnt/kv",
@@ -272,8 +277,9 @@ def test_offload_qat_disabled_for_non_vllm(monkeypatch, tmp_path):
         cfg, make_block(), make_ctx(disk_offload_enabled=True), engine_name="vllm-ascend",
     )
     assert out.engine_params.env["LMCACHE_QAT_ENABLED"] == "False"
-    content = (tmp_path / "lmcache_config.yaml").read_text(encoding="utf-8")
+    content = out.generated_files[0].content
     assert "enabled: false" in content
+    assert not (tmp_path / "lmcache_config.yaml").exists()
 
 
 def test_offload_no_lmcache_for_cpu_scheme(monkeypatch, tmp_path):

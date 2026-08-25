@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import json
 
-from wings_ctl.accel.smart_accel import AccelResult
+import pytest
+
+from wings_ctl.accel.smart_accel import AccelResult, GeneratedFileSpec
 from wings_ctl.audit.emitter import emit_audit
 from wings_ctl.core.config_resolver import MergeLayer, trace_merge
 from wings_ctl.core.models import (
@@ -22,6 +24,7 @@ from wings_ctl.core.models import (
     TracedValue,
 )
 from wings_ctl.core.topology import Topology
+from wings_ctl.rendering import script_builder
 from wings_ctl.rendering.script_builder import build_scripts
 
 
@@ -237,6 +240,125 @@ def test_emit_audit_writes_diagnostics(tmp_path):
     assert data["wings_accel"]["diagnostics"] == {
         "decoding": {"degraded": True, "degrade_reason": "mtp_conflict->suffix"}
     }
+
+
+# ── wings-accel 文件计划写入(解析期不落盘,产物阶段原子写)──────────────────────
+
+def test_build_scripts_writes_accel_generated_files(tmp_path, monkeypatch):
+    """accel.generated_files 非空 → build_scripts 原子写入共享卷文件(content + mode)。"""
+    from wings_ctl.common.settings import settings
+
+    shared = tmp_path / "shared"
+    monkeypatch.setattr(settings, "SHARED_VOLUME_PATH", str(shared))
+    accel = AccelResult(
+        enabled=True,
+        generated_files=[
+            GeneratedFileSpec(
+                path=str(shared / "lmcache_config.yaml"),
+                content="chunk_size: 256\nlocal_disk: /mnt/kv\n",
+                mode="0644",
+                scope="all",
+            ),
+            GeneratedFileSpec(
+                path=str(shared / "start_kv_serve.sh"),
+                content="#!/bin/bash\n",
+                mode="0755",
+                scope="master",
+            ),
+        ],
+    )
+    build_scripts(_make_resolved(accel), tmp_path)
+
+    lmcache = shared / "lmcache_config.yaml"
+    assert lmcache.read_text(encoding="utf-8") == "chunk_size: 256\nlocal_disk: /mnt/kv\n"
+    assert lmcache.stat().st_mode & 0o777 == 0o644
+    daemon = shared / "start_kv_serve.sh"
+    assert daemon.read_text(encoding="utf-8") == "#!/bin/bash\n"
+    assert daemon.stat().st_mode & 0o777 == 0o755
+    # 原子写不留 .tmp 残留
+    assert not [item for item in shared.iterdir() if item.name.endswith(".tmp")]
+
+
+def test_build_scripts_rejects_generated_file_outside_shared_volume(tmp_path, monkeypatch):
+    """文件计划越出共享卷根 → fail-fast(ValueError,安全边界不静默)。"""
+    from wings_ctl.common.settings import settings
+
+    monkeypatch.setattr(settings, "SHARED_VOLUME_PATH", str(tmp_path / "shared"))
+    accel = AccelResult(
+        enabled=True,
+        generated_files=[GeneratedFileSpec(path="/etc/passwd", content="evil\n", mode="0644", scope="all")],
+    )
+    with pytest.raises(ValueError):
+        build_scripts(_make_resolved(accel), tmp_path)
+
+
+def test_build_scripts_fails_when_generated_file_cannot_be_written(tmp_path, monkeypatch):
+    """生成文件写入失败必须阻断启动，不能只记录 warning 后继续交付脚本。"""
+    from wings_ctl.common.settings import settings
+
+    shared = tmp_path / "shared"
+    monkeypatch.setattr(settings, "SHARED_VOLUME_PATH", str(shared))
+    accel = AccelResult(
+        enabled=True,
+        generated_files=[
+            GeneratedFileSpec(
+                path=str(shared / "lmcache_config.yaml"),
+                content="chunk_size: 256\n",
+            )
+        ],
+    )
+
+    def fail_named_temp_file(*args, **kwargs):
+        raise OSError("read-only shared volume")
+
+    monkeypatch.setattr(script_builder.tempfile, "NamedTemporaryFile", fail_named_temp_file)
+
+    with pytest.raises(ValueError, match="failed to write accel generated file"):
+        build_scripts(_make_resolved(accel), tmp_path)
+
+
+def test_build_scripts_empty_generated_files_is_noop(tmp_path, monkeypatch):
+    """空 accel / 无 generated_files → 不写任何文件(no-op 回归)。"""
+    from wings_ctl.common.settings import settings
+
+    shared = tmp_path / "shared"
+    monkeypatch.setattr(settings, "SHARED_VOLUME_PATH", str(shared))
+    build_scripts(_make_resolved(), tmp_path)
+    assert not shared.exists() or not any(shared.iterdir())
+
+
+def test_emit_audit_records_accel_generated_files(tmp_path):
+    """audit.json 记录 accel 文件计划元数据 + sha256 摘要,不落原始 content。"""
+    accel = AccelResult(
+        enabled=True,
+        generated_files=[
+            GeneratedFileSpec(
+                path="/shared-volume/lmcache_config.yaml",
+                content="chunk_size: 256\n",
+                mode="0644",
+                scope="all",
+                source_file="model.yaml",
+                source_path="smart_accel.kv_offload[0].files[0]",
+            ),
+        ],
+    )
+    audit_path = emit_audit(_make_resolved(accel), tmp_path)
+    data = json.loads(audit_path.read_text(encoding="utf-8"))
+    entry = data["accel_generated_files"][0]
+    assert entry["path"] == "/shared-volume/lmcache_config.yaml"
+    assert entry["mode"] == "0644"
+    assert entry["scope"] == "all"
+    assert entry["source_file"] == "model.yaml"
+    assert entry["source_path"] == "smart_accel.kv_offload[0].files[0]"
+    assert "content" not in entry          # 不落原始内容
+    assert len(entry["sha256"]) == 64      # sha256 十六进制摘要
+
+
+def test_emit_audit_empty_generated_files_no_key(tmp_path):
+    """空 accel.generated_files → audit.json 不含 accel_generated_files 键(no-op 回归)。"""
+    audit_path = emit_audit(_make_resolved(), tmp_path)
+    data = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert "accel_generated_files" not in data
 
 
 # ── 空 accel:零变化(回归)──────────────────────────────────────────────────

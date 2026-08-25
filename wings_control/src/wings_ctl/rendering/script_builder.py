@@ -15,9 +15,11 @@ from __future__ import annotations
 import json
 import logging
 import shlex
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from wings_ctl.accel.smart_accel import GeneratedFileSpec
 from wings_ctl.common.settings import settings
 from wings_ctl.core.models import ResolvedConfig, SystemSetup, TracedValue
 from wings_ctl.core.topology import Topology
@@ -183,6 +185,74 @@ def _write_advanced_features_json(resolved: ResolvedConfig) -> None:
         )
     except OSError as exc:
         logger.warning("Failed to write advanced_features.json: %s", exc)
+
+
+def _write_accel_generated_files(generated_files: List[GeneratedFileSpec]) -> None:
+    """在产物阶段原子写入 wings-accel 生成的文件计划。
+
+    accel 解析阶段只计算、不落盘,落盘职责迁移到本产物阶段;dry-run 不经过
+    build_scripts,故不会触发本函数,天然无副作用。
+
+    安全边界:
+      - 目标路径必须落在共享卷根内,拒绝 ``..`` / 绝对路径越界;越界 fail-fast(不静默)。
+      - 原子写:同目录唯一临时文件 + ``Path.replace``;``mode`` 非空时对临时文件 chmod 后再替换。
+      - 写入或设置权限失败时 fail-fast，避免引擎使用缺失或旧版本的配置文件启动。
+
+    Args:
+        generated_files: accel 产出的文件计划列表;空 → no-op。
+
+    Raises:
+        ValueError: 目标路径无法解析、越出共享卷根，或文件写入/权限设置失败。
+
+    """
+    if not generated_files:
+        return
+    shared_root = Path(settings.SHARED_VOLUME_PATH).resolve()
+    for spec in generated_files:
+        target = Path(spec.path)
+        try:
+            resolved_target = target.resolve(strict=False)
+        except OSError as exc:
+            raise ValueError(f"accel generated file path unresolvable: {spec.path!r}") from exc
+        if not resolved_target.is_relative_to(shared_root):
+            raise ValueError(
+                f"accel generated file escapes shared volume "
+                f"{settings.SHARED_VOLUME_PATH!r}: {spec.path!r}"
+            )
+        tmp_path: Path | None = None
+        try:
+            resolved_target.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                dir=resolved_target.parent,
+                prefix=f".{resolved_target.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as tmp:
+                tmp.write(spec.content)
+                tmp_path = Path(tmp.name)
+            if spec.mode is not None:
+                try:
+                    tmp_path.chmod(int(str(spec.mode), 8))
+                except (ValueError, OSError) as exc:
+                    raise ValueError(
+                        f"failed to set mode for accel generated file {spec.path!r}: "
+                        f"{spec.mode!r}"
+                    ) from exc
+            tmp_path.replace(resolved_target)
+            tmp_path = None
+            logger.info("wrote accel generated file %s (mode=%s)", spec.path, spec.mode)
+        except OSError as exc:
+            raise ValueError(
+                f"failed to write accel generated file {spec.path!r}: {exc}"
+            ) from exc
+        finally:
+            if tmp_path is not None and tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    logger.debug("failed to clean temporary accel generated file %s", tmp_path)
 
 
 def _render_kv_disk_cleanup_section(kv_disk_offload_path: Optional[str]) -> List[str]:
@@ -728,6 +798,10 @@ def build_scripts(
     # advanced_features.json(使能状态单一真相源)在脚本生成阶段写入共享卷,
     # health 接口 /v1/startup/accel 读它回显页面(对齐老仓库 wings_entry 时机)。
     _write_advanced_features_json(resolved)
+
+    # wings-accel 文件计划(disk/cpu_disk 的 lmcache_config.yaml、KV 后端 start_kv_serve.sh 等)
+    # 解析期不落盘,此处(仅正式运行,非 dry-run)校验并原子写入共享卷。
+    _write_accel_generated_files(resolved.accel.generated_files)
 
     # registry 是 CLI、正式渲染和摘要共用的唯一 adapter 分发点。公共层只消费
     # 启动计划，不判断 MindIE，也不读取其 engine_state。

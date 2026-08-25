@@ -9,13 +9,13 @@ KVOffload Expander — 智能 KV 卸载方案选择与渲染。
   scheme 即后端工具,具体 backend 由 ``kv_connector_extra_config.backend`` 定),memory_on 时用该
   backend scheme(走 ``_render_kv_store_scheme``);与 disk 的组合由 YAML 负责。
 - fallback:目标 scheme 缺失时,cpu_disk 缺 → 退化 disk > cpu > None;cpu/disk 缺 → None。
-- cpu = vllm 原生 OffloadingConnector(无 lmcache 包 / 不落盘配置文件)。
+- cpu = vllm 原生 OffloadingConnector(无 lmcache 包 / 无配置文件计划)。
 - disk / cpu_disk = lmcache(LMCacheConnectorV1):需 lmcache 包 + lmcache_config.yaml
   (yaml 为容量真相源;env/cli 为补充)。cpu_disk 比 disk 多 local_cpu:true + max_local_cpu_size。
 - 容量类占位符({mem_gb_to_blocks} 等)由 PlaceholderContext 解析;容量值由 yaml_loader 决定。
-- 配置文件落盘:disk/cpu_disk 命中且有 files: 块时,由通用 render.write_scheme_files
-  渲染(占位符 {qat_*} 经 ctx 填充;qat_enabled 用 effective = vllm 且 cfg.qat_enabled)写到
-  SHARED_VOLUME_PATH/<name>。指向文件的 env(如 LMCACHE_CONFIG_FILE)由 scheme 的 envs: 字面量
+- 配置文件计划:disk/cpu_disk 命中且有 files: 块时,由通用 render.plan_scheme_files
+    渲染(占位符 {qat_*} 经 ctx 填充;qat_enabled 用 effective = vllm 且 cfg.qat_enabled)并交由
+    wings-control 在产物阶段写入。指向文件的 env(如 LMCACHE_CONFIG_FILE)由 scheme 的 envs: 字面量
   声明,不再代码注入。LMCACHE_QAT_ENABLED 是派生 env(随 qat 开关,仅 vllm effective-on),
   仍代码注入。非 disk 命中 / 无 files 块 → 跳过(仅 WARN,不阻塞启动)。
 
@@ -24,8 +24,8 @@ KVOffload Expander — 智能 KV 卸载方案选择与渲染。
     - packages:   pip 依赖(name:version);disk/cpu_disk 带 lmcache:v0.3.15
     - cli_params: 任意键值对(典型 kv_transfer_config: {...}),由 render 渲染
     - envs:       环境变量(支持 {memory_capacity_gb} / {mem_gb_to_blocks} 等占位符);
-                  指向落盘文件的 env(如 LMCACHE_CONFIG_FILE)在此字面量声明
-    - files:      要落盘的配置文件列表([{name, content}],通用语法;disk/cpu_disk 放 lmcache_config.yaml)
+                  指向计划文件的 env(如 LMCACHE_CONFIG_FILE)在此字面量声明
+    - files:      待生成的配置文件列表([{name, content}],通用语法;disk/cpu_disk 放 lmcache_config.yaml)
 """
 
 import logging
@@ -37,16 +37,21 @@ from wings_accel.render import (
     PlaceholderContext,
     extract_packages,
     fill_envs,
+    plan_scheme_files,
     render_engine_config,
     render_pre_serve,
-    write_scheme_files,
 )
-from wings_accel.schemas import EngineParams, SmartKVCacheConfig, _FeatureOutput
+from wings_accel.schemas import (
+    EngineParams,
+    GeneratedFile,
+    SmartKVCacheConfig,
+    _FeatureOutput,
+)
 
 logger = logging.getLogger(__name__)
 
 # KV 存储后端 daemon 脚本名(mooncake/memcache/lmcache_mp 统一):仅 master 执行
-# ``bash <path> &``。脚本内容/落盘仍由 scheme 的 ``files:`` 声明(内联 content);框架只硬编码
+# ``bash <path> &``。脚本内容和交付文件计划仍由 scheme 的 ``files:`` 声明(内联 content);框架只硬编码
 # 「master 跑这个脚本」一条,不识别后端、不监听端口(避免 vllm 抢跑靠部署侧重试/保证)。
 _KV_DAEMON_SCRIPT = "start_kv_serve.sh"
 
@@ -80,7 +85,7 @@ def _find_backend_scheme(block: List[Any]) -> Optional[Dict[str, Any]]:
     """在 kv_offload block 中找后端 scheme(声明了 daemon 脚本 ``start_kv_serve.sh`` 的 scheme)。
 
     后端 scheme = 有 daemon 脚本的 scheme → 走 ``_render_kv_store_scheme``(合成 daemon pre_serve +
-    落盘配置文件)。涵盖当前所有「独立 server」backend:AscendStoreConnector(mooncake/memcache)、
+    生成配置文件计划)。涵盖当前所有「独立 server」backend:AscendStoreConnector(mooncake/memcache)、
     LMCacheMPConnector(lmcache MP 分离部署),以及未来任何声明了 daemon 脚本的新 connector。
 
     无 daemon 的 scheme(原生 OffloadingConnector / lmcache disk/cpu_disk / lmcache-ascend 内嵌
@@ -96,6 +101,20 @@ def _find_backend_scheme(block: List[Any]) -> Optional[Dict[str, Any]]:
     return None
 
 
+
+def _scheme_source_path(
+    block: Any,
+    selected: Dict[str, Any],
+    ctx: PlaceholderContext,
+) -> str:
+    """Return the original YAML path of the selected kv_offload scheme."""
+    if not ctx.source_path:
+        return ""
+    if isinstance(block, list):
+        for index, candidate in enumerate(block):
+            if candidate is selected:
+                return f"{ctx.source_path}.kv_offload[{index}]"
+    return f"{ctx.source_path}.kv_offload"
 def smart_kv_offload_expander(
     cfg: SmartKVCacheConfig,
     block: Any,
@@ -113,10 +132,10 @@ def smart_kv_offload_expander(
       (mem, disk) = (T,F) → cpu;(F,T) → disk;(T,T) → cpu_disk;(F,F) → None。
     fallback:目标 scheme 缺失时,cpu_disk 缺 → 退化 disk > cpu > None;cpu/disk 缺 → None。
 
-    cpu = vllm 原生 OffloadingConnector(无 lmcache 包 / 不落盘配置文件)。
+    cpu = vllm 原生 OffloadingConnector(无 lmcache 包 / 无配置文件计划)。
     disk / cpu_disk = lmcache(LMCacheConnectorV1):需 lmcache 包 + lmcache_config.yaml
     (yaml 为容量真相源;env/cli 为补充)。cpu_disk 比 disk 多 local_cpu:true + max_local_cpu_size。
-    QAT 正交:disk/cpu_disk 命中且有 files: 块 → 通用 write_scheme_files 落盘配置文件(如
+    QAT 正交:disk/cpu_disk 命中且有 files: 块 → 通用 plan_scheme_files 生成文件计划(如
     lmcache_config.yaml)+ 注入派生 env LMCACHE_QAT_ENABLED(随 qat 开关,effective = vllm 且
     cfg.qat_enabled);指向文件的 env(如 LMCACHE_CONFIG_FILE)由 scheme 的 envs: 声明。
 
@@ -162,10 +181,16 @@ def smart_kv_offload_expander(
     if memory_on and backend_scheme is not None:
         if disk_on:
             logger.info(
-                "kv_offload: backend scheme %r 命中且 disk_offload 也开;disk 部分由 YAML scheme 负责(框架不合并)",
+                "kv_offload: backend scheme %r selected while disk offload is also enabled; "
+                "the YAML scheme defines the disk portion.",
                 backend_scheme.get("name"),
             )
-        return _render_kv_store_scheme(backend_scheme, cfg, ctx)
+        return _render_kv_store_scheme(
+            backend_scheme,
+            cfg,
+            ctx,
+            source_path_prefix=_scheme_source_path(block, backend_scheme, ctx),
+        )
 
     # 三选一
     if memory_on and disk_on:
@@ -193,8 +218,9 @@ def smart_kv_offload_expander(
     cli_params: Dict[str, Any] = selected.get("cli_params") or {}
     envs: Dict[str, Any] = dict(selected.get("envs") or {})
     packages: List[str] = extract_packages(selected)
+    generated_files: List[GeneratedFile] = []
 
-    # disk/cpu_disk(lmcache)命中:scheme 的 files: 块统一落盘(lmcache_config.yaml 等),
+    # disk/cpu_disk(lmcache)命中:scheme 的 files: 块统一生成计划(lmcache_config.yaml 等),
     # 并注入派生 env LMCACHE_QAT_ENABLED(随 qat 开关;仅 vllm 视为 effective-on)。
     # LMCACHE_CONFIG_FILE 等指向文件的 env 由 scheme 的 envs: 字面量声明,不再代码注入。
     if target in ("disk", "cpu_disk"):
@@ -202,12 +228,16 @@ def smart_kv_offload_expander(
         if files:
             effective_qat = bool(cfg.qat_enabled) and (engine_name or "").lower() == "vllm"
             render_ctx = replace(ctx, qat_enabled=effective_qat)
-            write_scheme_files(files, render_ctx)
+            generated_files = plan_scheme_files(
+                files,
+                render_ctx,
+                source_path_prefix=_scheme_source_path(block, selected, ctx),
+            )
             envs["LMCACHE_QAT_ENABLED"] = "True" if effective_qat else "False"
         else:
             logger.warning(
-                "kv_offload: disk 命中但 scheme 缺 files 块;跳过配置文件落盘"
-                "(LMCACHE_QAT_ENABLED 不注入,容量参数可能不被 lmcache 识别)。"
+                "kv_offload: disk scheme has no files block; skipping generated file plan "
+                "and LMCACHE_QAT_ENABLED injection; LMCache capacity settings may not take effect."
             )
 
     engine_params = EngineParams(
@@ -218,17 +248,18 @@ def smart_kv_offload_expander(
         scheme=str(selected.get("name", "")),
         engine_params=engine_params,
         packages=packages,
+        generated_files=generated_files,
     )
 
 
 def _synthesize_file_pre_serve(
-    file_infos: List[Dict[str, Any]],
+    file_infos: List[GeneratedFile],
 ) -> tuple:
-    """扫描 write_scheme_files 返回的文件信息,合成 pre_serve / pre_serve_master / pre_serve_client 命令。
+    """扫描文件计划,合成 pre_serve / pre_serve_master / pre_serve_client 命令。
 
     files 自描述 → 框架自动生成运行时步骤(资产作者无需写 shell):
     - mkdir:每个文件父目录(放 pre_serve,所有节点含 master;去重保序)。
-    - envsubst:写盘内容含 runtime_vars(``${VAR}``)→ ``export VAR="${VAR:-127.0.0.1}"`` 设默认 +
+    - envsubst:计划文件内容含 runtime_vars(``${VAR}``)→ ``export VAR="${VAR:-127.0.0.1}"`` 设默认 +
       优先 ``envsubst`` 原地展开;容器缺 gettext(envsubst 不存在)时用 ``sed`` 兜底
       (避免空 .tmp 覆盖原文件 + 占位符残留)。按 ``scope`` 分流:
       all → pre_serve(所有节点);master → pre_serve_master(仅 master);
@@ -237,7 +268,7 @@ def _synthesize_file_pre_serve(
       (仅 master 后台执行;**不监听端口**)。
 
     Args:
-        file_infos: write_scheme_files 返回的 ``[{path, scope, mode, runtime_vars}]``。
+        file_infos: plan_scheme_files 返回的 ``GeneratedFile`` 列表。
 
     Returns:
         (pre_serve, pre_serve_master, pre_serve_client) 命令列表。
@@ -247,8 +278,8 @@ def _synthesize_file_pre_serve(
     pre_serve_client: List[str] = []
     made_dirs: set = set()
     for fi in file_infos:
-        path = fi["path"]
-        scope = fi.get("scope") or "all"
+        path = fi.path
+        scope = fi.scope or "all"
         parent = str(Path(path).parent)
         if parent and parent not in made_dirs:
             pre_serve.append(f"mkdir -p {parent}")
@@ -258,7 +289,7 @@ def _synthesize_file_pre_serve(
         # (真实环境反馈:容器无 envsubst → envsubst 重定向产生空 .tmp → mv 后 conf 被清空,
         #  且 ${MASTER_IP} 占位符残留未展开)。sed fallback 无外部依赖,把已 export 的变量值
         # 注入替换串(双引号 shell 展开)。
-        runtime_vars = fi.get("runtime_vars") or []
+        runtime_vars = fi.runtime_vars or []
         if runtime_vars:
             exports = " ".join(f'{v}="${{{v}:-127.0.0.1}}"' for v in runtime_vars)
             var_list = " ".join(f"${{{v}}}" for v in runtime_vars)
@@ -285,12 +316,13 @@ def _render_kv_store_scheme(
     scheme: Dict[str, Any],
     cfg: SmartKVCacheConfig,
     ctx: PlaceholderContext,
+    source_path_prefix: str = "",
 ) -> _FeatureOutput:
     """渲染内存卸载 backend scheme(cpu 介质下的 mooncake/memcache 工具)—— files 自描述 + 框架自动生成 pre_serve。
 
     backend 是 cpu 介质下的工具选择(scheme 的 name=cpu,工具由 connector+backend 区分);
     选中后直接渲染该 scheme。与 disk 的组合(如 cpu_disk 形态)由 YAML scheme 自身负责连接器细节,框架不合并、不拦截。
-    - files: 自描述条目(path/src/scope/mode)→ write_scheme_files 落盘 + 返回运行时信息;
+    - files: 自描述条目(path/src/scope/mode)→ plan_scheme_files 生成文件计划 + 返回运行时信息;
       本函数据之合成 mkdir/envsubst/daemon(资产作者不在 YAML 写 shell)。daemon 脚本统一名
       start_kv_serve.sh,仅 master ``bash <path> &``(不监听端口)。
     - 显式 pre_serve/pre_serve_master/pre_serve_client 作逃生口,追加在自动生成之后(特殊步骤)。
@@ -298,8 +330,12 @@ def _render_kv_store_scheme(
     cli_params: Dict[str, Any] = scheme.get("cli_params") or {}
     envs: Dict[str, Any] = dict(scheme.get("envs") or {})
     packages: List[str] = extract_packages(scheme)
-    # 配置文件/脚本落盘 + 收集运行时信息(runtime_vars/scope)
-    file_infos = write_scheme_files(scheme.get("files") or [], ctx)
+    # Build file plans and collect runtime metadata without writing to the filesystem.
+    file_infos = plan_scheme_files(
+        scheme.get("files") or [],
+        ctx,
+        source_path_prefix=source_path_prefix,
+    )
     # 框架自动合成 pre_serve(mkdir/envsubst 按 scope 分流;daemon 仅 master bash &,不监听端口)
     pre_serve, pre_serve_master, pre_serve_client = _synthesize_file_pre_serve(file_infos)
     # 逃生口:YAML 显式 pre_serve 追加(向后兼容)
@@ -316,4 +352,5 @@ def _render_kv_store_scheme(
         pre_serve=pre_serve,
         pre_serve_master=pre_serve_master,
         pre_serve_client=pre_serve_client,
+        generated_files=file_infos,
     )

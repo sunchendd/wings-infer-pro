@@ -14,8 +14,8 @@ func_smart_accel 验证脚本 — 单 YAML 快照 + 全量矩阵扫描两种形�
       卸载(kv_offload):每个 scheme 单测,按 connector+backend 分为
         native / memcache / mooncake / lmcache(:disk|:cpu_disk) / lmcache-ascend,
         并按需开 memory / disk 主开关。
-    offload 的 files: 块(mooncake/memcache/lmcache 落盘)统一写入临时目录(SHARED_VOLUME_PATH),
-    不污染宿主 /shared-volume。
+    offload 的 files: 块统一渲染为文件计划，并在内存中校验内容；计划路径使用临时根目录,
+    不会写入宿主 /shared-volume。
 
 用法:
     # 单模型矩阵:测一个模型全部变体
@@ -49,7 +49,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import traceback
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -222,7 +221,7 @@ class VariantResult:
     engine_config: Dict[str, Any] = field(default_factory=dict)
     envs: Dict[str, str] = field(default_factory=dict)
     packages: List[str] = field(default_factory=list)
-    file_errors: List[str] = field(default_factory=list)   # offload 落盘文件语义校验错误(JSON/YAML/bash)
+    file_errors: List[str] = field(default_factory=list)   # offload 文件计划语义校验错误(JSON/YAML/bash)
     pre_serve: List[str] = field(default_factory=list)
     pre_serve_master: List[str] = field(default_factory=list)
     pre_serve_client: List[str] = field(default_factory=list)
@@ -248,10 +247,37 @@ def _disable_all_features(inp: SmartAccelInput) -> None:
     inp.smart_kv_sparse_config = SmartKVSparseConfig(enabled=False)
 
 
+def _validate_generated_file_plans(file_plans) -> None:
+    """Validate GeneratedFile plan content in memory without writing to the shared volume."""
+    errors: List[str] = []
+    for file_plan in file_plans or []:
+        path = Path(str(getattr(file_plan, "path", "") or ""))
+        text = str(getattr(file_plan, "content", "") or "")
+        try:
+            if path.suffix.lower() == ".json":
+                json.loads(text)
+            elif path.suffix.lower() in (".yaml", ".yml"):
+                yaml.safe_load(text)
+            elif path.suffix.lower() == ".sh":
+                process = subprocess.run(
+                    ["bash", "-n"], input=text, capture_output=True, text=True, timeout=5
+                )
+                if process.returncode != 0:
+                    stderr = (process.stderr or "").strip()[:120]
+                    errors.append(f"{path.name}: bash -n failed: {stderr}")
+            elif not text.strip():
+                errors.append(f"{path.name}: empty file")
+        except Exception as exc:
+            errors.append(f"{path.name}: invalid rendered content: {exc}")
+    if errors:
+        raise ValueError("generated file plan validation failed: " + "; ".join(errors))
+
+
 def _run_one(feature: str, label: str, inp: SmartAccelInput, expect: str) -> VariantResult:
     """跑一次 func_smart_accel,核对选中 scheme 是否 == 预期。"""
     try:
         out: SmartAccelOutput = func_smart_accel(inp)
+        _validate_generated_file_plans(out.generated_files)
     except Exception as exc:  # 单变体异常不中断整体扫描
         return VariantResult(
             feature=feature, label=label, ok=False, expect=expect,
@@ -350,80 +376,18 @@ def _offload_classifier(scheme: Dict[str, Any]) -> Tuple[str, bool, bool]:
     return (f"other:{connector}" if connector else "other:?", True, needs_disk)
 
 
-def _snapshot_files(volume: str) -> set:
-    """对落盘卷做文件快照(供隔离本变体新增文件用)。"""
-    p = Path(volume)
-    if not p.is_dir():
-        return set()
-    return {str(f) for f in p.rglob("*") if f.is_file()}
-
-
-def _validate_file(path: Path) -> Optional[str]:
-    """校验单个落盘配置文件可解析;返回错误描述或 None(通过)。
-
-    .json → json.loads;.yaml/.yml → yaml.safe_load;.sh → bash -n 语法检查;
-    .conf 及其它 → 仅查非空。校验的是占位符填充后的实际产物,能抓出渲染导致的非法配置。
-    """
-    ext = path.suffix.lower()
-    try:
-        text = path.read_text(encoding="utf-8")
-    except Exception as exc:
-        return f"读取失败: {exc}"
-    if ext == ".json":
-        try:
-            json.loads(text)
-        except Exception as exc:
-            return f"非法 JSON: {exc}"
-    elif ext in (".yaml", ".yml"):
-        try:
-            yaml.safe_load(text)
-        except Exception as exc:
-            return f"非法 YAML: {exc}"
-    elif ext == ".sh":
-        try:
-            proc = subprocess.run(["bash", "-n", str(path)], capture_output=True,
-                                  text=True, timeout=5)
-            if proc.returncode != 0:
-                return f"bash -n 失败: {(proc.stderr or '').strip()[:120]}"
-        except FileNotFoundError:
-            if not text.strip():
-                return "空脚本"
-        except Exception as exc:
-            return f"bash 检查异常: {exc}"
-    else:  # .conf 及其它:仅查非空
-        if not text.strip():
-            return "空文件"
-    return None
-
-
-def _validate_new_files(volume: str, before: set) -> List[str]:
-    """校验 volume 中相对 before 快照新增的文件;返回各文件错误描述列表。"""
-    p = Path(volume)
-    if not p.is_dir():
-        return []
-    errs: List[str] = []
-    for f in sorted(p.rglob("*")):
-        if not f.is_file() or str(f) in before:
-            continue
-        e = _validate_file(f)
-        if e:
-            errs.append(f"{f.name}: {e}")
-    return errs
-
-
 def _test_offload(base: SmartAccelInput) -> List[VariantResult]:
-    """卸载:逐 scheme 隔离,按分类开 memory/disk 主开关 + 设容量;并校验落盘配置文件可解析。"""
-    out: List[VariantResult] = []
+    """Test every offload scheme and validate its rendered GeneratedFile plans in memory."""
+    results: List[VariantResult] = []
     base_tp = base.smart_kv_cache_config.tp_size or 1
-    volume = os.environ.get("SHARED_VOLUME_PATH") or "/shared-volume"
-    for s in _as_scheme_list((base.smart_accel or {}).get("kv_offload")):
-        label, needs_mem, needs_disk = _offload_classifier(s)
+    for scheme in _as_scheme_list((base.smart_accel or {}).get("kv_offload")):
+        label, needs_mem, needs_disk = _offload_classifier(scheme)
         inp = deepcopy(base)
-        sa = inp.smart_accel
-        sa["kv_offload"] = [s]
-        sa["decoding"] = []
-        sa["sparse"] = []
-        sa["custom_features"] = []
+        selected = inp.smart_accel
+        selected["kv_offload"] = [scheme]
+        selected["decoding"] = []
+        selected["sparse"] = []
+        selected["custom_features"] = []
         _disable_all_features(inp)
         kv = SmartKVCacheConfig(
             enabled=True,
@@ -434,19 +398,11 @@ def _test_offload(base: SmartAccelInput) -> List[VariantResult]:
             disk_path=_DISK_PATH,
             tp_size=base_tp,
         )
-        # 内部渲染用 CPU 卸载容量(与 yaml_loader 一致:_memory_capacity_gb 不入参,setattr 注入)。
         setattr(kv, "_memory_capacity_gb", _MEM_CAPACITY_GB if needs_mem else 0)
         inp.smart_kv_cache_config = kv
-        expect = str(s.get("name") or "")
-        before = _snapshot_files(volume)  # 落盘前快照,用于隔离本变体的新文件
-        r = _run_one("offload", label, inp, expect=expect)
-        r.file_errors = _validate_new_files(volume, before)  # 语义校验:JSON/YAML/bash
-        if r.file_errors:
-            r.ok = False
-            file_msg = "落盘文件解析失败: " + "; ".join(r.file_errors)
-            r.error = (r.error + "; " + file_msg) if r.error else file_msg
-        out.append(r)
-    return out
+        expected = str(scheme.get("name") or "")
+        results.append(_run_one("offload", label, inp, expect=expected))
+    return results
 
 
 _FEATURE_TESTERS = {
@@ -484,7 +440,7 @@ def _result_line(r: VariantResult) -> str:
 def _print_variant_detail(r: VariantResult, vol_tmp: str = "") -> None:
     """verbose:打印单个变体的完整渲染结果(含 pre_serve)。
 
-    vol_tmp: offload 落盘用的临时卷;pre_serve 命令里的该路径改写为生产卷 /shared-volume 便于阅读。
+    vol_tmp: offload 文件计划使用的临时路径根;pre_serve 命令里的该路径改写为生产卷 /shared-volume 便于阅读。
     """
     print(_result_line(r))
     if r.engine_config:
@@ -581,14 +537,14 @@ def _run_scan(args, dirs: List[str]) -> int:
     if args.limit:
         files = files[: args.limit]
 
-    # offload files: 落盘重定向到临时目录,避免污染 /shared-volume(--keep-files 保留以供检查)
+    # offload file plans use a temporary path root and are validated in memory
     tmpdir = tempfile.mkdtemp(prefix="smart_accel_io_")
     os.environ["SHARED_VOLUME_PATH"] = tmpdir
 
     if not args.json:
         print(f"扫描 smart-accel: {', '.join(dirs)}  ({len(files)} 个 YAML,features={features})")
         if args.verbose:
-            print(f"offload 配置文件写入临时目录: {tmpdir}")
+            print(f"offload file plan temporary root: {tmpdir}")
         print()
 
     all_results: List[Tuple[Path, Optional[SmartAccelInput], List[VariantResult]]] = []
@@ -620,10 +576,7 @@ def _run_scan(args, dirs: List[str]) -> int:
             if not args.json and not args.quiet and idx % 50 == 0:
                 print(f"  …已处理 {idx}/{len(files)}", file=sys.stderr)
     finally:
-        if args.keep_files:
-            print(f"\n(offload 配置文件保留于: {tmpdir})", file=sys.stderr)
-        else:
-            shutil.rmtree(tmpdir, ignore_errors=True)
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
     if args.json:
         agg = _aggregate(all_results, features)
@@ -802,7 +755,7 @@ _SAMPLE_HEADER = (
     "隔离测试(仅开该特性 + 该变体)后 `func_smart_accel` 的完整输出。\n"
     "> 测试用占位输入:草稿路径=`/dummy/draft-model`、内存卸载容量=128 GB、"
     "磁盘=512 GB @ `/var/cache/lmcache`。\n"
-    "> offload 的 `files:` 配置文件写入临时目录(此处仅展示生成的 pre_serve 命令与 env/cli)。\n\n"
+    "> offload 的 `files:` 仅生成并校验文件计划；此处展示生成的 pre_serve 命令与 env/cli。\n\n"
 )
 
 
@@ -822,7 +775,7 @@ def _fmt_variant_section(label: str, count: int, rep: Path, r: Optional[VariantR
                          vol_tmp: str = "") -> str:
     """单个变体的 markdown 段落(代表路径 + 完整渲染输出)。
 
-    vol_tmp: offload 落盘用的临时卷;pre_serve 命令里的该路径会被改写为生产卷
+    vol_tmp: offload 文件计划使用的临时路径根;pre_serve 命令里的该路径会被改写为生产卷
     ``/shared-volume``,使样本文档展示的是「实际会生成」的命令,而非已删除的临时目录。
     """
     lines = [f"## `{label}`  ({count} 路径)", ""]
@@ -869,12 +822,12 @@ def _save_samples(args, dirs: List[str]) -> int:
     features = args.feature or ["decoding", "sparse", "offload"]
     cov = _coverage(files, features)
 
-    # offload 落盘重定向到临时目录,避免污染 /shared-volume
+    # offload file plans use a temporary path root and are validated in memory
     tmpdir = tempfile.mkdtemp(prefix="smart_accel_io_")
     os.environ["SHARED_VOLUME_PATH"] = tmpdir
 
-    index = [f"# 路径覆盖样本索引\n",
-             f"> 生成自 `smart_accel_io.py --save-samples`\n",
+    index = ["# 路径覆盖样本索引\n",
+             "> 生成自 `smart_accel_io.py --save-samples`\n",
              f"> 目录: {', '.join(dirs)}   模型 YAML: {len(files)}\n"]
     try:
         for f in features:
@@ -942,9 +895,6 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--quiet", action="store_true", help="扫描时只打印汇总(失败仍打印)")
     parser.add_argument("--max-paths", type=int, default=8,
                         help="覆盖检查时每个变体最多列出 N 条路径(0=全部,默认 8)")
-    parser.add_argument("--keep-files", action="store_true",
-                        help="保留 offload 写出的临时配置文件(默认清理)")
-
     # 形态一开关(legacy)
     parser.add_argument("--print", choices=["input", "output", "both"], default="both",
                         help="打印范围(默认 both,形态一)")
@@ -984,7 +934,7 @@ def main() -> int:
         if not ypath.is_file():
             raise SystemExit(f"YAML 不存在: {ypath}")
         features = args.feature or ["decoding", "sparse", "offload"]
-        # offload files 落盘重定向到临时目录,避免污染 /shared-volume;显示时改写为 /shared-volume
+        # offload file plans use a temporary path root; displayed commands are normalized to /shared-volume
         tmpdir = tempfile.mkdtemp(prefix="smart_accel_io_")
         os.environ["SHARED_VOLUME_PATH"] = tmpdir
         try:
@@ -994,10 +944,7 @@ def main() -> int:
             else:
                 _print_matrix(ypath, base, results, verbose=True, vol_tmp=tmpdir)
         finally:
-            if args.keep_files:
-                print(f"\n(offload 配置文件保留于: {tmpdir})", file=sys.stderr)
-            else:
-                shutil.rmtree(tmpdir, ignore_errors=True)
+            shutil.rmtree(tmpdir, ignore_errors=True)
         return 0 if all(r.ok for r in results) else 1
 
     # 形态一:legacy 单 YAML 快照
