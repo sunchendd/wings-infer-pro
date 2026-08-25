@@ -119,6 +119,15 @@ def canonicalize_sglang_arguments(arguments: dict[str, str]) -> dict[str, str]:
     return normalized
 
 
+def canonicalize_vllm_arguments(arguments: dict[str, str]) -> dict[str, str]:
+    """Treat vLLM underscore and kebab-case spellings as equivalent."""
+    normalized: dict[str, str] = {}
+    for flag, value in arguments.items():
+        top_level, dot, nested_path = flag[2:].partition(".")
+        normalized["--" + top_level.replace("_", "-") + dot + nested_path] = value
+    return normalized
+
+
 def command_env(text: str) -> dict[str, str]:
     """Parse explicit ``export KEY=value`` assignments from a launch script."""
     result: dict[str, str] = {}
@@ -291,6 +300,9 @@ def compare(
     if engine == "sglang":
         comparable_expected = canonicalize_sglang_arguments(comparable_expected)
         comparable_actual = canonicalize_sglang_arguments(comparable_actual)
+    elif engine in {"vllm", "vllm-ascend"}:
+        comparable_expected = canonicalize_vllm_arguments(comparable_expected)
+        comparable_actual = canonicalize_vllm_arguments(comparable_actual)
     if comparable_actual.get("--model", "").startswith("/"):
         comparable_expected.pop("--model", None)
         comparable_actual.pop("--model", None)
