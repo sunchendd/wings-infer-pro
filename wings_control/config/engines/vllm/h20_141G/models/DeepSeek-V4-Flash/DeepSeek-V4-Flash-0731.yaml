@@ -1,0 +1,75 @@
+# 来源追溯
+upstream_sources:
+  - id: deepseek-v4-flash-0731_manual
+    kind: manual
+    repo: null
+    file: null
+    url: https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash
+    note: 用户提供 vLLM v0.25.0 启动命令，手工录入。
+
+# 模型基本信息
+model:
+  name: DeepSeek-V4-Flash
+  slug: deepseek-v4-flash
+  provider: DeepSeek
+  description: DeepSeek V4 Flash MoE model configured from the 0731 deployment command.
+  model_id: deepseek-ai/DeepSeek-V4-Flash
+  architecture: moe
+  parameter_count: 284B
+  active_parameters: 13B
+  context_length: 1048576
+  vram_minimum_gb: 384
+  tasks: [text]
+  min_engine_version: "0.25.0"
+  match:
+    - name_pattern: "(?i)deepseek[-.]?v4[-.]?flash[-.]?0731"
+  variant_name: DeepSeek-V4-Flash-0731
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 1128
+  multi_node: false
+
+# 可选功能列表（不进 engine_config）
+features:
+  tool_calling:
+    description: Enable tool calling with the DeepSeek V4 tool parser.
+    args: [--tokenizer-mode, deepseek_v4, --tool-call-parser, deepseek_v4, --enable-auto-tool-choice]
+  reasoning:
+    description: Enable reasoning/thinking mode via the DeepSeek V4 reasoning parser.
+    args: [--reasoning-parser, deepseek_v4]
+  spec_decoding:
+    description: Dspark speculative decoding with two speculative tokens and probabilistic draft sampling.
+    args: [--speculative-config, "{\"method\":\"dspark\",\"num_speculative_tokens\":2,\"draft_sample_method\":\"probabilistic\"}"]
+  sparse_index:
+    description: Configure the DeepSeek sparse index cache.
+    args: [--hf-overrides, "{\"use_index_cache\":true,\"index_topk_freq\":4}"]
+  kv_offloading:
+    description: KV cache native offloading to reduce GPU memory usage.
+    args: [--kv_offloading_backend, native, --kv_offloading_size, "200"]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "deepseek-v4-flash-0731_manual#single_node_tep"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tep:
+        display_name: Tensor + Expert Parallel
+        orientation: balanced
+        default_strategy: true
+        engine_config:
+          model: deepseek-ai/DeepSeek-V4-Flash
+          host: "0.0.0.0"
+          trust_remote_code: true
+          kv_cache_dtype: fp8
+          block_size: 256
+          enable_expert_parallel: true
+          tensor_parallel_size: 8
+          max_model_len: 200000
+          disable_custom_all_reduce: true
+          port: 18000
+        env: {}

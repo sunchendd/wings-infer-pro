@@ -114,6 +114,23 @@ def test_vllm_served_model_name_is_ignored_as_a_deployment_local_alias(tmp_path:
     assert "node[0]: OK" in "\n".join(report)
 
 
+def test_vllm_dry_run_accepts_underscore_parameter_aliases(tmp_path: Path) -> None:
+    yaml_path, command_path = write_case(
+        tmp_path,
+        feature_args="",
+        command_args="--max_model_len 200000",
+    )
+    yaml_text = yaml_path.read_text(encoding="utf-8")
+    yaml_path.write_text(
+        yaml_text.replace("          tensor_parallel_size: 1\n", "          tensor_parallel_size: 1\n          max_model_len: 200000\n"),
+        encoding="utf-8",
+    )
+
+    report = module.check(yaml_path, [command_path], "vllm", "standalone")
+
+    assert "node[0]: OK" in "\n".join(report)
+
+
 def test_environment_matches_explicit_exports(tmp_path: Path) -> None:
     yaml_path, command_path = write_case(
         tmp_path,

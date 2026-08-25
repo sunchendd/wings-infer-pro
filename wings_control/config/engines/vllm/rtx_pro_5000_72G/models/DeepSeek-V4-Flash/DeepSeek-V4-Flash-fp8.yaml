@@ -24,7 +24,7 @@ model:
   date_updated: 2026-07-28  # 录入日期
   match:  # 模型名匹配规则
     - name_pattern: "(?i)deepseek[-.]?v4[-.]?flash"
-  variant_name: DeepSeek-V4-Flash-fp8  # 模型量化版本精确名称
+  variant_name: DeepSeek-V4-Flash  # 模型量化版本精确名称
 
 # 硬件信息
 hardware_profile:
