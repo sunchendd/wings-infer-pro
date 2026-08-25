@@ -163,7 +163,15 @@ Wings Control 的 `engine_config` 参数名映射以**第一个点号**为边界
 
 ### 可选功能
 
-工具调用、reasoning、spec decoding、KV offloading、Mooncake/MemCache/LMCache 和 sparse index 等可独立开关功能放在 `features`，不重复留在 `engine_config`。`features.*.args` 保留原始 CLI flag，JSON 使用双引号字符串并转义内部双引号。
+工具调用、reasoning、spec decoding、KV offloading、Mooncake/MemCache/LMCache 和 sparse index 等可独立开关功能放在 `features`，不重复留在 `engine_config`。除下述 `--chat-template` 例外外，`features.*.args` 保留原始 CLI flag，JSON 使用双引号字符串并转义内部双引号。
+
+#### 工具调用 chat template 确认
+
+当用户提供的启动命令在工具调用参数中包含 `--chat-template <value>` 时，必须先询问用户是否保留该参数，并要求用户明确确认 `<value>` 指向的模板文件在**实际运行环境**中存在且可读取。不得根据本地开发环境、reference YAML 或文件名推断模板在目标环境可用。
+
+默认策略是**不保留**：在用户未明确确认、拒绝保留，或无法确认运行环境中的模板可用时，从生成 YAML 的 `features.tool_calling.args` 中同时移除 `--chat-template` 及其值；也不得将其留在 `engine_config`。仅当用户同时明确要求保留并确认模板在运行环境中存在且可读取时，才可将该参数对写入 YAML。
+
+对已生成或引用的 YAML 也适用此规则：不得因参考文件包含 `--chat-template` 而保留或带入该参数。输出结果必须说明该参数是“默认移除”还是“经用户确认保留”，并在后者记录用户确认的模板值。
 
 如果目标 schema 不支持 `features`，先扩展 schema/验证器；否则功能参数留在 `engine_config`，不能静默丢弃。
 
@@ -232,9 +240,7 @@ python3 <skill-dir>/scripts/validate_yaml.py \
 
 dry-run 默认视为已开启 `tool_calling` 和 `reasoning`：只要 YAML 中存在
 `features.tool_calling` 或 `features.reasoning`，就必须合并其 args 并与用户原始启动命令逐项比较；
-其它已配置 feature 也继续参与比较。`--chat-template` 采用严格来源规则：生成 YAML 只有在用户提供的
-原始启动命令中包含相同的 `--chat-template <value>` 时才能包含该参数。引用 YAML、跨引擎 fallback 或
-其他非用户命令来源带入的 `--chat-template` 必须使 dry-run 失败，不能写入生成结果。
+其它已配置 feature 也继续参与比较。`--chat-template` 是例外：仅当用户明确要求保留且确认模板在实际运行环境中存在并可读取时，生成 YAML 才能包含与原始命令相同的 `--chat-template <value>`。默认移除该参数时，dry-run 必须从比较用的原始命令副本中同时排除 `--chat-template` 及其值，再进行逐项比较；原始命令文件本身不得改写。引用 YAML、跨引擎 fallback 或其他非用户命令来源带入的 `--chat-template` 必须使 dry-run 失败，不能写入生成结果。
 
 用户可能直接在消息中粘贴多行命令，而不是提供脚本文件。此时必须先将命令原样写入
 临时 command file（保留续行、引号和 JSON 参数），再执行 dry-run；“没有现成的脚本

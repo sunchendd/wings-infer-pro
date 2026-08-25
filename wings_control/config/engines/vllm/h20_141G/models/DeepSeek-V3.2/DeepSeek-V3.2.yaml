@@ -49,7 +49,7 @@ features:
     args: [--hf-overrides, "{\"use_index_cache\":true,\"index_topk_freq\":4}"]
   kv_offloading:
     description: KV cache native offloading to reduce GPU memory usage.
-    args: [--kv_offloading_backend, native, --kv_offloading_size, 200]
+    args: [--kv_offloading_backend, "native", --kv_offloading_size, "200"]
 
 # 部署场景
 scenarios:

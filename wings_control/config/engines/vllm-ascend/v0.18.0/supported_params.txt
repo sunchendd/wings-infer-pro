@@ -164,6 +164,8 @@
 --model-loader-extra-config
 --moe-backend
 --nnodes
+--no-disable-hybrid-kv-cache-manager
+--no-enable-prefix-caching
 --node-rank
 --num-gpu-blocks-override
 --offload-backend

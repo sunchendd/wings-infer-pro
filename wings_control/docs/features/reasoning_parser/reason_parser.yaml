@@ -105,7 +105,10 @@ architectures:
       GLM-5.1-w8a8c8: {vllm: glm45, vllm_ascend: glm45}
       GLM-5.1-FP8:  {vllm: glm45, vllm_ascend: glm45}
       GLM-5.2:      {vllm: glm45, vllm_ascend: glm45}
+      GLM-5.2-w4a8: {vllm: glm45, vllm_ascend: glm45}
+      GLM-5.2-w4a8c8: {vllm: glm45, vllm_ascend: glm45}
       GLM-5.2-w8a8: {vllm: glm45, vllm_ascend: glm45}
+      GLM-5.2-w8a8c8: {vllm: glm45, vllm_ascend: glm45}
 
   - name: Glm4MoeForCausalLM
     config:
