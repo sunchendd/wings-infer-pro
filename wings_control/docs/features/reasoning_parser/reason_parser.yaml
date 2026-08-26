@@ -65,6 +65,7 @@ architectures:
       vllm_ascend: {default: deepseek_v4}
     models:
       DeepSeek-V4-Flash:          {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
+      DeepSeek-V4-Flash-0731-w8a8: {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
       DeepSeek-V4-Flash-w8a8-mtp: {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
       DeepSeek-V4-Pro:            {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
       DeepSeek-V4-Pro-w4a8-mtp:   {vllm: deepseek_v4, vllm_ascend: deepseek_v4}

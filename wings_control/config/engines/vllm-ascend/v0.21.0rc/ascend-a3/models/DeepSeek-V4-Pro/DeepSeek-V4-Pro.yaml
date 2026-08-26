@@ -111,6 +111,7 @@ scenarios:
             host: "0.0.0.0"
             block_size: 128
             async_scheduling: true
+            headless: true
             compilation_config:
               cudagraph_mode: FULL_DECODE_ONLY
             additional_config:
@@ -161,7 +162,7 @@ scenarios:
               max_model_len: 131072
               max_num_batched_tokens: 4096
               max_num_seqs: 16
-              disable_hybrid_kv_cache_manager: false
+              no_disable_hybrid_kv_cache_manager: true
               safetensors_load_strategy: prefetch
               model_loader_extra_config:
                 enable_multithread_load: "true"
@@ -223,7 +224,7 @@ scenarios:
               max_model_len: 131072
               max_num_batched_tokens: 4096
               max_num_seqs: 16
-              disable_hybrid_kv_cache_manager: false
+              no_disable_hybrid_kv_cache_manager: true
               safetensors_load_strategy: prefetch
               model_loader_extra_config:
                 enable_multithread_load: "true"
@@ -288,7 +289,7 @@ scenarios:
               async_scheduling: true
               block_size: 128
               no_enable_prefix_caching: true
-              disable_hybrid_kv_cache_manager: false
+              no_disable_hybrid_kv_cache_manager: true
               safetensors_load_strategy: prefetch
               model_loader_extra_config:
                 enable_multithread_load: "true"

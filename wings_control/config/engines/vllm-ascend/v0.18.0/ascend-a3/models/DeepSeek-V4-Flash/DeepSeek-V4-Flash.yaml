@@ -110,7 +110,7 @@ scenarios:
               max_model_len: 135000
               max_num_batched_tokens: 8192
               max_num_seqs: 4
-              disable_hybrid_kv_cache_manager: false
+              no_disable_hybrid_kv_cache_manager: true
               no_enable_prefix_caching: true
               safetensors_load_strategy: prefetch
               trust_remote_code: true
@@ -172,7 +172,7 @@ scenarios:
               max_model_len: 135000
               max_num_batched_tokens: 8192
               max_num_seqs: 4
-              disable_hybrid_kv_cache_manager: false
+              no_disable_hybrid_kv_cache_manager: true
               no_enable_prefix_caching: true
               safetensors_load_strategy: prefetch
               trust_remote_code: true
@@ -231,7 +231,7 @@ scenarios:
               max_num_batched_tokens: 120
               max_num_seqs: 60
               async_scheduling: true
-              disable_hybrid_kv_cache_manager: false
+              no_disable_hybrid_kv_cache_manager: true
               no_enable_prefix_caching: true
               safetensors_load_strategy: prefetch
               trust_remote_code: true
