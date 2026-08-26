@@ -32,10 +32,6 @@ features:
   spec_decoding:
     description: Speculative decoding (MTP draft) to accelerate generation.
     args: [--speculative-config, "{\"method\":\"qwen3_5_mtp\",\"num_speculative_tokens\":1,\"enforce_eager\":true}"]
-  memcache_offloading:
-    description: Enable MemCache-backed KV transfer/offloading for KV cache sharing; requires MetaService started by start_memcache_master.sh.
-    args: [--kv-transfer-config, "{\"kv_connector\":\"AscendStoreConnector\",\"kv_role\":\"kv_both\",\"kv_connector_extra_config\":{\"backend\":\"memcache\",\"lookup_rpc_port\":\"0\"}}"]
-
 # 部署场景
 scenarios:
   standalone:

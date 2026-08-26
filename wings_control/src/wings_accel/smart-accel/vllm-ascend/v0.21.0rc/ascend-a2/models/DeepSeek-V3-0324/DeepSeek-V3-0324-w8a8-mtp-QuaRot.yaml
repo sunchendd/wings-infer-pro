@@ -1,7 +1,26 @@
-# SmartAccel 精确身份占位（无已验证的加速特性）
+# SmartAccel 加速配置(decoding=mtp)
+# variant_name 必须等于 MaaS 下发的完整 --model-name;loader 按 variant_name 精确匹配优先,
+# name_pattern 仅作家族兜底。
+# 投机参数与引擎 features.spec_decoding 同源:mtp,num_speculative_tokens=3。
+# 引擎 recipe 仅声明 multi_node 场景,本资产不声明其它拓扑。
 model:
   name: DeepSeek-V3-0324
   variant_name: "DeepSeek-V3-0324-w8a8-mtp-QuaRot"
   match:
     - name_pattern: "(?i)deepseek[-.]?v3[-.]?0324[-.]?w8a8[-.]?mtp[-.]?quarot"
-smart_accel: {}
+smart_accel:
+  multi_node:
+    source_ref: vllm_ascend_deepseek-v3#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dp:
+        default_strategy: true
+        decoding:
+        - name: mtp
+          cli_params:
+            speculative_config:
+              method: mtp
+              num_speculative_tokens: 3
+          envs: {}

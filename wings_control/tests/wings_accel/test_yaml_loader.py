@@ -408,3 +408,78 @@ def test_offload_no_media_returns_none(tmp_path):
     assert smart_input.smart_kv_cache_config.memory_offload_enabled is False
     out = func_smart_accel(smart_input)
     assert out.smart_kv_cache_scheme is None  # 无介质 → None
+
+
+# ── 自定义(非数字)版本目录解析:kimi-k3 / kimi-k3-a3 形态 ──
+# ENGINE_VERSION 为自定义字符串时(如 kimi-k3、kimi-k3-a3-20260730213841),
+# _candidate_version_dirs 只会补 v 前缀得到空候选;需按引擎侧 version_resolver
+# 的前缀语义扫描真实目录:大小写无关、requested 前缀命中目录名、最长优先,v 带/不带均可。
+
+
+def _make_custom_version_tree(tmp_path, engine, version_dir, hardware="h20_141G"):
+    yaml_path = tmp_path / "smart-accel" / engine / version_dir / hardware / "models" / "M" / "M.yaml"
+    yaml_path.parent.mkdir(parents=True)
+    yaml_path.write_text(YAML_TEMPLATE, encoding="utf-8")
+    return yaml_path
+
+
+def test_custom_version_dir_exact_without_v(tmp_path):
+    """ENGINE_VERSION=kimi-k3 命中目录 kimi-k3(不带 v)。"""
+    p = _make_custom_version_tree(tmp_path, "vllm", "kimi-k3")
+    assert find_smart_accel_yaml_path(tmp_path, "vllm", "kimi-k3", "h20_141G", "M") == p
+
+
+def test_custom_version_dir_with_v_prefix_elastic(tmp_path):
+    """requested 带 v(vkimi-k3)与目录不带 v(kimi-k3)互相命中。"""
+    p = _make_custom_version_tree(tmp_path, "vllm", "kimi-k3")
+    assert find_smart_accel_yaml_path(tmp_path, "vllm", "vkimi-k3", "h20_141G", "M") == p
+
+
+def test_custom_version_dir_build_suffix_longest_prefix(tmp_path):
+    """构建号后缀按最长前缀命中:kimi-k3-a3-20260730213841 → 目录 kimi-k3-a3。"""
+    p = _make_custom_version_tree(tmp_path, "vllm-ascend", "kimi-k3-a3", hardware="ascend-a3")
+    assert (
+        find_smart_accel_yaml_path(tmp_path, "vllm-ascend", "kimi-k3-a3-20260730213841", "ascend-a3", "M")
+        == p
+    )
+
+
+def test_custom_version_dir_case_insensitive(tmp_path):
+    """大小写无关:KIMI-K3-A3-… 命中目录 kimi-k3-a3(对齐引擎侧 casefold 语义)。"""
+    p = _make_custom_version_tree(tmp_path, "vllm-ascend", "kimi-k3-a3", hardware="ascend-a3")
+    assert (
+        find_smart_accel_yaml_path(tmp_path, "vllm-ascend", "KIMI-K3-A3-20260730213841", "ascend-a3", "M")
+        == p
+    )
+
+
+def test_numeric_version_dir_unaffected_by_scan(tmp_path):
+    """数字形态仍走句法候选(构建后缀剥离),扫描回退不改变既有行为。"""
+    p = _make_custom_version_tree(tmp_path, "vllm", "v0.23.0")
+    assert find_smart_accel_yaml_path(tmp_path, "vllm", "0.23.0-cu130-20260727055844", "h20_141G", "M") == p
+
+
+def test_build_smart_accel_yaml_path_resolves_custom_version_dir(tmp_path):
+    """build 入口同样支持自定义版本目录(优先已存在目录,而非盲目补 v)。"""
+    p = _make_custom_version_tree(tmp_path, "vllm", "kimi-k3")
+    assert build_smart_accel_yaml_path(tmp_path, "vllm", "kimi-k3", "h20_141G", "M", "M.yaml") == p
+
+
+def test_package_kimi_k3_gpu_asset_reachable_by_custom_version():
+    """包内资产回归:vllm Kimi-K3 落在自定义版本目录 kimi-k3,ENGINE_VERSION=kimi-k3 可命中。"""
+    from wings_accel.yaml_loader import _package_smart_accel_root
+
+    p = find_smart_accel_yaml_path(_package_smart_accel_root(), "vllm", "kimi-k3", "h20_141G", "Kimi-K3")
+    assert p is not None and p.name == "Kimi-K3.yaml"
+    assert "kimi-k3" in p.parts
+
+
+def test_package_kimi_k3_a3_ascend_asset_reachable_by_build_version():
+    """包内资产回归:vllm-ascend kimi-k3-a3 存量资产在构建号形态 ENGINE_VERSION 下可命中。"""
+    from wings_accel.yaml_loader import _package_smart_accel_root
+
+    p = find_smart_accel_yaml_path(
+        _package_smart_accel_root(), "vllm-ascend", "kimi-k3-a3-20260730213841", "ascend-a3", "Kimi-K3"
+    )
+    assert p is not None and p.name.endswith(".yaml")
+    assert "kimi-k3-a3" in p.parts
