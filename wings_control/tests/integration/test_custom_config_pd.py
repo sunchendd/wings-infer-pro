@@ -146,7 +146,36 @@ def test_b_dp_local1_single(config_root, hardware_info_path):
     assert len(plan.processes) == 1
     p = plan.processes[0]
     assert p.visible_devices == (0, 1, 2, 3)
-    assert "--data-parallel-size-local 1" in shlex.join(p.argv)
+    assert p.dp_rank is None
+    assert not any(argument.startswith("--data-parallel-") for argument in p.argv)
+
+
+def test_b1_dp1_external_lb_warn_only(config_root, hardware_info_path):
+    """验证 custom PD 对 DP=1 显式 external LB 仅告警、不阻断,且不派生 data_parallel_rank。"""
+    explicit1 = ExplicitPdTopology(
+        pd_index=0,
+        prefill=ParallelShape(dp_size=1, tp_size=4),
+        decode=ParallelShape(dp_size=1, tp_size=4),
+        dp_size_local=1,
+    )
+
+    resolved = _resolve(
+        config_root,
+        hardware_info_path,
+        pd_input=_pd_input(explicit=explicit1),
+        config_file=CustomConfigFile(params={"data_parallel_external_lb": True}, env={}),
+        device_count=4,
+    )
+    plan = resolved.process_plan
+    assert plan is not None
+    assert len(plan.processes) == 1
+    process = plan.processes[0]
+    assert process.dp_rank is None
+    argv = shlex.join(process.argv)
+    assert "--data-parallel-rank" not in argv
+    # 用户自管的 external_lb 原样保留,仅告警;rank 不派生。
+    assert "--data-parallel-external-lb" in argv
+    assert "data_parallel_external_lb" in resolved.resolution_notes["custom_pd_device_capacity"]
 
 
 # ─── (c) config-file 优先,MaaS 兜底 ───
@@ -177,12 +206,25 @@ def test_c1_maas_fallback_when_config_missing(config_root, hardware_info_path):
 def test_c2_config_file_size_local_wins(config_root, hardware_info_path):
     """custom PD:用户 config-file 填 data_parallel_size_local 优先于 MaaS ENV。"""
     # MaaS DP_LOCAL=2;用户 config 填 DP_LOCAL=1 + DP=1(单 Pod → global DP=1 闭合)
-    cf = CustomConfigFile(params={"data_parallel_size_local": 1, "data_parallel_size": 1}, env={})
+    cf = CustomConfigFile(
+        params={
+            "data_parallel_size_local": 1,
+            "data_parallel_size": 1,
+            "data_parallel_rpc_port": 12345,
+        },
+        env={},
+    )
     resolved = _resolve(config_root, hardware_info_path, config_file=cf, device_count=2)
     plan = resolved.process_plan
     assert plan.lifecycle == "single"
     assert len(plan.processes) == 1
-    assert plan.processes[0].dp_rank == 0
+    assert plan.processes[0].dp_rank is None
+    argv = shlex.join(plan.processes[0].argv)
+    # DP=1 仅跳过平台派生的 data_parallel_rank;用户自管参数原样保留。
+    assert "--data-parallel-rank" not in argv
+    assert "--data-parallel-size 1" in argv
+    assert "--data-parallel-size-local 1" in argv
+    assert "--data-parallel-rpc-port 12345" in argv
 
 
 # ─── (d) blocking 校验 ───

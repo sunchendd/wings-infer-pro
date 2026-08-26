@@ -203,6 +203,93 @@ def test_ordinary_process_uses_all_devices_without_dp_flags(
     assert not [listener for listener in plan.listeners if listener.name == "dp_rpc"]
 
 
+def test_explicit_dp1_omits_external_dp_arguments_and_rpc_listener() -> None:
+    """验证大 EP exact recipe 在有效 DP=1 时不进入 vLLM external DP 模式。"""
+    resolved = _resolved(head=True)
+    assert resolved.pd_topology is not None
+    topology = replace(
+        resolved.pd_topology,
+        prefill=ParallelShape(1, 2),
+        decode=ParallelShape(1, 2),
+        dp_size_local=1,
+        placement=ClusterPlacement(
+            master_ip="10.0.0.1",
+            rank_ip="10.0.0.1",
+            node_ips=["10.0.0.1"],
+        ),
+        member_index=0,
+        rank_start=0,
+        rank_end_exclusive=1,
+    )
+    resolved = replace(resolved, pd_topology=topology)
+
+    plan = _build_pd_process_plan(resolved, _runtime(), device_count=2)
+
+    assert plan.layout == "per_local_dp_rank"
+    assert plan.lifecycle == "single"
+    assert len(plan.processes) == 1
+    process = plan.processes[0]
+    assert process.dp_rank is None
+    assert not any(argument.startswith("--data-parallel-") for argument in process.argv)
+    assert not [listener for listener in plan.listeners if listener.name == "dp_rpc"]
+
+
+@pytest.mark.parametrize(
+    ("role", "prefill_dp", "decode_dp", "expects_external_dp"),
+    [
+        (PdRole.PREFILL, 1, 2, False),
+        (PdRole.DECODE, 1, 2, True),
+        (PdRole.PREFILL, 2, 1, True),
+        (PdRole.DECODE, 2, 1, False),
+    ],
+)
+def test_explicit_launch_mode_follows_current_role_dp(
+    role: PdRole,
+    prefill_dp: int,
+    decode_dp: int,
+    expects_external_dp: bool,
+) -> None:
+    """验证 P/D 并行度不对称时仅按当前角色有效 DP 选择启动模式。"""
+    resolved = _resolved(head=True)
+    assert resolved.pd_topology is not None
+    current_dp = prefill_dp if role is PdRole.PREFILL else decode_dp
+    topology = replace(
+        resolved.pd_topology,
+        role=role,
+        prefill=ParallelShape(prefill_dp, 2),
+        decode=ParallelShape(decode_dp, 2),
+        dp_size_local=current_dp,
+        placement=ClusterPlacement(
+            master_ip="10.0.0.1",
+            rank_ip="10.0.0.1",
+            node_ips=["10.0.0.1"],
+        ),
+        member_index=0,
+        rank_start=0,
+        rank_end_exclusive=current_dp,
+    )
+    resolved = replace(
+        resolved,
+        topology=Topology.PD_PREFILL if role is PdRole.PREFILL else Topology.PD_DECODE,
+        pd_topology=topology,
+    )
+
+    plan = _build_pd_process_plan(resolved, _runtime(), device_count=current_dp * 2)
+
+    expected_ranks = list(range(current_dp)) if expects_external_dp else [None] * current_dp
+    assert [process.dp_rank for process in plan.processes] == expected_ranks
+    for process in plan.processes:
+        dp_arguments = [argument for argument in process.argv if argument.startswith("--data-parallel-")]
+        if expects_external_dp:
+            assert "--data-parallel-size" in dp_arguments
+            assert "--data-parallel-rank" in dp_arguments
+            assert "--data-parallel-external-lb" in dp_arguments
+        else:
+            assert not dp_arguments
+    dp_rpc_listeners = [listener for listener in plan.listeners if listener.name == "dp_rpc"]
+    assert len(dp_rpc_listeners) == (1 if expects_external_dp else 0)
+
+
 def test_process_plan_expands_rank_devices_endpoints_and_argv() -> None:
     """验证 local ranks 有序展开，PD_INDEX 不参与 rank，argv 保持 list。"""
     plan = _build_pd_process_plan(_resolved(), _runtime(), device_count=2)

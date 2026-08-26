@@ -1692,6 +1692,21 @@ def _validate_pd_runtime_spec(runtime: PdRuntimeSpec, topology: ResolvedPdTopolo
     return topology.dp_size_local
 
 
+def _role_uses_external_dp(role_shape: ParallelShape) -> bool:
+    """仅有效 global DP 大于 1 的角色需要 vLLM external DP。"""
+    return role_shape.dp_size > 1
+
+
+def _uses_external_pd_launch(runtime: PdRuntimeSpec, role_shape: ParallelShape) -> bool:
+    """判断当前 exact PD 角色是否需要启动 vLLM external DP。
+
+    exact recipe 的 ``external_rank`` 描述其已验收的大 EP 基线能力；MaaS 可以将
+    当前角色收敛为 DP=1。vLLM 在 DP=1 时不接受 rank、external LB 或 DP RPC 参数，
+    因此最终命令必须同时满足 runtime policy 和当前有效 DP 两个条件。
+    """
+    return runtime.dp_launch_policy == PD_DP_LAUNCH_EXTERNAL_RANK and _role_uses_external_dp(role_shape)
+
+
 def _validate_pd_ambient_port(expected_ports: List[int]) -> None:
     """拒绝 ambient ENGINE_PORT 改写 exact endpoint profile。"""
     ambient_port = os.getenv("ENGINE_PORT")
@@ -1720,7 +1735,7 @@ def _build_pd_process_overrides(
         "port": port,
         "tensor_parallel_size": role_shape.tp_size,
     }
-    if runtime.dp_launch_policy == PD_DP_LAUNCH_EXTERNAL_RANK:
+    if _uses_external_pd_launch(runtime, role_shape):
         overrides.update(
             {
                 "data_parallel_size": role_shape.dp_size,
@@ -1794,6 +1809,7 @@ def _build_pd_process_env_traces(
 def _build_pd_process_listeners(
     topology: ResolvedPdTopology,
     runtime: PdRuntimeSpec,
+    uses_external_dp: bool,
     local_index: int,
     rank: int,
     port: int,
@@ -1803,7 +1819,7 @@ def _build_pd_process_listeners(
 ) -> tuple[List[ListenerPlan], bool]:
     """构造一个 local process 的 API、DP RPC 和 KV listener inventory。"""
     listeners = [ListenerPlan("api", "0.0.0.0", port, port, f"process[{local_index}]")]
-    if runtime.data_parallel_rpc_port is not None and rank == 0:
+    if uses_external_dp and runtime.data_parallel_rpc_port is not None and rank == 0:
         listeners.append(
             ListenerPlan(
                 "dp_rpc",
@@ -1848,6 +1864,7 @@ def _build_pd_process_plan(
     topology = resolved.pd_topology
     assert topology is not None
     role_shape = topology.prefill if topology.role is PdRole.PREFILL else topology.decode
+    uses_external_dp = _uses_external_pd_launch(runtime, role_shape)
 
     # exact runtime spec 决定“一个 Pod 启几条命令”。每条命令使用独立 backend port，
     # 因此 ambient ENGINE_PORT 不能再覆盖或模糊这份 endpoint profile。
@@ -1880,7 +1897,15 @@ def _build_pd_process_plan(
         # listener inventory 是静态冲突模型，不负责真正 bind；DP rank 0 和共享 KV 组
         # 的 owner 规则在 helper 内收敛，避免每个 process 都伪造同一个 listener。
         process_listeners, shared_kv_added = _build_pd_process_listeners(
-            topology, runtime, local_index, rank, port, kv_port, device_count, shared_kv_added
+            topology,
+            runtime,
+            uses_external_dp,
+            local_index,
+            rank,
+            port,
+            kv_port,
+            device_count,
+            shared_kv_added,
         )
         listeners.extend(process_listeners)
         endpoints.append(endpoint)
@@ -1888,7 +1913,7 @@ def _build_pd_process_plan(
             EngineProcessPlan(
                 process_index=local_index,
                 local_index=local_index,
-                dp_rank=rank if runtime.dp_launch_policy != PD_DP_LAUNCH_NONE else None,
+                dp_rank=rank if uses_external_dp else None,
                 visible_devices=visible_devices,
                 advertised_endpoint=endpoint,
                 engine_config_traces=traces,
@@ -3147,21 +3172,25 @@ def _build_custom_pd_topology(
     )
 
 
-def _pd_process_identity_overrides(topology: ResolvedPdTopology) -> Dict[str, Any]:
-    """PD 身份层(every-process 通用):engine_id 由 PD_INDEX(instance_index)派生。
+def _pd_process_identity_overrides(
+    topology: ResolvedPdTopology,
+    uses_external_dp: bool,
+) -> Dict[str, Any]:
+    """构造 custom PD connector identity 和 external DP 协调地址。
 
-    经 ``_overlay_pd_process_traces`` 的 dict deep-merge,用户 config-file 填写的
-    ``kv_transfer_config`` 其他键(connector/kv_role/kv_port 等)被保留,仅 ``engine_id``
-    由派生层覆盖——即用户填了也以派生值为准,用户未填则由派生层补充。
+    ``engine_id`` 标识当前 logical Instance，供 KV connector 区分 P/D Instance；
+    trace deep-merge 只覆盖该字段，保留用户配置的 connector、role 和 port。只有
+    当前角色有效 DP 大于 1 时才写入 ``data_parallel_address``（external DP 协调地址）；
+    DP=1 无 external DP，不派生该地址。
     """
-    master = topology.placement.master_ip or (
-        topology.placement.node_ips[0] if topology.placement.node_ips else None
-    )
     overrides: Dict[str, Any] = {
-        # PD identity:engine_id 恒由 PD_INDEX 派生,用户不可最终拥有。
         "kv_transfer_config": {"engine_id": str(topology.instance_index)},
-        "data_parallel_address": master,
     }
+    if uses_external_dp:
+        master = topology.placement.master_ip or (
+            topology.placement.node_ips[0] if topology.placement.node_ips else None
+        )
+        overrides["data_parallel_address"] = master
     return overrides
 
 
@@ -3184,23 +3213,30 @@ def _pd_process_cross_pod_overrides(topology: ResolvedPdTopology) -> Dict[str, A
 @_register_pd_process("vllm")
 @_register_pd_process("vllm-ascend")
 def _pd_process_derive_vllm(topology: ResolvedPdTopology, local_index: int, port: int) -> Dict[str, Any]:
-    """vllm 系(vllm / vllm-ascend)custom PD 进程层派生器。
+    """派生 custom vLLM PD 单进程覆盖值。
 
-    vllm 与 vllm-ascend 的进程布局/DP 通信/身份/网络语义一致,共用此派生器。派生:
-    - 每进程 port / TP / DP / dp_rank / dp_size_local=1(per-rank 恒 1,Pod 级 DP_LOCAL 见 topology);
-    - 身份层(engine_id from PD_INDEX + data_parallel_address);
-    - 跨 Pod 时继承 multi_node 的 nnodes/node_rank/master_addr。
+    每个 local DP rank 都有独立 backend port、TP 卡组和 connector identity。
+    有效 global DP 大于 1 时派生 external-DP rank 和协调地址；DP=1 时不派生这些
+    平台权威参数。``data_parallel_rank`` / ``data_parallel_address`` 属平台权威键，
+    config-file 黑名单会拦截用户填写。其余 ``data_parallel_*``（size / size_local /
+    rpc_port / external_lb）为用户自管键，用户填写则原样保留；若组合不被引擎接受，
+    由用户负责。
     """
     role_shape = topology.prefill if topology.role is PdRole.PREFILL else topology.decode
-    rank = topology.rank_start + local_index
+    uses_external_dp = _role_uses_external_dp(role_shape)
     overrides: Dict[str, Any] = {
         "port": port,
         "tensor_parallel_size": role_shape.tp_size,
-        "data_parallel_size": role_shape.dp_size,
-        "data_parallel_rank": rank,
-        "data_parallel_size_local": 1,  # 进程级恒 1(Pod 级 DP_LOCAL 由 topology 承载)
     }
-    overrides.update(_pd_process_identity_overrides(topology))
+    if uses_external_dp:
+        overrides.update(
+            {
+                "data_parallel_size": role_shape.dp_size,
+                "data_parallel_rank": topology.rank_start + local_index,
+                "data_parallel_size_local": 1,
+            }
+        )
+    overrides.update(_pd_process_identity_overrides(topology, uses_external_dp))
     overrides.update(_pd_process_cross_pod_overrides(topology))
     return overrides
 
@@ -3281,6 +3317,7 @@ def _build_custom_pd_process_plan(
     - 每进程 env 复制保留 allow_unsafe(不丢 ``$(hostname)``)。
     """
     role_shape = topology.prefill if topology.role is PdRole.PREFILL else topology.decode
+    uses_external_dp = _role_uses_external_dp(role_shape)
     local_count = topology.dp_size_local
     base_port = DEFAULT_ENGINE_PORT  # 17000
     listeners: List[ListenerPlan] = []
@@ -3304,7 +3341,7 @@ def _build_custom_pd_process_plan(
             EngineProcessPlan(
                 process_index=local_index,
                 local_index=local_index,
-                dp_rank=rank,
+                dp_rank=rank if uses_external_dp else None,
                 visible_devices=visible_devices,
                 advertised_endpoint=endpoint,
                 engine_config_traces=traces,
@@ -3381,6 +3418,13 @@ def _resolve_custom_pd_config(
     pd_warnings = _warn_custom_pd_parallel_issues(
         effective, device_count, effective["tensor_parallel_size"]
     )
+    # DP=1 且用户显式开启 external LB → 仅告警(vLLM 会拒绝该组合,但 custom 场景交用户负责)。
+    external_lb = config_file_layer.get("data_parallel_external_lb")
+    if effective["data_parallel_size"] == 1 and external_lb not in (None, False):
+        pd_warnings.append(
+            f"data_parallel_size=1 with data_parallel_external_lb={external_lb!r} enables "
+            "external load balancing, which vLLM rejects when data_parallel_size <= 1"
+        )
     # 当前 role 的 nested shape 与 effective 冲突 → 告警(最终 argv 以 effective 为准)。
     current_role_name = "prefill" if pd_input.role is PdRole.PREFILL else "decode"
     if (
