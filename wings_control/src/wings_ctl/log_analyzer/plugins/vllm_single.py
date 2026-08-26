@@ -75,12 +75,20 @@ class VLLMSingleGPUPlugin(BaseLogPatternPlugin):
         return [
             {"pattern": r"Starting to load model", "phase_code": "model_loading", "progress_calc": 32},
             {
-                "pattern": r"Loading safetensors checkpoint shards:\s*(\d+)%",
+                # 标准 safetensors loader 与 prefetch 多线程 loader 均输出分片百分比。
+                # 例如：
+                #   Loading safetensors checkpoint shards: 53%
+                #   Multi-thread loading shards: 53% Completed | 20/38
+                "pattern": (
+                    r"(?:Loading safetensors checkpoint shards|Multi-thread loading shards)"
+                    r":\s*(\d+)%"
+                ),
                 "phase_code": "model_loading",
                 "progress_calc": lambda m, curr: int(36 + (int(m.group(1)) * 0.24)),
             },
             {
-                "pattern": r"Model loading took\s+(\d+\.?\d*)\s+seconds",
+                # 不同 vLLM / loader 版本的模型权重加载收尾日志。
+                "pattern": r"(?:Model loading took|Loading weights took|Loading model weights took)\s+",
                 "phase_code": "model_loading",
                 "progress_calc": 60,
             },

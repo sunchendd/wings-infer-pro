@@ -113,7 +113,7 @@ def test_a1_dp_local2_render_fail_together(config_root, hardware_info_path, tmp_
     resolved = _resolve(config_root, hardware_info_path)
     sp, rp = build_scripts(resolved, tmp_path)
     txt = sp.read_text()
-    assert "trap terminate_children TERM INT" in txt
+    assert "trap terminate_children EXIT TERM INT" in txt
     assert "pids+=(" in txt
     assert "process[0] rank=0" in txt and "process[1] rank=1" in txt
     # 每进程独立 CUDA_VISIBLE_DEVICES

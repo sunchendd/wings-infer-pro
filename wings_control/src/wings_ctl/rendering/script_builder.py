@@ -22,7 +22,7 @@ from typing import Dict, List, Optional, Tuple
 
 from wings_ctl.accel.smart_accel import GeneratedFileSpec
 from wings_ctl.common.settings import settings
-from wings_ctl.core.models import ResolvedConfig, SystemSetup, TracedValue
+from wings_ctl.core.models import EngineProcessPlan, ResolvedConfig, SystemSetup, TracedValue
 from wings_ctl.core.topology import Topology
 from wings_ctl.engines.registry import build_launch_plan
 from wings_ctl.engines.vllm_adapter import (
@@ -360,6 +360,50 @@ def _build_analyzer_config(resolved: ResolvedConfig) -> dict:
     }
 
 
+def _build_analyzer_config_from_plan(resolved: ResolvedConfig, backend_port: int) -> dict:
+    """从 ProcessPlan 投影为 log_analyzer 消费的 analyzer_config（PD 专用）。
+
+    PD 顶层 ``engine_config_traces`` 已被清空（见 config_resolver._resolve_pd_config
+    末尾），无法复用 ``_build_analyzer_config``（其 backend_port 取自顶层 trace）；
+    engine / hardware 仍在顶层可读，端口必须从 ProcessPlan 显式传入。
+
+    deployment_mode 取 ``"single"``：PD 是"当前 Pod 内进程级并行"，不是跨机分布式；
+    首期复用 single 插件的阶段映射（init→load→boot→compile→ready）即可覆盖
+    部署进度语义。后续若需 PD 专属阶段，扩展 PatternPluginManager.PLUGIN_MAPPING
+    新增 PD 插件即可，log_analyzer 主循环与模板均无需改动。
+
+    Args:
+        resolved: 已含 process_plan 的 PD 解析结果。
+        backend_port: 健康探测端口（解析自 process.advertised_endpoint）。
+    """
+    return {
+        "engine": resolved.engine,
+        "deployment_mode": "single",
+        "hardware": resolved.hardware.device,
+        "backend_port": backend_port,
+    }
+
+
+def _endpoint_port(endpoint: Optional[str]) -> int:
+    """从 PD 的 ``"host:port"`` endpoint 严格解析端口。
+
+    ``advertised_endpoint`` 是 ProcessPlan 的显式契约。解析失败必须在生成交付件
+    前暴露，不能静默回退到默认端口，否则会掩盖自定义端口和规划回归。
+    """
+    if not endpoint:
+        raise ValueError("PD process advertised_endpoint is required")
+    host, separator, raw_port = endpoint.rpartition(":")
+    if not separator or not host or not raw_port or not raw_port.isdigit():
+        raise ValueError(f"invalid PD advertised_endpoint {endpoint!r}; expected host:port")
+    try:
+        port = int(raw_port)
+    except ValueError as exc:
+        raise ValueError(f"invalid PD endpoint port in {endpoint!r}") from exc
+    if not 1 <= port <= 65535:
+        raise ValueError(f"PD endpoint port out of range in {endpoint!r}: {port}")
+    return port
+
+
 def _build_analyzer_preamble(resolved: ResolvedConfig) -> Optional[str]:
     """生成 log_analyzer shell 片段(仅 standalone 或 multi_node master 节点)。
 
@@ -392,24 +436,105 @@ def _build_analyzer_preamble(resolved: ResolvedConfig) -> Optional[str]:
         return None
 
     analyzer_config = _build_analyzer_config(resolved)
+    config_escaped = _json_config_escaped(analyzer_config)
+    return _render_analyzer_preamble_template(config_escaped)
+
+
+def _json_config_escaped(analyzer_config: dict) -> str:
+    """序列化 analyzer config 并做 shell 单引号安全转义。
+
+    JSON 经 ``json.dumps`` 生成(无裸单引号)再 ``' → '\"\\''\"'`` 转义,
+    保证嵌入 shell 单引号 ``ANALYZER_CONFIG=...`` 时无注入/断引风险。
+
+    Args:
+        analyzer_config: log_analyzer 消费的配置 dict。
+
+    Returns:
+        可直接嵌入 shell 单引号字符串的转义后 JSON。
+    """
     config_json = json.dumps(analyzer_config)
     # shell 单引号安全转义: ' → '"'"'
-    config_escaped = config_json.replace("'", "'\"'\"'")
-    # progress.jsonl 必须写入共享卷,与 proxy 的 settings.PROGRESS_FILE 路径一致
-    # (proxy 通过 settings.PROGRESS_FILE 读取进度)
-    progress_file = settings.PROGRESS_FILE
+    return config_json.replace("'", "'\"'\"'")
 
-    # 从模板文件加载 shell 片段,注入动态变量。
-    # 模板文件有 shell 语法高亮,可独立 bash -n 验证,Python 代码更简洁。
+
+def _render_analyzer_preamble_template(config_escaped: str) -> str:
+    """从模板加载并注入动态变量,渲染 analyzer shell 片段。
+
+    模板文件有 shell 语法高亮,可独立 ``bash -n`` 验证,Python 代码更简洁。
+    progress.jsonl 必须写入共享卷,与 proxy 的 settings.PROGRESS_FILE 路径一致
+    (proxy 通过 settings.PROGRESS_FILE 读取进度)。
+
+    Args:
+        config_escaped: 已做单引号转义的 analyzer config JSON。
+
+    Returns:
+        注入占位符后的 log_analyzer shell 片段。
+    """
     template_path = Path(__file__).parent / "templates" / "analyzer_preamble.sh.tmpl"
     template = template_path.read_text(encoding="utf-8")
     return (
         template.replace("{ANALYZER_CONFIG}", config_escaped)
-        .replace("{PROGRESS_FILE}", progress_file)
+        .replace("{PROGRESS_FILE}", settings.PROGRESS_FILE)
         .replace("{ENGINE_LOG}", settings.ENGINE_LOG_FILE)
         .replace("{ENGINE_FULL_LOG}", settings.ENGINE_FULL_LOG_FILE)
         .replace("{SHARED_VOLUME}", settings.SHARED_VOLUME_PATH)
     )
+
+
+def _is_pd_worker_pod(resolved: ResolvedConfig) -> bool:
+    """判定当前 PD Pod 是否为跨 pod 场景的 worker 节点。
+
+    与 multi_node 一致:一个 logical Instance 的部署进度由 member 0(head)Pod
+    统一代表上报,``member_index > 0`` 的 worker Pod 不启动 analyzer、不提供
+    独立进度(语义是"进度归属 head",而非"多 Pod 共用同一进度文件")。
+    注意 /shared-volume 是 Pod 内独立共享卷,并不跨 Pod 共享。
+
+    ``member_index`` 取自 ``resolved.pd_topology.placement.node_ips`` 中
+    ``rank_ip`` 的下标(见 pd/planner._resolve_explicit_allocation);
+    普通 1P1D(derived)每个 logical instance 单 Pod,``member_index`` 恒为 0,
+    因此只有大 EP 跨 Pod 场景的 worker 才会命中。
+
+    Returns:
+        当前 Pod 为 PD worker(跨 pod,非 member 0)→ True。
+    """
+    topology = resolved.pd_topology
+    if topology is None:
+        return False
+    return topology.member_index > 0
+
+
+def _build_analyzer_preamble_from_plan(resolved: ResolvedConfig) -> Optional[str]:
+    """按 ProcessPlan 构建 log_analyzer shell 片段（PD 专用）。
+
+    PD 顶层 traces 已清空,端口从 ``processes[0].advertised_endpoint`` 解析
+    （多进程取首条即可:进度由聚合后的 engine.log 统一反映,健康探测用首进程端口）。
+    progress_file / 日志路径 / 共享卷路径均复用 ``_render_analyzer_preamble_template``
+    从 settings 读取,与标准路径完全一致。
+
+    模板的 ``$ENGINE_PID`` early-fail 分支是否触发由渲染层形状决定:
+    single case 有 ``ENGINE_PID`` 可用;多进程 case 靠 terminate_children 兜底清理。
+
+    跳过条件:跨 pod PD 的 worker Pod(``member_index > 0``)不注入,
+    与 multi_node worker 节点语义一致(仅 head 运行分析器)。
+
+    Args:
+        resolved: ``process_plan`` 非空的 PD 解析结果。
+
+    Returns:
+        log_analyzer shell 片段字符串;plan 为空/无进程/worker Pod 返回 None。
+    """
+    plan = resolved.process_plan
+    if plan is None or not plan.processes:
+        return None
+    # 跨 pod PD 的 worker Pod 不注入(与 multi_node worker 一致)
+    if _is_pd_worker_pod(resolved):
+        return None
+    first = plan.processes[0]
+    # analyzer 只探测首进程；ProcessPlan 要求其 endpoint 显式且合法。
+    backend_port = _endpoint_port(first.advertised_endpoint)
+    analyzer_config = _build_analyzer_config_from_plan(resolved, backend_port)
+    config_escaped = _json_config_escaped(analyzer_config)
+    return _render_analyzer_preamble_template(config_escaped)
 
 
 def _render_start_command_sh(
@@ -518,7 +643,9 @@ def _render_start_command_sh(
     # 后台化引擎进程(而非 exec 替换 shell),使 trap cleanup_analyzer 保持有效。
     # exec 会替换 shell 进程导致 trap 失效:引擎退出时 cleanup 无法触发,
     # log_analyzer 成为孤儿进程。后台化 + wait 保持 shell 存活,trap 正常工作,
-    # 引擎退出后 shell 执行 cleanup → kill log_analyzer → 写 early-fail 进度。
+    # 引擎退出后 shell 执行 cleanup → kill log_analyzer(清理分析器)。
+    # 注意:引擎已启动后(ENGINE_PID 已设置)失败只终止进程,analyzer 不写失败进度,
+    # 最终失败状态由 FOA 判定;early-fail(status=failed)仅在引擎启动前脚本失败时触发。
     lines += [
         shlex.join(argv) + " &",
         "ENGINE_PID=$!",
@@ -693,11 +820,57 @@ def _render_multi_node_placeholder(resolved: ResolvedConfig) -> str:
     return "\n".join(lines)
 
 
-def _render_pd_process_plan(resolved: ResolvedConfig) -> str:
+def _pd_render_engine_line(process: EngineProcessPlan, engine_log: str, engine_full_log: str) -> List[str]:
+    """渲染 fail_together 单条进程启动子块（tee 聚合 + env + exec）。
+
+    ``( ) &`` 子进程的 stdout 不会继承顶层 ``exec > >(tee ...)`` 重定向，
+    故每条进程单独接 tee，聚合同一 ``engine.log`` 供 log_analyzer ``tail -F``。
+    过滤模式与标准路径一致（health/metrics + Prefill/Decode batch 去噪）。
+    进程级 env 在子块内 export，保持 per-process 独立。
+
+    Args:
+        process: 单条 EngineProcessPlan。
+        engine_log: engine.log 路径。
+        engine_full_log: engine-full.log 路径。
+
+    Returns:
+        ``( ) &`` 子块脚本行（含 ``pids+=("$!")`` 与收尾空行）。
+    """
+    lines = ["("]
+    lines.extend(f"  {line}" for line in _render_env_section(process.env_traces))
+    lines.append(
+        f"  exec > >(tee -a {engine_full_log}"
+        " | grep --line-buffered -vE"
+        " '\"GET\\s+/(health|metrics)\\s|\\b(Prefill|Decode) batch\\b'"
+        f" | tee -a {engine_log}) 2>&1"
+    )
+    lines.append("  exec " + shlex.join(process.argv))
+    lines += [
+        ") &",
+        'pids+=("$!")',
+        "",
+    ]
+    return lines
+
+
+def _render_pd_process_plan(
+    resolved: ResolvedConfig,
+    *,
+    analyzer_preamble: Optional[str] = None,
+) -> str:
     """从唯一 ``ProcessPlan`` 渲染 single 或 fail-together 脚本。
+
+    与标准路径同构地注入 log_analyzer 进度监控:
+    - 无条件定义 ``_wings_log()``(多进程场景也用它规范日志格式);
+    - 注入 ``analyzer_preamble``(含 rm 旧日志 + 起分析器 + cleanup trap)在 env 之前;
+    - single: 顶层 tee 重定向 + 后台化 + wait(保持 shell 存活使 trap cleanup 生效;
+      引擎启动后失败仅终止进程,analyzer 不写失败进度,失败由 FOA 判定);
+    - fail_together: 每条进程单独 tee 子块 + ``pids`` 统一清理(单一 trap 同时终止
+      子进程与 log_analyzer,避免 EXIT/SIGTERM 双 trap 竞争覆盖)。
 
     Args:
         resolved: ``process_plan`` 非空的 PD 解析结果。
+        analyzer_preamble: log_analyzer shell 片段;None → 不注入。
 
     Returns:
         可执行 bash 脚本文本；每条命令来自结构化 argv 并经 ``shlex.join``。
@@ -708,56 +881,218 @@ def _render_pd_process_plan(resolved: ResolvedConfig) -> str:
     plan = resolved.process_plan
     if plan is None or not plan.processes:
         raise ValueError("PD rendering requires a non-empty process_plan")
-    lines = ["#!/usr/bin/env bash", "set -euo pipefail", ""]
+    lines = [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        "",
+        # shell 日志辅助函数: 输出符合 log-format 规范的日志行(与标准路径一致)。
+        "_wings_log() {",
+        '    local level="$1"; shift',
+        '    local msg="$*"',
+        "    local ts",
+        '    ts=$(date "+%Y-%m-%d %H:%M:%S.%3N")',
+        '    echo "$ts [$level] WINGS-CONTROL [wings-launcher#start_command:0] $msg"',
+        "}",
+        "",
+    ]
+
+    # log_analyzer 进度监控(在 env export 之前,与标准路径组装顺序一致)。
+    # 多进程下不放顶层 exec tee(无效),改由每条进程的 tee 子块接管;此处仅 mkdir + unbuffer。
+    if analyzer_preamble:
+        lines += [
+            analyzer_preamble,
+            "",
+            f"mkdir -p {settings.ENGINE_LOG_DIR}",
+            "export PYTHONUNBUFFERED=1",
+            "",
+        ]
+
     if plan.lifecycle == "single":
         process = plan.processes[0]
+        # 顶层 tee 重定向 + 后台化 + wait:与标准路径同构,ENGINE_PID 供 cleanup
+        # 定位引擎进程。exec 会替换 shell 使 trap 失效,故改为后台化 + wait。
+        # 引擎启动后失败只终止进程,analyzer 不写失败进度,失败状态由 FOA 判定。
+        lines.append(
+            f"exec > >(tee -a {settings.ENGINE_FULL_LOG_FILE}"
+            " | grep --line-buffered -vE"
+            " '\"GET\\s+/(health|metrics)\\s|\\b(Prefill|Decode) batch\\b'"
+            f" | tee -a {settings.ENGINE_LOG_FILE}) 2>&1"
+        )
+        lines.append("")
+        env_lines = _render_env_section(process.env_traces)
+        if env_lines:
+            lines.extend(env_lines)
+            lines.append("")
+        lines += [
+            shlex.join(process.argv) + " &",
+            "ENGINE_PID=$!",
+            '_wings_log INFO "engine started, PID=$ENGINE_PID"',
+            'wait "$ENGINE_PID"',
+            "ENGINE_EXIT_CODE=$?",
+            'exit "$ENGINE_EXIT_CODE"',
+            "",
+        ]
+        return "\n".join(lines)
+
+    if plan.lifecycle != "fail_together":
+        raise ValueError(f"Unknown PD lifecycle: {plan.lifecycle!r}")
+
+    # 统一清理函数: 同时终止子进程与 log_analyzer。
+    # 注册单一 trap(EXIT TERM INT)覆盖 preamble 的 cleanup trap——fail_together 无
+    # ENGINE_PID、不写 early-fail(见设计 §6.2),由终止子进程 + kill 分析器收口即可。
+    # 单一 trap 避免 EXIT/SIGTERM 被双 trap 后者覆盖导致的清理缺失。
+    lines += [
+        "pids=()",
+        "terminate_children() {",
+        "  local pid",
+        '  for pid in "${pids[@]}"; do',
+        '    kill -TERM "$pid" 2>/dev/null || true',
+        "  done",
+        '  kill ${LOG_ANALYZER_PID:-} 2>/dev/null || true',
+        "}",
+        "trap terminate_children EXIT TERM INT",
+        "",
+    ]
+    for process in plan.processes:
+        lines.append(f"# process[{process.process_index}] rank={process.dp_rank}")
+        lines += _pd_render_engine_line(
+            process, settings.ENGINE_LOG_FILE, settings.ENGINE_FULL_LOG_FILE
+        )
+    lines += [
+        "status=0",
+        "set +e",
+        'wait -n "${pids[@]}"',
+        "status=$?",
+        "set -e",
+        "terminate_children",
+        'for pid in "${pids[@]}"; do',
+        '  wait "$pid" 2>/dev/null || true',
+        "done",
+        "if (( status == 0 )); then status=1; fi",
+        'exit "$status"',
+        "",
+    ]
+    return "\n".join(lines)
+
+
+_LOG_ANALYZER_MARKERS = (
+    "log_analyzer.log_analyzer",  # 分析器进程启动命令
+    "--progress-file",            # 进度文件参数
+    "cleanup_analyzer",           # 分析器清理 trap
+)
+
+
+def _render_pd_repro_sh(resolved: ResolvedConfig) -> str:
+    """从同一 ProcessPlan 渲染无部署副作用的 PD 复现脚本。
+
+    repro 只保留逐进程 env/argv 与 fail-together 监督，不启动 analyzer、不清理
+    progress/log 文件，也不依赖部署期 tee 和 trap。
+    """
+    plan = resolved.process_plan
+    if plan is None or not plan.processes:
+        raise ValueError("PD repro rendering requires a non-empty process_plan")
+
+    lines = [
+        "#!/usr/bin/env bash",
+        "# ─── Reproducibility Script ───",
+        f"# Generated from: {', '.join(resolved.source_files)}",
+        f"# Hardware: {resolved.hardware.hardware_family}",
+        f"# Engine: {resolved.engine} {resolved.engine_version.resolved}",
+        f"# Topology: {resolved.topology.value}",
+        "# ProcessPlan is the source of truth for rank, endpoint and argv.",
+        "",
+        "set -euo pipefail",
+        "",
+    ]
+
+    if plan.lifecycle == "single":
+        process = plan.processes[0]
+        lines.append(f"# process[{process.process_index}] rank={process.dp_rank} endpoint={process.advertised_endpoint}")
         lines.extend(_render_env_section(process.env_traces))
         if process.env_traces:
             lines.append("")
         lines.append("exec " + shlex.join(process.argv))
         lines.append("")
         return "\n".join(lines)
+
     if plan.lifecycle != "fail_together":
         raise ValueError(f"Unknown PD lifecycle: {plan.lifecycle!r}")
 
-    lines.extend(
-        [
-            "pids=()",
-            "terminate_children() {",
-            "  local pid",
-            '  for pid in "${pids[@]}"; do',
-            '    kill -TERM "$pid" 2>/dev/null || true',
-            "  done",
-            "}",
-            "trap terminate_children TERM INT",
-            "",
-        ]
-    )
+    lines += [
+        "pids=()",
+        "terminate_children() {",
+        "  local pid",
+        '  for pid in "${pids[@]}"; do',
+        '    kill -TERM "$pid" 2>/dev/null || true',
+        "  done",
+        "}",
+        "trap terminate_children EXIT TERM INT",
+        "",
+    ]
     for process in plan.processes:
-        lines.append(f"# process[{process.process_index}] rank={process.dp_rank}")
+        lines.append(f"# process[{process.process_index}] rank={process.dp_rank} endpoint={process.advertised_endpoint}")
         lines.append("(")
         lines.extend(f"  {line}" for line in _render_env_section(process.env_traces))
         lines.append("  exec " + shlex.join(process.argv))
-        lines.append(") &")
-        lines.append('pids+=("$!")')
-        lines.append("")
-    lines.extend(
-        [
-            "status=0",
-            "set +e",
-            'wait -n "${pids[@]}"',
-            "status=$?",
-            "set -e",
-            "terminate_children",
-            'for pid in "${pids[@]}"; do',
-            '  wait "$pid" 2>/dev/null || true',
-            "done",
-            "if (( status == 0 )); then status=1; fi",
-            'exit "$status"',
-            "",
-        ]
-    )
+        lines += [") &", 'pids+=("$!")', ""]
+    lines += [
+        "status=0",
+        "set +e",
+        'wait -n "${pids[@]}"',
+        "status=$?",
+        "set -e",
+        "terminate_children",
+        'for pid in "${pids[@]}"; do',
+        '  wait "$pid" 2>/dev/null || true',
+        "done",
+        "if (( status == 0 )); then status=1; fi",
+        'exit "$status"',
+        "",
+    ]
     return "\n".join(lines)
+
+
+def _validate_log_analyzer_present(resolved: ResolvedConfig, script_text: str) -> None:
+    """守卫校验:真实部署脚本必须含 log_analyzer 进度监控片段。
+
+    防止"新增渲染支线漏接 log_analyzer"一类回归(本次 PD 缺漏即为先例),
+    违反即抛 ``ValueError``(fail-fast,部署前暴露接线缺失)。
+
+    例外(不校验):
+    - multi_node 占位脚本(``resolved.nodes`` 非空):不可执行,非真实部署;
+    - multi_node worker 节点(``multi_node_index > 0``):仅 master 运行分析器;
+    - 跨 pod PD 的 worker Pod(``pd_topology.member_index > 0``):与 multi_node
+      worker 语义一致,仅 member 0(head)运行分析器。
+
+    校验用固定哨兵(启动命令 / ``--progress-file`` / ``cleanup_analyzer`` trap),
+    不依赖任何可变路径,避免误报。PD 的 fail_together 虽以 ``terminate_children``
+    单一 trap 收口清理,但 preamble 中 ``cleanup_analyzer`` 定义仍原样注入脚本,
+    三个哨兵对 single / fail_together / 标准路径均成立。
+
+    Args:
+        resolved: 已构建脚本的解析结果。
+        script_text: 待校验的 start_command.sh 文本。
+
+    Raises:
+        ValueError: 真实部署脚本缺少 log_analyzer 片段时。
+    """
+    # 占位脚本非真实部署,跳过
+    if resolved.nodes:
+        return
+    # multi_node worker 不运行分析器,跳过
+    if resolved.topology == Topology.MULTI_NODE:
+        node_rank = int(resolved.resolution_notes.get("multi_node_index", 0))
+        if node_rank > 0:
+            return
+    # 跨 pod PD 的 worker Pod 不运行分析器,跳过
+    if _is_pd_worker_pod(resolved):
+        return
+    missing = [m for m in _LOG_ANALYZER_MARKERS if m not in script_text]
+    if missing:
+        raise ValueError(
+            "deployment progress guard: start_command.sh missing log_analyzer "
+            f"fragment: {missing} (topology={resolved.topology.value})"
+        )
 
 
 def build_scripts(
@@ -782,10 +1117,16 @@ def build_scripts(
     repro_path = output_dir / "repro.sh"
 
     if resolved.process_plan:
-        pd_script = _render_pd_process_plan(resolved)
+        # PD 场景补齐 log_analyzer 进度监控(见设计 §4.4):从 ProcessPlan 构建 preamble。
+        analyzer_preamble = _build_analyzer_preamble_from_plan(resolved)
+        pd_script = _render_pd_process_plan(resolved, analyzer_preamble=analyzer_preamble)
+        repro_script = _render_pd_repro_sh(resolved)
+        # 部署进度功能守卫:PD 属真实部署路径,必须含 log_analyzer 片段(fail-fast)。
+        # 先校验后落盘,守卫失败时不留半成品交付件。
+        _validate_log_analyzer_present(resolved, pd_script)
         start_path.write_text(pd_script, encoding="utf-8")
         start_path.chmod(0o755)
-        repro_path.write_text(pd_script, encoding="utf-8")
+        repro_path.write_text(repro_script, encoding="utf-8")
         repro_path.chmod(0o755)
         return start_path, repro_path
 
@@ -828,6 +1169,11 @@ def build_scripts(
         analyzer_preamble=analyzer_preamble,
         engine_pre_start=launch_plan.pre_start_lines,
     )
+    # 部署进度功能守卫:standalone / multi_node 真实部署须含 log_analyzer 片段。
+    # worker 与占位按 §5.2 口径跳过;任何真实部署路径漏接都会在此 fail-fast。
+    # 与 PD 路径一致,先校验后落盘:守卫失败时不留下未通过校验的交付件。
+    _validate_log_analyzer_present(resolved, start_content)
+
     start_path.write_text(start_content, encoding="utf-8")
     start_path.chmod(0o755)
 
