@@ -23,7 +23,7 @@ class TestYamlErrorReporting:
         bad_yaml.write_text('invalid: [unclosed bracket\n  no_close: true\n')
 
         with pytest.raises(FileNotFoundError) as exc_info:
-            load_model_config(tmp_path, "hw", "eng", "1.0.0", "SomeModel")
+            load_model_config(tmp_path, "hw", "eng", "v1.0.0", "SomeModel")
 
         msg = str(exc_info.value)
         assert "YAML parse errors" in msg
@@ -54,7 +54,7 @@ scenarios:
 """)
 
         with pytest.raises(FileNotFoundError) as exc_info:
-            load_model_config(tmp_path, "hw2", "eng2", "2.0.0", "SomeModel")
+            load_model_config(tmp_path, "hw2", "eng2", "v2.0.0", "SomeModel")
 
         msg = str(exc_info.value)
         assert "YAML parse errors" in msg
@@ -83,7 +83,7 @@ scenarios:
 """)
 
         data, yaml_path, matched_pattern = load_model_config(
-            tmp_path, "hw", "eng", "1.0.0", "NoMatch"
+            tmp_path, "hw", "eng", "v1.0.0", "NoMatch"
         )
 
         assert data is None
@@ -107,7 +107,7 @@ scenarios:
             "scenarios:\n  standalone:\n    engine_config:\n      model: org/Good\n    env: {}\n"
         )
         # 非法 pattern 不应崩(旧行为是 re.error 崩整个扫描);合法 recipe 正常命中。
-        data, path, pattern = load_model_config(tmp_path, "hw", "eng", "1.0.0", "GoodModel")
+        data, path, pattern = load_model_config(tmp_path, "hw", "eng", "v1.0.0", "GoodModel")
         assert data is not None and path.name == "good.yaml"
 
     def test_invalid_name_pattern_only_reports_gracefully(self, tmp_path):
@@ -120,7 +120,7 @@ scenarios:
             "scenarios:\n  standalone:\n    engine_config:\n      model: org/Bad\n    env: {}\n"
         )
         with pytest.raises(FileNotFoundError, match="invalid name_pattern"):
-            load_model_config(tmp_path, "hw", "eng", "1.0.0", "Whatever")
+            load_model_config(tmp_path, "hw", "eng", "v1.0.0", "Whatever")
 
     def test_malformed_structures_skipped_no_crash(self, tmp_path):
         """结构非法的 recipe(data/model/match/rule 类型不对、空 pattern)逐一跳过,不崩,返回 no-match。"""
@@ -136,5 +136,5 @@ scenarios:
             d = models_dir / name
             d.mkdir(parents=True)
             d.joinpath(f"{name}.yaml").write_text(content)
-        data, path, pattern = load_model_config(tmp_path, "hw", "eng", "1.0.0", "Anything")
+        data, path, pattern = load_model_config(tmp_path, "hw", "eng", "v1.0.0", "Anything")
         assert data is None and path is None and pattern == ""

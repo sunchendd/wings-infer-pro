@@ -47,13 +47,7 @@ _ALIAS: Dict[str, str] = {
 
 
 def resolve_version_dir(engine_root: Path, version: str) -> Path:
-    """返回版本配置目录，兼容 ``vX.Y.Z`` 与自定义目录名。
-
-    传统语义化版本使用 ``v{version}`` 目录；其他版本字符串作为自定义版本
-    目录名直接使用。
-    """
-    if re.fullmatch(r"v?\d+\.\d+\.\d+(?:[A-Za-z]+\d*)?", version):
-        return engine_root / f"v{version.lstrip('v')}"
+    """返回 resolver 提供的磁盘真实版本目录。"""
     return engine_root / version
 
 

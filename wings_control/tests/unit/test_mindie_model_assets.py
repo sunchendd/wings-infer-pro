@@ -57,7 +57,7 @@ def test_deepseek_distill_does_not_match_moe_profile(hardware_family: str) -> No
 def test_mindie_complete_template_and_platform_env_assets_are_valid() -> None:
     """完整 JSON 与两套平台 YAML 是运行时唯一静态资产，必须可独立解析。"""
     repo_root = Path(__file__).resolve().parents[2]
-    version_dir = repo_root / "config" / "engines" / "mindie" / "v2.3.0"
+    version_dir = repo_root / "config" / "engines" / "mindie" / "2.3.0"
     template = json.loads((version_dir / "mindie_service_config.json").read_text(encoding="utf-8"))
     assert template["Version"] == "1.0.0"
     assert template["ServerConfig"]["managementPort"] == 1026

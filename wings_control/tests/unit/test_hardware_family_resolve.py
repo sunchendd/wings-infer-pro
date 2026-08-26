@@ -102,7 +102,7 @@ def test_resolve_family_dir_ascend910b_x86_64_variant(config_root_real, monkeypa
     """910B 在 x86_64 上优先使用专属硬件目录。"""
     monkeypatch.setattr(locator.platform, "machine", lambda: "x86_64")
     assert (
-        resolve_family_dir(config_root_real, "vllm-ascend", "ascend910b", "0.23.0", True)
+        resolve_family_dir(config_root_real, "vllm-ascend", "ascend910b", "v0.23.0", True)
         == "ascend910b-x86_64"
     )
 
