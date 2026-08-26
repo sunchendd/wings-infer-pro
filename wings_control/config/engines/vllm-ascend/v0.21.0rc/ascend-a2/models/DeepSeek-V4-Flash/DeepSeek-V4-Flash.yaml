@@ -93,6 +93,68 @@ scenarios:
         display_name: Prefill/Decode Disaggregation
         default_strategy: true
         nodes:
+          - role: prefill  # Prefill Node 0
+            index: 0
+            engine_config:
+              model: /root/.cache/modelscope/hub/models/vllm-ascend/DeepSeek-V4-Flash-w8a8-mtp
+              host: "0.0.0.0"
+              port: $2
+              data_parallel_size: $3
+              data_parallel_rank: $4
+              data_parallel_address: $5
+              data_parallel_rpc_port: 12321
+              tensor_parallel_size: $7
+              enable_expert_parallel: true
+              seed: 1024
+              served_model_name: deepseek_v4
+              max_model_len: 135000
+              max_num_batched_tokens: 4096
+              max_num_seqs: 16
+              block_size: 128
+              enforce_eager: true
+              async_scheduling: true
+              no_disable_hybrid_kv_cache_manager: true
+              enable_prefix_caching: true
+              trust_remote_code: true
+              gpu_memory_utilization: 0.9
+              quantization: ascend
+              safetensors_load_strategy: prefetch
+              model_loader_extra_config:
+                enable_multithread_load: "true"
+                num_threads: 128
+              additional_config:
+                enable_cpu_binding: true
+                enable_shared_expert_dp: true
+              kv_transfer_config:
+                kv_connector: MooncakeHybridConnector
+                kv_role: kv_producer
+                kv_port: 30000
+                engine_id: 0
+                kv_connector_extra_config:
+                  prefill:
+                    dp_size: 8
+                    tp_size: 1
+                  decode:
+                    dp_size: 32
+                    tp_size: 1
+            env:
+              LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+              HCCL_OP_EXPANSION_MODE: AIV
+              TASK_QUEUE_ENABLE: 1
+              VLLM_RPC_TIMEOUT: 3600000
+              VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: 30000
+              HCCL_EXEC_TIMEOUT: 204
+              HCCL_CONNECT_TIMEOUT: 1200
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              TP_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+              OMP_PROC_BIND: "false"
+              OMP_NUM_THREADS: 10
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              HCCL_BUFFSIZE: 1024
+            system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
+              commands: [unset ftp_proxy, unset https_proxy, unset http_proxy, rm -rf ~/ascend/log, "nic_name=\"xxxxxx\" #eg.\"enp67s0f0np0\"", "local_ip=`hostname -I|awk -F \" \" '{print$1}'`"]
           - role: decode  # Decode Node 0
             index: 0
             engine_config:
@@ -112,7 +174,7 @@ scenarios:
               max_num_seqs: 30
               async_scheduling: true
               block_size: 128
-              disable_hybrid_kv_cache_manager: false
+              no_disable_hybrid_kv_cache_manager: true
               no_enable_prefix_caching: true
               trust_remote_code: true
               gpu_memory_utilization: 0.9

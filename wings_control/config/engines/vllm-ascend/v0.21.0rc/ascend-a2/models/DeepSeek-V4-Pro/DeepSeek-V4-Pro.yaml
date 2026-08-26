@@ -184,7 +184,7 @@ scenarios:
               max_model_len: 133072
               max_num_batched_tokens: 4096
               max_num_seqs: 16
-              disable_hybrid_kv_cache_manager: false
+              no_disable_hybrid_kv_cache_manager: true
               trust_remote_code: true
               gpu_memory_utilization: 0.9
               quantization: ascend
@@ -252,7 +252,7 @@ scenarios:
               max_num_seqs: 60
               async_scheduling: true
               block_size: 128
-              disable_hybrid_kv_cache_manager: false
+              no_disable_hybrid_kv_cache_manager: true
               trust_remote_code: true
               gpu_memory_utilization: 0.9
               quantization: ascend

@@ -34,7 +34,7 @@ export VLLM_ASCEND_ENABLE_FUSED_MC2=1
 #   echo 'performance' > /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
 # commands (3 entries, not rendered)
 
-vllm serve /model/DeepSeek-V4-Pro --host 0.0.0.0 --port 8900 --safetensors-load-strategy prefetch --max-model-len 135000 --max-num-batched-tokens 4096 --served-model-name DeepSeek-V4-Pro --gpu-memory-utilization 0.9 --max-num-seqs 16 --data-parallel-size 2 --data-parallel-size-local 1 --data-parallel-start-rank 1 --data-parallel-address 10.0.0.1 --data-parallel-rpc-port 13399 --tensor-parallel-size 16 --enable-expert-parallel --quantization ascend --block-size 128 --async-scheduling --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' --additional-config '{"enable_cpu_binding":"true","ascend_compilation_config":{"enable_npugraph_ex":true,"enable_static_kernel":false}}' &
+vllm serve /model/DeepSeek-V4-Pro --host 0.0.0.0 --port 8900 --safetensors-load-strategy prefetch --max-model-len 135000 --max-num-batched-tokens 4096 --served-model-name DeepSeek-V4-Pro --gpu-memory-utilization 0.9 --max-num-seqs 16 --data-parallel-size 2 --data-parallel-size-local 1 --data-parallel-start-rank 1 --data-parallel-address 10.0.0.1 --data-parallel-rpc-port 13399 --tensor-parallel-size 16 --enable-expert-parallel --quantization ascend --block-size 128 --async-scheduling --headless --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' --additional-config '{"enable_cpu_binding":"true","ascend_compilation_config":{"enable_npugraph_ex":true,"enable_static_kernel":false}}' &
 ENGINE_PID=$!
 _wings_log INFO "engine started, PID=$ENGINE_PID"
 wait "$ENGINE_PID"

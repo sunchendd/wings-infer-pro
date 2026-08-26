@@ -1,0 +1,82 @@
+# 来源追溯
+upstream_sources:
+  - id: modelscope_eco-tech_deepseek-v4-flash-0731-w8a8_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4-Flash-0731-w8a8"
+    note: 用户提供 vLLM Ascend 启动命令，手工录入。
+
+# 模型基本信息
+model:
+  name: DeepSeek-V4-Flash
+  provider: Eco-Tech
+  model_id: Eco-Tech/DeepSeek-V4-Flash-0731-w8a8
+  min_engine_version: nightly-releases-v0.25.1rc
+  match:
+    - name_pattern: "(?i)deepseek[-.]?v4[-.]?flash"
+  variant_name: DeepSeek-V4-Flash-0731-w8a8
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 16
+  vram_gb: 1024
+  multi_node: false
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: Enable automatic tool/function calling via the model's tool-call parser.
+    args: [--tokenizer-mode, deepseek_v4, --tool-call-parser, deepseek_v4, --enable-auto-tool-choice]
+  reasoning:
+    description: Enable the model's reasoning-content parser.
+    args: [--reasoning-parser, deepseek_v4]
+  spec_decoding:
+    description: Speculative decoding (dSPARK draft) to accelerate generation.
+    args: [--speculative-config, "{\"method\":\"dspark\",\"num_speculative_tokens\":7,\"enforce_eager\":true}"]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "modelscope_eco-tech_deepseek-v4-flash-0731-w8a8_manual#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: Eco-Tech/DeepSeek-V4-Flash-0731-w8a8
+          host: "0.0.0.0"
+          max_model_len: 1048576
+          max_num_batched_tokens: 10240
+          served_model_name: dsv4
+          gpu_memory_utilization: 0.9
+          api_server_count: 1
+          max_num_seqs: 64
+          data_parallel_size: 4
+          tensor_parallel_size: 4
+          enable_expert_parallel: true
+          safetensors_load_strategy: prefetch
+          quantization: ascend
+          port: 8900
+          block_size: 128
+          compilation_config:
+            cudagraph_mode: FULL_DECODE_ONLY
+          async_scheduling: true
+          additional_config:
+            ascend_compilation_config:
+              enable_npugraph_ex: true
+              enable_static_kernel: false
+            enable_cpu_binding: true
+            multistream_overlap_shared_expert: true
+        env:
+          OMP_PROC_BIND: "false"
+          OMP_NUM_THREADS: 10
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+          HCCL_BUFFSIZE: 1024
+          VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
+          TASK_QUEUE_ENABLE: 1
+          HCCL_OP_EXPANSION_MODE: AIV

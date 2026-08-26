@@ -110,7 +110,7 @@ scenarios:
               max_num_batched_tokens: 4096
               trust_remote_code: true
               quantization: ascend
-              disable_hybrid_kv_cache_manager: false
+              no_disable_hybrid_kv_cache_manager: true
               additional_config:
                 recompute_scheduler_enable: true
                 enable_cpu_binding: true
@@ -169,7 +169,7 @@ scenarios:
               max_num_batched_tokens: 128
               trust_remote_code: true
               quantization: ascend
-              disable_hybrid_kv_cache_manager: false
+              no_disable_hybrid_kv_cache_manager: true
               additional_config:
                 recompute_scheduler_enable: true
                 enable_cpu_binding: true
@@ -232,7 +232,7 @@ scenarios:
               max_num_batched_tokens: 128
               trust_remote_code: true
               quantization: ascend
-              disable_hybrid_kv_cache_manager: false
+              no_disable_hybrid_kv_cache_manager: true
               additional_config:
                 recompute_scheduler_enable: true
                 enable_cpu_binding: true
