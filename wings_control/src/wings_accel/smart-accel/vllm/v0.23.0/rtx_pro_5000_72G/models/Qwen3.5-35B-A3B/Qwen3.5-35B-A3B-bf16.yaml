@@ -2,7 +2,7 @@
 # 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
 model:
   name: Qwen3.5-35B-A3B
-  variant_name: "Qwen3.5-35B-A3B-bf16"
+  variant_name: "Qwen3.5-35B-A3B"
   match:
     - name_pattern: "(?i)qwen3[-.]?5[-.]?35b[-.]?a3b"
 smart_accel:

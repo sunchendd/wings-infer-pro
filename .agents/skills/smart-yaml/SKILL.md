@@ -106,7 +106,11 @@ memcache `world_size`、端口、协议均为手写字面量，拓扑变更时�
 
 `sparse.name` 必须是 `performance_first` 或 `accuracy_first`。`index_topk_freq`
 越大表示越少重算、速度越高、精度越低，因此使用 performance `8`、accuracy `4`。
-`kv_cache_dtype: fp8` 只在 recipe 未设置且 0day 已验证需要时写；基线已有时不重复。
+`kv_cache_dtype` 规则（单向，只约束 engine→smart）：开源 recipe（engine YAML）
+声明了 `kv_cache_dtype: fp8`/`fp8_e4m3` 时，sparse 两个方案的 `cli_params` 都
+必须写 `kv_cache_dtype: fp8`（与 engine 基线对齐）。recipe 未设置时 smart 侧
+也**允许额外声明**——smart 可以比 recipe 多（如 fp8 checkpoint / 0day 验证），
+符合预期不算违规，不要回删。
 
 命名占位符在 `cli_params`/`envs` 中必须占满整个字符串，在 `files.content` 中才可嵌入。
 未知或条件未满足的 token 会原样保留。
