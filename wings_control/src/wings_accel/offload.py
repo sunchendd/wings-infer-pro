@@ -29,6 +29,7 @@ KVOffload Expander — 智能 KV 卸载方案选择与渲染。
 """
 
 import logging
+import shlex
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -39,11 +40,11 @@ from wings_accel.render import (
     fill_envs,
     plan_scheme_files,
     render_engine_config,
-    render_pre_serve,
 )
 from wings_accel.schemas import (
     EngineParams,
     GeneratedFile,
+    SmartAccelConfigurationError,
     SmartKVCacheConfig,
     _FeatureOutput,
 )
@@ -115,6 +116,33 @@ def _scheme_source_path(
             if candidate is selected:
                 return f"{ctx.source_path}.kv_offload[{index}]"
     return f"{ctx.source_path}.kv_offload"
+
+
+def _reject_explicit_pre_serve(
+    scheme: Dict[str, Any],
+    ctx: PlaceholderContext,
+    source_path: str,
+) -> None:
+    """拒绝 YAML 直接提供的启动前 Shell 命令。
+
+    Args:
+        scheme: 当前选中的 KV offload scheme。
+        ctx: 占位符上下文，提供来源文件。
+        source_path: 当前 scheme 的 YAML 路径。
+
+    Raises:
+        SmartAccelConfigurationError: scheme 声明任一 raw pre-serve 字段时抛出。
+    """
+    for key in ("pre_serve", "pre_serve_master", "pre_serve_client"):
+        if key in scheme:
+            file_name = ctx.source_file or "<unknown>"
+            field_path = f"{source_path}.{key}" if source_path else key
+            raise SmartAccelConfigurationError(
+                f"Unsupported SmartAccel field '{key}' at {file_name}:{field_path}; "
+                "use structured files instead"
+            )
+
+
 def smart_kv_offload_expander(
     cfg: SmartKVCacheConfig,
     block: Any,
@@ -185,11 +213,13 @@ def smart_kv_offload_expander(
                 "the YAML scheme defines the disk portion.",
                 backend_scheme.get("name"),
             )
+        source_path = _scheme_source_path(block, backend_scheme, ctx)
+        _reject_explicit_pre_serve(backend_scheme, ctx, source_path)
         return _render_kv_store_scheme(
             backend_scheme,
             cfg,
             ctx,
-            source_path_prefix=_scheme_source_path(block, backend_scheme, ctx),
+            source_path_prefix=source_path,
         )
 
     # 三选一
@@ -213,6 +243,8 @@ def smart_kv_offload_expander(
             return None
 
     selected = schemes[target]
+    selected_source_path = _scheme_source_path(block, selected, ctx)
+    _reject_explicit_pre_serve(selected, ctx, selected_source_path)
 
     # 渲染选中 scheme 的 cli_params / envs(单 scheme,无需合并);envs 拷贝避免污染 yaml dict
     cli_params: Dict[str, Any] = selected.get("cli_params") or {}
@@ -231,7 +263,7 @@ def smart_kv_offload_expander(
             generated_files = plan_scheme_files(
                 files,
                 render_ctx,
-                source_path_prefix=_scheme_source_path(block, selected, ctx),
+                source_path_prefix=selected_source_path,
             )
             envs["LMCACHE_QAT_ENABLED"] = "True" if effective_qat else "False"
         else:
@@ -282,7 +314,7 @@ def _synthesize_file_pre_serve(
         scope = fi.scope or "all"
         parent = str(Path(path).parent)
         if parent and parent not in made_dirs:
-            pre_serve.append(f"mkdir -p {parent}")
+            pre_serve.append(f"mkdir -p {shlex.quote(parent)}")
             made_dirs.add(parent)
         # envsubst:runtime 变量(${RANK_IP}/${MASTER_IP})原地展开,按 scope 分流到 all/master/client 桶。
         # 优先 envsubst;容器缺 gettext(envsubst 不存在)时用 sed 兜底,避免 .tmp 空文件覆盖原文件
@@ -291,24 +323,25 @@ def _synthesize_file_pre_serve(
         # 注入替换串(双引号 shell 展开)。
         runtime_vars = fi.runtime_vars or []
         if runtime_vars:
+            quoted_path = shlex.quote(path)
+            quoted_tmp_path = shlex.quote(f"{path}.tmp")
             exports = " ".join(f'{v}="${{{v}:-127.0.0.1}}"' for v in runtime_vars)
             var_list = " ".join(f"${{{v}}}" for v in runtime_vars)
-            tmp = f"{path}.tmp"
             # sed 兜底:逐变量 sed "s|\${VAR}|$VAR|g"(双引号 → $VAR 由 shell 展开为已 export 的值)。
             # 用 | 分隔避免路径 / 干扰;${VAR} 的 $ 需转义为 \$ 防止 shell 把 ${VAR} 当展开。
             sed_chain = ";".join(f's|\\${{{v}}}|${v}|g' for v in runtime_vars)
             cmds = [
                 f"export {exports}",
                 # 优先 envsubst;命令不存在或非零退出 → sed 兜底;结果都写 .tmp 再 mv
-                f"if command -v envsubst >/dev/null 2>&1 && envsubst '{var_list}' < {path} > {tmp} 2>/dev/null; then :; else sed \"{sed_chain}\" {path} > {tmp}; fi",
-                f"mv {tmp} {path}",
+                f"if command -v envsubst >/dev/null 2>&1 && envsubst '{var_list}' < {quoted_path} > {quoted_tmp_path} 2>/dev/null; then :; else sed \"{sed_chain}\" {quoted_path} > {quoted_tmp_path}; fi",
+                f"mv {quoted_tmp_path} {quoted_path}",
             ]
             {"all": pre_serve, "master": pre_serve_master, "client": pre_serve_client}.get(
                 scope, pre_serve
             ).extend(cmds)
         # daemon:名为 _KV_DAEMON_SCRIPT 的脚本,仅 master 后台执行(不监听端口)。
         if Path(path).name == _KV_DAEMON_SCRIPT:
-            pre_serve_master.append(f"bash {path} &")
+            pre_serve_master.append(f"bash {shlex.quote(path)} &")
     return pre_serve, pre_serve_master, pre_serve_client
 
 
@@ -325,7 +358,7 @@ def _render_kv_store_scheme(
     - files: 自描述条目(path/src/scope/mode)→ plan_scheme_files 生成文件计划 + 返回运行时信息;
       本函数据之合成 mkdir/envsubst/daemon(资产作者不在 YAML 写 shell)。daemon 脚本统一名
       start_kv_serve.sh,仅 master ``bash <path> &``(不监听端口)。
-    - 显式 pre_serve/pre_serve_master/pre_serve_client 作逃生口,追加在自动生成之后(特殊步骤)。
+    - YAML 不允许显式 pre_serve/pre_serve_master/pre_serve_client；启动前命令只能由 files 自动合成。
     """
     cli_params: Dict[str, Any] = scheme.get("cli_params") or {}
     envs: Dict[str, Any] = dict(scheme.get("envs") or {})
@@ -338,10 +371,6 @@ def _render_kv_store_scheme(
     )
     # 框架自动合成 pre_serve(mkdir/envsubst 按 scope 分流;daemon 仅 master bash &,不监听端口)
     pre_serve, pre_serve_master, pre_serve_client = _synthesize_file_pre_serve(file_infos)
-    # 逃生口:YAML 显式 pre_serve 追加(向后兼容)
-    pre_serve.extend(render_pre_serve(scheme.get("pre_serve"), ctx))
-    pre_serve_master.extend(render_pre_serve(scheme.get("pre_serve_master"), ctx))
-    pre_serve_client.extend(render_pre_serve(scheme.get("pre_serve_client"), ctx))
     return _FeatureOutput(
         scheme=str(scheme.get("name", "")),
         engine_params=EngineParams(

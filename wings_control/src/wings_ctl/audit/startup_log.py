@@ -60,7 +60,8 @@ def _build_summary_lines(
         lines.append(
             "[STARTUP] WARNING: "
             f"ENGINE_VERSION={resolved.engine_version.requested} "
-            f"在 {resolved.engine} 下无精确配置, 回退到最新支持版本 "
+            f"has no exact configuration for engine={resolved.engine}; "
+            "falling back to the latest supported version "
             f"{resolved.engine_version.resolved or 'unset'}"
         )
 
@@ -79,10 +80,13 @@ def _build_summary_lines(
         lines.append(
             "[STARTUP] "
             f"device_count={dc} → DP={notes.get('device_count_resolved_dp', '?')} "
-            f"(strategy_device_count, TP={notes.get('device_count_tp', '?')} 静态, status={dc_status})"
+            f"(strategy_device_count, TP={notes.get('device_count_tp', '?')} static, status={dc_status})"
         )
     else:
-        lines.append(f"[STARTUP] device_count={dc} (未下发或未触发 DP 协调)")
+        lines.append(
+            f"[STARTUP] device_count={dc} "
+            "(not provided or DP coordination was not triggered)"
+        )
 
     # PD 摘要只投影规范 topology/process plan，不重算 rank、端口或卡组。
     if resolved.pd_topology and resolved.process_plan:
@@ -117,7 +121,8 @@ def _build_summary_lines(
     if resolved.nodes:
         roles = ",".join(n.role for n in resolved.nodes)
         lines.append(
-            f"[STARTUP] multi_node: nodes={len(resolved.nodes)} roles=[{roles}] injection=pending(无运行时上下文)"
+            f"[STARTUP] multi_node: nodes={len(resolved.nodes)} roles=[{roles}] "
+            "injection=pending(runtime context unavailable)"
         )
     elif notes.get("multi_node_injection_status") == "injected":
         dp_status = notes.get("multinode_dp_status", "template")
@@ -212,7 +217,7 @@ def emit_startup_summary(
         # 默认路径不可写=dev/非 root 常态 → INFO 安静降级;显式路径失败 → WARNING。
         log_fn = logger.warning if log_path_is_explicit else logger.info
         log_fn(
-            "startup log 写入 %s 失败(%s),已降级到 %s",
+            "Failed to write startup log to %s (%s); falling back to %s",
             requested_log_path,
             exc,
             fallback_path,

@@ -9,6 +9,7 @@ from wings_accel.yaml_loader import (
     LoadFlags,
     build_smart_accel_yaml_path,
     find_smart_accel_yaml_path,
+    is_package_smart_accel_source,
     load_smart_accel_from_config,
     load_smart_accel_from_yaml,
 )
@@ -166,6 +167,16 @@ def test_load_smart_accel_from_config_uses_smart_accel_tree(tmp_path):
     # new:list 形式,cpu scheme 在 cli_params.kv_transfer_config.kv_connector
     cpu = smart_input.smart_accel["kv_offload"][0]
     assert cpu["cli_params"]["kv_transfer_config"]["kv_connector"] == "OffloadingConnector"
+
+
+def test_is_package_smart_accel_source_distinguishes_external_and_unknown(tmp_path):
+    """验证外部 YAML 为 False，不存在或空来源为 None。"""
+    external_yaml = tmp_path / "external.yaml"
+    external_yaml.write_text("model: {}\n", encoding="utf-8")
+
+    assert is_package_smart_accel_source(external_yaml) is False
+    assert is_package_smart_accel_source(tmp_path / "missing.yaml") is None
+    assert is_package_smart_accel_source("") is None
 
 
 def test_resolve_smart_accel_from_config_self_contained(tmp_path):

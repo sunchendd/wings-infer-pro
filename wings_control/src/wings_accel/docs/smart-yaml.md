@@ -51,11 +51,11 @@
 
 ## 0. 一句话结论
 
-- smart-accel YAML 只写**模板**(scenario 子块[对齐 wings_control scenarios:source_ref/match/strategies/nodes[]] + 方案 + cli_params + envs + `files:` 配置文件内容 + `pre_serve` daemon 命令 + 占位符);
+- smart-accel YAML 只写**模板**(scenario 子块[对齐 wings_control scenarios:source_ref/match/strategies/nodes[]] + 方案 + cli_params + envs + `files:` 配置文件内容 + 框架合成的启动前动作 + 占位符);
 - **smart_accel 按 scenario 拆块**(§1.1):顶层 standalone / multi_node / pd_disaggregation,每块带 source_ref/match/strategies;PD 用 strategies.pd_cluster.nodes[].role 区分 P/D;每个 strategy/node 独立声明 decoding / kv_offload / sparse / custom_features;**缺键即该场景不产出**;
 - 配置文件用**通用 `files:` 语法**生成计划(docs/54)，由 wings-control 在正式产物阶段写入；**`LMCACHE_CONFIG_FILE` 在 yaml `envs:` 声明**(指向 `files:` 的目标路径),**仅 `LMCACHE_QAT_ENABLED` 一项仍代码写死注入**(§5);
-- 占位符 `{xxx}` / `$path` 在 cli_params/envs(整值)与 files content / pre_serve(子串)三处生效,见 §6;
-- **KV 存储后端(memcache/mooncake/lmcache_mp)** 是 KV 内存卸载的一种方法(与 cpu 同级,非第四类介质),带 `pre_serve`/`pre_serve_master` daemon 通道(§4.2、§10);
+- 占位符 `{xxx}` / `$path` 在 cli_params/envs(整值)与 files content(子串)两处生效,见 §6;
+- **KV 存储后端(memcache/mooncake/lmcache_mp)** 是 KV 内存卸载的一种方法(与 cpu 同级,非第四类介质);daemon 通过 `files:` 声明,由框架生成启动前动作(§4.2、§10);
 - 若该模型的 engine_config 设了 `async_scheduling: true`,**含该 scenario 的 `decoding` 子块不得声明 `suffix`**(§7)。
 - **动态投机解码**:`speculative_config.num_speculative_tokens_per_batch_size` 按 batch size 分档动态选投机 token 数(字段须写在 `speculative_config` 内,见 §3)。
 
@@ -182,7 +182,7 @@ smart_accel:                    # scenario 嵌套结构(对齐 wings_control sce
             sparse: [...]
 ```
 
-每个方案/scheme 的通用字段:`name` / `packages`(name:version)/ `cli_params`(结构化引擎参数)/ `envs`(K=V,支持占位符)。decoding 还有 `requires_model_path`(bool)/ `draft_arch`(可选 list,草稿架构匹配关键字,见 §3)。kv_offload 的 memcache/mooncake scheme 额外有 `files:` 配置文件 + 自动生成的 `pre_serve` daemon(§10)。出处:`schemas.py:_FeatureOutput`、各 expander。
+每个方案/scheme 的通用字段:`name` / `packages`(name:version)/ `cli_params`(结构化引擎参数)/ `envs`(K=V,支持占位符)。decoding 还有 `requires_model_path`(bool)/ `draft_arch`(可选 list,草稿架构匹配关键字,见 §3)。kv_offload 的 memcache/mooncake scheme 可用 `files:` 声明配置文件和 daemon 脚本,框架据此自动生成启动前动作(§10)。出处:`schemas.py:_FeatureOutput`、各 expander。
 
 > ⚠️ **`deploy_modes` 字段已废弃**(2026-08-06 scenario 重构):scenario 嵌套结构后,拓扑路由在 loader 完成,scheme 级 deploy_modes 不再需要;新结构 yaml **不应再声明 `deploy_modes`**(声明了也无效——expander 不再读它)。
 
@@ -690,7 +690,7 @@ smart_accel:
 - **docs/48** — 模型多变体选择契约(`variant_name` 精确 + `name_pattern` 兜底)。
 - **docs/54** — 通用 `files:` 配置文件渲染设计(lmcache/mooncake 统一生成计划;§5 机制的权威来源)。
 - **docs/40** — wings-accel 集成;**docs/45** — 引擎参数互操作(含 install 段)。
-- 真码:`src/wings_accel/schemas.py`(数据契约)、`decoders.py`(decoding 选择)、`offload.py`(kv 卸载 + `LMCACHE_QAT_ENABLED` 写死注入 + memcache/mooncake 后端选择)、`render.py`(`plan_scheme_files` + 占位符 `_resolve_token` + `render_pre_serve`)、`yaml_loader.py`(yaml 装载)。
+- 真码:`src/wings_accel/schemas.py`(数据契约)、`decoders.py`(decoding 选择)、`offload.py`(kv 卸载 + `LMCACHE_QAT_ENABLED` 写死注入 + memcache/mooncake 后端选择)、`render.py`(`plan_scheme_files` + 占位符 `_resolve_token`)、`yaml_loader.py`(yaml 装载)。
 - 护栏:`CLAUDE.md` §2.5(占位符公式写死、禁 DSL/eval)、§2.6(env 特性开关不进 user_cli)、§3(不 if-engine)。
 
 ---
@@ -742,7 +742,7 @@ vllm serve 前要起 KV 协调服务(`mooncake_master` / memcache `MetaService`)
 
 > master pod 内 master 也跑 vllm,故常见配置多为 `all`(master 与 worker 都需)或 `master`(仅 daemon 侧);`client` 供「master 专用、仅 worker 需某配置」的拓扑(如 dedicated master pod)。
 
-> 旧 `pre_serve` / `pre_serve_master` 仍作**逃生口**保留(YAML 显式声明时追加在自动生成之后),常规后端无需写。master 判定 `if [ -z "${MASTER_IP:-}" ] || [ "${RANK_IP:-}" = "${MASTER_IP:-}" ]; then ... fi` 由 `script_builder._render_accel_pre_serve_section` 自动包裹。
+> 安全边界：`pre_serve`、`pre_serve_master` 和 `pre_serve_client` 不能在 YAML 中直接书写。需要启动 daemon 时，请通过 `files:` 声明脚本；框架仅基于受信任的 smart-accel 包内资产生成启动前动作。master 判定 `if [ -z "${MASTER_IP:-}" ] || [ "${RANK_IP:-}" = "${MASTER_IP:-}" ]; then ... fi` 由 `script_builder._render_accel_pre_serve_section` 自动包裹。
 
 ### 10.3 关键写法要点(对照 Wings-infer)
 

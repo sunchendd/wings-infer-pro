@@ -1,5 +1,7 @@
 """render 渲染层单测 — cli_params → 结构化 engine_config + 占位符 + 合并。"""
 
+import pytest
+
 from wings_accel.render import (
     PlaceholderContext,
     deep_merge_dicts,
@@ -8,7 +10,11 @@ from wings_accel.render import (
     plan_scheme_files,
     render_engine_config,
 )
-from wings_accel.schemas import EngineParams, GeneratedFile
+from wings_accel.schemas import (
+    EngineParams,
+    GeneratedFile,
+    SmartAccelConfigurationError,
+)
 
 
 def ctx(**kw):
@@ -164,6 +170,62 @@ def test_plan_scheme_files_preserves_source_metadata(monkeypatch, tmp_path):
     assert planned[0].source_path == (
         "smart_accel.standalone.strategies.single_node.kv_offload[0].files[0]"
     )
+
+
+def test_plan_scheme_files_reads_src_only_from_config_root(tmp_path):
+    """验证 files.src 只能读取当前 SmartAccel 资产根内的相对文件。"""
+    asset_root = tmp_path / "smart-accel"
+    asset_root.mkdir()
+    (asset_root / "template.conf").write_text("enabled = true\n", encoding="utf-8")
+
+    planned = plan_scheme_files(
+        [{"name": "target.conf", "src": "template.conf"}],
+        ctx(config_root=str(asset_root)),
+    )
+
+    assert planned[0].content == "enabled = true\n"
+
+
+@pytest.mark.parametrize("src", ["../outside.conf", "/tmp/outside.conf", "missing.conf"])
+def test_plan_scheme_files_rejects_invalid_src(tmp_path, src):
+    """验证 files.src 的穿越、绝对路径和缺失文件均作为配置错误失败。"""
+    asset_root = tmp_path / "smart-accel"
+    asset_root.mkdir()
+
+    with pytest.raises(SmartAccelConfigurationError):
+        plan_scheme_files(
+            [{"name": "target.conf", "src": src}],
+            ctx(config_root=str(asset_root)),
+        )
+
+
+def test_plan_scheme_files_rejects_src_symlink_escape(tmp_path):
+    """验证指向资产根外文件的 src 符号链接不能绕过目录边界。"""
+    asset_root = tmp_path / "smart-accel"
+    asset_root.mkdir()
+    external_file = tmp_path / "outside.conf"
+    external_file.write_text("secret\n", encoding="utf-8")
+    (asset_root / "linked.conf").symlink_to(external_file)
+
+    with pytest.raises(SmartAccelConfigurationError):
+        plan_scheme_files(
+            [{"name": "target.conf", "src": "linked.conf"}],
+            ctx(config_root=str(asset_root)),
+        )
+
+
+def test_plan_scheme_files_rejects_src_symlink_loop(tmp_path):
+    """验证无法解析的 src 符号链接循环也会作为配置错误失败。"""
+    asset_root = tmp_path / "smart-accel"
+    asset_root.mkdir()
+    loop = asset_root / "loop.conf"
+    loop.symlink_to(loop)
+
+    with pytest.raises(SmartAccelConfigurationError):
+        plan_scheme_files(
+            [{"name": "target.conf", "src": "loop.conf"}],
+            ctx(config_root=str(asset_root)),
+        )
 # ── {= expr} 算术求值(content / cli_params / envs 通用)───────────────────────
 
 

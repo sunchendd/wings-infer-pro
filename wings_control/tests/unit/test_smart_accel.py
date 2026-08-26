@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import types
 
+import pytest
+
 from wings_ctl.accel import smart_accel
 from wings_ctl.accel.smart_accel import (
     AccelResult,
@@ -182,6 +184,7 @@ def test_collect_output_plan_only_marks_accel_enabled():
         ],
         packages=["lmcache:v0.3.15"],
         pre_serve=["mkdir -p /shared-volume"],
+        pre_serve_trusted=True,
     )
 
     result = collect_output(out)
@@ -189,6 +192,7 @@ def test_collect_output_plan_only_marks_accel_enabled():
     assert result.enabled is True
     assert result.packages == ["lmcache:v0.3.15"]
     assert result.pre_serve == ["mkdir -p /shared-volume"]
+    assert result.pre_serve_trusted is True
     assert len(result.generated_files) == 1
 
 
@@ -216,6 +220,87 @@ def test_apply_with_stub_module_spec_on(monkeypatch):
     assert result.enabled is True
     assert result.engine_config["speculative_config"]["method"] == "mtp"
     assert result.audit["smart_decoding_output"]["selected"] == "mtp"
+
+
+def _pre_serve_stub_mod(trusted):
+    """构造返回启动前命令的 SmartAccel stub，用于验证消费端可信门禁。"""
+    mod = types.SimpleNamespace()
+    mod.LoadFlags = lambda **kwargs: types.SimpleNamespace(**kwargs)
+    mod.resolve_smart_accel_from_config = lambda **kwargs: types.SimpleNamespace(
+        engine_params=types.SimpleNamespace(engine_config={}, env={}),
+        pre_serve=["mkdir -p /shared-volume"],
+        pre_serve_trusted=trusted,
+    )
+    return mod
+
+
+@pytest.mark.parametrize("trusted", [False, None])
+def test_apply_rejects_untrusted_pre_serve(monkeypatch, trusted):
+    """验证有启动前命令但来源外部或未知时不能被无加速降级掩盖。"""
+    monkeypatch.setattr(
+        smart_accel,
+        "_import_accel",
+        lambda: _pre_serve_stub_mod(trusted),
+    )
+
+    with pytest.raises(ValueError, match="trusted package source"):
+        apply_smart_accel(
+            hardware_family="h200",
+            gpu_count=8,
+            model_path="/m",
+            model_name="M",
+            engine="vllm",
+            engine_version="0.19.0",
+            env={},
+        )
+
+
+def test_apply_accepts_trusted_pre_serve(monkeypatch):
+    """验证有启动前命令且来源为包内资产时正常返回。"""
+    monkeypatch.setattr(
+        smart_accel,
+        "_import_accel",
+        lambda: _pre_serve_stub_mod(True),
+    )
+
+    result = apply_smart_accel(
+        hardware_family="h200",
+        gpu_count=8,
+        model_path="/m",
+        model_name="M",
+        engine="vllm",
+        engine_version="0.19.0",
+        env={},
+    )
+
+    assert result.pre_serve_trusted is True
+
+
+def test_apply_propagates_accel_configuration_error(monkeypatch):
+    """验证 SmartAccel 配置错误不会被 optional integration 的通用降级吞掉。"""
+    class StubConfigurationError(ValueError):
+        """模拟 wings-accel 对外公开的配置错误类型。"""
+
+    def _raise_configuration_error(**kwargs):
+        raise StubConfigurationError("invalid SmartAccel asset")
+
+    mod = types.SimpleNamespace(
+        LoadFlags=lambda **kwargs: types.SimpleNamespace(**kwargs),
+        SmartAccelConfigurationError=StubConfigurationError,
+        resolve_smart_accel_from_config=_raise_configuration_error,
+    )
+    monkeypatch.setattr(smart_accel, "_import_accel", lambda: mod)
+
+    with pytest.raises(ValueError, match="invalid SmartAccel asset"):
+        apply_smart_accel(
+            hardware_family="h200",
+            gpu_count=8,
+            model_path="/m",
+            model_name="M",
+            engine="vllm",
+            engine_version="0.19.0",
+            env={},
+        )
 
 
 def test_maas_flags_sole_driver_no_yaml_auto_enable(monkeypatch):

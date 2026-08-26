@@ -33,7 +33,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from wings_accel.schemas import EngineParams, GeneratedFile, _FeatureOutput
+from wings_accel.schemas import (
+    EngineParams,
+    GeneratedFile,
+    SmartAccelConfigurationError,
+    _FeatureOutput,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -323,7 +328,7 @@ def _resolve_file_entry(
     - ``src`` / ``content`` 二选一:``src`` 从 ``ctx.config_root`` 读模板文件;``content`` 内联。
     - ``scope``(all/master/client,默认 all)、``mode``(权限如 ``"0755"``)透传,供 offload 合成 pre_serve。
 
-    返回 None 表示条目无效(非 dict / 缺 path 与 name / src 模板缺失 → 跳过 + warn)。
+    返回 None 表示条目无效(非 dict / 缺 path 与 name)。src 路径问题属于配置错误，直接抛出。
     """
     if not isinstance(f, dict):
         return None
@@ -335,13 +340,35 @@ def _resolve_file_entry(
     src = f.get("src")
     if src:
         if not ctx.config_root:
-            logger.warning("smart_accel: skipping file %s with src=%r because config_root is unset", p, src)
-            return None
-        src_path = Path(ctx.config_root) / str(src)
+            raise SmartAccelConfigurationError(
+                f"SmartAccel files src requires config_root: {src!r}"
+            )
+        raw_src_path = Path(str(src))
+        if raw_src_path.is_absolute():
+            raise SmartAccelConfigurationError(
+                f"SmartAccel files src must be relative to config_root: {src!r}"
+            )
+        try:
+            source_root = Path(ctx.config_root).resolve()
+            src_path = (source_root / raw_src_path).resolve()
+        except (OSError, RuntimeError) as exc:
+            raise SmartAccelConfigurationError(
+                f"Failed to resolve SmartAccel files src: {src!r}"
+            ) from exc
+        if not src_path.is_relative_to(source_root):
+            raise SmartAccelConfigurationError(
+                f"SmartAccel files src escapes config_root: {src!r}"
+            )
         if not src_path.is_file():
-            logger.warning("smart_accel: skipping missing files src template: %s", src_path)
-            return None
-        content: Any = src_path.read_text(encoding="utf-8")
+            raise SmartAccelConfigurationError(
+                f"SmartAccel files src is not a readable file: {src!r}"
+            )
+        try:
+            content: Any = src_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise SmartAccelConfigurationError(
+                f"Failed to read SmartAccel files src: {src!r}"
+            ) from exc
     else:
         content = f.get("content", "")
     scope = str(f.get("scope") or "all").strip().lower()
@@ -482,7 +509,10 @@ def render_pre_serve(
     commands: Optional[List[str]],
     ctx: PlaceholderContext,
 ) -> List[str]:
-    """渲染 pre-serve 命令列表(KV 存储后端用):填 ``{占位符}``(子串替换)。
+    """渲染已有 pre-serve 命令列表的兼容工具：填 ``{占位符}``(子串替换)。
+
+    当前 SmartAccel YAML 不读取 ``pre_serve`` 相关字段；KV 存储后端的启动前
+    命令由 ``files:`` 计划自动合成。本函数仅保留给已有 Python 调用方使用。
 
     与 files content 同走 ``_fill_str_substr``:``{rank_ip}``/``{master_ip}`` 等占位符按 ctx 填实;
     ``$local_ip`` / ``$node0_ip`` / ``${RANK_IP}`` 等 wings-control 拓扑占位与 shell 变量**原样保留**
