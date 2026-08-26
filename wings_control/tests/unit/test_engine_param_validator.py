@@ -135,7 +135,7 @@ def test_resolve_path_no_version_layer(tmp_path):
 
 def test_resolve_path_with_version_layer(tmp_path):
     """有版本层引擎(sglang)→ engines/{engine}/v{resolved}/supported_params.txt。"""
-    ev = EngineVersion(requested=None, resolved="0.5.14", is_fallback=False, has_version_dir=True)
+    ev = EngineVersion(requested=None, resolved="v0.5.14", is_fallback=False, has_version_dir=True)
     path = _resolve_supported_params_path(tmp_path, "sglang", ev)
     assert path == tmp_path / "engines" / "sglang" / "v0.5.14" / "supported_params.txt"
 
@@ -273,7 +273,7 @@ def test_validate_version_layer_path_used(tmp_path):
     """有版本层引擎命中 v{resolved}/ 下清单(决策②路径)。"""
     _write_supported(tmp_path, "sglang", ["--context-length"], version="v0.5.14")
     traces = {"model": _tv("m"), "context_length": _tv(1)}
-    resolved = _make_resolved(traces, engine="sglang", resolved_version="0.5.14", has_version_dir=True)
+    resolved = _make_resolved(traces, engine="sglang", resolved_version="v0.5.14", has_version_dir=True)
     validate_engine_params(resolved, tmp_path)
 
     pv = resolved.param_validation

@@ -75,6 +75,19 @@ def test_no_engine_version_uses_latest_not_fallback(tmp_path, monkeypatch):
     assert ev.requested is None
 
 
+def test_no_v_version_directory_matches_release_build(tmp_path, monkeypatch):
+    """无 v 版本目录可以匹配 MaaS 下发的完整 MindIE 构建版本。"""
+    monkeypatch.setenv("ENGINE_VERSION", "2.3.0-800I-A2-py311-openeuler24.03-lts-202604162107")
+    root = _make_engine_dirs(tmp_path, "mindie", ["2.3.0"])
+
+    ev = resolve_engine_version(root, "ascend-a2", engine="mindie")
+
+    assert ev.requested == "2.3.0-800I-A2-py311-openeuler24.03-lts-202604162107"
+    assert ev.resolved == "2.3.0"
+    assert ev.is_fallback is False
+    assert ev.has_version_dir is True
+
+
 def test_directory_name_prefix_match_not_fallback(tmp_path, monkeypatch):
     """下发值以目录名开头时命中，不发生字符串转换。"""
     monkeypatch.setenv("ENGINE_VERSION", "v0.18.0")

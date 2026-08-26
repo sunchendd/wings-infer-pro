@@ -22,9 +22,9 @@ from wings_ctl.engines.delivery_contract import (
 
 logger = logging.getLogger(__name__)
 
-# 匹配磁盘上的配置目录名，例如 v0.19.0、v0.21.0rc、v0.17.1。
+# 匹配磁盘上的配置目录名，例如 v0.19.0、v0.21.0rc、v0.17.1 或 2.3.0。
 # 示例：v0.21.0rc 可匹配；v0.21.0rc1-20260709144216 不可直接匹配。
-_VERSION_DIR_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)(?:[A-Za-z]+\d*)?$")
+_VERSION_DIR_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:[A-Za-z]+\d*)?$")
 
 
 def _parse_version_tuple(ver_str: str) -> Optional[Tuple[int, int, int]]:

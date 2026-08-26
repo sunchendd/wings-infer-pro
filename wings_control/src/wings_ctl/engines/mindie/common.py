@@ -197,7 +197,7 @@ def _resolve_config_template_path(resolved: ResolvedConfig) -> Path:
         / "config"
         / "engines"
         / "mindie"
-        / f"v{SUPPORTED_MINDIE_VERSION}"
+        / SUPPORTED_MINDIE_VERSION
         / CONFIG_TEMPLATE_NAME
     )
 
