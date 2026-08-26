@@ -222,6 +222,27 @@ def test_apply_with_stub_module_spec_on(monkeypatch):
     assert result.audit["smart_decoding_output"]["selected"] == "mtp"
 
 
+def test_apply_propagates_smart_accel_configuration_error(monkeypatch):
+    """确定性 SmartAccel 配置错误必须阻止启动，而不是静默关闭加速。"""
+    class SmartAccelConfigurationError(ValueError):
+        pass
+
+    mod = _stub_mod()
+    mod.SmartAccelConfigurationError = SmartAccelConfigurationError
+
+    def _raise_configuration_error(**kwargs):
+        raise SmartAccelConfigurationError("conflicting package versions")
+
+    mod.resolve_smart_accel_from_config = _raise_configuration_error
+    monkeypatch.setattr(smart_accel, "_import_accel", lambda: mod)
+
+    with pytest.raises(SmartAccelConfigurationError, match="conflicting package versions"):
+        apply_smart_accel(
+            hardware_family="h200", gpu_count=8, model_path="/m", model_name="M",
+            engine="vllm", engine_version="0.19.0", env={},
+        )
+
+
 def _pre_serve_stub_mod(trusted):
     """构造返回启动前命令的 SmartAccel stub，用于验证消费端可信门禁。"""
     mod = types.SimpleNamespace()

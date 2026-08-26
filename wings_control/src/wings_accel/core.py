@@ -34,8 +34,10 @@ from wings_accel.render import PlaceholderContext, merge_engine_params
 from wings_accel.schemas import (
     EngineParams,
     GeneratedFile,
+    PackageRequirement,
     SmartAccelInput,
     SmartAccelOutput,
+    SmartAccelPackageConflictError,
 )
 from wings_accel.sparse import smart_sparse_expander
 from wings_accel.validators import collect_smart_accel_warnings
@@ -55,6 +57,29 @@ def _ensure_unique_generated_file_paths(files: list[GeneratedFile]) -> None:
     if duplicates:
         paths = ", ".join(dict.fromkeys(duplicates))
         raise ValueError(f"SmartAccel generated file paths must be unique: {paths}")
+
+
+def _merge_package_requirements(
+    requirements: list[tuple[str, PackageRequirement]],
+) -> list[str]:
+    """按规范化包名汇总精确版本；同包不同版本必须显式失败。"""
+    selected: dict[str, tuple[str, PackageRequirement]] = {}
+    for feature_name, requirement in requirements:
+        existing = selected.get(requirement.canonical_name)
+        if existing is None:
+            selected[requirement.canonical_name] = (feature_name, requirement)
+            continue
+        existing_feature, existing_requirement = existing
+        # 冲突比较用规范化版本(PEP 440):v0.4.5 与 0.4.5 视为同一版本,不算冲突;
+        # 交付仍取 YAML 首次声明的原始 name:version(manifest)。
+        if existing_requirement.canonical_version != requirement.canonical_version:
+            raise SmartAccelPackageConflictError(
+                "SmartAccel package conflict for "
+                f"{requirement.canonical_name}: {existing_requirement.manifest} "
+                f"from feature={existing_feature} conflicts with "
+                f"{requirement.manifest} from feature={feature_name}"
+            )
+    return [requirement.manifest for _, requirement in selected.values()]
 
 
 def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
@@ -115,22 +140,27 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
 
     # Step 6: assemble output
     engine_params = EngineParams()
-    packages: list = []
+    package_requirements: list[tuple[str, PackageRequirement]] = []
     pre_serve: list = []
     pre_serve_master: list = []
     pre_serve_client: list = []
     generated_files: list[GeneratedFile] = []
-    for feature in (decoding, offload, sparse, custom):
+    for feature_name, feature in (
+        ("decoding", decoding),
+        ("kv_offload", offload),
+        ("sparse", sparse),
+        ("custom_features", custom),
+    ):
         if feature:
             engine_params = merge_engine_params(engine_params, feature.engine_params)
-            packages.extend(feature.packages)
+            package_requirements.extend((feature_name, requirement) for requirement in feature.packages)
             pre_serve.extend(feature.pre_serve)
             pre_serve_master.extend(feature.pre_serve_master)
             pre_serve_client.extend(feature.pre_serve_client)
             generated_files.extend(feature.generated_files)
     _ensure_unique_generated_file_paths(generated_files)
     # 去重保序:同一依赖/命令被多个特性声明时只取一次
-    packages = list(dict.fromkeys(packages))
+    packages = _merge_package_requirements(package_requirements)
     pre_serve = list(dict.fromkeys(pre_serve))
     pre_serve_master = list(dict.fromkeys(pre_serve_master))
     pre_serve_client = list(dict.fromkeys(pre_serve_client))

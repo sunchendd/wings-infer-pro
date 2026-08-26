@@ -27,7 +27,7 @@ scheme 结构(new):
 import logging
 from typing import Any, Dict, List, Optional
 
-from wings_accel.render import PlaceholderContext, extract_packages, fill_envs, render_engine_config
+from wings_accel.render import PlaceholderContext, extract_package_requirements, fill_envs, render_engine_config
 from wings_accel.schemas import EngineParams, SmartKVSparseConfig, _FeatureOutput
 
 logger = logging.getLogger(__name__)
@@ -92,5 +92,5 @@ def _render_sparse_scheme(
         engine_params=engine_params,
         degraded=degraded,
         degrade_reason=degrade_reason,
-        packages=extract_packages(mode_block),
+        packages=extract_package_requirements(mode_block),
     )

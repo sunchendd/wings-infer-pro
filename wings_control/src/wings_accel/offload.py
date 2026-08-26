@@ -36,7 +36,7 @@ from typing import Any, Dict, List, Optional
 
 from wings_accel.render import (
     PlaceholderContext,
-    extract_packages,
+    extract_package_requirements,
     fill_envs,
     plan_scheme_files,
     render_engine_config,
@@ -249,7 +249,7 @@ def smart_kv_offload_expander(
     # 渲染选中 scheme 的 cli_params / envs(单 scheme,无需合并);envs 拷贝避免污染 yaml dict
     cli_params: Dict[str, Any] = selected.get("cli_params") or {}
     envs: Dict[str, Any] = dict(selected.get("envs") or {})
-    packages: List[str] = extract_packages(selected)
+    packages = extract_package_requirements(selected)
     generated_files: List[GeneratedFile] = []
 
     # disk/cpu_disk(lmcache)命中:scheme 的 files: 块统一生成计划(lmcache_config.yaml 等),
@@ -362,7 +362,7 @@ def _render_kv_store_scheme(
     """
     cli_params: Dict[str, Any] = scheme.get("cli_params") or {}
     envs: Dict[str, Any] = dict(scheme.get("envs") or {})
-    packages: List[str] = extract_packages(scheme)
+    packages = extract_package_requirements(scheme)
     # Build file plans and collect runtime metadata without writing to the filesystem.
     file_infos = plan_scheme_files(
         scheme.get("files") or [],

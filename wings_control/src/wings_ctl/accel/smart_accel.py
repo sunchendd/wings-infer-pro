@@ -379,7 +379,7 @@ def apply_smart_accel(*, hardware_family: str, gpu_count: int | None, model_path
                       env: dict | None = None) -> AccelResult:
     """委托 wings-accel 生成加速产出。
 
-    模块缺失或普通可选集成故障会降级为空 :class:`AccelResult`；SmartAccel 配置
+模块缺失或普通可选集成故障会降级为空 :class:`AccelResult`；SmartAccel 配置
     错误以及来源不受信任的启动前命令必须向上抛出，避免带风险资产继续启动。
 
     topology 由上层 ``config_resolver`` 传入(已聚合 PD_ROLE/DISTRIBUTED/NODE_IPS,
@@ -438,8 +438,8 @@ def apply_smart_accel(*, hardware_family: str, gpu_count: int | None, model_path
         result = collect_output(output)
     except Exception as exc:  # optional integration 故障按既有契约降级；配置错误不能吞掉。
         configuration_error = getattr(mod, "SmartAccelConfigurationError", None)
-        if configuration_error is not None and isinstance(exc, configuration_error):
-            raise ValueError(str(exc)) from exc
+        if isinstance(configuration_error, type) and isinstance(exc, configuration_error):
+            raise
         logger.warning("wings-accel invocation failed; continuing without acceleration: %s", exc)
         return AccelResult()
 
