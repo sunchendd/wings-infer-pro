@@ -46,6 +46,7 @@ scenarios:
         orientation: latency
         default_strategy: true
         engine_config:
+          enable_expert_parallel: true
           model: Qwen/Qwen3-VL-30B-A3B-Instruct
           trust_remote_code: true
           max_model_len: 4096
