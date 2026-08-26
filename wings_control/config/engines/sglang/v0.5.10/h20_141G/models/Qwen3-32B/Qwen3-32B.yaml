@@ -37,6 +37,7 @@ scenarios:
           port: 18000
           host: "0.0.0.0"
           tp_size: 2
+          disable_piecewise_cuda_graph: true
         env: {}
         default_strategy: true
   multi_node:
@@ -60,6 +61,7 @@ scenarios:
             nnodes: 2
             node_rank: 0
             dist_init_addr: 192.168.1.100:28030
+            disable_piecewise_cuda_graph: true
           env:
             GLOO_SOCKET_IFNAME: bond0
             NCCL_SOCKET_IFNAME: bond0
@@ -75,6 +77,7 @@ scenarios:
             nnodes: 2
             node_rank: 1
             dist_init_addr: 192.168.1.100:28030
+            disable_piecewise_cuda_graph: true
           env:
             GLOO_SOCKET_IFNAME: bond0
             NCCL_SOCKET_IFNAME: bond0
