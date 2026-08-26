@@ -243,6 +243,46 @@ def test_ordinary_pd_pipeline_derives_tp_from_device_count(
     assert resolved.resolution_notes["pd_tp_source"] == "device_count"
 
 
+def test_pd_exact_explicit_dp1_script_omits_external_dp_arguments(
+    pd_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """验证大 EP recipe 在 1P1D DP=1 时生成可被 vLLM 接受的单进程脚本。"""
+    monkeypatch.setenv("ENGINE_VERSION", "v0.23.0")
+    placement = ClusterPlacement(
+        master_ip="10.0.2.1",
+        rank_ip="10.0.2.1",
+        node_ips=["10.0.2.1"],
+    )
+    request = PipelineRequest(
+        target=Target(_VARIANT, Topology.PD_PREFILL, "vllm-ascend"),
+        hardware_info_path=_write_hardware(pd_root),
+        config_root=pd_root,
+        device_count=4,
+        placement=placement,
+        pd_input=PdRuntimeInput(
+            PdRole.PREFILL,
+            ExplicitPdTopology(
+                pd_index=0,
+                prefill=ParallelShape(dp_size=1, tp_size=4),
+                decode=ParallelShape(dp_size=1, tp_size=4),
+                dp_size_local=1,
+            ),
+            placement,
+        ),
+    )
+
+    resolved, start, _, _ = run_pipeline(request, tmp_path / "explicit-dp1")
+
+    assert resolved.process_plan is not None
+    process = resolved.process_plan.processes[0]
+    assert process.dp_rank is None
+    assert not any(argument.startswith("--data-parallel-") for argument in process.argv)
+    assert not [listener for listener in resolved.process_plan.listeners if listener.name == "dp_rpc"]
+    assert "--data-parallel-" not in start.read_text(encoding="utf-8")
+
+
 def test_pd_exact_pipeline_builds_process_plan(pd_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """验证 strict pipeline 展开 2 个 local DP 进程，argv 为 list。"""
     monkeypatch.setenv("ENGINE_VERSION", "v0.23.0")
