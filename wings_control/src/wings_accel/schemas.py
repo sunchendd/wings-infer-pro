@@ -30,6 +30,10 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 
+class SmartAccelConfigurationError(ValueError):
+    """SmartAccel 资产或安全边界不满足时抛出的配置错误。"""
+
+
 @dataclass
 class SystemConfig:
     """系统配置 — 承载硬件族(定位 smart-accel yaml)+ 卡数 + pod 可用内存。
@@ -261,9 +265,9 @@ class _FeatureOutput:
     degraded: bool = False # 是否发生降级
     degrade_reason: str = "" # 降级原因
     packages: List[str] = field(default_factory=list) # 选中 scheme 声明的 pip 依赖(name:version 字符串)
-    pre_serve: List[str] = field(default_factory=list) # 所有节点在 vllm serve 前运行的 shell 命令(如 heredoc 生成 mooncake.json)
-    pre_serve_master: List[str] = field(default_factory=list) # 仅 master 节点运行的 daemon 启动命令(mooncake_master / MetaService &)
-    pre_serve_client: List[str] = field(default_factory=list) # 仅 client 节点(非 master)运行的命令(如 client-only 配置文件生成)
+    pre_serve: List[str] = field(default_factory=list) # 所有节点在引擎启动前执行的框架合成命令
+    pre_serve_master: List[str] = field(default_factory=list) # 仅 master 节点执行的框架合成命令
+    pre_serve_client: List[str] = field(default_factory=list) # 仅 client(非 master)节点执行的框架合成命令
     generated_files: List[GeneratedFile] = field(default_factory=list) # 已渲染、未写盘的文件计划;由 wings-control 在产物阶段消费
 
 
@@ -299,4 +303,7 @@ class SmartAccelOutput:
     pre_serve: List[str] = field(default_factory=list) # 聚合:所有节点 pre-serve 命令(去重保序);script_builder 在 vllm serve 前渲染
     pre_serve_master: List[str] = field(default_factory=list) # 聚合:仅 master 的 daemon 启动命令(去重保序);包 RANK_IP==MASTER_IP 条件
     pre_serve_client: List[str] = field(default_factory=list) # 聚合:仅 client(非 master)pre-serve 命令(去重保序);包 RANK_IP!=MASTER_IP 条件
+    # 非空 pre_serve 三桶的来源:True=包内资产,False=外部资产,None=无命令或来源未知。
+    # 由 api.resolve_smart_accel_from_config 根据实际命中的 source_file 填写。
+    pre_serve_trusted: Optional[bool] = None
     generated_files: List[GeneratedFile] = field(default_factory=list) # 已渲染、未写盘的文件计划;交由 wings-control 在非 dry-run 产物阶段写入

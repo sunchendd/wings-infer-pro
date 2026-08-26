@@ -12,7 +12,20 @@ from typing import Optional, Union
 
 from wings_accel.core import func_smart_accel
 from wings_accel.schemas import SmartAccelOutput
-from wings_accel.yaml_loader import LoadFlags, load_smart_accel_from_config
+from wings_accel.yaml_loader import (
+    LoadFlags,
+    is_package_smart_accel_source,
+    load_smart_accel_from_config,
+)
+
+
+def _has_pre_serve_commands(output: SmartAccelOutput) -> bool:
+    """判断 SmartAccel 输出是否包含会写入启动脚本的启动前命令。"""
+    return bool(
+        output.pre_serve
+        or output.pre_serve_master
+        or output.pre_serve_client
+    )
 
 
 def resolve_smart_accel_from_config(
@@ -56,4 +69,9 @@ def resolve_smart_accel_from_config(
     # smart-accel YAML 无 hardware_profile → 默认 1,需由调用方(apply_smart_accel 的 device_count)透传。
     if gpu_count and gpu_count > 0:
         smart_input.hardware_config.gpu_count = gpu_count
-    return func_smart_accel(smart_input)
+    output = func_smart_accel(smart_input)
+    if _has_pre_serve_commands(output):
+        output.pre_serve_trusted = is_package_smart_accel_source(
+            smart_input.source_file
+        )
+    return output

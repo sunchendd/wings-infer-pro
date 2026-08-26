@@ -25,6 +25,7 @@ __all__ = [
     "merge_engine_params",
     "SmartAccelInput",
     "SmartAccelOutput",
+    "SmartAccelConfigurationError",
     "EngineParams",
     "GeneratedFile",
     "SystemConfig",
@@ -58,6 +59,7 @@ from wings_accel.yaml_loader import (
 from wings_accel.schemas import (
     SmartAccelInput,
     SmartAccelOutput,
+    SmartAccelConfigurationError,
     EngineParams,
     GeneratedFile,
     SystemConfig,

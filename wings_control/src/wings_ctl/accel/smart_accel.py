@@ -85,6 +85,8 @@ class AccelResult:
     pre_serve: list[str] = field(default_factory=list)
     pre_serve_master: list[str] = field(default_factory=list)
     pre_serve_client: list[str] = field(default_factory=list)
+    # 非空 pre-serve 命令的来源:True=包内资产,False=外部资产,None=来源未知。
+    pre_serve_trusted: bool | None = None
     generated_files: list[GeneratedFileSpec] = field(default_factory=list)
 
 
@@ -271,6 +273,26 @@ def _collect_generated_files(raw_files: list) -> list[GeneratedFileSpec]:
     return specs
 
 
+def _validate_pre_serve_trust(result: AccelResult) -> None:
+    """拒绝来源无法确认的 SmartAccel 启动前命令。
+
+    Args:
+        result: 已完成 wings-accel 输出映射的结果。
+
+    Raises:
+        ValueError: 存在启动前命令但来源不是包内受审核资产时抛出。
+    """
+    has_commands = bool(
+        result.pre_serve
+        or result.pre_serve_master
+        or result.pre_serve_client
+    )
+    if has_commands and result.pre_serve_trusted is not True:
+        raise ValueError(
+            "SmartAccel pre-serve commands do not have a trusted package source"
+        )
+
+
 def collect_output(output) -> AccelResult:
     """把 wings-accel 输出汇总成 :class:`AccelResult`。"""
     engine_params = getattr(output, "engine_params", None)
@@ -304,6 +326,7 @@ def collect_output(output) -> AccelResult:
             pre_serve=pre_serve,
             pre_serve_master=pre_serve_master,
             pre_serve_client=pre_serve_client,
+            pre_serve_trusted=getattr(output, "pre_serve_trusted", None),
             # KV 内存卸载页面回显容量(auto 估算/数值 GB);getattr 兜底旧/stub 输出无该字段 → None
             kv_mem_offload_size_gb=getattr(output, "kv_mem_offload_size_gb", None),
             # KV 磁盘卸载路径(disk 开启且产出);getattr 兜底旧/stub 输出无该字段 → None
@@ -354,7 +377,10 @@ def apply_smart_accel(*, hardware_family: str, gpu_count: int | None, model_path
                       tp_size: int = 0, dp_size: int = 0,
                       enabled: bool = True,
                       env: dict | None = None) -> AccelResult:
-    """委托 wings-accel 生成加速产出;模块缺失/异常 → 空 :class:`AccelResult`(不打断启动)。
+    """委托 wings-accel 生成加速产出。
+
+    模块缺失或普通可选集成故障会降级为空 :class:`AccelResult`；SmartAccel 配置
+    错误以及来源不受信任的启动前命令必须向上抛出，避免带风险资产继续启动。
 
     topology 由上层 ``config_resolver`` 传入(已聚合 PD_ROLE/DISTRIBUTED/NODE_IPS,
     对齐 wings-control ``Topology`` 枚举值);本适配层不再从 env 推导拓扑。
@@ -410,11 +436,16 @@ def apply_smart_accel(*, hardware_family: str, gpu_count: int | None, model_path
         if output is None:
             return AccelResult()
         result = collect_output(output)
-        logger.info(
-            "wings-accel applied: +%d engine_config / +%d env / audit=%s",
-            len(result.engine_config), len(result.env), list(result.audit),
-        )
-        return result
-    except Exception as exc:  # 加速委托失败不应打断主流程 → 降级为不加速
+    except Exception as exc:  # optional integration 故障按既有契约降级；配置错误不能吞掉。
+        configuration_error = getattr(mod, "SmartAccelConfigurationError", None)
+        if configuration_error is not None and isinstance(exc, configuration_error):
+            raise ValueError(str(exc)) from exc
         logger.warning("wings-accel invocation failed; continuing without acceleration: %s", exc)
         return AccelResult()
+
+    _validate_pre_serve_trust(result)
+    logger.info(
+        "wings-accel applied: +%d engine_config / +%d env / audit=%s",
+        len(result.engine_config), len(result.env), list(result.audit),
+    )
+    return result

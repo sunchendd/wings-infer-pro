@@ -22,6 +22,7 @@ def test_smart_accel_output_defaults():
     assert out.engine_params.env == {}
     assert out.engine_params.engine_config == {}
     assert out.diagnostics == {}
+    assert out.pre_serve_trusted is None
 
 
 def test_smart_accel_output_diagnostics_default_isolated():

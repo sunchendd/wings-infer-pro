@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 
 from wings_ctl.core.topology import Topology
@@ -62,7 +63,7 @@ def test_startup_log_normal_contains_required_summary(
             {
                 "key": "gpu_memory_utilization",
                 "value": 0.55,
-                "reason": "maas_status=删掉(不覆盖recipe基线)",
+                "reason": "maas_status=removed_without_overriding_recipe_baseline",
             }
         ],
     )
@@ -76,7 +77,12 @@ def test_startup_log_normal_contains_required_summary(
     assert "[STARTUP] artifacts:" in content
     assert f"log={log_path}" in content
     assert "[STARTUP] user_cli_params: applied=2 dropped=1" in content
-    assert "[STARTUP] dropped: gpu_memory_utilization reason=maas_status=删掉(不覆盖recipe基线)" in content
+    assert (
+        "[STARTUP] dropped: gpu_memory_utilization "
+        "reason=maas_status=removed_without_overriding_recipe_baseline"
+    ) in content
+    assert "(not provided or DP coordination was not triggered)" in content
+    assert not re.search(r"[\u4e00-\u9fff]", content)
 
 
 def test_startup_log_contains_fallback_warning_when_version_fallback(
@@ -99,7 +105,7 @@ def test_startup_log_contains_fallback_warning_when_version_fallback(
     latest_version = resolve_engine_version(
         config_root_real, "ascend-a3", engine="vllm-ascend"
     ).resolved
-    assert f"回退到最新支持版本 {latest_version}" in content
+    assert f"falling back to the latest supported version {latest_version}" in content
 
 
 def test_startup_log_downgrades_to_output_dir_when_target_unwritable(
@@ -125,7 +131,7 @@ def test_startup_log_downgrades_to_output_dir_when_target_unwritable(
     fallback_path = output_dir / "wings_start.log"
     assert fallback_path.exists()
     # 显式 WINGS_START_LOG(_run_once 设置)写不进 → WARNING + 降级路径可见
-    assert any("startup log 写入" in r.message for r in caplog.records)
+    assert any("Failed to write startup log" in r.message for r in caplog.records)
     assert any(r.levelno == logging.WARNING for r in caplog.records)
     assert str(fallback_path) in caplog.text
 
@@ -210,14 +216,17 @@ def test_startup_log_is_warn_only_never_drop_semantics(
             {
                 "key": "seed",
                 "value": 42,
-                "reason": "maas_status=删掉(不覆盖recipe基线)",
+                "reason": "maas_status=removed_without_overriding_recipe_baseline",
             }
         ],
     )
 
     content = log_path.read_text(encoding="utf-8")
     # 必须是"记录 + reason"
-    assert "[STARTUP] dropped: seed reason=maas_status=删掉(不覆盖recipe基线)" in content
+    assert (
+        "[STARTUP] dropped: seed "
+        "reason=maas_status=removed_without_overriding_recipe_baseline"
+    ) in content
     # 绝不能出现 drop-unsupported 语义(旧 wings-control 的行为,已被 warn-only 取代)
     for forbidden in ("drop_unsupported", "action=drop", "policy=drop"):
         assert forbidden not in content

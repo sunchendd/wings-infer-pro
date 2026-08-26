@@ -475,6 +475,27 @@ def _package_smart_accel_root() -> Path:
     return Path(__file__).resolve().parent / "smart-accel"
 
 
+def is_package_smart_accel_source(source_file: Union[str, Path]) -> Optional[bool]:
+    """判断实际命中的 SmartAccel YAML 是否位于随包分发的资产根内。
+
+    Args:
+        source_file: 已加载的 SmartAccel YAML 路径。
+
+    Returns:
+        True 表示包内资产;False 表示外部资产;无法确认时返回 None。
+    """
+    if not source_file:
+        return None
+    try:
+        resolved_source = Path(source_file).resolve()
+        package_root = _package_smart_accel_root().resolve()
+    except (OSError, RuntimeError):
+        return None
+    if not resolved_source.is_file():
+        return None
+    return resolved_source.is_relative_to(package_root)
+
+
 def _resolve_smart_accel_root(config_root: Union[str, Path]) -> Path:
     """优先使用 config_root/smart-accel,否则回落到包内 smart-accel。"""
     root = Path(config_root) / "smart-accel"

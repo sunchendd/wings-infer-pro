@@ -8,9 +8,16 @@ scheme 的 ``name`` 统一为 ``cpu``(工具由 connector + ``kv_connector_extra
 (MiniMax-M2.7-w8a8 的 mooncake 工具)的解析。
 """
 
+import shlex
+
+import pytest
+
 from wings_accel.offload import smart_kv_offload_expander
 from wings_accel.render import PlaceholderContext, render_pre_serve
-from wings_accel.schemas import SmartKVCacheConfig
+from wings_accel.schemas import (
+    SmartAccelConfigurationError,
+    SmartKVCacheConfig,
+)
 
 
 def make_ctx(**kw):
@@ -221,7 +228,59 @@ def test_disabled_returns_none():
     assert smart_kv_offload_expander(cfg, mooncake_block(), ctx) is None
 
 
-# ── render_pre_serve 占位符 / 拓扑占位保留(逃生口仍可用)──
+def test_explicit_pre_serve_is_rejected_for_backend_scheme():
+    """验证 backend scheme 声明 raw pre_serve 时直接报配置错误。"""
+    block = mooncake_block()
+    block[0]["pre_serve"] = []
+    cfg = SmartKVCacheConfig(
+        enabled=True,
+        memory_offload_enabled=True,
+        memory_offload_size_mode="8",
+    )
+
+    with pytest.raises(SmartAccelConfigurationError, match="Unsupported SmartAccel field"):
+        smart_kv_offload_expander(cfg, block, make_ctx())
+
+
+def test_explicit_pre_serve_is_rejected_for_standard_scheme():
+    """验证普通 cpu scheme 声明 raw pre_serve 时同样直接报配置错误。"""
+    block = [{
+        "name": "cpu",
+        "cli_params": {"kv_transfer_config": {"kv_connector": "OffloadingConnector"}},
+        "pre_serve_client": [],
+    }]
+    cfg = SmartKVCacheConfig(
+        enabled=True,
+        memory_offload_enabled=True,
+        memory_offload_size_mode="8",
+    )
+
+    with pytest.raises(SmartAccelConfigurationError, match="pre_serve_client"):
+        smart_kv_offload_expander(cfg, block, make_ctx())
+
+
+def test_synthesized_pre_serve_quotes_paths(monkeypatch, tmp_path):
+    """验证含空格的文件路径在 mkdir、临时文件和 bash 命令中保持单一 Shell 参数。"""
+    shared_volume = tmp_path / "shared volume"
+    monkeypatch.setenv("SHARED_VOLUME_PATH", str(shared_volume))
+    cfg = SmartKVCacheConfig(
+        enabled=True,
+        memory_offload_enabled=True,
+        memory_offload_size_mode="8",
+    )
+    out = smart_kv_offload_expander(cfg, mooncake_block(), make_ctx(memory_capacity_gb=8))
+
+    mooncake_path = shared_volume / "mooncake.json"
+    daemon_path = shared_volume / "start_kv_serve.sh"
+    commands = "\n".join(out.pre_serve + out.pre_serve_master)
+
+    assert f"mkdir -p {shlex.quote(str(shared_volume))}" in commands
+    assert shlex.quote(str(mooncake_path)) in commands
+    assert shlex.quote(f"{mooncake_path}.tmp") in commands
+    assert f"bash {shlex.quote(str(daemon_path))} &" in commands
+
+
+# ── render_pre_serve 工具函数兼容测试 ───────────────────────────────────────
 
 
 def test_render_pre_serve_preserves_topology_placeholders():
@@ -274,6 +333,7 @@ def test_real_yaml_mooncake_end_to_end(monkeypatch, tmp_path):
     assert ktc["kv_connector"] == "AscendStoreConnector"
     assert ktc["kv_connector_extra_config"]["backend"] == "mooncake"
     assert out.engine_params.env["MOONCAKE_CONFIG_PATH"] == "/shared-volume/mooncake.json"
+    assert out.pre_serve_trusted is True
     assert not (tmp_path / "mooncake.json").exists()
 
 
