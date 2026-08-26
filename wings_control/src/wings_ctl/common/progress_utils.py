@@ -3,6 +3,11 @@ import random
 import time
 
 
+# 日志解析和 proxy 仅提供启动过程的估算进度；部署完成由外部平台判定，
+# 因此对外为平台状态保留 100%。
+MAX_STARTUP_PROGRESS = 99
+
+
 def create_default_progress_data() -> dict:
     """创建默认的进度数据。
 
@@ -125,7 +130,7 @@ class StartupProgressManager:
         if self.start_time > 0 and not self.is_completed:
             self.elapsed_time_s = int(time.time()) - self.start_time
 
-        file_progress_value = file_progress.get("progress", 0)
+        file_progress_value = min(int(file_progress.get("progress", 0)), MAX_STARTUP_PROGRESS)
         file_status = file_progress.get("status", "running")
         
         # 判断进度是否完成（completed或failed）
@@ -140,7 +145,7 @@ class StartupProgressManager:
         # 判断文件进度值与实例进度值的关系
         if file_progress_value > self.current_progress:
             # 文件进度值大于实例进度值，以进度文件为准
-            self.current_progress = file_progress_value
+            self.current_progress = min(file_progress_value, MAX_STARTUP_PROGRESS)
         else:
             # 文件进度值小于等于实例进度值，实例进度值自增1（避免卡顿）
             if self._should_auto_increment():
@@ -178,7 +183,7 @@ class StartupProgressManager:
             "engine_booting": {"min": 20, "max": 30, "name": "engine初始化"},
             "model_loading": {"min": 30, "max": 60, "name": "模型加载"},
             "server_checking": {"min": 98, "max": 99, "name": "健康探测"},
-            "ready": {"min": 99, "max": 100, "name": "启动终态"}
+            "ready": {"min": 99, "max": 99, "name": "等待平台确认"}
         }
 
         # MindIE 引擎差异化配置（基于 mindie_single.py 插件的进度逻辑）
@@ -186,7 +191,7 @@ class StartupProgressManager:
             stages.update({
                 "model_compiling": {"min": 60, "max": 92, "name": "模型编译"},
                 "server_checking": {"min": 92, "max": 98, "name": "服务启动"},
-                "ready": {"min": 98, "max": 100, "name": "启动终态"}
+                "ready": {"min": 98, "max": 99, "name": "等待平台确认"}
             })
         # SGLang 引擎差异化配置
         elif self.engine == "sglang":

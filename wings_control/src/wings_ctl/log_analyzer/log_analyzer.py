@@ -628,7 +628,7 @@ class LogAnalyzer:
         return self.current_progress
 
     def _mark_completed(self):
-        """标记推理服务启动完成。"""
+        """标记日志解析完成，不代表推理服务部署完成。"""
         self.is_completed = True
         ready_name = self.stage_definitions.get("ready", {}).get("name", "ready")
         self.stage_progress.write_progress(
@@ -636,7 +636,7 @@ class LogAnalyzer:
             phase_name=ready_name,
             status="completed",
             progress=100,
-            key_log="Inference service started successfully",
+            key_log="Log analyzer reached the ready pattern; service status is owned by FOA",
         )
 
 

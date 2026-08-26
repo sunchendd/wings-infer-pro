@@ -6,6 +6,10 @@
 
 from __future__ import annotations
 
+import re
+
+from wings_ctl.log_analyzer.plugins.vllm_single import VLLMSingleGPUPlugin
+
 from .conftest import (
     extract_phase_codes,
     get_final_progress,
@@ -19,6 +23,24 @@ from .conftest import (
 
 class TestVLLMProgress:
     """vLLM 引擎进度匹配测试。"""
+
+    def test_model_loading_patterns_cover_multithread_loader(self):
+        """通用 vLLM 插件应覆盖 prefetch 多线程 loader 的分片进度与收尾日志。"""
+        plugin = VLLMSingleGPUPlugin({})
+        patterns = plugin.get_log_patterns()
+        compiled_patterns = [(re.compile(entry["pattern"]), entry) for entry in patterns]
+
+        def progress_for(line: str) -> int:
+            for pattern, entry in compiled_patterns:
+                match = pattern.search(line)
+                if match:
+                    calc = entry["progress_calc"]
+                    return calc(match, 32) if callable(calc) else calc
+            raise AssertionError(f"未匹配日志: {line}")
+
+        assert progress_for("Multi-thread loading shards: 53% Completed | 20/38") == 48
+        assert progress_for("Loading weights took 18.79 seconds") == 60
+        assert progress_for("Loading model weights took 12.7741 GB") == 60
 
     def test_vllm_cuda_tp1_progress(self, data_dir, tmp_path):
         """TC-vLLM-OK: vLLM CUDA TP1 完整部署日志的进度匹配。
