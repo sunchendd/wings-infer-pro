@@ -31,12 +31,17 @@ import re
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
+from packaging.utils import canonicalize_name
+from packaging.version import InvalidVersion, Version
 
 from wings_accel.schemas import (
     EngineParams,
     GeneratedFile,
+    PackageRequirement,
     SmartAccelConfigurationError,
+    SmartAccelPackageFormatError,
     _FeatureOutput,
 )
 
@@ -446,6 +451,79 @@ def plan_scheme_files(
 
 
 
+def _split_package_entry(text: str) -> Tuple[str, str]:
+    """拆分单个 ``name:version`` 字符串;缺 version 或多冒号属于格式错误。"""
+    if text.count(":") != 1:
+        raise SmartAccelPackageFormatError(
+            f"SmartAccel package entry must be 'name:version' with exactly one colon, got {text!r}"
+        )
+    name, version = text.split(":", 1)
+    return name, version
+
+
+def extract_package_requirements(scheme: Dict[str, Any]) -> List[PackageRequirement]:
+    """从 scheme 解析 ``packages`` 的 name:version 精确依赖(原始声明 + 冲突比较用规范化值)。
+
+    合法形态(其余形态是确定性配置错误,抛 :class:`SmartAccelPackageFormatError`,
+    不得静默降级为空依赖):
+      - 缺失 / ``None`` → 空依赖;
+      - dict(name → version);
+      - 恰好一个冒号的 ``name:version`` 字符串(合法旧形态);
+      - 上述 dict / 字符串构成的 list(合法旧形态)。
+
+    版本仍需可被 PEP 440 解析(否则抛 SmartAccelPackageFormatError),但规范化结果
+    只写入 ``canonical_version`` 供冲突比较;``name``/``version`` 保留 YAML 原始
+    声明用于交付(wings-accel install.py 按 manifest 键精确查找)。
+    """
+    raw = (scheme or {}).get("packages")
+    if raw is None:
+        return []
+    if isinstance(raw, dict):
+        entries = list(raw.items())
+    elif isinstance(raw, str):
+        entries = [_split_package_entry(raw)]
+    elif isinstance(raw, list):
+        entries = []
+        for item in raw:
+            if isinstance(item, dict):
+                entries.extend(item.items())
+            elif isinstance(item, str):
+                entries.append(_split_package_entry(item))
+            else:
+                raise SmartAccelPackageFormatError(
+                    f"SmartAccel packages list entries must be 'name:version' strings or "
+                    f"name-to-version dicts, got {item!r}"
+                )
+    else:
+        raise SmartAccelPackageFormatError(
+            "SmartAccel packages must be a name-to-version dict, a 'name:version' string, "
+            f"or a list of them, got {type(raw).__name__}: {raw!r}"
+        )
+    requirements: List[PackageRequirement] = []
+    for name, version in entries:
+        raw_name = str(name).strip()
+        raw_version = str(version).strip()
+        if not raw_name or not raw_version:
+            raise SmartAccelPackageFormatError("SmartAccel package must declare non-empty name and version")
+        try:
+            normalized_version = str(Version(raw_version))
+        except InvalidVersion as exc:
+            raise SmartAccelPackageFormatError(
+                f"SmartAccel package {raw_name!r} has invalid version {raw_version!r}"
+            ) from exc
+        # 交付保留 YAML 原始 name:version(install.py 按 manifest 键精确查找,
+        # 镜像包目录名带 v 前缀);canonical 值仅用于跨 feature 冲突比较。
+        requirements.append(
+            PackageRequirement(
+                name=raw_name,
+                version=raw_version,
+                canonical_name=canonicalize_name(raw_name),
+                canonical_version=normalized_version,
+            )
+        )
+    return requirements
+
+
 def extract_packages(scheme: Dict[str, Any]) -> List[str]:
     """从单个 scheme dict 读 ``packages`` 依赖,统一返回 ``name:version`` 字符串列表。
 
@@ -455,31 +533,22 @@ def extract_packages(scheme: Dict[str, Any]) -> List[str]:
           packages:
             arctic-inference: 0.1.1
 
-    输出统一为 ``["name:version", ...]``(与 install.py manifest / 报错信息的
-    ``name:version`` 风格一致;packages 经 ``--config '{json}'`` 传递,纯 JSON 字符串,
-    无 shell/pip 解析歧义,无需 pip-style ``==``)。
-    兼容旧 list 形态与单字符串(原样保留)。
+    输出统一为 YAML 声明的原始 ``["name:version", ...]``(与 install.py manifest 键
+    精确匹配;packages 经 ``--config '{json}'`` 传递,纯 JSON 字符串,无 shell/pip
+    解析歧义,无需 pip-style ``==``)。兼容旧 list 形态与单字符串;规范化值
+    (canonicalize_name + PEP 440)仅用于跨 feature 冲突比较,不改写交付内容。
 
     Args:
-        scheme: 单个 scheme dict;``packages`` 缺失 → 返回空列表。
+        scheme: 单个 scheme dict;``packages`` 缺失/``None`` → 返回空列表。
 
     Returns:
-        ``name:version`` 字符串列表(保留输入顺序);空键/空串丢弃。
+        YAML 原始声明的 ``name:version`` 字符串列表(保留输入顺序)。
+
+    Raises:
+        SmartAccelPackageFormatError: ``packages`` 类型/格式非法(如裸包名、int、
+            list 内混入非法元素),详见 ``extract_package_requirements``。
     """
-    raw = (scheme or {}).get("packages")
-    if isinstance(raw, dict):
-        return [f"{name}:{ver}" for name, ver in raw.items() if name]
-    if isinstance(raw, list):
-        out: List[str] = []
-        for item in raw:
-            if isinstance(item, dict):
-                out.extend(f"{k}:{v}" for k, v in item.items() if k)
-            elif item is not None and str(item) != "":
-                out.append(str(item))
-        return out
-    if isinstance(raw, str) and raw:
-        return [raw]
-    return []
+    return [requirement.manifest for requirement in extract_package_requirements(scheme)]
 
 
 def render_scheme(
@@ -501,7 +570,7 @@ def render_scheme(
         ),
         degraded=degraded,
         degrade_reason=degrade_reason,
-        packages=extract_packages(scheme),
+        packages=extract_package_requirements(scheme),
     )
 
 

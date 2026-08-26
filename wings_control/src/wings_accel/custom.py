@@ -25,7 +25,7 @@ from typing import Any, Dict, Optional
 from wings_accel.render import (
     PlaceholderContext,
     deep_merge_dicts,
-    extract_packages,
+    extract_package_requirements,
     fill_envs,
     render_engine_config,
 )
@@ -51,7 +51,7 @@ def smart_custom_features_expander(
             names.append(str(s["name"]))
         deep_merge_dicts(merged_cli, s.get("cli_params") or {})
         merged_env.update(s.get("envs") or {})
-        packages.extend(extract_packages(s))
+        packages.extend(extract_package_requirements(s))
 
     if not merged_cli and not merged_env:
         return None

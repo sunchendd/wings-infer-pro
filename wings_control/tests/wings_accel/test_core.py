@@ -96,6 +96,27 @@ def test_all_three_with_mtp_kv_no_conflict():
     assert out.smart_kv_cache_scheme is not None
 
 
+def test_conflicting_package_versions_raise_with_features():
+    """同一规范化包名声明不同版本时，不能静默同时输出。"""
+    smart_accel = {
+        "decoding": [{
+            "name": "mtp",
+            "cli_params": {"speculative_config": {"method": "mtp"}},
+            "packages": {"LMCache_Ascend": "0.4.5"},
+        }],
+        "sparse": [{
+            "name": "performance_first",
+            "cli_params": {"hf_overrides": {"use_index_cache": True}},
+            "packages": {"lmcache.ascend": "0.4.6"},
+        }],
+    }
+
+    inp = make_input(dec_enabled=True, sparse_enabled=True, smart_accel=smart_accel)
+
+    with pytest.raises(ValueError, match=r"lmcache-ascend.*decoding.*sparse"):
+        func_smart_accel(inp)
+
+
 def test_all_three_no_conflict():
     kv_cfg = SmartKVCacheConfig(enabled=True, memory_offload_enabled=True, memory_offload_size_mode="64")
     inp = make_input(

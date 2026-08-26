@@ -132,7 +132,8 @@ def test_offload_disk_only(monkeypatch, tmp_path):
     ctx = make_ctx(disk_offload_enabled=True)
     out = smart_kv_offload_expander(cfg, make_block(), ctx)
     assert out.scheme == "disk"
-    assert out.packages == ["lmcache:v0.3.15"]
+    # manifest 保留 YAML 原始声明(v 前缀;install.py 按 manifest 键精确匹配)
+    assert [package.manifest for package in out.packages] == ["lmcache:v0.3.15"]
     cfg_out = out.engine_params.engine_config
     assert cfg_out["kv_transfer_config"]["kv_connector"] == "LMCacheConnectorV1"
     assert out.engine_params.env["LMCACHE_LOCAL_DISK"] == "/mnt/kv"
@@ -150,7 +151,8 @@ def test_offload_cpu_disk(monkeypatch, tmp_path):
     ctx = make_ctx(memory_offload_enabled=True, disk_offload_enabled=True, memory_capacity_gb=40)
     out = smart_kv_offload_expander(cfg, make_block(), ctx)
     assert out.scheme == "cpu_disk"
-    assert out.packages == ["lmcache:v0.3.15"]
+    # manifest 保留 YAML 原始声明(v 前缀;install.py 按 manifest 键精确匹配)
+    assert [package.manifest for package in out.packages] == ["lmcache:v0.3.15"]
     cfg_out = out.engine_params.engine_config
     extra = cfg_out["kv_transfer_config"]["kv_connector_extra_config"]
     assert extra["local_cpu"] is True

@@ -373,7 +373,8 @@ def test_real_yaml_deepseek_v4flash_lmcache_packages(monkeypatch, tmp_path):
     """DeepSeek-V4-Flash 的 LMCache cpu scheme 声明 lmcache-ascend 依赖 → packages 进 out。
 
     kv_connector=LMCacheAscendConnectorV1Dynamic(非 AscendStoreConnector backend)→ 走
-    cpu 三选一路径,packages = extract_packages(cpu scheme) = ["lmcache-ascend:v0.4.5"],
+    cpu 三选一路径,packages = extract_packages(cpu scheme) = ["lmcache-ascend:v0.4.5"]
+    (YAML 原始声明;wings-accel install.py 按 manifest 键精确匹配,镜像包目录名带 v 前缀),
     供 install 段 ``--config`` 拼依赖。
     """
     from wings_accel import LoadFlags, resolve_smart_accel_from_config
@@ -388,7 +389,7 @@ def test_real_yaml_deepseek_v4flash_lmcache_packages(monkeypatch, tmp_path):
     )
     assert out is not None
     assert out.smart_kv_cache_scheme == "cpu"  # name=介质 cpu(LMCacheAscendConnectorV1Dynamic 工具)
-    # lmcache-ascend 依赖透传进 out.packages(name:version,供 install 段 --config)
+    # lmcache-ascend 依赖透传进 out.packages(YAML 原始 name:version,供 install 段 --config)
     assert out.packages == ["lmcache-ascend:v0.4.5"]
     # engine_config 仍是 LMCacheAscend 连接器(非 mooncake/AscendStore)
     ktc = out.engine_params.engine_config["kv_transfer_config"]

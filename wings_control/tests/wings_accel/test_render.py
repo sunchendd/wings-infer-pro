@@ -5,6 +5,7 @@ import pytest
 from wings_accel.render import (
     PlaceholderContext,
     deep_merge_dicts,
+    extract_packages,
     fill_envs,
     merge_engine_params,
     plan_scheme_files,
@@ -14,6 +15,7 @@ from wings_accel.schemas import (
     EngineParams,
     GeneratedFile,
     SmartAccelConfigurationError,
+    SmartAccelPackageFormatError,
 )
 
 
@@ -87,6 +89,27 @@ def test_merge_engine_params():
     assert m.env == {"A": "2", "B": "3"}
     assert m.engine_config == {"a": 1, "same": "new", "b": 2}
     assert a.env == {"A": "1"}
+
+
+@pytest.mark.parametrize("packages", [
+    ["Demo_Pkg:1.2.3"],
+    "Demo_Pkg:1.2.3",
+])
+def test_extract_packages_supports_legacy_string_formats(packages):
+    """旧列表和单字符串写法必须进入依赖输出,且保留原始声明(规范化值仅用于冲突比较)。"""
+    assert extract_packages({"packages": packages}) == ["Demo_Pkg:1.2.3"]
+
+
+@pytest.mark.parametrize("packages", [
+    "lmcache",       # 裸包名:缺 version
+    ["lmcache"],     # list 内裸包名
+    42,              # 顶层非法类型:int
+    [42],            # list 内非法类型:int
+])
+def test_extract_packages_rejects_invalid_formats(packages):
+    """非法 packages 形态必须抛 SmartAccelPackageFormatError,不得静默变空依赖。"""
+    with pytest.raises(SmartAccelPackageFormatError):
+        extract_packages({"packages": packages})
 
 
 # ── 通用 files: 计划文件(plan_scheme_files) ─────────────────────────────────

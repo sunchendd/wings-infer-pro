@@ -31,7 +31,7 @@ from typing import Any, Dict, List, Optional
 
 
 class SmartAccelConfigurationError(ValueError):
-    """SmartAccel 资产或安全边界不满足时抛出的配置错误。"""
+    """SmartAccel 资产或安全边界不满足时的确定性配置错误,调用方必须 fail-fast。"""
 
 
 @dataclass
@@ -78,6 +78,35 @@ class EngineParams:
 
     env: Dict[str, str] = field(default_factory=dict) # 要注入容器的环境变量(K=V);产出侧
     engine_config: Dict[str, Any] = field(default_factory=dict) # 结构化引擎参数(如 {"speculative_config": {...}});产出
+
+
+class SmartAccelPackageFormatError(SmartAccelConfigurationError):
+    """SmartAccel ``packages`` 声明不是精确的 ``name:version`` 依赖。"""
+
+
+class SmartAccelPackageConflictError(SmartAccelConfigurationError):
+    """多个 SmartAccel feature 为同一规范化包名声明了不同版本。"""
+
+
+@dataclass(frozen=True)
+class PackageRequirement:
+    """已解析的精确 Python 包依赖。
+
+    交付(install 段 ``--config``)保留 YAML 首次声明的原始 ``name:version``:
+    wings-accel ``install.py`` 对 manifest 的包名/版本键做**精确查找**,镜像包
+    目录名保留 ``v`` 前缀(如 ``packages/lmcache-ascend/v0.4.5``),改写为
+    canonical 名/去 ``v`` 版本会 ``Package not found``。规范化值只用于跨 feature
+    冲突比较(同 canonical 名 + 不同 PEP 440 版本 → 冲突)。
+    """
+
+    name: str # YAML 声明的原始包名(交付用)
+    version: str # YAML 声明的原始版本串(如 v0.4.5;交付用)
+    canonical_name: str # canonicalize_name 规范化包名(冲突比较键)
+    canonical_version: str # PEP 440 规范化版本(如 v0.4.5 → 0.4.5;冲突比较键)
+
+    @property
+    def manifest(self) -> str:
+        return f"{self.name}:{self.version}"
 
 
 @dataclass
@@ -264,7 +293,7 @@ class _FeatureOutput:
     engine_params: EngineParams # 已填充占位符的 env + engine_config
     degraded: bool = False # 是否发生降级
     degrade_reason: str = "" # 降级原因
-    packages: List[str] = field(default_factory=list) # 选中 scheme 声明的 pip 依赖(name:version 字符串)
+    packages: List[PackageRequirement] = field(default_factory=list) # 选中 scheme 声明的规范化精确 pip 依赖
     pre_serve: List[str] = field(default_factory=list) # 所有节点在引擎启动前执行的框架合成命令
     pre_serve_master: List[str] = field(default_factory=list) # 仅 master 节点执行的框架合成命令
     pre_serve_client: List[str] = field(default_factory=list) # 仅 client(非 master)节点执行的框架合成命令

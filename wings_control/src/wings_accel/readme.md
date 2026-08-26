@@ -175,13 +175,21 @@ class EngineParams:                # 单特性产出形态
     env: Dict[str, str]            # 进程环境变量(已填占位符)
     engine_config: Dict[str, Any]  # 结构化引擎参数(如 {"speculative_config": {...}})
 
+@dataclass(frozen=True)
+class PackageRequirement:          # 已解析的精确 pip 依赖(render 解析产出)
+    name: str                      # YAML 声明的原始包名(交付用)
+    version: str                   # YAML 声明的原始版本(如 v0.4.5;交付用)
+    canonical_name: str            # 规范化包名(冲突比较键)
+    canonical_version: str         # PEP 440 规范化版本(如 v0.4.5 → 0.4.5;冲突比较键)
+    manifest: str                  # property,渲染为原始 "name:version"(交付 install.py)
+
 @dataclass
 class _FeatureOutput:              # expander 内部返回形态(不导出)
     scheme: str                    # 选中方案名(如 "eagle3" / "cpu" / "performance_first")
     engine_params: EngineParams    # 已渲染
     degraded: bool = False         # 是否降级
     degrade_reason: str = ""       # 降级原因
-    packages: List[str] = []       # pip 依赖(name:version)
+    packages: List[PackageRequirement] = []  # 规范化精确 pip 依赖
 
 @dataclass
 class SmartAccelOutput:            # 总输出
@@ -199,6 +207,15 @@ class SmartAccelOutput:            # 总输出
 - **`engine_config` 是结构化 dict**,不是预渲染 argv。最终 argv 渲染由 wings-control 完成(避免本模块耦合引擎 CLI 形态)。
 - **`diagnostics` 只承载 wings-control 推不出的降级信息**;未降级特性不出现,降级特性带 `degraded` + `degrade_reason`,原样落 audit。
 - **`packages` 供 install 段拼 `--config` 依赖列表**,跨特性去重保序(`core.py` 用 `dict.fromkeys`)。
+  `_FeatureOutput.packages` 是 `List[PackageRequirement]`(已规范化);`SmartAccelOutput.packages`
+  是其 manifest 字符串列表。合法声明形态:缺失/`null`(→ 空依赖)、`name→version` dict、
+  恰好一个冒号的 `name:version` 字符串、二者构成的 list(后两者为兼容旧形态);其余类型
+  (如 int)或缺 version 的裸包名属确定性配置错误,抛 `SmartAccelPackageFormatError` 并穿透
+  `apply_smart_accel()` fail-fast。冲突比较用规范化值(同 canonical 包名 + 不同 PEP 440
+  版本 → 抛 `SmartAccelPackageConflictError`;同版本重复声明自动去重);**交付保留 YAML
+  首次声明的原始 `name:version`**——wings-accel `install.py` 按 manifest 键精确查找,
+  镜像包目录名带 `v` 前缀(如 `packages/lmcache-ascend/v0.4.5`),改写会导致
+  `Package not found`。
 
 ---
 
@@ -425,7 +442,19 @@ YAML `packages` 是**键值对**(name→version,无 list dash):
     arctic-inference: 0.1.1
 ```
 
-统一输出 `["name:version", ...]`(与 install.py manifest 风格一致),兼容旧 list 形态与单字符串。
+兼容旧形态:单字符串 `"name:version"` 及其构成的 list。输出保留 YAML 声明的原始
+`["name:version", ...]`(与 install.py manifest 键精确匹配,镜像包目录名带 `v` 前缀)。
+规范化值(包名 `canonicalize_name`、版本 PEP 440,如 `v0.4.5` → `0.4.5`)仅用于
+跨 feature 冲突比较,不改写交付内容。
+
+非法形态是确定性配置错误,抛 `SmartAccelPackageFormatError`(不静默丢弃、不降级):
+
+- 顶层非 dict/str/list 类型(如 `42`);
+- 字符串缺 version(裸包名,如 `lmcache`)或多冒号(如 `a:b:c`);
+- list 元素非 dict/合法 `name:version` 字符串(如 `[42]` / `["lmcache"]`);
+- 空 name 或空 version。
+
+多个 feature 对同一规范化包名声明不同版本 → `SmartAccelPackageConflictError`(同版本去重保序)。
 
 ---
 
