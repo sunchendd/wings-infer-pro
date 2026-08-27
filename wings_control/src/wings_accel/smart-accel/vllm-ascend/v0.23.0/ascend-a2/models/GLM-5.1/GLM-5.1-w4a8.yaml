@@ -1,5 +1,94 @@
-# SmartAccel 精确身份占位（无已验证的加速特性）
+# SmartAccel 加速配置(sparse=indexcache)
+# variant_name 必须等于 MaaS 下发的完整 --model-name;loader 按 variant_name 精确匹配优先,
+# name_pattern 仅作家族兜底。
+# 稀疏索引参数与引擎 features.sparse_index 对应:use_index_cache,
+# performance_first(index_topk_freq=8)与 accuracy_first(index_topk_freq=4)。
+# 引擎 recipe 声明 standalone/multi_node/pd_disaggregation,本资产与之一致。
 model:
   name: GLM-5.1
   variant_name: "GLM-5.1-w4a8"
-smart_accel: {}
+  match:
+    - name_pattern: "(?i)glm[-.]?5.1[-.]?w4a8"
+smart_accel:
+  standalone:
+    source_ref: vllm_ascend_glm-5.1#single_node
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        sparse:
+        - name: performance_first
+          cli_params:
+            hf_overrides:
+              use_index_cache: true
+              index_topk_freq: 8
+          envs: {}
+        - name: accuracy_first
+          cli_params:
+            hf_overrides:
+              use_index_cache: true
+              index_topk_freq: 4
+          envs: {}
+  multi_node:
+    source_ref: vllm_ascend_glm-5.1#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dp:
+        default_strategy: true
+        sparse:
+        - name: performance_first
+          cli_params:
+            hf_overrides:
+              use_index_cache: true
+              index_topk_freq: 8
+          envs: {}
+        - name: accuracy_first
+          cli_params:
+            hf_overrides:
+              use_index_cache: true
+              index_topk_freq: 4
+          envs: {}
+  pd_disaggregation:
+    source_ref: vllm_ascend_glm-5.1#pd_cluster
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        default_strategy: true
+        nodes:
+        - role: prefill
+          index: 0
+          sparse:
+          - name: performance_first
+            cli_params:
+              hf_overrides:
+                use_index_cache: true
+                index_topk_freq: 8
+            envs: {}
+          - name: accuracy_first
+            cli_params:
+              hf_overrides:
+                use_index_cache: true
+                index_topk_freq: 4
+            envs: {}
+        - role: decode
+          index: 0
+          sparse:
+          - name: performance_first
+            cli_params:
+              hf_overrides:
+                use_index_cache: true
+                index_topk_freq: 8
+            envs: {}
+          - name: accuracy_first
+            cli_params:
+              hf_overrides:
+                use_index_cache: true
+                index_topk_freq: 4
+            envs: {}

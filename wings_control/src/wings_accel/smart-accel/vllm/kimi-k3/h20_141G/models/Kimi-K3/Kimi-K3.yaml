@@ -1,0 +1,34 @@
+# SmartAccel 加速配置(kv_offload=cpu)
+# variant_name 必须等于 MaaS 下发的完整 --model-name;loader 按 variant_name 精确匹配优先,
+# name_pattern 仅作家族兜底。
+# KV 卸载与引擎 features.kv_offloading 保持同一参数契约:SimpleCPUOffloadConnector
+# (kv_transfer_config 形态),不是 vLLM 原生 kv_offloading_backend 参数。
+# KV_MEM_OFFLOAD_SIZE 为 pod 总量;cpu_bytes_to_use_per_rank 需按卡均分后转字节
+# (对齐 mooncake/memcache 资产的 {= ... // gpu_count} 均分写法;先转字节再整除,
+# 非整除 GB 时不丢配额):
+# 40GB pod / 8 卡 → 5GiB/rank = 5368709120,与引擎 recipe 基线一致。
+# 引擎 recipe 仅声明 multi_node 场景,本资产不声明其它拓扑。
+model:
+  name: Kimi-K3
+  variant_name: "Kimi-K3"
+  match:
+    - name_pattern: "(?i)kimi[-.]?k3"
+smart_accel:
+  multi_node:
+    source_ref: vllm_kimi_k3_manual#multi_node_tp
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dp:
+        default_strategy: true
+        kv_offload:
+        - name: cpu
+          cli_params:
+            kv_transfer_config:
+              kv_connector: SimpleCPUOffloadConnector
+              kv_role: kv_both
+              kv_connector_extra_config:
+                cpu_bytes_to_use_per_rank: '{= (memory_capacity_gb * 1024 * 1024 * 1024) // gpu_count}'
+                lazy_offload: false
+          envs: {}

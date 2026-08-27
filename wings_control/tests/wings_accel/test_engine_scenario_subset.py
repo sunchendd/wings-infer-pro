@@ -1,0 +1,141 @@
+"""SmartAccel 场景集合守护:必须是引擎 YAML 场景集合的子集。
+
+虚构拓扑虽会被 config_resolver 先行拒绝(引擎未定义的场景直接报错),但资产
+本身不应宣称引擎不支持的拓扑——后续引擎一旦补齐场景,未验证的加速参数会
+自动生效。本测试锁定本批次触碰的资产,逐场景校验:
+
+1. smart 场景集合 ⊆ 引擎 recipe 场景集合;
+2. smart 场景 source_ref 与引擎侧同场景 source_ref 逐字一致(可追溯)。
+
+引擎侧定位规则:按 variant 文件名 + 硬件目录在 config/engines/{engine} 树内
+匹配(vllm 引擎配置无版本层,版本目录不参与定位)。
+"""
+
+from pathlib import Path
+
+import pytest
+import yaml
+
+from wings_accel.yaml_loader import LoadFlags
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SMART_ROOT = REPO_ROOT / "src" / "wings_accel" / "smart-accel"
+ENGINE_ROOT = REPO_ROOT / "config" / "engines"
+
+# 本批次资产(相对 smart-accel 根)
+ASSETS = [
+    "vllm/kimi-k3/h20_141G/models/Kimi-K3/Kimi-K3.yaml",
+    "vllm-ascend/v0.21.0rc/ascend-a2/models/DeepSeek-R1-0528/DeepSeek-R1-0528-w8a8-mtp-QuaRot.yaml",
+    "vllm-ascend/v0.21.0rc/ascend-a2/models/DeepSeek-V3-0324/DeepSeek-V3-0324-w8a8-mtp-QuaRot.yaml",
+    "vllm-ascend/v0.21.0rc/ascend-a3/models/Qwen3.6-35B-A3B/Qwen3.6-35B-A3B-bf16.yaml",
+    "vllm-ascend/v0.23.0/ascend-a2/models/DeepSeek-V4-Flash/DeepSeek-V4-Flash-w8a8-mtp.yaml",
+    "vllm-ascend/v0.23.0/ascend-a3/models/DeepSeek-V4-Flash/DeepSeek-V4-Flash-w8a8-mtp.yaml",
+    "vllm-ascend/v0.23.0/ascend-a2/models/GLM-5.1/GLM-5.1-w4a8.yaml",
+    "vllm-ascend/v0.23.0/ascend-a2/models/GLM-5.1/GLM-5.1-w8a8.yaml",
+    "vllm-ascend/v0.23.0/ascend-a2/models/GLM-5/GLM-5-w4a8.yaml",
+]
+
+
+def _locate_engine_yaml(rel: str) -> Path:
+    """按 variant 文件名 + 硬件目录定位引擎 YAML;多命中时按版本目录消歧。
+
+    vllm-ascend 引擎树有版本层(同名 variant 可能在多个版本目录存在,如
+    GLM-5.1-w4a8 同时在 v0.21.0rc 与 v0.23.0),需用 smart 资产的版本目录消歧;
+    vllm 引擎树无版本层,文件名 + 硬件目录已唯一。命中数 != 1 即失败。
+    """
+    parts = (SMART_ROOT / rel).relative_to(SMART_ROOT).parts
+    engine, version, hardware, variant = parts[0], parts[1], parts[2], Path(rel).stem
+    cands = sorted(
+        p for p in ENGINE_ROOT.glob(f"{engine}/**/models/**/{variant}.yaml") if hardware in p.parts
+    )
+    if len(cands) > 1:
+        versioned = [p for p in cands if version in p.parts]
+        if len(versioned) == 1:
+            cands = versioned
+    assert len(cands) == 1, f"engine YAML for {rel}: expected exactly 1 candidate, got {cands}"
+    return cands[0]
+
+
+@pytest.mark.parametrize("rel", ASSETS, ids=lambda r: r)
+def test_smart_scenarios_subset_of_engine(rel):
+    smart_path = SMART_ROOT / rel
+    assert smart_path.is_file(), f"missing smart asset: {rel}"
+    smart = yaml.safe_load(smart_path.read_text(encoding="utf-8")) or {}
+    engine = yaml.safe_load(_locate_engine_yaml(rel).read_text(encoding="utf-8")) or {}
+
+    smart_scen = set((smart.get("smart_accel") or {}).keys())
+    engine_scen = set((engine.get("scenarios") or {}).keys())
+    assert smart_scen, f"{rel}: smart_accel 为空,无需守护也说明资产异常"
+    assert smart_scen <= engine_scen, (
+        f"{rel}: smart 场景 {sorted(smart_scen - engine_scen)} 未在引擎 recipe 中声明,"
+        f"engine 仅支持 {sorted(engine_scen)}"
+    )
+    for name in sorted(smart_scen):
+        smart_ref = (smart["smart_accel"][name] or {}).get("source_ref")
+        engine_ref = (engine["scenarios"].get(name) or {}).get("source_ref")
+        assert smart_ref == engine_ref, (
+            f"{rel}#{name}: source_ref {smart_ref!r} 与引擎 recipe 的 {engine_ref!r} 不一致,"
+            f"应指向引擎真实来源而非自动生成标记"
+        )
+
+
+@pytest.mark.parametrize("rel", ASSETS, ids=lambda r: r)
+def test_smart_assets_have_no_placeholder_source_ref(rel):
+    """source_ref 不得保留自动生成占位(如 smart_accel#standalone)。"""
+    smart = yaml.safe_load((SMART_ROOT / rel).read_text(encoding="utf-8")) or {}
+    for name, block in (smart.get("smart_accel") or {}).items():
+        ref = (block or {}).get("source_ref") or ""
+        assert not ref.startswith("smart_accel#"), (
+            f"{rel}#{name}: source_ref {ref!r} 是占位值,应改为引擎 recipe 的真实 source_ref"
+        )
+
+
+def test_kimi_k3_multi_node_kv_per_rank_bytes():
+    """Kimi-K3 multi_node KV 卸载的 per-rank 字节数按卡均分(multi_node 实际渲染断言)。
+
+    KV_MEM_OFFLOAD_SIZE 是 pod 总量;cpu_bytes_to_use_per_rank 必须是
+    (总量 // gpu_count) 转字节,而不是全量转字节 —— 否则 8 卡 pod 每 rank
+    都申请整份 128GB,pod 总需求放大 8 倍直接打爆 host 内存。
+    40GB pod / 8 卡 → 5368709120(= 引擎 recipe 基线 5GiB/rank)。
+    """
+    from wings_accel import resolve_smart_accel_from_config
+    from wings_accel.yaml_loader import _package_smart_accel_root
+
+    out = resolve_smart_accel_from_config(
+        config_root=_package_smart_accel_root().parent,
+        engine="vllm",
+        engine_version="kimi-k3",
+        hardware_family="h20_141G",
+        model_name="Kimi-K3",
+        gpu_count=8,
+        flags=LoadFlags(topology="multi_node", kv=True, memory_offload_size_mode="40"),
+    )
+    assert out is not None, "kimi-k3 版本目录下的资产应可命中"
+    assert out.smart_kv_cache_scheme == "cpu"
+    kt = out.engine_params.engine_config["kv_transfer_config"]
+    assert kt["kv_connector"] == "SimpleCPUOffloadConnector"
+    # 40GB // 8 卡 = 5GiB/rank = 5368709120 字节(与引擎 recipe 基线一致)
+    assert kt["kv_connector_extra_config"]["cpu_bytes_to_use_per_rank"] == "5368709120", (
+        "per-rank 字节数未按 gpu_count 均分:" + str(kt["kv_connector_extra_config"])
+    )
+
+
+def test_kimi_k3_multi_node_kv_per_rank_precision():
+    """非整除 GB 时先转字节再整除,不丢下发配额:10GB/8卡 → 1.25GiB/rank(非 1GiB)。"""
+    from wings_accel import resolve_smart_accel_from_config
+    from wings_accel.yaml_loader import _package_smart_accel_root
+
+    out = resolve_smart_accel_from_config(
+        config_root=_package_smart_accel_root().parent,
+        engine="vllm",
+        engine_version="kimi-k3",
+        hardware_family="h20_141G",
+        model_name="Kimi-K3",
+        gpu_count=8,
+        flags=LoadFlags(topology="multi_node", kv=True, memory_offload_size_mode="10"),
+    )
+    kt = out.engine_params.engine_config["kv_transfer_config"]
+    # 10GiB * 1024^3 = 10737418240 字节;// 8 = 1342177280(1.25GiB),8 rank 共 10GiB 不丢配额
+    assert kt["kv_connector_extra_config"]["cpu_bytes_to_use_per_rank"] == "1342177280", (
+        "先整除 GB 会丢小数配额:" + str(kt["kv_connector_extra_config"])
+    )

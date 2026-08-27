@@ -96,6 +96,29 @@ def _candidate_version_dirs(engine_version: str) -> list[str]:
     return candidates
 
 
+def _scan_prefix_version_dir(engine_root: Path, engine_version: str) -> Optional[str]:
+    """按引擎侧 version_resolver 的语义扫描版本目录(自定义版本号的兜底)。
+
+    非数字版本号(如 kimi-k3、kimi-k3-a3)无法用 _candidate_version_dirs 句法展开
+    (它只会补 v 前缀,得到 vkimi-k3 之类的空候选),这里改为扫描 {engine} 下的真实
+    目录:大小写无关、requested 前缀命中目录名、最长目录名优先 —— 与
+    wings_ctl.engines.version_resolver._find_prefix_version_dir 一致;另做 v 前缀
+    弹性:requested "kimi-k3" 与 "vkimi-k3" 均可命中目录 "kimi-k3"。数字形态
+    (0.23.0 → v0.23.0)已由句法候选覆盖,此处仅作兜底,不改变既有行为。
+    """
+    raw = str(engine_version).strip()
+    if not raw or not engine_root.is_dir():
+        return None
+    requested_forms = [raw.casefold()]
+    requested_forms.append(raw[1:].casefold() if raw[:1] in ("v", "V") else f"v{raw}".casefold())
+    matched = [
+        child.name
+        for child in engine_root.iterdir()
+        if child.is_dir() and any(f.startswith(child.name.casefold()) for f in requested_forms)
+    ]
+    return max(matched, key=lambda name: (len(name), name.casefold()), default=None)
+
+
 @dataclass
 class LoadFlags:
     """覆盖开关,所有字段都有默认值,不传也运行。
@@ -519,10 +542,17 @@ def build_smart_accel_yaml_path(
     新调用优先使用 find_smart_accel_yaml_path 按 hardware models 目录扫描匹配。
     """
     root = _resolve_smart_accel_root(config_root)
-    # build 路径无法像 find 那样多候选探测(调用方要确定单一路径),取归一化后的最后一个候选
-    # (即最简渠道目录,如 v0.21.0rc);干净版本只有一个候选,行为不变。
+    # 与 find 相同的解析顺序:句法候选(精确→基础→渠道归一)→ 自定义版本目录前缀扫描;
+    # 全部落空时保留旧行为(最后一个句法候选/补 v),供纯拼路径场景使用。
     candidates = _candidate_version_dirs(str(engine_version))
-    version_dir = candidates[-1] if candidates else f"v{str(engine_version).lstrip('v')}"
+    for version_dir in candidates:
+        if (root / engine / version_dir / hardware_family).is_dir():
+            return root / engine / version_dir / hardware_family / "models" / model_dir / yaml_name
+    scanned = _scan_prefix_version_dir(root / engine, str(engine_version))
+    if scanned and (root / engine / scanned / hardware_family).is_dir():
+        version_dir = scanned
+    else:
+        version_dir = candidates[-1] if candidates else f"v{str(engine_version).lstrip('v')}"
     return root / engine / version_dir / hardware_family / "models" / model_dir / yaml_name
 
 
@@ -568,6 +598,20 @@ def find_smart_accel_yaml_path(
         if candidate.is_dir():
             models_dir = candidate
             break
+    if models_dir is None:
+        # 自定义版本目录(非数字形态,如 kimi-k3 / kimi-k3-a3)无法靠句法候选展开,
+        # 按引擎侧 version_resolver 的前缀语义扫描真实目录(大小写无关、requested
+        # 前缀命中目录名、最长优先,v 带/不带均可),requested 形如
+        # "kimi-k3-a3-20260730213841" 也可命中目录 "kimi-k3-a3"。
+        scanned = _scan_prefix_version_dir(root / engine, str(engine_version))
+        if scanned:
+            candidate = root / engine / scanned / hardware_family / "models"
+            if candidate.is_dir():
+                logger.info(
+                    "SmartAccel: engine_version '%s' prefix-matched version dir '%s'",
+                    engine_version, scanned,
+                )
+                models_dir = candidate
     if models_dir is None:
         logger.warning(
             "SmartAccel models dir not found under %s/%s/[candidates=%s]/%s",

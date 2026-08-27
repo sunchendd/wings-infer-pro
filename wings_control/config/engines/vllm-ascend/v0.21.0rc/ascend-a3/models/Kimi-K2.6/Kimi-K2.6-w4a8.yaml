@@ -31,10 +31,6 @@ features:
   spec_decoding:
     description: Speculative decoding (DFlash draft) to accelerate generation.
     args: [--speculative-config, "{\"method\":\"dflash\",\"model\":\"z-lab/Kimi-K2.6-DFlash\",\"num_speculative_tokens\":15}"]
-  memcache_offloading:
-    description: Enable MemCache-backed KV transfer/offloading for prefill/decode cache sharing.
-    args: [--kv-transfer-config, "{\"kv_connector\":\"AscendStoreConnector\",\"kv_role\":\"kv_both\",\"kv_load_failure_policy\":\"recompute\",\"kv_connector_extra_config\":{\"lookup_rpc_port\":\"0\",\"backend\":\"memcache\"}}"]
-
 # 部署场景
 scenarios:
   standalone:
