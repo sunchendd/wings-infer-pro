@@ -72,6 +72,7 @@ exec > >(tee -a /var/log/wings/engine-full.log | grep --line-buffered -vE '"GET\
 
 export GLOO_SOCKET_IFNAME=eth0
 export NCCL_SOCKET_IFNAME=eth0
+export RAG_ACC_ENABLED=false
 
 vllm serve /model/MiMo-V2-Flash --host 0.0.0.0 --port 17000 --trust-remote-code --generation-config vllm --cc.pass_config.fuse_allreduce_rms=False --tensor-parallel-size 8 --nnodes 2 --node-rank 0 --master-addr 10.0.0.1 --served-model-name MiMo-V2-Flash &
 ENGINE_PID=$!

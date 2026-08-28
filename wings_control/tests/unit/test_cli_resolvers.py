@@ -21,12 +21,27 @@ def test_export_rag_acc_env(monkeypatch):
     assert cli.os.environ["RAG_ACC_ENABLED"] == "true"
 
 
-def test_export_rag_acc_env_preserves_legacy_value_when_omitted(monkeypatch):
+def test_export_rag_acc_env_writes_explicit_false_when_omitted(monkeypatch):
     monkeypatch.setenv("RAG_ACC_ENABLED", "true")
 
     cli._export_rag_acc_env(None)
 
-    assert cli.os.environ["RAG_ACC_ENABLED"] == "true"
+    assert cli.os.environ["RAG_ACC_ENABLED"] == "false"
+
+
+def test_export_rag_acc_env_false_reaches_proxy_child(monkeypatch):
+    from wings_ctl import wings_control
+    from wings_ctl.core.port_plan import derive_port_plan
+
+    monkeypatch.setattr(wings_control, "_ensure_prometheus_multiproc_dir", lambda: None)
+    monkeypatch.setenv("RAG_ACC_ENABLED", "true")
+
+    cli._export_rag_acc_env(None)
+    child_env = wings_control._build_child_env(
+        derive_port_plan(port=18000, enable_reason_proxy=True)
+    )
+
+    assert child_env["RAG_ACC_ENABLED"] == "false"
 
 
 def test_resolve_model_name_explicit():
@@ -234,6 +249,22 @@ def test_main_accepts_and_logs_v3_subsystem_switches(config_root, tmp_path, monk
     assert cli.os.environ["RAG_ACC_ENABLED"] == "true"
     assert "export RAG_ACC_ENABLED=true" in capsys.readouterr().out
     assert any("Received subsystem feature switches" in r.message for r in caplog.records)
+
+
+def test_main_omitted_rag_switch_exports_explicit_false(
+    config_root, tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setattr("wings_ctl.cli.setup_root_logging", lambda: None)
+    hw = tmp_path / "hw.json"
+    hw.write_text(json.dumps({"hardware_family": "nvidia-RTX5880", "device": "nvidia", "count": 1}))
+    monkeypatch.setenv("ENGINE_VERSION", "0.19.0")
+    monkeypatch.setenv("RAG_ACC_ENABLED", "true")
+    monkeypatch.setattr("sys.argv", _argv_qwen_dryrun(config_root, hw))
+
+    cli.main()
+
+    assert cli.os.environ["RAG_ACC_ENABLED"] == "false"
+    assert "export RAG_ACC_ENABLED=false" in capsys.readouterr().out
 
 
 # ─── main() 错误路径 + dry-run 多节点占位分支 ────────────────────────────────

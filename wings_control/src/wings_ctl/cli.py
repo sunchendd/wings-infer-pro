@@ -203,13 +203,8 @@ def _export_smartqos_env(enable_smartqos: bool | None) -> None:
 
 
 def _export_rag_acc_env(enable_rag_acc: bool | None) -> None:
-    """Export the CLI RAG switch for the proxy child process.
-
-    Preserve an existing environment value when the CLI switch is omitted for
-    backwards compatibility; an explicit CLI enable always wins.
-    """
-    if enable_rag_acc:
-        os.environ["RAG_ACC_ENABLED"] = "true"
+    """Export the authoritative CLI RAG switch for the proxy child process."""
+    os.environ["RAG_ACC_ENABLED"] = "true" if enable_rag_acc is True else "false"
 
 
 def _canonicalize_engine(name: str) -> str:
@@ -775,8 +770,8 @@ def main() -> None:
             )
             if raw_user_cli_overrides.get(k)
         }
-        if args.enable_rag_acc:
-            feature_switches["enable_rag_acc"] = True
+        # MaaS CLI is the authoritative RAG switch: omitted means explicitly disabled.
+        feature_switches["enable_rag_acc"] = bool(args.enable_rag_acc)
     except ValueError as exc:
         parser.error(str(exc))
         return
