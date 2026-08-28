@@ -85,6 +85,7 @@ export USE_MULTI_GROUPS_KV_CACHE=1
 export USE_MULTI_BLOCK_POOL=1
 export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
 export VLLM_ASCEND_ENABLE_FUSED_MC2=1
+export RAG_ACC_ENABLED=false
 
 # ─── System Setup (source: <CONFIG>/engines/vllm-ascend/v0.18.0/ascend-a3/models/DeepSeek-V4-Pro/DeepSeek-V4-Pro.yaml @ scenarios.multi_node.strategies.multi_node.head.system_setup) ───
 # sysctls:

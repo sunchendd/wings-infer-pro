@@ -151,6 +151,7 @@ def test_build_scripts_writes_advanced_features_auto_size(tmp_path, monkeypatch)
 
     target = tmp_path / "advanced_features.json"
     monkeypatch.setattr(settings, "ADVANCED_FEATURES_FILE", str(target))
+    monkeypatch.setenv("RAG_ACC_ENABLED", "true")
     build_scripts(_make_resolved(_accel_full(401)), tmp_path)
 
     data = _json.loads(target.read_text(encoding="utf-8"))
@@ -190,6 +191,29 @@ def test_build_scripts_reports_rag_acc_from_resolved_env(tmp_path, monkeypatch):
     response = asyncio.run(health_service.get_startup_accel())
     payload = _json.loads(response.body)
     assert payload["data"]["features"]["rag_acc"] is True
+
+
+def test_build_scripts_reports_explicitly_disabled_rag_acc(tmp_path, monkeypatch):
+    import json as _json
+    from wings_ctl.common.settings import settings
+
+    target = tmp_path / "advanced_features.json"
+    monkeypatch.setattr(settings, "ADVANCED_FEATURES_FILE", str(target))
+    monkeypatch.setenv("RAG_ACC_ENABLED", "true")
+    resolved = _make_resolved()
+    resolved.env_traces["RAG_ACC_ENABLED"] = TracedValue(
+        final_value="false",
+        final_layer="feature_inject",
+        source_file="<feature-inject>",
+        source_path="feature.rag_acc",
+        events=[],
+    )
+
+    start_path, _ = build_scripts(resolved, tmp_path)
+
+    assert "export RAG_ACC_ENABLED=false" in start_path.read_text(encoding="utf-8")
+    data = _json.loads(target.read_text(encoding="utf-8"))
+    assert data["features"]["rag_acc"] is False
 
 
 def test_build_scripts_writes_advanced_features_disabled(tmp_path, monkeypatch):

@@ -91,9 +91,12 @@ def _inject_otlp_traces(switches: dict, engine: str) -> tuple[dict, dict, dict]:
 
 def _inject_rag_acc(switches: dict, _engine: str) -> tuple[dict, dict, dict]:
     """Propagate the proxy-owned RAG switch into generated runtime scripts."""
-    if not switches.get("enable_rag_acc"):
+    if "enable_rag_acc" not in switches:
         return {}, {}, {}
-    return {}, {"RAG_ACC_ENABLED": "true"}, {"feature_inject.rag_acc": "enabled"}
+    enabled = bool(switches["enable_rag_acc"])
+    value = "true" if enabled else "false"
+    state = "enabled" if enabled else "disabled"
+    return {}, {"RAG_ACC_ENABLED": value}, {"feature_inject.rag_acc": state}
 
 
 def _inject_metrics(switches: dict, engine: str) -> tuple[dict, dict, dict]:

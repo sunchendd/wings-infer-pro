@@ -134,6 +134,13 @@ def test_rag_acc_enabled_injects_proxy_env() -> None:
     assert notes["feature_inject.rag_acc"] == "enabled"
 
 
+def test_rag_acc_explicitly_disabled_injects_proxy_env() -> None:
+    override, env, notes = _inject_rag_acc({"enable_rag_acc": False}, "vllm")
+    assert override == {}
+    assert env == {"RAG_ACC_ENABLED": "false"}
+    assert notes["feature_inject.rag_acc"] == "disabled"
+
+
 def test_rag_acc_disabled_is_noop() -> None:
     override, env, notes = _inject_rag_acc({}, "vllm")
     assert override == {}
