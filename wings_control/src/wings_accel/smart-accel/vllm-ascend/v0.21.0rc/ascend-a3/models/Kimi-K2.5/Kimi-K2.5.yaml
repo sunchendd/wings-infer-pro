@@ -26,25 +26,6 @@ smart_accel:
               model: $path
               num_speculative_tokens: 3
           envs: {}
-  multi_node:
-    source_ref: smart_accel#multi_node
-    match:
-      distributed: true
-      pd_role: null
-    strategies:
-      multi_node_dp:
-        default_strategy: true
-        decoding:
-        - name: eagle3
-          requires_model_path: true
-          draft_arch:
-            - eagle3
-          cli_params:
-            speculative_config:
-              method: eagle3
-              model: $path
-              num_speculative_tokens: 3
-          envs: {}
   pd_disaggregation:
     source_ref: smart_accel#pd_cluster
     match:

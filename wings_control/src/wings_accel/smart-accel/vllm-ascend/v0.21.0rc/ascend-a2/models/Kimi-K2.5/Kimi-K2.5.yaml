@@ -7,25 +7,6 @@ model:
   match:
     - name_pattern: "(?i)kimi[-.]?k2.5"
 smart_accel:
-  standalone:
-    source_ref: smart_accel#standalone
-    match:
-      distributed: false
-      pd_role: null
-    strategies:
-      single_node:
-        default_strategy: true
-        decoding:
-        - name: eagle3
-          requires_model_path: true
-          draft_arch:
-            - eagle3
-          cli_params:
-            speculative_config:
-              method: eagle3
-              model: $path
-              num_speculative_tokens: 3
-          envs: {}
   multi_node:
     source_ref: smart_accel#multi_node
     match:
@@ -45,26 +26,3 @@ smart_accel:
               model: $path
               num_speculative_tokens: 3
           envs: {}
-  pd_disaggregation:
-    source_ref: smart_accel#pd_cluster
-    match:
-      distributed: true
-      pd_role: null
-    strategies:
-      pd_cluster:
-        display_name: Prefill/Decode Disaggregation
-        default_strategy: true
-        nodes:
-        - role: decode
-          index: 0
-          decoding:
-          - name: eagle3
-            requires_model_path: true
-            draft_arch:
-              - eagle3
-            cli_params:
-              speculative_config:
-                method: eagle3
-                model: $path
-                num_speculative_tokens: 3
-            envs: {}
