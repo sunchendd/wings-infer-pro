@@ -167,7 +167,9 @@ def _prepare_feature_context(
                 canonical_model_name=canonical_model_name,
             )
             fallback_features = (fallback_data or {}).get("features", {})
-            fallback_tool_calling = fallback_features.get("tool_calling") if isinstance(fallback_features, dict) else None
+            fallback_tool_calling = (
+                fallback_features.get("tool_calling") if isinstance(fallback_features, dict) else None
+            )
             if isinstance(fallback_tool_calling, dict) and fallback_tool_calling.get("args"):
                 features["tool_calling"] = dict(fallback_tool_calling)
                 features["tool_calling"]["_source_file"] = str(fallback_path)
@@ -220,12 +222,19 @@ def _prepare_feature_context(
 #
 # 注:data_parallel_rpc_port **不在**黑名单——各节点该值一致(仅 data_parallel_address
 # 按节点不同),用户可填;未填时由引擎默认(若引擎无默认则需框架兜底,见 resolve_custom_config)。
-CONFIG_FILE_PARAMS_BLACKLIST_COMMON: frozenset = frozenset({
-    # 归 CLI 第 1/2 页(抢占保护):引擎启动 model/地址/端口由 CLI 决定
-    "model", "model_path", "served_model_name", "host", "port",
-    # 框架权威派生键(多机拓扑由框架按 index/device_count/TP/rank_ip 派生)
-    "nnodes", "node_rank",
-})
+CONFIG_FILE_PARAMS_BLACKLIST_COMMON: frozenset = frozenset(
+    {
+        # 归 CLI 第 1/2 页(抢占保护):引擎启动 model/地址/端口由 CLI 决定
+        "model",
+        "model_path",
+        "served_model_name",
+        "host",
+        "port",
+        # 框架权威派生键(多机拓扑由框架按 index/device_count/TP/rank_ip 派生)
+        "nnodes",
+        "node_rank",
+    }
+)
 
 # 引擎级 params 黑名单增量(叠加在 common 之上):该引擎 **custom 路径下 framework 权威派生**的键。
 # 全局 data_parallel_size 由用户自管(并行度决策,未填默认 DP=1)→ 两引擎都不拦;
@@ -233,20 +242,30 @@ CONFIG_FILE_PARAMS_BLACKLIST_COMMON: frozenset = frozenset({
 # data_parallel_size_local **不在黑名单**(用户自管):multi_node custom 要求用户填写,
 # PD custom 用户填优先、未填由 MaaS ENV(DP_SIZE_LOCAL)兜底;框架不再自动派生它。
 _CONFIG_FILE_PARAMS_BLACKLIST_BY_ENGINE: Dict[str, frozenset] = {
-    "vllm": frozenset({
-        # start_rank:DP_across 时由框架按 index/device_count/TP 派生。
-        # data_parallel_address:per-node 通信用 master IP(各节点一致),框架权威。
-        # data_parallel_rank:不传引擎。
-        # headless 仅 vllm/ascend 存在(cli_args --headless)。master_addr 用 --master-addr。
-        "data_parallel_start_rank",
-        "data_parallel_address", "data_parallel_rank", "headless", "master_addr",
-    }),
-    "vllm-ascend": frozenset({
-        # 与 vllm 相同(见上);ascend 额外有 HCCL env 黑名单(env 侧)。
-        # data_parallel_size_local 不在黑名单(用户自管,同 vllm)。
-        "data_parallel_start_rank",
-        "data_parallel_address", "data_parallel_rank", "headless", "master_addr",
-    }),
+    "vllm": frozenset(
+        {
+            # start_rank:DP_across 时由框架按 index/device_count/TP 派生。
+            # data_parallel_address:per-node 通信用 master IP(各节点一致),框架权威。
+            # data_parallel_rank:不传引擎。
+            # headless 仅 vllm/ascend 存在(cli_args --headless)。master_addr 用 --master-addr。
+            "data_parallel_start_rank",
+            "data_parallel_address",
+            "data_parallel_rank",
+            "headless",
+            "master_addr",
+        }
+    ),
+    "vllm-ascend": frozenset(
+        {
+            # 与 vllm 相同(见上);ascend 额外有 HCCL env 黑名单(env 侧)。
+            # data_parallel_size_local 不在黑名单(用户自管,同 vllm)。
+            "data_parallel_start_rank",
+            "data_parallel_address",
+            "data_parallel_rank",
+            "headless",
+            "master_addr",
+        }
+    ),
     # sglang:nnodes/node_rank 已在 common(不重复);TP/DP 用户可填,不拦。
     # dist_init_addr **不在黑名单**:端口由用户 config-file 填,
     # host(master IP)由 multinode_custom 派生层覆盖(层序高于 config_file,自动覆盖用户 host)。
@@ -255,10 +274,15 @@ _CONFIG_FILE_PARAMS_BLACKLIST_BY_ENGINE: Dict[str, frozenset] = {
 
 # env 黑名单(环境变量名):通信/身份类键由框架派生(网卡探测 / rank IP),用户填不出。
 # GLOO/NCCL_SOCKET_IFNAME:网卡类,由运行时按本 Pod IP 所属网卡探测,全引擎通用 → common。
-CONFIG_FILE_ENV_BLACKLIST_COMMON: frozenset = frozenset({
-    "RANK_IP", "MASTER_IP", "NODE_IPS",
-    "GLOO_SOCKET_IFNAME", "NCCL_SOCKET_IFNAME",
-})
+CONFIG_FILE_ENV_BLACKLIST_COMMON: frozenset = frozenset(
+    {
+        "RANK_IP",
+        "MASTER_IP",
+        "NODE_IPS",
+        "GLOO_SOCKET_IFNAME",
+        "NCCL_SOCKET_IFNAME",
+    }
+)
 
 _CONFIG_FILE_ENV_BLACKLIST_BY_ENGINE: Dict[str, frozenset] = {
     "vllm": frozenset(
@@ -284,23 +308,19 @@ _CONFIG_FILE_ENV_BLACKLIST_BY_ENGINE: Dict[str, frozenset] = {
 
 def _config_file_params_blacklist(engine: str) -> frozenset:
     """按引擎返回 params 黑名单(common ∪ engine 增量);未知引擎只走 common。"""
-    return CONFIG_FILE_PARAMS_BLACKLIST_COMMON | _CONFIG_FILE_PARAMS_BLACKLIST_BY_ENGINE.get(
-        engine, frozenset()
-    )
+    return CONFIG_FILE_PARAMS_BLACKLIST_COMMON | _CONFIG_FILE_PARAMS_BLACKLIST_BY_ENGINE.get(engine, frozenset())
 
 
 def _config_file_env_blacklist(engine: str) -> frozenset:
     """按引擎返回 env 黑名单(common ∪ engine 增量);未知引擎只走 common。"""
-    return CONFIG_FILE_ENV_BLACKLIST_COMMON | _CONFIG_FILE_ENV_BLACKLIST_BY_ENGINE.get(
-        engine, frozenset()
-    )
+    return CONFIG_FILE_ENV_BLACKLIST_COMMON | _CONFIG_FILE_ENV_BLACKLIST_BY_ENGINE.get(engine, frozenset())
 
 
 # 层名/来源文件常量(custom 路径 merge 用)。
-CONFIG_FILE_LAYER_NAME = "config_file"           # engine params 层
-CONFIG_FILE_ENV_LAYER_NAME = "config_file_env"   # env 层
-CONFIG_FILE_SOURCE_FILE = "<config-file>"        # trace 溯源
-CONFIG_FILE_ENV_ALLOW_UNSAFE = True              # config_file env 层放行 $(...) 渲染
+CONFIG_FILE_LAYER_NAME = "config_file"  # engine params 层
+CONFIG_FILE_ENV_LAYER_NAME = "config_file_env"  # env 层
+CONFIG_FILE_SOURCE_FILE = "<config-file>"  # trace 溯源
+CONFIG_FILE_ENV_ALLOW_UNSAFE = True  # config_file env 层放行 $(...) 渲染
 
 # multi_node custom 派生层名:排 config_file 后,
 # 框架权威派生键覆盖用户误传值;env 派生层另名(排 config_file_env 后)。
@@ -704,7 +724,9 @@ def _peek_recipe_parallelism(
             if isinstance(chosen, dict):
                 ec = _pick_node_engine_config(
                     chosen,
-                    rank_ip=rank_ip, node_ips=node_ips, master_ip=master_ip,
+                    rank_ip=rank_ip,
+                    node_ips=node_ips,
+                    master_ip=master_ip,
                 )
 
     if not isinstance(ec, dict):
@@ -774,7 +796,9 @@ def _pick_node_engine_config(
     nodes_raw = strategy.get("nodes")
     if isinstance(nodes_raw, list) and nodes_raw:
         index = _resolve_pod_index(
-            rank_ip=rank_ip, node_ips=node_ips, master_ip=master_ip,
+            rank_ip=rank_ip,
+            node_ips=node_ips,
+            master_ip=master_ip,
             fallback=len(nodes_raw),  # 越界时退化取 0(下方 clamp)
         )
         if index is None or index >= len(nodes_raw):
@@ -786,7 +810,9 @@ def _pick_node_engine_config(
     # head/worker 形态:按 IP 判 head/worker,无 IP 取 head
     if "head" in strategy or "worker" in strategy:
         is_head = _resolve_is_head(
-            rank_ip=rank_ip, node_ips=node_ips, master_ip=master_ip,
+            rank_ip=rank_ip,
+            node_ips=node_ips,
+            master_ip=master_ip,
         )
         role_block = strategy.get("head") if is_head else strategy.get("worker")
         ec = role_block.get("engine_config") if isinstance(role_block, dict) else None
@@ -1363,7 +1389,10 @@ def _merge_engine_config_traces(
         MergeLayer(model_layer_name, scenario_engine_config, model_source_file, scenario_prefix),
         MergeLayer("strategy_device_count", strategy_overrides, "<strategy:device_count>", "strategy.device_count"),
         MergeLayer(
-            "strategy_feature", feature_overrides, feature_source_file, feature_source_prefix,
+            "strategy_feature",
+            feature_overrides,
+            feature_source_file,
+            feature_source_prefix,
             feature_trace_sources,
         ),
     ]
@@ -1630,7 +1659,9 @@ def _validate_pd_listener_conflicts(listeners: List[ListenerPlan]) -> None:
         if listener.port_start is None or listener.port_end is None:
             continue
         if not 1 <= listener.port_start <= listener.port_end <= 65535:
-            raise ValueError(f"PD listener {listener.name} port range is invalid: {listener.port_start}..{listener.port_end}")
+            raise ValueError(
+                f"PD listener {listener.name} port range is invalid: {listener.port_start}..{listener.port_end}"
+            )
         for start, end, name in occupied:
             if listener.port_start <= end and start <= listener.port_end:
                 raise ValueError(
@@ -2322,7 +2353,10 @@ def resolve_config(
     # 所有模型特性先复制，再由各特性自己的标准化步骤处理。
     # 当前 reasoning 使用公共能力表；未来特性可在同一 helper/流水线中独立接入。
     normalized_features, reasoning_resolution, reasoning_table_source, tool_calling_source = _prepare_feature_context(
-        config_root, model_name, engine, model_data,
+        config_root,
+        model_name,
+        engine,
+        model_data,
         bool((feature_switches or {}).get("enable_auto_think_choice")),
         bool((feature_switches or {}).get("enable_auto_tool_choice")),
     )
@@ -2375,9 +2409,12 @@ def resolve_config(
     # - multi_node 形态按 rank_ip+node_ips+master_ip 选本 Pod node 的 TP/DP(head 与 worker 可不同);
     # - 无运行时 IP 上下文(占位加载)退化取 head;recipe 缺失/字段缺失 → 0(accel 内部兜底 1)。
     recipe_tp, recipe_dp = _peek_recipe_parallelism(
-        model_data, topology,
+        model_data,
+        topology,
         engine=engine,
-        rank_ip=rank_ip, node_ips=node_ips, master_ip=master_ip,
+        rank_ip=rank_ip,
+        node_ips=node_ips,
+        master_ip=master_ip,
     )
     accel = apply_smart_accel(
         hardware_family=resolved_family_dir,
@@ -2576,9 +2613,7 @@ def resolve_config(
                 )
         else:
             expected_node_index = (
-                int(strategy_notes["multi_node_index"])
-                if "multi_node_index" in strategy_notes
-                else None
+                int(strategy_notes["multi_node_index"]) if "multi_node_index" in strategy_notes else None
             )
             validate_final_parallelism(
                 engine,
@@ -2729,9 +2764,7 @@ _CONFIG_FILE_PARAM_ALIASES: Dict[str, Dict[str, str]] = {
 }
 
 
-def _canonicalize_config_file_params(
-    params: Dict[str, Any], *, engine: str
-) -> Dict[str, Any]:
+def _canonicalize_config_file_params(params: Dict[str, Any], *, engine: str) -> Dict[str, Any]:
     """将 config-file params 的 key 按 engine 归一到 canonical 键(在 _to_snake 之后)。
 
     用户可写引擎原生 flag 的长名/简写/双长名;此处映射到黑名单与派生层统一认的
@@ -2775,10 +2808,13 @@ def _filter_config_file_blacklist(
     dropped: List[Dict[str, Any]] = []
     for key, value in params.items():
         if key in blacklist:
-            dropped.append({
-                "key": key, "value": value,
-                "reason": "config_file_blacklist=框架权威派生键,采用派生值",
-            })
+            dropped.append(
+                {
+                    "key": key,
+                    "value": value,
+                    "reason": "config_file_blacklist=框架权威派生键,采用派生值",
+                }
+            )
             continue
         kept[key] = value
     return kept, dropped
@@ -2806,10 +2842,13 @@ def _filter_config_file_env_blacklist(
     dropped: List[Dict[str, Any]] = []
     for key, value in env.items():
         if key in blacklist:
-            dropped.append({
-                "key": key, "value": value,
-                "reason": "config_file_env_blacklist=框架派生键,采用派生值",
-            })
+            dropped.append(
+                {
+                    "key": key,
+                    "value": value,
+                    "reason": "config_file_env_blacklist=框架派生键,采用派生值",
+                }
+            )
             continue
         kept[key] = value
     return kept, dropped
@@ -3091,16 +3130,8 @@ def _pair_shapes_or_effective(
     def _peer(shape_raw: Dict[str, Optional[int]]) -> ParallelShape:
         # 对侧:抽到哪个字段用哪个;缺的字段用 -1 哨兵(本 Pod 不可感知,绝不编造)。
         return ParallelShape(
-            dp_size=(
-                shape_raw["dp_size"]
-                if shape_raw["dp_size"] is not None
-                else _PD_PEER_SHAPE_UNKNOWN
-            ),
-            tp_size=(
-                shape_raw["tp_size"]
-                if shape_raw["tp_size"] is not None
-                else _PD_PEER_SHAPE_UNKNOWN
-            ),
+            dp_size=(shape_raw["dp_size"] if shape_raw["dp_size"] is not None else _PD_PEER_SHAPE_UNKNOWN),
+            tp_size=(shape_raw["tp_size"] if shape_raw["tp_size"] is not None else _PD_PEER_SHAPE_UNKNOWN),
         )
 
     if role is PdRole.PREFILL:
@@ -3406,18 +3437,12 @@ def _resolve_custom_pd_config(
     pair_shapes = _extract_custom_pd_pair_shapes(config_file_layer, engine)
     # 当前 role 的 nested shape(用于与 effective 冲突告警);对侧 shape 由
     # _pair_shapes_or_effective 收敛为 -1 哨兵 / 真实值。
-    current_role_nested = (
-        pair_shapes[0] if pd_input.role is PdRole.PREFILL else pair_shapes[1]
-    )
+    current_role_nested = pair_shapes[0] if pd_input.role is PdRole.PREFILL else pair_shapes[1]
     prefill_shape, decode_shape = _pair_shapes_or_effective(pair_shapes, effective, pd_input.role)
-    topology = _build_custom_pd_topology(
-        pd_input, effective, prefill_shape, decode_shape, device_count, engine
-    )
+    topology = _build_custom_pd_topology(pd_input, effective, prefill_shape, decode_shape, device_count, engine)
     # 并行准确性 warn-only(不 raise,交用户负责):DP_LOCAL>DP / 容量不足。
     # 容量告警的 TP 统一取 effective(与设备切分 / audit 一致,而非 nested)。
-    pd_warnings = _warn_custom_pd_parallel_issues(
-        effective, device_count, effective["tensor_parallel_size"]
-    )
+    pd_warnings = _warn_custom_pd_parallel_issues(effective, device_count, effective["tensor_parallel_size"])
     # DP=1 且用户显式开启 external LB → 仅告警(vLLM 会拒绝该组合,但 custom 场景交用户负责)。
     external_lb = config_file_layer.get("data_parallel_external_lb")
     if effective["data_parallel_size"] == 1 and external_lb not in (None, False):
@@ -3431,8 +3456,7 @@ def _resolve_custom_pd_config(
         current_role_nested["tp_size"] is not None
         and current_role_nested["tp_size"] != effective["tensor_parallel_size"]
     ) or (
-        current_role_nested["dp_size"] is not None
-        and current_role_nested["dp_size"] != effective["data_parallel_size"]
+        current_role_nested["dp_size"] is not None and current_role_nested["dp_size"] != effective["data_parallel_size"]
     ):
         pd_warnings.append(
             f"kv_connector_extra_config.{current_role_name} dp/tp "
@@ -3534,9 +3558,7 @@ def _resolve_custom_pd_config(
     env_traces, network_env_notes = apply_network_env_strategy(env_traces)
 
     if resolve_model_traced(engine_config_traces) is None:
-        raise ValueError(
-            "config-file custom PD requires a model; provide --model-path or --model-name"
-        )
+        raise ValueError("config-file custom PD requires a model; provide --model-path or --model-name")
 
     notes: Dict[str, str] = {
         "config_file": "custom",
@@ -3548,9 +3570,7 @@ def _resolve_custom_pd_config(
         "custom_pd_dp": str(effective["data_parallel_size"]),
         "custom_pd_tp": str(effective["tensor_parallel_size"]),
         "custom_pd_dp_local": str(effective["data_parallel_size_local"]),
-        "custom_pd_is_cross_pod": (
-            "yes" if (placement is not None and len(placement.node_ips or []) > 1) else "no"
-        ),
+        "custom_pd_is_cross_pod": ("yes" if (placement is not None and len(placement.node_ips or []) > 1) else "no"),
         "custom_pd_engine_id": str(topology.instance_index),
     }
     if device_capacity_note is not None:
@@ -3652,13 +3672,10 @@ def resolve_custom_config(
     # validate_* 对其 no-op)不受影响,仍走下方通用校验后进入 _resolve_custom_pd_config。
     if topology in (Topology.PD_PREFILL, Topology.PD_DECODE):
         if pd_input is None:
-            raise ValueError(
-                f"config-file PD(topology '{topology.value}') requires a normalized pd_input"
-            )
+            raise ValueError(f"config-file PD(topology '{topology.value}') requires a normalized pd_input")
         if engine not in _CUSTOM_PD_SUPPORTED_ENGINES:
             raise NotImplementedError(
-                f"config-file PD does not support engine {engine}; "
-                "supported engines: vllm, vllm-ascend"
+                f"config-file PD does not support engine {engine}; supported engines: vllm, vllm-ascend"
             )
         validate_resolved_version(engine, env.engine_version.requested, env.engine_version.resolved)
         validate_topology(engine, topology.value)
@@ -3690,9 +3707,7 @@ def resolve_custom_config(
             "(only standalone / multi_node / pd_prefill / pd_decode)"
         )
     # multi_node custom 派生身份键强依赖运行时 placement(rank_ip/node_ips/master_ip)。
-    if topology == Topology.MULTI_NODE and (
-        placement is None or not placement.node_ips or not placement.rank_ip
-    ):
+    if topology == Topology.MULTI_NODE and (placement is None or not placement.node_ips or not placement.rank_ip):
         raise ValueError(
             "config-file multi_node requires distributed runtime context (placement):"
             "missing NODE_IPS / RANK_IP / MASTER_IP prevents deriving per-node identity params"
@@ -3709,13 +3724,9 @@ def resolve_custom_config(
     # 1a. FOAI 旧版前端模板过渡适配(临时;过渡完成后连同 legacy_json_adapter 一起删除):
     #     在 canonical/黑名单**之前**、_to_snake **之后**单点接入。把旧版键映射/丢弃、
     #     tensor-parallel-size 未填默认补=device_count,输出可直接进后续 canonical。
-    raw_params, legacy_dropped = adapt_legacy_config_params(
-        raw_params, engine=engine, device_count=device_count
-    )
+    raw_params, legacy_dropped = adapt_legacy_config_params(raw_params, engine=engine, device_count=device_count)
     snake_params = _canonicalize_config_file_params(raw_params, engine=engine)
-    config_file_layer, config_file_dropped = _filter_config_file_blacklist(
-        snake_params, engine=engine
-    )
+    config_file_layer, config_file_dropped = _filter_config_file_blacklist(snake_params, engine=engine)
     config_file_dropped = legacy_dropped + config_file_dropped
 
     # 1b. config-file env:也按 engine 黑名单过滤(env 黑名单 key 由框架派生,用户填不出)。
@@ -3762,10 +3773,13 @@ def resolve_custom_config(
     accel = AccelResult()
     accel_switches = collect_accel_switches(os.environ)
     drop_accel, accel_notes = _resolve_accel_policy(engine, os.environ)
-    accel_enabled = not drop_accel and any(
-        v is True for k, v in accel_switches.items() if k.endswith("_enabled")
-    )
+    accel_enabled = not drop_accel and any(v is True for k, v in accel_switches.items() if k.endswith("_enabled"))
     if accel_enabled:
+        # custom 模式没有 engine recipe 可供 _peek_recipe_parallelism 读取；直接使用
+        # config-file 规范化后的并行度。legacy adapter 已在上方补齐缺省 TP，DP
+        # 未填写时与引擎默认一致按 1 处理。该值用于 KV 总配额到 per-worker 配额换算。
+        accel_tp = config_file_layer.get("tensor_parallel_size")
+        accel_dp = config_file_layer.get("data_parallel_size")
         accel = apply_smart_accel(
             hardware_family=resolved_family_dir_str(env, engine),
             gpu_count=device_count,
@@ -3776,6 +3790,8 @@ def resolve_custom_config(
             config_root=str(env.config_root),
             pd_role=os.getenv("PD_ROLE"),
             topology=topology.value,
+            tp_size=accel_tp if isinstance(accel_tp, int) and not isinstance(accel_tp, bool) else 0,
+            dp_size=accel_dp if isinstance(accel_dp, int) and not isinstance(accel_dp, bool) else 1,
         )
         accel_layer = accel.engine_config
         accel_env = accel.env
@@ -3783,31 +3799,48 @@ def resolve_custom_config(
     # 4. env 层序(低→高):strategy_feature_env < strategy_accel_env < config_file_env。
     env_layers: List[MergeLayer] = []
     if strategy_env_layer:
-        env_layers.append(MergeLayer(
-            "strategy_feature_env", strategy_env_layer,
-            "<strategy:feature_env_inject>", "strategy.feature_env_inject",
-        ))
+        env_layers.append(
+            MergeLayer(
+                "strategy_feature_env",
+                strategy_env_layer,
+                "<strategy:feature_env_inject>",
+                "strategy.feature_env_inject",
+            )
+        )
     if accel_env:
-        env_layers.append(MergeLayer(
-            "strategy_accel_env", dict(accel_env), "<wings-accel>", "strategy.accel_env",
-        ))
+        env_layers.append(
+            MergeLayer(
+                "strategy_accel_env",
+                dict(accel_env),
+                "<wings-accel>",
+                "strategy.accel_env",
+            )
+        )
     if config_file_env_layer:
         # config_file_env 层:allow_unsafe=True → 渲染时跳过 $() 安全校验(用户自管)。
-        env_layers.append(MergeLayer(
-            CONFIG_FILE_ENV_LAYER_NAME, config_file_env_layer,
-            CONFIG_FILE_SOURCE_FILE, "config_file.env",
-            allow_unsafe=CONFIG_FILE_ENV_ALLOW_UNSAFE,
-        ))
+        env_layers.append(
+            MergeLayer(
+                CONFIG_FILE_ENV_LAYER_NAME,
+                config_file_env_layer,
+                CONFIG_FILE_SOURCE_FILE,
+                "config_file.env",
+                allow_unsafe=CONFIG_FILE_ENV_ALLOW_UNSAFE,
+            )
+        )
     # multi_node 派生 env 层:排 config_file_env 后(最高),框架权威派生键覆盖用户误传值。
     # 派生值仅含网卡/IP($IFACE_NAME 占位 + RANK_IP),安全渲染器已支持 $NAME,
     # 且 apply_network_env_strategy 随后在 Python 侧覆盖为真实值——**不标 allow_unsafe**。
     # (config_file_env 层=用户自写值、经评审保留 $(...) 放行;此处是框架派生值,不应继承
     # 该 unsafe 信任。)
     if mn_env:
-        env_layers.append(MergeLayer(
-            MULTINODE_CUSTOM_ENV_LAYER, dict(mn_env),
-            "<strategy:multinode_custom>", "strategy.multinode_custom_env",
-        ))
+        env_layers.append(
+            MergeLayer(
+                MULTINODE_CUSTOM_ENV_LAYER,
+                dict(mn_env),
+                "<strategy:multinode_custom>",
+                "strategy.multinode_custom_env",
+            )
+        )
     env_traces = trace_merge(env_layers)
     # 网卡/IP 通信变量 Python 侧解析覆盖(对齐 recipe 路径,15ffcc6 架构):
     # 覆盖 mn_env 声明的 $IFACE_NAME 占位与 HCCL_IF_IP 为本 Pod 真实值。
@@ -3820,26 +3853,44 @@ def resolve_custom_config(
         MergeLayer("builtin_default", _BUILTIN_DEFAULTS, "<builtin_default>", "builtin_default"),
     ]
     if strategy_feature_inject_overrides:
-        ec_layers.append(MergeLayer(
-            "strategy_feature_inject", strategy_feature_inject_overrides,
-            "<strategy:feature_inject>", "strategy.feature_inject",
-        ))
+        ec_layers.append(
+            MergeLayer(
+                "strategy_feature_inject",
+                strategy_feature_inject_overrides,
+                "<strategy:feature_inject>",
+                "strategy.feature_inject",
+            )
+        )
     if accel_layer:
-        ec_layers.append(MergeLayer(
-            "strategy_accel", accel_layer, "<wings-accel>", "strategy.accel",
-        ))
+        ec_layers.append(
+            MergeLayer(
+                "strategy_accel",
+                accel_layer,
+                "<wings-accel>",
+                "strategy.accel",
+            )
+        )
     if config_file_layer:
-        ec_layers.append(MergeLayer(
-            CONFIG_FILE_LAYER_NAME, config_file_layer, CONFIG_FILE_SOURCE_FILE, "config_file.params",
-        ))
+        ec_layers.append(
+            MergeLayer(
+                CONFIG_FILE_LAYER_NAME,
+                config_file_layer,
+                CONFIG_FILE_SOURCE_FILE,
+                "config_file.params",
+            )
+        )
     # multi_node 派生 params 层:排 config_file 后(高于用户值)。框架权威派生键
     # (nnodes/node_rank/master_addr/headless/data_parallel_*)即使 config-file 误传也被覆盖;
     # 用户可填的 data_parallel_rpc_port 不在派生集,用户值仍有效。
     if mn_engine_config:
-        ec_layers.append(MergeLayer(
-            MULTINODE_CUSTOM_LAYER, dict(mn_engine_config),
-            "<strategy:multinode_custom>", "strategy.multinode_custom",
-        ))
+        ec_layers.append(
+            MergeLayer(
+                MULTINODE_CUSTOM_LAYER,
+                dict(mn_engine_config),
+                "<strategy:multinode_custom>",
+                "strategy.multinode_custom",
+            )
+        )
     ec_layers.append(MergeLayer("user_cli", user_cli_overrides, "<user_cli>", "user_cli"))
     engine_config_traces = trace_merge(ec_layers)
 
@@ -3854,10 +3905,7 @@ def resolve_custom_config(
     # 7. 审计条目:user_cli(applied+dropped,复用骨架)+ config_file(applied + 黑名单 dropped,
     #    params 与 env 的 dropped 汇成同一条 config_file_params 数组,status=dropped 项带 reason)。
     user_cli_audit_entries = _build_user_cli_audit_entries(user_cli_overrides, user_cli_dropped)
-    config_file_audit_entries = [
-        {"key": k, "value": v, "status": "applied"}
-        for k, v in config_file_layer.items()
-    ]
+    config_file_audit_entries = [{"key": k, "value": v, "status": "applied"} for k, v in config_file_layer.items()]
     config_file_audit_entries.extend(
         {"key": d["key"], "value": d["value"], "status": "dropped", "reason": d["reason"]}
         for d in config_file_dropped + config_file_env_dropped
@@ -3892,11 +3940,7 @@ def resolve_custom_config(
         )
 
     if has_engine_delivery_contract(engine):
-        expected_node_index = (
-            int(mn_notes["multi_node_index"])
-            if "multi_node_index" in mn_notes
-            else None
-        )
+        expected_node_index = int(mn_notes["multi_node_index"]) if "multi_node_index" in mn_notes else None
         expected_multi_node_tp = None
         expected_rendezvous_address = None
         if topology == Topology.MULTI_NODE:

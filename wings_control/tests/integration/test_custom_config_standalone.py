@@ -186,6 +186,29 @@ def test_c2_env_blacklist_dropped(config_root, hardware_info_path):
     assert any(d["key"] == "GLOO_SOCKET_IFNAME" and "env" in (d["reason"] or "") for d in dropped)
 
 
+def test_custom_accel_receives_config_file_parallelism(config_root, hardware_info_path, monkeypatch):
+    """custom config 的 TP/DP 必须传给 SmartAccel，供每-worker KV 容量换算。"""
+    captured = {}
+
+    def _capture_apply_smart_accel(**kwargs):
+        captured.update(kwargs)
+        from wings_ctl.accel.smart_accel import AccelResult
+
+        return AccelResult()
+
+    monkeypatch.setattr(
+        "wings_ctl.core.config_resolver.apply_smart_accel",
+        _capture_apply_smart_accel,
+    )
+    monkeypatch.setenv("ENABLE_KV_MEM_OFFLOAD", "true")
+    monkeypatch.setenv("KV_MEM_OFFLOAD_SIZE", "199")
+
+    _resolve(config_root, hardware_info_path)
+
+    assert captured["tp_size"] == 2
+    assert captured["dp_size"] == 8
+
+
 def test_c3_rpc_port_user_fillable(config_root, hardware_info_path):
     """data_parallel_rpc_port 各节点一致、用户可填(点3):不在黑名单,落入最终 params。
 
