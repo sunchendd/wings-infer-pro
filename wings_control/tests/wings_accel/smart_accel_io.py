@@ -45,14 +45,16 @@ import dataclasses
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import yaml
 
@@ -78,9 +80,23 @@ from wings_accel.schemas import (
 _SMART_ACCEL_ROOT = Path(__file__).resolve().parents[2] / "src" / "wings_accel" / "smart-accel"
 DEFAULT_SCAN_DIRS = ["vllm", "vllm-ascend"]
 
-# 隔离测试用的固定占位输入(仅渲染用,不真实加载模型)
-_DRAFT_PATH_STUB = "/dummy/draft-model"
-_MEM_CAPACITY_GB = 128            # 内存卸载容量(GB),用于占位符 {memory_capacity_gb} / {= ... // gpu_count}
+
+@contextmanager
+def _draft_stub(method: dict) -> Iterator[str]:
+    """为 model_based 变体构造临时 stub 草稿目录(含 config.json),用完自动清理。
+
+    architectures 按 draft_arch 首个关键字定制,保证专用方法命中其声明架构;
+    无 draft_arch 的通用草稿(draft_model/ernie_mtp 等)用方法名当关键字,
+    走 generic 分支。本地有 config.json 是 decoders 架构门控的前提。
+    """
+    arch = method.get("draft_arch") or [method.get("name") or "draft"]
+    kw = arch[0] if isinstance(arch, list) else arch
+    with tempfile.TemporaryDirectory(prefix="draft-stub-") as d:
+        (Path(d) / "config.json").write_text(json.dumps({"architectures": [f"{kw}StubForCausalLM"]}), encoding="utf-8")
+        yield str(d)
+
+
+_MEM_CAPACITY_GB = 128  # 内存卸载容量(GB),用于占位符 {memory_capacity_gb} / {= ... // gpu_count}
 _DISK_CAPACITY_GB = 512
 _DISK_PATH = "/var/cache/lmcache"
 
@@ -96,6 +112,7 @@ _DIAG_KEY = {"decoding": "decoding", "sparse": "sparse", "offload": "kv_cache"}
 # ══════════════════════════════════════════════════════════════════
 # 形态一:legacy 单 YAML 快照(保留原行为)
 # ══════════════════════════════════════════════════════════════════
+
 
 def _flags_from_args(args) -> LoadFlags:
     return LoadFlags(
@@ -134,15 +151,17 @@ def _print_input(inp) -> None:
     kv = inp.smart_kv_cache_config
     print(f"[KVCache]  enabled={kv.enabled}")
     if kv.enabled:
-        print(f"           memory_offload={kv.memory_offload_enabled}"
-              f"  memory_offload_size_mode={kv.memory_offload_size_mode or '-'}"
-              f"  capacity_gb={getattr(kv, '_memory_capacity_gb', 0)}")
-        print(f"           disk_offload={kv.disk_offload_enabled}"
-              f"  capacity_gb={kv.disk_capacity_gb}"
-              f"  path={kv.disk_path or '-'}")
-        print(f"           qat={kv.qat_enabled}"
-              f"  devices={kv.qat_device_count}"
-              f"  level={kv.qat_compression_level}")
+        print(
+            f"           memory_offload={kv.memory_offload_enabled}"
+            f"  memory_offload_size_mode={kv.memory_offload_size_mode or '-'}"
+            f"  capacity_gb={getattr(kv, '_memory_capacity_gb', 0)}"
+        )
+        print(
+            f"           disk_offload={kv.disk_offload_enabled}"
+            f"  capacity_gb={kv.disk_capacity_gb}"
+            f"  path={kv.disk_path or '-'}"
+        )
+        print(f"           qat={kv.qat_enabled}  devices={kv.qat_device_count}  level={kv.qat_compression_level}")
 
 
 def _print_output(out) -> None:
@@ -150,11 +169,13 @@ def _print_output(out) -> None:
     print("════════════════ SmartAccelOutput ════════════════")
 
     print("\n── Schemes ──")
-    _print_params({
-        "smart_decoding_scheme": out.smart_decoding_scheme,
-        "smart_kv_sparse_scheme": out.smart_kv_sparse_scheme,
-        "smart_kv_cache_scheme": out.smart_kv_cache_scheme,
-    })
+    _print_params(
+        {
+            "smart_decoding_scheme": out.smart_decoding_scheme,
+            "smart_kv_sparse_scheme": out.smart_kv_sparse_scheme,
+            "smart_kv_cache_scheme": out.smart_kv_cache_scheme,
+        }
+    )
 
     print("\n── EngineParams ──")
     _print_params(out.engine_params.engine_config)
@@ -208,20 +229,22 @@ def _legacy_main(args) -> int:
 # 形态二:matrix / scan —— 逐特性逐变体隔离测试
 # ══════════════════════════════════════════════════════════════════
 
+
 @dataclass
 class VariantResult:
     """单个(模型, 特性, 变体)的测试结果。"""
-    feature: str                       # decoding / sparse / offload
-    label: str                         # 变体标签(method 名 / sparse mode / offload 类型)
-    ok: bool                           # 选中 scheme 与预期一致且无异常
-    scheme: Optional[str] = None       # 实际选中 scheme(None=未产出)
-    expect: Optional[str] = None       # 预期 scheme 名(= 隔离变体的 name)
-    degraded: bool = False             # 是否降级(diagnostics 标记)
-    error: str = ""                    # 异常信息 / 不匹配说明;ok 时为空
+
+    feature: str  # decoding / sparse / offload
+    label: str  # 变体标签(method 名 / sparse mode / offload 类型)
+    ok: bool  # 选中 scheme 与预期一致且无异常
+    scheme: Optional[str] = None  # 实际选中 scheme(None=未产出)
+    expect: Optional[str] = None  # 预期 scheme 名(= 隔离变体的 name)
+    degraded: bool = False  # 是否降级(diagnostics 标记)
+    error: str = ""  # 异常信息 / 不匹配说明;ok 时为空
     engine_config: Dict[str, Any] = field(default_factory=dict)
     envs: Dict[str, str] = field(default_factory=dict)
     packages: List[str] = field(default_factory=list)
-    file_errors: List[str] = field(default_factory=list)   # offload 文件计划语义校验错误(JSON/YAML/bash)
+    file_errors: List[str] = field(default_factory=list)  # offload 文件计划语义校验错误(JSON/YAML/bash)
     pre_serve: List[str] = field(default_factory=list)
     pre_serve_master: List[str] = field(default_factory=list)
     pre_serve_client: List[str] = field(default_factory=list)
@@ -259,9 +282,7 @@ def _validate_generated_file_plans(file_plans) -> None:
             elif path.suffix.lower() in (".yaml", ".yml"):
                 yaml.safe_load(text)
             elif path.suffix.lower() == ".sh":
-                process = subprocess.run(
-                    ["bash", "-n"], input=text, capture_output=True, text=True, timeout=5
-                )
+                process = subprocess.run(["bash", "-n"], input=text, capture_output=True, text=True, timeout=5)
                 if process.returncode != 0:
                     stderr = (process.stderr or "").strip()[:120]
                     errors.append(f"{path.name}: bash -n failed: {stderr}")
@@ -280,20 +301,29 @@ def _run_one(feature: str, label: str, inp: SmartAccelInput, expect: str) -> Var
         _validate_generated_file_plans(out.generated_files)
     except Exception as exc:  # 单变体异常不中断整体扫描
         return VariantResult(
-            feature=feature, label=label, ok=False, expect=expect,
+            feature=feature,
+            label=label,
+            ok=False,
+            expect=expect,
             error=f"{type(exc).__name__}: {exc}",
         )
     got = _SCHEME_GETTER[feature](out)
     diag = out.diagnostics.get(_DIAG_KEY[feature], {})
     degraded = bool(diag.get("degraded"))
-    ok = (got == expect)
-    err = "" if ok else (
-        f"scheme={got!r} expected={expect!r}"
-        + (f" degraded={diag.get('degrade_reason')}" if degraded else "")
+    ok = got == expect
+    err = (
+        ""
+        if ok
+        else (f"scheme={got!r} expected={expect!r}" + (f" degraded={diag.get('degrade_reason')}" if degraded else ""))
     )
     return VariantResult(
-        feature=feature, label=label, ok=ok, scheme=got, expect=expect,
-        degraded=degraded, error=err,
+        feature=feature,
+        label=label,
+        ok=ok,
+        scheme=got,
+        expect=expect,
+        degraded=degraded,
+        error=err,
         engine_config=dict(out.engine_params.engine_config or {}),
         envs=dict(out.engine_params.env or {}),
         packages=list(out.packages or []),
@@ -325,10 +355,12 @@ def _test_decoding(base: SmartAccelInput) -> List[VariantResult]:
         sa["kv_offload"] = []
         sa["custom_features"] = []
         _disable_all_features(inp)
-        inp.smart_decoding_config = SmartDecodingConfig(
-            enabled=True,
-            model_path=_DRAFT_PATH_STUB if m.get("requires_model_path") else "",
-        )
+        if m.get("requires_model_path"):
+            with _draft_stub(m) as stub:
+                inp.smart_decoding_config = SmartDecodingConfig(enabled=True, model_path=stub)
+                out.append(_run_one("decoding", name, inp, expect=name))
+            continue
+        inp.smart_decoding_config = SmartDecodingConfig(enabled=True, model_path="")
         out.append(_run_one("decoding", name, inp, expect=name))
     return out
 
@@ -425,6 +457,7 @@ def _run_matrix(yaml_path: Path, features: List[str]) -> Tuple[Optional[SmartAcc
 
 # ── 输出渲染 ──
 
+
 def _result_line(r: VariantResult) -> str:
     tag = "OK  " if r.ok else "FAIL"
     msg = f"{r.feature}:{r.label}"
@@ -467,8 +500,9 @@ def _print_variant_detail(r: VariantResult, vol_tmp: str = "") -> None:
             print(f"          {c}")
 
 
-def _print_matrix(yaml_path: Path, base: Optional[SmartAccelInput], results: List[VariantResult],
-                  verbose: bool, vol_tmp: str = "") -> None:
+def _print_matrix(
+    yaml_path: Path, base: Optional[SmartAccelInput], results: List[VariantResult], verbose: bool, vol_tmp: str = ""
+) -> None:
     rel = _relpath(yaml_path)
     model_name = base.model_config.model_name if base else "?"
     print(f"═══ {rel}  (model={model_name}) ═══")
@@ -529,8 +563,10 @@ def _run_scan(args, dirs: List[str]) -> int:
 
     files = _iter_yaml_files(dirs, args.filter)
     if not files:
-        print(f"[error] 未找到模型 YAML(dirs={dirs}"
-              + (f", filter={args.filter!r}" if args.filter else "") + ")", file=sys.stderr)
+        print(
+            f"[error] 未找到模型 YAML(dirs={dirs}" + (f", filter={args.filter!r}" if args.filter else "") + ")",
+            file=sys.stderr,
+        )
         return 2
 
     features = args.feature or ["decoding", "sparse", "offload"]
@@ -568,8 +604,7 @@ def _run_scan(args, dirs: List[str]) -> int:
                         f"{sum(1 for r in results if r.feature == f)}"
                         for f in features
                     )
-                    print(f"[{status}] {_relpath(yf)}  ({feat_counts})"
-                          + ("" if base else "  <load failed>"))
+                    print(f"[{status}] {_relpath(yf)}  ({feat_counts})" + ("" if base else "  <load failed>"))
             for r in results:
                 if not r.ok:
                     failures.append((yf, r))
@@ -580,8 +615,13 @@ def _run_scan(args, dirs: List[str]) -> int:
 
     if args.json:
         agg = _aggregate(all_results, features)
-        print(json.dumps({"scan_dirs": dirs, "features": features, "aggregate": agg,
-                          "models": json_records}, indent=2, ensure_ascii=False))
+        print(
+            json.dumps(
+                {"scan_dirs": dirs, "features": features, "aggregate": agg, "models": json_records},
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
         return 1 if agg["fail"] else 0
 
     # 失败详情
@@ -630,8 +670,10 @@ def _aggregate(all_results, features) -> Dict[str, Any]:
 def _print_summary(all_results, features) -> None:
     agg = _aggregate(all_results, features)
     print("═══ 汇总 ═══")
-    print(f"  模型: {agg['models']}   变体: {agg['variants']}   "
-          f"通过: {agg['pass']}   失败: {agg['fail']}   失败模型: {agg['failed_models']}")
+    print(
+        f"  模型: {agg['models']}   变体: {agg['variants']}   "
+        f"通过: {agg['pass']}   失败: {agg['fail']}   失败模型: {agg['failed_models']}"
+    )
     print("  按特性(pass/total):")
     for f in features:
         s = agg["per_feature"].get(f, {"pass": 0, "total": 0})
@@ -643,6 +685,7 @@ def _print_summary(all_results, features) -> None:
 # ══════════════════════════════════════════════════════════════════
 # 路径覆盖检查 —— 按特性/变体统计「哪些模型路径声明了它」
 # ══════════════════════════════════════════════════════════════════
+
 
 def _load_yaml(yf: Path) -> Dict[str, Any]:
     """轻量读取 YAML(只取 smart_accel 块,不做 SmartAccelInput 构造)。"""
@@ -663,6 +706,7 @@ def _coverage(files: List[Path], features: List[str]) -> Dict[str, Dict[str, Lis
     不经 loader,故取 standalone.strategies.{default} 子块(最全,包含资产支持的所有特性)统计覆盖。
     """
     from wings_accel.yaml_loader import _extract_strategy_features
+
     cov: Dict[str, Dict[str, List[Path]]] = {f: {} for f in features}
     for yf in files:
         sa_raw = (_load_yaml(yf) or {}).get("smart_accel") or {}
@@ -685,16 +729,16 @@ def _coverage(files: List[Path], features: List[str]) -> Dict[str, Dict[str, Lis
 _FEAT_TITLE = {"decoding": "投机 decoding", "sparse": "稀疏 sparse", "offload": "卸载 offload"}
 
 
-def _print_coverage(cov: Dict[str, Dict[str, List[Path]]], features: List[str],
-                    n_files: int, dirs: List[str], max_paths: int) -> None:
+def _print_coverage(
+    cov: Dict[str, Dict[str, List[Path]]], features: List[str], n_files: int, dirs: List[str], max_paths: int
+) -> None:
     print("═══ 路径覆盖检查 ═══")
     print(f"目录: {', '.join(dirs)}   模型 YAML: {n_files}   特性: {features}")
     print()
     for f in features:
         variants = cov.get(f, {})
         distinct = {p for paths in variants.values() for p in paths}
-        print(f"── {_FEAT_TITLE.get(f, f)}  "
-              f"({len(variants)} 种变体, {len(distinct)} 路径声明) ──")
+        print(f"── {_FEAT_TITLE.get(f, f)}  ({len(variants)} 种变体, {len(distinct)} 路径声明) ──")
         if not variants:
             print("  (无)")
             print()
@@ -732,14 +776,15 @@ def _run_coverage(args, dirs: List[str]) -> int:
     """路径覆盖检查:不跑 func_smart_accel,只统计各变体被哪些路径声明。"""
     files = _iter_yaml_files(dirs, args.filter)
     if not files:
-        print(f"[error] 未找到模型 YAML(dirs={dirs}"
-              + (f", filter={args.filter!r}" if args.filter else "") + ")", file=sys.stderr)
+        print(
+            f"[error] 未找到模型 YAML(dirs={dirs}" + (f", filter={args.filter!r}" if args.filter else "") + ")",
+            file=sys.stderr,
+        )
         return 2
     features = args.feature or ["decoding", "sparse", "offload"]
     cov = _coverage(files, features)
     if args.json:
-        print(json.dumps(_coverage_to_json(cov, features, len(files), dirs),
-                         indent=2, ensure_ascii=False))
+        print(json.dumps(_coverage_to_json(cov, features, len(files), dirs), indent=2, ensure_ascii=False))
     else:
         _print_coverage(cov, features, len(files), dirs, args.max_paths)
     return 0
@@ -753,8 +798,8 @@ _SAMPLE_HEADER = (
     "# {title} — 变体输出样本\n\n"
     "> 由 `smart_accel_io.py --save-samples` 生成。每个变体取一条**代表性模型路径**,"
     "隔离测试(仅开该特性 + 该变体)后 `func_smart_accel` 的完整输出。\n"
-    "> 测试用占位输入:草稿路径=`/dummy/draft-model`、内存卸载容量=128 GB、"
-    "磁盘=512 GB @ `/var/cache/lmcache`。\n"
+    "> 测试用占位输入:草稿路径=临时 stub 目录(本地目录契约,样本中统一展示为"
+    "`/dummy/draft-model`)、内存卸载容量=128 GB、磁盘=512 GB @ `/var/cache/lmcache`。\n"
     "> offload 的 `files:` 仅生成并校验文件计划；此处展示生成的 pre_serve 命令与 env/cli。\n\n"
 )
 
@@ -771,8 +816,23 @@ def _to_canonical_volume(cmds: List[str], vol_tmp: str) -> List[str]:
     return [c.replace(vol_tmp, "/shared-volume") for c in cmds]
 
 
-def _fmt_variant_section(label: str, count: int, rep: Path, r: Optional[VariantResult],
-                         vol_tmp: str = "") -> str:
+# 样本文档固定展示值:每次运行生成的 /tmp/draft-stub-* 路径统一改写,保证样例可复现
+_DRAFT_STUB_DISPLAY = "/dummy/draft-model"
+_DRAFT_STUB_RE = re.compile(r"/tmp/draft-stub-[^\s\"']+")
+
+
+def _to_canonical_draft(value: Any) -> Any:
+    """递归把样本文档里的临时 stub 草稿路径改写为固定展示值(仅可读性,不影响校验)。"""
+    if isinstance(value, str):
+        return _DRAFT_STUB_RE.sub(_DRAFT_STUB_DISPLAY, value)
+    if isinstance(value, list):
+        return [_to_canonical_draft(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _to_canonical_draft(v) for k, v in value.items()}
+    return value
+
+
+def _fmt_variant_section(label: str, count: int, rep: Path, r: Optional[VariantResult], vol_tmp: str = "") -> str:
     """单个变体的 markdown 段落(代表路径 + 完整渲染输出)。
 
     vol_tmp: offload 文件计划使用的临时路径根;pre_serve 命令里的该路径会被改写为生产卷
@@ -780,31 +840,42 @@ def _fmt_variant_section(label: str, count: int, rep: Path, r: Optional[VariantR
     """
     lines = [f"## `{label}`  ({count} 路径)", ""]
     if r is None:
-        lines += [f"- **代表路径:** `{_relpath(rep)}`",
-                  "- **结果:** 未产出(无匹配变体)", "", "---", ""]
+        lines += [f"- **代表路径:** `{_relpath(rep)}`", "- **结果:** 未产出(无匹配变体)", "", "---", ""]
         return "\n".join(lines)
-    status = (f"`{r.scheme}` (预期 `{r.expect}`) ✓" if r.ok
-              else f"`{r.scheme}` (预期 `{r.expect}`) ✗ {r.error}")
+    status = f"`{r.scheme}` (预期 `{r.expect}`) ✓" if r.ok else f"`{r.scheme}` (预期 `{r.expect}`) ✗ {r.error}"
     lines.append(f"- **代表路径:** `{_relpath(rep)}`")
     lines.append(f"- **选中 scheme:** {status}")
     lines.append(f"- **降级:** {'是 — ' + r.error if r.degraded else '无'}")
     if r.engine_config:
-        lines += ["", "**engine_config:**", "```json",
-                  json.dumps(r.engine_config, indent=2, ensure_ascii=False), "```"]
+        lines += [
+            "",
+            "**engine_config:**",
+            "```json",
+            json.dumps(_to_canonical_draft(r.engine_config), indent=2, ensure_ascii=False),
+            "```",
+        ]
     if r.envs:
-        lines += ["", "**envs:**", "```",
-                  "\n".join(f"{k}={v}" for k, v in r.envs.items()), "```"]
+        lines += ["", "**envs:**", "```", "\n".join(f"{k}={v}" for k, v in _to_canonical_draft(r.envs).items()), "```"]
     if r.packages:
         lines += ["", f"**packages:** {', '.join(r.packages)}"]
     if r.pre_serve:
-        lines += ["", "**pre_serve(所有节点):**", "```sh",
-                  "\n".join(_to_canonical_volume(r.pre_serve, vol_tmp)), "```"]
+        lines += ["", "**pre_serve(所有节点):**", "```sh", "\n".join(_to_canonical_volume(r.pre_serve, vol_tmp)), "```"]
     if r.pre_serve_master:
-        lines += ["", "**pre_serve_master(仅 master):**", "```sh",
-                  "\n".join(_to_canonical_volume(r.pre_serve_master, vol_tmp)), "```"]
+        lines += [
+            "",
+            "**pre_serve_master(仅 master):**",
+            "```sh",
+            "\n".join(_to_canonical_volume(r.pre_serve_master, vol_tmp)),
+            "```",
+        ]
     if r.pre_serve_client:
-        lines += ["", "**pre_serve_client(仅 client):**", "```sh",
-                  "\n".join(_to_canonical_volume(r.pre_serve_client, vol_tmp)), "```"]
+        lines += [
+            "",
+            "**pre_serve_client(仅 client):**",
+            "```sh",
+            "\n".join(_to_canonical_volume(r.pre_serve_client, vol_tmp)),
+            "```",
+        ]
     lines += ["", "---", ""]
     return "\n".join(lines)
 
@@ -816,8 +887,10 @@ def _save_samples(args, dirs: List[str]) -> int:
     outdir.mkdir(parents=True, exist_ok=True)
     files = _iter_yaml_files(dirs, args.filter)
     if not files:
-        print(f"[error] 未找到模型 YAML(dirs={dirs}"
-              + (f", filter={args.filter!r}" if args.filter else "") + ")", file=sys.stderr)
+        print(
+            f"[error] 未找到模型 YAML(dirs={dirs}" + (f", filter={args.filter!r}" if args.filter else "") + ")",
+            file=sys.stderr,
+        )
         return 2
     features = args.feature or ["decoding", "sparse", "offload"]
     cov = _coverage(files, features)
@@ -826,9 +899,11 @@ def _save_samples(args, dirs: List[str]) -> int:
     tmpdir = tempfile.mkdtemp(prefix="smart_accel_io_")
     os.environ["SHARED_VOLUME_PATH"] = tmpdir
 
-    index = ["# 路径覆盖样本索引\n",
-             "> 生成自 `smart_accel_io.py --save-samples`\n",
-             f"> 目录: {', '.join(dirs)}   模型 YAML: {len(files)}\n"]
+    index = [
+        "# 路径覆盖样本索引\n",
+        "> 生成自 `smart_accel_io.py --save-samples`\n",
+        f"> 目录: {', '.join(dirs)}   模型 YAML: {len(files)}\n",
+    ]
     try:
         for f in features:
             variants = cov.get(f, {})
@@ -840,8 +915,7 @@ def _save_samples(args, dirs: List[str]) -> int:
                 _base, results = _run_matrix(rep, [f])
                 r = next((x for x in results if x.label == label), None)
                 md.append(_fmt_variant_section(label, len(paths), rep, r, vol_tmp=tmpdir))
-                index.append(f"- [{label}](./{f}.md#{_anchor(label)}) — "
-                             f"{len(paths)} 路径,代表 `{_relpath(rep)}`")
+                index.append(f"- [{label}](./{f}.md#{_anchor(label)}) — {len(paths)} 路径,代表 `{_relpath(rep)}`")
             (outdir / f"{f}.md").write_text("\n".join(md), encoding="utf-8")
             print(f"  写入 {outdir / f'{f}.md'}")
         (outdir / "INDEX.md").write_text("\n".join(index), encoding="utf-8")
@@ -855,6 +929,7 @@ def _save_samples(args, dirs: List[str]) -> int:
 # ══════════════════════════════════════════════════════════════════
 # CLI
 # ══════════════════════════════════════════════════════════════════
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -877,36 +952,45 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("yaml_path", nargs="?", help="模型 YAML 路径(形态一 / --matrix 必填)")
 
     # 形态二开关
-    parser.add_argument("--matrix", action="store_true",
-                        help="对单个 YAML 跑全部特性变体(逐个隔离)")
-    parser.add_argument("--scan", nargs="*", default=None, metavar="DIR",
-                        help=f"扫描 smart-accel 下指定目录(默认 {DEFAULT_SCAN_DIRS});不带值=默认目录")
-    parser.add_argument("--scan-all", action="store_true",
-                        help=f"扫描 {DEFAULT_SCAN_DIRS} 全部模型(= --scan 不带值)")
-    parser.add_argument("--coverage", action="store_true",
-                        help="路径覆盖检查:按特性/变体统计哪些模型路径声明了它(不跑渲染)")
-    parser.add_argument("--save-samples", metavar="DIR", default=None,
-                        help="每种变体取一条代表路径,把完整输出按特性写成 markdown(DIR 目录)")
-    parser.add_argument("--feature", nargs="+", choices=["decoding", "sparse", "offload"],
-                        help="只测指定特性(默认全部)")
+    parser.add_argument("--matrix", action="store_true", help="对单个 YAML 跑全部特性变体(逐个隔离)")
+    parser.add_argument(
+        "--scan",
+        nargs="*",
+        default=None,
+        metavar="DIR",
+        help=f"扫描 smart-accel 下指定目录(默认 {DEFAULT_SCAN_DIRS});不带值=默认目录",
+    )
+    parser.add_argument("--scan-all", action="store_true", help=f"扫描 {DEFAULT_SCAN_DIRS} 全部模型(= --scan 不带值)")
+    parser.add_argument(
+        "--coverage", action="store_true", help="路径覆盖检查:按特性/变体统计哪些模型路径声明了它(不跑渲染)"
+    )
+    parser.add_argument(
+        "--save-samples",
+        metavar="DIR",
+        default=None,
+        help="每种变体取一条代表路径,把完整输出按特性写成 markdown(DIR 目录)",
+    )
+    parser.add_argument(
+        "--feature", nargs="+", choices=["decoding", "sparse", "offload"], help="只测指定特性(默认全部)"
+    )
     parser.add_argument("--filter", default=None, help="路径子串过滤(不区分大小写)")
     parser.add_argument("--limit", type=int, default=0, help="最多扫描 N 个模型(0=不限)")
     parser.add_argument("--verbose", action="store_true", help="打印每个变体的完整渲染结果(含 pre_serve)")
     parser.add_argument("--quiet", action="store_true", help="扫描时只打印汇总(失败仍打印)")
-    parser.add_argument("--max-paths", type=int, default=8,
-                        help="覆盖检查时每个变体最多列出 N 条路径(0=全部,默认 8)")
+    parser.add_argument("--max-paths", type=int, default=8, help="覆盖检查时每个变体最多列出 N 条路径(0=全部,默认 8)")
     # 形态一开关(legacy)
-    parser.add_argument("--print", choices=["input", "output", "both"], default="both",
-                        help="打印范围(默认 both,形态一)")
+    parser.add_argument(
+        "--print", choices=["input", "output", "both"], default="both", help="打印范围(默认 both,形态一)"
+    )
     parser.add_argument("--json", action="store_true", help="JSON 格式输出")
     parser.add_argument("--kv", action="store_true", help="启用 KVOffload(形态一)")
     parser.add_argument("--sparse", action="store_true", help="启用 SmartSparse(形态一)")
     parser.add_argument("--decoding-model-path", default="", help="投机解码草稿模型路径(形态一)")
     parser.add_argument("--sparse-level", default="performance_first", help="稀疏等级/模式(形态一)")
-    parser.add_argument("--memory-offload-size-mode", default="",
-                        help="KV_MEM_OFFLOAD_SIZE:auto 或数值 GB(形态一)")
-    parser.add_argument("--pod-available-memory-gb", type=int, default=0,
-                        help="pod 总内存 GB(auto 模式估算输入,形态一)")
+    parser.add_argument("--memory-offload-size-mode", default="", help="KV_MEM_OFFLOAD_SIZE:auto 或数值 GB(形态一)")
+    parser.add_argument(
+        "--pod-available-memory-gb", type=int, default=0, help="pod 总内存 GB(auto 模式估算输入,形态一)"
+    )
     parser.add_argument("--disk", action="store_true", help="启用磁盘卸载(形态一)")
     parser.add_argument("--disk-gb", type=int, default=512, help="磁盘卸载容量 GB(默认 512,形态一)")
     parser.add_argument("--disk-path", default="/var/cache/lmcache", help="磁盘缓存目录(形态一)")

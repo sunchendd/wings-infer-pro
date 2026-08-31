@@ -1,7 +1,7 @@
 # wings_accel — SmartAccel 加速模块详细设计文档
 
 > 范围:`src/wings_accel/`(13 个 Python 文件,~1900 行 + 随包 `smart-accel/` YAML 资产)。
-> 状态基线:commit `f6643d9`(2026-07-14),`pytest tests/wings_accel -q` → 120 passed。
+> 状态基线:`pytest tests/wings_accel -q` 全绿(以实际运行为准,不固定用例数)。
 > 本文整合历史设计文档(`docs/archive/wings-accel/` 走读 28W、收口 48、作者指南 55、文件渲染 54×2)与**当前代码真件**。代码与本文冲突时以代码为准。
 
 ---
@@ -110,7 +110,7 @@ src/wings_accel/
 | `render.py` | 324 | 占位符单一判定点 + files 计划 + 两种合并 |
 | `core.py` | 166 | 7 步管线编排 + 占位符上下文派生 |
 | `memory_estimator.py` | 118 | 单常数最坏值内存估算 |
-| `decoders.py` | 97 | model_based / no_model 双分支 + priority |
+| `decoders.py` | 273 | draft_arch 专用匹配 + 错配守卫 + 通用草稿 + no_model 双分支 |
 | `offload.py` | 138 | 三 scheme 三选一 + fallback + QAT 门控 + files 计划 |
 | `sparse.py` | 96 | mode 匹配 + perf→acc 降级 |
 | `custom.py` | 64 | always-on 方案深合并 |
@@ -297,23 +297,26 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
 
 投机解码方案选择。`block` 兼容两种写法:list 直接为方案序列;dict 取 `methods`(`_as_methods`)。
 
-**返回路径**(`decoders.py:30-71`):
+**返回路径**(`decoders.py:20-31`):
 
 | 条件 | 结果 |
 |---|---|
 | `enabled=False` | `None` |
 | `pd_role == "prefill"` | `None`(PD 分离时 prefill 节点不做投机) |
 | 无 methods | `None` |
-| 有草稿路径(`model_path` 非空)+ 命中 model_based | `enabled`,取**首序**(无需 priority);多命中告警 |
-| 有草稿路径 + model_based miss + 有 no_model | `enabled(no_model, degraded=True, reason="model_based_miss->no_model")` |
-| 无草稿路径 / 降级落点 + 有 no_model | `enabled`,priority 最高者 |
-| 无合格方案 | `None` |
+| 有草稿路径,但非本地挂载目录(缺 config.json / 传了 config.json 文件路径 / HF repo id / 未挂载) | warning + `None`(仅支持本地挂载草稿目录,不猜架构) |
+| 本地草稿目录 + draft_arch 专用命中 | `enabled`(专用方法,优先级最高) |
+| 本地草稿目录 + 专用架构错配(含专用方法关键字但资产未声明可消费方案) | warning + `None`(专用草稿头不是完整 LM,不喂其他方法) |
+| 本地草稿目录 + 普通架构 + 资产声明通用草稿(draft_model 块) | `enabled`(资产声明,参数可按模型调) |
+| 本地草稿目录 + 普通架构 + 无通用草稿声明 | warning + `None`(不内置合成、不降级 no_model) |
+| 无草稿路径 + 有 no_model 方案 | `enabled`,取首序(至多一个) |
+| 无草稿路径 + 无 no_model 方案 | `None` |
 
 **方法分类 `_is_model_based`**:`requires_model_path: true` → `model_based`(需草稿路径);否则 `no_model`(架构无关)。
 
-**priority 按需**(`docs/48` D5):
-- model_based 分支取首序(有草稿即选定,priority 无意义);
-- no_model 分支用 `_pick_priority`(无草稿兜底排序,如 mtp > suffix);
+**priority 已不用**:
+- model_based 分支按 draft_arch 匹配选定(与顺序无关);
+- no_model 分支取首序(至多一个,多声明时 warning);
 - sparse 已不用 priority。
 
 **草稿路径注入**:YAML 中用 `$path` / `$draft_model_path` 令牌声明,由 `PlaceholderContext.draft_model_path` 渲染(`render._fill_str`),不在 Python 硬编码。
@@ -582,19 +585,18 @@ def resolve_conflicts(decoding, sparse, offload, decoding_block, ctx):
 |---|---|---|
 | `None` | 特性未产出 | 开关关 / PD prefill / 无 block / 无合格方案 / 目标 scheme 缺失 |
 | `_FeatureOutput(degraded=False)` | 正常启用 | 命中方案 / scheme / 介质 |
-| `_FeatureOutput(degraded=True, reason=...)` | 降级启用 | model_based miss→no_model / perf→acc / cpu_disk 退化 disk |
+| `_FeatureOutput(degraded=True, reason=...)` | 降级启用 | perf→acc / cpu_disk 退化 disk(decoding 无降级路径:有草稿路径时要么命中声明方案、要么直接 `None`) |
 
 **diagnostics** 只收集 `degraded=True` 的特性(`core._collect_diagnostics`),形如:
 
 ```python
-{"decoding": {"degraded": True, "degrade_reason": "model_based_miss->no_model"}}
+{"sparse": {"degraded": True, "degrade_reason": "performance_first_miss->accuracy_first"}}
 ```
 
 未降级特性不出现;原样落 wings-control audit。降级原因汇总:
 
 | 场景 | degrade_reason |
 |---|---|
-| decoding 有草稿但 model_based miss | `model_based_miss->no_model` |
 | sparse performance_first miss | `performance_first_miss->accuracy_first` |
 | kv_offload cpu_disk 缺失退化 | (WARN 日志,scheme 退化非 degraded 标记) |
 
@@ -620,19 +622,19 @@ smart_accel:                   # ← 本模块核心
   custom_features: [ ... ]     # 可选
 ```
 
-每个方案 / scheme 通用字段:`name` / `priority`(int,按需)/ `packages`(name:version)/ `cli_params`(结构化引擎参数)/ `envs`(K=V,支持占位符)。decoding 还有 `requires_model_path`(bool)。kv_offload 的 disk/cpu_disk 还有 `files`(配置文件列表)。
+每个方案 / scheme 通用字段:`name` / `packages`(name:version)/ `cli_params`(结构化引擎参数)/ `envs`(K=V,支持占位符)。decoding 还有 `requires_model_path`(bool)与专用方案的 `draft_arch`(list)。kv_offload 的 disk/cpu_disk 还有 `files`(配置文件列表)。(`priority` 字段已无消费方,方案选择不按它排序,勿再声明)
 
 ### 12.2 decoding
 
 ```yaml
 decoding:
-  - name: mtp                       # no_model(架构无关)
-    priority: 2                     # 无草稿时按 priority 排序
+  - name: mtp                       # no_model(架构无关;无草稿时取首序,至多一个)
     cli_params:
       speculative_config: { method: mtp, num_speculative_tokens: 3 }
     envs: {}
   - name: eagle3                    # model_based(需草稿)
     requires_model_path: true
+    draft_arch: [eagle3]            # 专用方案按草稿架构匹配(数字边界),必须声明
     cli_params:
       speculative_config:
         method: eagle3
@@ -763,7 +765,7 @@ custom_features:
 | D2 | `LoadFlags` 全 flag 默认 False(含 `decoding_enabled`) | 裸 `LoadFlags()` = 全关真 no-op | `yaml_loader.py` |
 | D3 | QAT 三门门控:`cfg.qat_enabled` + `engine=="vllm"` + `disk_selected` | 非 vllm 不支持 QAT 硬件压缩;QAT 依赖 LMCache 磁盘卸载 | `offload.py:117-128` |
 | D4 | QAT `lmcache_config.yaml` 模板化 | QAT 配置进 yaml `files:`(占位符 + MaaS 填充),删 Python 硬编码 | `offload.py` + `render.plan_scheme_files` |
-| D5 | priority 按需:sparse 删 / decoding model_based 删(取首序)/ decoding no_model 保留 | mode 唯一 / 有草稿即选定 ⇒ 不需 priority;无草稿兜底才需 | `decoders.py` / `sparse.py` |
+| D5 | priority 全删:sparse / decoding model_based / decoding no_model 均不消费(选择按声明与匹配规则,不排序;`_pick_priority` 已删) | mode 唯一 / 有草稿按 `draft_arch` 匹配 / 无草稿 no_model 至多一个取首序 ⇒ 无需 priority | `decoders.py` / `sparse.py` |
 | D6 | 通用 `files:` 配置文件渲染 | lmcache / mooncake / mmc 统一生成计划,一种机制覆盖任意格式(`docs/54`) | `render.plan_scheme_files` |
 | D7 | 占位符单一判定点 `_resolve_token` | cli_params/envs(整值)与 files content(子串)共用,杜绝两处各判一次 | `render.py:64` |
 | D8 | 状态码简化为 None / `_FeatureOutput` | 旧 `disabled`/`fallback_disabled`/`enabled` 字符串分类多余,降级用 `degraded` 标记 | 各 expander + `schemas._FeatureOutput` |
@@ -786,12 +788,12 @@ custom_features:
 
 ## 16. 测试与验证
 
-### 16.1 单元测试(`tests/wings_accel/`,120 passed)
+### 16.1 单元测试(`tests/wings_accel/`)
 
 | 文件 | 覆盖 |
 |---|---|
 | `test_core.py` | 7 步管线 + sglang 短路 + custom 门控 + diagnostics |
-| `test_decoders.py` | model_based 命中/miss→降级、no_model priority、空 methods、PD prefill |
+| `test_decoders.py` | draft_arch 专用命中、专用错配守卫、通用草稿、miss→告警关闭、本地目录门控、no_model 首序 |
 | `test_sparse.py` | mode 命中、perf→acc 降级 |
 | `test_offload.py` | cpu/disk/cpu_disk 三选一、fallback、QAT 门控、files 计划、占位符 |
 | `test_custom_features.py` | always-on 深合并、空 block→None |
@@ -844,13 +846,13 @@ PYTHONPATH=src python3 tests/wings_accel/smart_accel_io.py <yaml> --print input
 
 入口边界先记住:生产集成用 `resolve_smart_accel_from_config(...)` 或 `func_smart_accel(SmartAccelInput)`;`smart_accel_io.py` 只是快速构造输入、验证输出的辅助脚本,两者都要支持。
 
-1. **跑测试**:`PYTHONPATH=src python3 -m pytest tests/wings_accel -q` → 120 passed。
+1. **跑测试**:`PYTHONPATH=src python3 -m pytest tests/wings_accel -q`(全绿即通过)。
 2. **看一个真实端到端**:
    ```bash
    PYTHONPATH=src python3 tests/wings_accel/smart_accel_io.py tests/wings_accel/fixtures/smart_accel_all_features.yaml --matrix
    ```
 3. **改 expander 时先看**:
-   - `decoders.py:30-71`(model_based / no_model 双分支)
+   - `smart_decoding_expander`(decoders.py):仅消费声明方案——draft_arch 专用匹配 → 专用错配守卫 → 通用草稿;有草稿未命中/非本地目录 → 告警关闭,无草稿 → no_model 首序
    - `offload.py:82-105`(三选一 + fallback)+ `117-128`(QAT 门控 + files 计划)
    - `custom.py:35-64`(always-on 深合并)
 4. **改占位符时**:**只改 `render._resolve_token` 一处**(单一判定点),勿在 expander 另写填充逻辑。带换算的公式就地写死 + 注释。同步更新本文 §6.2 总表。

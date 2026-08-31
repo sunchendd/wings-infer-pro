@@ -18,6 +18,8 @@ smart_accel:
         decoding:
         - name: dflash
           requires_model_path: true
+          draft_arch:
+            - dflash
           cli_params:
             speculative_config:
               method: dflash
@@ -35,6 +37,8 @@ smart_accel:
         decoding:
         - name: dflash
           requires_model_path: true
+          draft_arch:
+            - dflash
           cli_params:
             speculative_config:
               method: dflash
@@ -56,6 +60,8 @@ smart_accel:
           decoding:
           - name: dflash
             requires_model_path: true
+            draft_arch:
+              - dflash
             cli_params:
               speculative_config:
                 method: dflash
