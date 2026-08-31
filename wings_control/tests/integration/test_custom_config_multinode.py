@@ -181,6 +181,133 @@ def test_b1_ascend_dp_across_missing_size_local_blocks(config_root, hardware_inf
         )
 
 
+# 每个"每节点/rank 提供 API"的 DP 模式:config 字段名 + argv 标志名 + 是否 pure-external。
+# pure-external(external_lb)不派生 data_parallel_start_rank(vLLM 会把 start_rank 误判为
+# hybrid 与 external 撞车而拒绝启动);hybrid / multi-port 各自带显式标志、归位无误,保留 start_rank。
+_PER_NODE_API_DP_CASES = [
+    pytest.param("data_parallel_hybrid_lb", "data-parallel-hybrid-lb", False, id="hybrid"),
+    pytest.param("data_parallel_external_lb", "data-parallel-external-lb", True, id="external"),
+    pytest.param(
+        "data_parallel_multi_port_external_lb",
+        "data-parallel-multi-port-external-lb",
+        False,
+        id="multi_port_external",
+    ),
+]
+
+
+@pytest.mark.parametrize("ec_flag,argv_flag,is_external", _PER_NODE_API_DP_CASES)
+def test_b1b_worker_hybrid_dp_no_headless_unit(config_root, hardware_info_path, ec_flag, argv_flag, is_external):
+    """每节点/rank 提供 API 的 DP 模式(hybrid / external / multi-port external)不注入 headless(单测)。
+
+    vLLM 中 ``headless`` 与 ``data_parallel_hybrid_lb`` 互斥(arg_utils assert
+    ``not headless or not data_parallel_hybrid_lb``);external / multi-port 亦因"每 Pod
+    保留对外 API 端点"而不应 headless。custom JSON 若用户显式声明这类 DP 模式,派生层
+    **不得再注入 headless**,否则渲染出 ``--headless --data-parallel-hybrid-lb`` 导致
+    引擎启动失败(缺陷回归防护)。内部 DP(未声明这些标志)的 worker 仍是纯计算节点,
+    保持注入 headless。
+
+    另:pure-external 不派生 ``data_parallel_start_rank``(vLLM serve.py 以 start_rank
+    is not None 判为 hybrid,与 external 撞成多 LB 模式而拒绝启动);hybrid / multi-port 仍派生 start_rank。
+    """
+    ctx = MultinodeCtx(
+        engine="vllm",
+        device_count=8,
+        rank_ip="10.0.0.3",
+        node_ips=["10.0.0.1", "10.0.0.2", "10.0.0.3"],
+        master_ip="10.0.0.1",
+    )
+    # tp=4 ≤ device_count=8 且 dp=2>1 → DP_across;声明 per-node DP 模式 → 不注入 headless。
+    derive = multinode_custom_derive(
+        "vllm",
+        ctx,
+        config_file_engine_config={
+            "tensor_parallel_size": 4,
+            "data_parallel_size": 2,
+            "data_parallel_size_local": 1,
+            ec_flag: True,
+        },
+    )
+    ec = derive.engine_config
+    assert derive.notes["multinode_custom.layout"] == "DP_across"
+    # 每节点提供 API 的 DP worker:不注入 headless。
+    assert "headless" not in ec
+    # 身份键仍派生;DP 协调 address 恒派生。
+    assert ec["nnodes"] == 3 and ec["node_rank"] == 2
+    assert ec["data_parallel_address"] == "10.0.0.1"
+    if is_external:
+        # pure-external:不派生 start_rank(避免 serve.py 判 hybrid 撞车)。
+        assert "data_parallel_start_rank" not in ec
+    else:
+        # hybrid / multi-port:start_rank 仍是 DP 通信 rank 来源。
+        assert ec["data_parallel_start_rank"] == 2  # index(2) * size_local(1)
+
+
+def test_b1c_worker_internal_dp_keeps_headless_unit(config_root, hardware_info_path):
+    """内部 DP worker(未声明 hybrid/external 标志)保持注入 headless。
+
+    确保修复是窄的:仅"每节点提供 API"的 DP 模式跳过 headless;普通内部 DP_across
+    worker(纯计算节点,由 master 调起)仍需要 headless,既有的正确期望不受破坏。
+    """
+    ctx = MultinodeCtx(
+        engine="vllm",
+        device_count=8,
+        rank_ip="10.0.0.3",
+        node_ips=["10.0.0.1", "10.0.0.2", "10.0.0.3"],
+        master_ip="10.0.0.1",
+    )
+    derive = multinode_custom_derive(
+        "vllm",
+        ctx,
+        config_file_engine_config={
+            "tensor_parallel_size": 4,
+            "data_parallel_size": 2,
+            "data_parallel_size_local": 2,
+            # 未声明 hybrid/external/multi-port external → 内部 DP,需 headless。
+        },
+    )
+    ec = derive.engine_config
+    assert derive.notes["multinode_custom.layout"] == "DP_across"
+    assert ec["headless"] is True
+
+
+@pytest.mark.parametrize("ec_flag,argv_flag,is_external", _PER_NODE_API_DP_CASES)
+def test_b1d_worker_hybrid_dp_e2e_argv(config_root, hardware_info_path, ec_flag, argv_flag, is_external):
+    """E2E:每节点提供 API 的 DP 模式(hybrid / external / multi-port),argv 含对应标志且不含 --headless。
+
+    走完整 resolve_custom_config → build_argv;锁死"不渲染互斥参数"承诺。
+    pure-external 时还须不含 --data-parallel-start-rank(vLLM 会与 external 撞车)。
+    """
+    resolved = _resolve(
+        config_root,
+        hardware_info_path,
+        engine="vllm",
+        device_count=8,
+        config_file=CustomConfigFile(
+            params={
+                "tensor_parallel_size": 4,
+                "data_parallel_size": 2,
+                "data_parallel_size_local": 1,
+                ec_flag: True,
+            },
+            env={},
+        ),
+    )
+    argv = build_argv(resolved.engine_config_traces, engine="vllm")
+    joined = shlex.join(argv)
+    # 每节点提供 API 的 DP worker:必含对应标志,必不含 headless(vLLM 互斥)。
+    assert f"--{argv_flag}" in joined
+    assert "--headless" not in joined
+    # pure-external:不渲染 start_rank(避免 serve.py 判 hybrid 撞车);其余模式须渲染。
+    if is_external:
+        assert "--data-parallel-start-rank" not in joined
+    else:
+        assert "--data-parallel-start-rank 2" in joined
+    # 派生身份键仍在。
+    assert "--nnodes 3" in joined
+    assert "--node-rank 2" in joined
+
+
 def test_b2_ascend_tp_across_no_dp(config_root, hardware_info_path):
     """TP > device_count → TP_across,不派生 DP 通信参数(仅公共四件套)。"""
     ctx = MultinodeCtx(
