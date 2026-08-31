@@ -1,0 +1,61 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_qwen3.8-flash-next_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://huggingface.co/Qwen/Qwen3.8-Flash-Next"
+    date_updated: 2026-08-31
+    note: 用户提供 vLLM OpenAI API Server 启动命令，手工录入。
+
+# 模型基本信息
+model:
+  name: Qwen3.8-Flash-Next  # 模型名称
+  slug: qwen3.8-flash-next  # 模型标识
+  provider: Qwen  # 提供者/厂商
+  description: "Qwen3.8-Flash-Next MoE 模型，支持 thinking/non-thinking 混合模式。"  # 模型描述
+  model_id: Qwen/Qwen3.8-Flash-Next  # HuggingFace 模型 ID
+  architecture: moe  # 模型架构（dense/moe），命令使用 --moe-backend triton
+  tasks: [text]  # 支持的任务类型
+  min_engine_version: "qwen38-flash-next"  # 用户确认的特殊/定制引擎版本，未做 semver 校验
+  date_updated: 2026-08-31  # 录入日期
+  match:  # 模型名匹配规则
+    - name_pattern: "(?i)Qwen3[-.]?8[-.]?Flash[-.]?Next"
+  variant_name: Qwen3.8-Flash-Next  # 模型量化版本精确名称
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8  # 单节点 GPU 数量
+  vram_gb: 1128  # 单节点总显存(GB)（8 × 141GB）
+  multi_node: false  # 仅 standalone 单节点部署
+
+# 可选功能
+features:
+  tool_calling:
+    args: [--enable-auto-tool-choice, --tool-call-parser, qwen3_xml]
+  reasoning:
+    args: [--reasoning-parser, qwen3]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_qwen3.8-flash-next_manual#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: Qwen/Qwen3.8-Flash-Next
+          host: "0.0.0.0"
+          port: 17000
+          max_num_seqs: 256
+          enable_prefix_caching: true
+          no_enable_flashinfer_autotune: true
+          tensor_parallel_size: 4
+          moe_backend: triton
+          gpu_memory_utilization: 0.85
+        env: {}
