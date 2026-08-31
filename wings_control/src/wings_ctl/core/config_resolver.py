@@ -1566,6 +1566,29 @@ _PD_OWNED_PARAMS = {
     "kv_transfer_config",
 }
 
+_PD_EXACT_FEATURE_INJECT_SWITCHES = frozenset(
+    {
+        "enable_smartqos",
+        "enable_otlp_traces",
+    }
+)
+
+
+def _select_pd_exact_feature_inject_switches(feature_switches: Dict[str, Any] | None) -> Dict[str, Any]:
+    """筛选 exact PD 已明确支持的公共特性开关。
+
+    exact PD 的进程级编排只接入 SmartQoS 和 OTLP。RAG、Metrics 不能因为共用
+    FeatureInject 注册表而隐式进入该路径；新增 PD 特性必须先定义其 ProcessPlan、
+    交付件和验收语义。
+
+    Args:
+        feature_switches: 用户请求的全部特性开关。
+
+    Returns:
+        仅包含 exact PD 已支持开关的独立字典。
+    """
+    return {name: value for name, value in (feature_switches or {}).items() if name in _PD_EXACT_FEATURE_INJECT_SWITCHES}
+
 
 def _overlay_pd_process_traces(
     base: Dict[str, TracedValue], overrides: Dict[str, Any], local_index: int
@@ -1845,6 +1868,8 @@ def _build_pd_process_plan(
     resolved: ResolvedConfig,
     runtime: PdRuntimeSpec,
     device_count: int,
+    *,
+    post_merge_notes: Dict[str, str] | None = None,
 ) -> ProcessPlan:
     """从规范 topology 构造当前 Pod 唯一有序进程计划。
 
@@ -1852,6 +1877,7 @@ def _build_pd_process_plan(
         resolved: 已含 PD topology 和静态 role traces 的解析结果。
         runtime: exact role recipe 的固定 runtime spec。
         device_count: 当前 Pod 显式卡数。
+        post_merge_notes: 收集每条进程终态约束的审计说明，由调用方写入 Pod 级 notes。
 
     Returns:
         每进程独立 trace/env/argv/endpoint 与本 Pod listener inventory。
@@ -1893,6 +1919,14 @@ def _build_pd_process_plan(
         visible_start = local_index * role_shape.tp_size
         visible_devices = tuple(range(visible_start, visible_start + role_shape.tp_size))
         env_traces = _build_pd_process_env_traces(resolved, local_index, visible_devices)
+
+        # runtime TP 在 strategy_pd_process 层才成为最终值。复用标准路径的终态
+        # 约束策略，保证每条命令都在 build_argv 前删除 TP=1 不支持的 Ascend 参数。
+        post_merge = apply_post_merge_strategy(traces, env_traces, engine=resolved.engine)
+        traces = post_merge.engine_config_traces
+        env_traces = post_merge.env_traces
+        if post_merge_notes is not None:
+            post_merge_notes.update(post_merge.notes)
 
         # listener inventory 是静态冲突模型，不负责真正 bind；DP rank 0 和共享 KV 组
         # 的 owner 规则在 helper 内收敛，避免每个 process 都伪造同一个 listener。
@@ -2063,6 +2097,13 @@ def _resolve_pd_config(
     feature_overrides = feature_result.overrides
     feature_trace_sources = feature_result.trace_sources
     feature_notes = feature_result.notes
+    # exact PD 仅接入已定义完整进程语义的 SmartQoS、OTLP。保持使用公共
+    # FeatureInject，避免重复维护 vLLM 参数和 OTEL 环境变量的映射。
+    pd_feature_switches = _select_pd_exact_feature_inject_switches(user_input.feature_switches)
+    feature_inject_overrides, feature_inject_env, feature_inject_notes = feature_inject_transform(
+        pd_feature_switches,
+        target.engine,
+    )
     # 输入是否携带 MaaS 六字段决定 topology policy；recipe 选择器会反向校验该 policy
     # 是否与 YAML 的 P/D parallel shape 相符，planner 再完成 placement/rank/容量闭合。
     input_policy = "explicit_allocation" if pd_input.explicit_topology is not None else "derived_1p1d"
@@ -2096,6 +2137,15 @@ def _resolve_pd_config(
             feature_trace_sources,
         ),
     ]
+    if feature_inject_overrides:
+        engine_layers.append(
+            MergeLayer(
+                "strategy_feature_inject",
+                feature_inject_overrides,
+                "<strategy:feature_inject>",
+                "strategy.feature_inject",
+            )
+        )
     if user_layer:
         engine_layers.append(MergeLayer("user_cli", user_layer, "<user_cli>", "user_cli"))
     engine_traces = trace_merge(engine_layers)
@@ -2107,6 +2157,15 @@ def _resolve_pd_config(
             f"{role_recipe.source_prefix}.env",
         )
     ]
+    if feature_inject_env:
+        env_layers.append(
+            MergeLayer(
+                "strategy_feature_env",
+                feature_inject_env,
+                "<strategy:feature_env_inject>",
+                "strategy.feature_env_inject",
+            )
+        )
     if network_env_overrides:
         env_layers.append(
             MergeLayer(
@@ -2136,6 +2195,7 @@ def _resolve_pd_config(
         )
     notes.update(_build_pd_recipe_recommendation_notes(pd_topology, role_recipe.runtime))
     notes.update(feature_notes)
+    notes.update(feature_inject_notes)
     notes.update(network_env_notes)
     if reasoning_resolution is not None:
         notes["reasoning.status"] = reasoning_resolution.status
@@ -2177,7 +2237,14 @@ def _resolve_pd_config(
     )
     if device_count is None:
         raise ValueError("PD requires an explicit device_count")
-    resolved.process_plan = _build_pd_process_plan(resolved, role_recipe.runtime, device_count)
+    post_merge_notes: Dict[str, str] = {}
+    resolved.process_plan = _build_pd_process_plan(
+        resolved,
+        role_recipe.runtime,
+        device_count,
+        post_merge_notes=post_merge_notes,
+    )
+    notes.update(post_merge_notes)
     # 顶层 trace 描述的是展开前的 role 公共配置，不对应任何一条完整命令。清空后可强制
     # 所有消费者读取 process_plan，避免误把 processes[0] 的 rank/端口当成整个 Pod 的配置。
     resolved.engine_config_traces = {}

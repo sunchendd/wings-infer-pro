@@ -470,6 +470,111 @@ def test_pd_feature_overlay_applies_to_every_process_with_trace(
     ]
 
 
+def test_pd_exact_feature_inject_updates_each_process(
+    pd_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """验证 exact PD 将公共特性注入投影到每条进程命令。"""
+    monkeypatch.setenv("ENGINE_VERSION", "v0.23.0")
+    monkeypatch.setenv("OTLP_TRACES_ENDPOINT", "collector.synthetic:4317")
+    monkeypatch.setenv("HOSTNAME", "synthetic-pd-pod")
+    placement = ClusterPlacement(
+        master_ip="10.0.0.3",
+        rank_ip="10.0.0.4",
+        node_ips=["10.0.0.3", "10.0.0.4"],
+    )
+    request = PipelineRequest(
+        target=Target(_VARIANT, Topology.PD_DECODE, "vllm-ascend"),
+        hardware_info_path=_write_hardware(pd_root),
+        config_root=pd_root,
+        user_input=UserInput(
+            feature_switches={
+                "enable_smartqos": True,
+                "enable_otlp_traces": True,
+                "enable_rag_acc": True,
+                "enable_metrics": True,
+            }
+        ),
+        device_count=16,
+        placement=placement,
+        pd_input=_decode_input(placement),
+    )
+
+    resolved, _, _, _ = run_pipeline(request, tmp_path / "feature-inject")
+
+    assert resolved.process_plan is not None
+    for process in resolved.process_plan.processes:
+        assert process.argv[process.argv.index("--scheduling-policy") + 1] == "priority"
+        assert process.argv[process.argv.index("--otlp-traces-endpoint") + 1] == "collector.synthetic:4317"
+        assert process.engine_config_traces["scheduling_policy"].final_layer == "strategy_feature_inject"
+        assert process.engine_config_traces["otlp_traces_endpoint"].final_layer == "strategy_feature_inject"
+        assert process.env_traces["OTEL_EXPORTER_OTLP_TRACES_INSECURE"].final_value == "true"
+        assert process.env_traces["OTEL_EXPORTER_OTLP_TRACES_INSECURE"].final_layer == "strategy_feature_env"
+        assert process.env_traces["OTEL_RESOURCE_ATTRIBUTES"].final_value == (
+            "service.instance.id=synthetic-pd-pod,k8s.pod.name=synthetic-pd-pod"
+        )
+        assert process.env_traces["OTEL_RESOURCE_ATTRIBUTES"].final_layer == "strategy_feature_env"
+        assert process.env_traces["OTEL_SERVICE_NAME"].final_value == "vllm-server"
+        assert process.env_traces["OTEL_SERVICE_NAME"].final_layer == "strategy_feature_env"
+        assert "RAG_ACC_ENABLED" not in process.env_traces
+    assert resolved.resolution_notes["feature_inject.smartqos.vllm"] == "scheduling_policy=priority"
+    assert resolved.resolution_notes["feature_inject.otlp_traces"] == "endpoint=collector.synthetic:4317"
+    assert resolved.resolution_notes["feature_inject.otlp_traces.vllm"] == "otlp_traces_endpoint"
+    assert not any(key.startswith("feature_inject.metrics") for key in resolved.resolution_notes)
+
+
+def test_pd_exact_tp_one_applies_post_merge_after_process_overrides(
+    pd_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """验证 runtime TP=1 在进程级覆盖后移除 Ascend 不兼容参数。"""
+    config_path = pd_root / "engines/vllm-ascend/v0.23.0/ascend-a3/models/Synthetic/glm51-fp8.yaml"
+    payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    nodes = payload["scenarios"]["pd_disaggregation"]["strategies"]["approved"]["nodes"]
+    for node in nodes:
+        node["engine_config"]["enable_dsa_cp"] = True
+        node["engine_config"]["additional_config"] = {"enable_dsa_cp": True}
+        node["env"]["VLLM_ASCEND_ENABLE_FLASHCOMM1"] = "1"
+    config_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+    monkeypatch.setenv("ENGINE_VERSION", "v0.23.0")
+    placement = ClusterPlacement(
+        master_ip="10.0.2.1",
+        rank_ip="10.0.2.1",
+        node_ips=["10.0.2.1"],
+    )
+    request = PipelineRequest(
+        target=Target(_VARIANT, Topology.PD_PREFILL, "vllm-ascend"),
+        hardware_info_path=_write_hardware(pd_root),
+        config_root=pd_root,
+        device_count=4,
+        placement=placement,
+        pd_input=PdRuntimeInput(
+            PdRole.PREFILL,
+            ExplicitPdTopology(
+                pd_index=0,
+                prefill=ParallelShape(dp_size=4, tp_size=1),
+                decode=ParallelShape(dp_size=4, tp_size=1),
+                dp_size_local=4,
+            ),
+            placement,
+        ),
+    )
+
+    resolved = resolve_pipeline(request)
+
+    assert resolved.process_plan is not None
+    for process in resolved.process_plan.processes:
+        assert "enable_dsa_cp" not in process.engine_config_traces
+        assert "additional_config" not in process.engine_config_traces
+        assert "VLLM_ASCEND_ENABLE_FLASHCOMM1" not in process.env_traces
+        assert "--enable-dsa-cp" not in process.argv
+        assert "--additional-config" not in process.argv
+    assert resolved.resolution_notes["post_merge_tp_dependent.status"] == "removed"
+    assert resolved.resolution_notes["post_merge_tp_dependent.reason"] == "tensor_parallel_size<2"
+
+
 def test_pd_pipeline_generates_scripts_and_audit(
     pd_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
