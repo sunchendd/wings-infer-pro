@@ -57,5 +57,5 @@ smart_accel:
               speculative_config:
                 method: deepseek_mtp
                 num_speculative_tokens: 3
-              enforce_eager: true
+                enforce_eager: true
             envs: {}

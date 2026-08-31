@@ -1,6 +1,6 @@
 # SmartAccel 加速配置(decoding=deepseek_mtp / sparse / kv_offload=lmcache)
 # 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
-# 0day 验证补:sparse(indexcache perf=4/acc=8) + lmcache-ascend 卸载。
+# 0day 验证补:sparse(indexcache perf=8/acc=4) + lmcache-ascend 卸载。
 model:
   name: DeepSeek-V4-Flash
   variant_name: "DeepSeek-V4-Flash-w8a8-mtp"
@@ -21,6 +21,7 @@ smart_accel:
             speculative_config:
               method: deepseek_mtp
               num_speculative_tokens: 1
+              enforce_eager: true
           envs: {}
         kv_offload:
         - name: cpu
@@ -34,7 +35,7 @@ smart_accel:
           envs:
             LMCACHE_TRACK_USAGE: 'false'
             LMCACHE_LOCAL_CPU: 'True'
-            LMCACHE_MAX_LOCAL_CPU_SIZE: '{memory_capacity_gb}'
+            LMCACHE_MAX_LOCAL_CPU_SIZE: '{= memory_capacity_gb // (tp_size * dp_size)}'
             LMCACHE_LOG_LEVEL: INFO
             LMCACHE_USE_LAYERWISE: 'False'
             LMCACHE_NUMA_MODE: auto
@@ -68,6 +69,7 @@ smart_accel:
             speculative_config:
               method: deepseek_mtp
               num_speculative_tokens: 1
+              enforce_eager: true
           envs: {}
         kv_offload:
         - name: cpu
@@ -81,7 +83,7 @@ smart_accel:
           envs:
             LMCACHE_TRACK_USAGE: 'false'
             LMCACHE_LOCAL_CPU: 'True'
-            LMCACHE_MAX_LOCAL_CPU_SIZE: '{memory_capacity_gb}'
+            LMCACHE_MAX_LOCAL_CPU_SIZE: '{= memory_capacity_gb // (tp_size * dp_size)}'
             LMCACHE_LOG_LEVEL: INFO
             LMCACHE_USE_LAYERWISE: 'False'
             LMCACHE_NUMA_MODE: auto
@@ -134,6 +136,7 @@ smart_accel:
               speculative_config:
                 method: deepseek_mtp
                 num_speculative_tokens: 1
+                enforce_eager: true
             envs: {}
           sparse:
           - name: performance_first
