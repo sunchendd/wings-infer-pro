@@ -96,6 +96,12 @@ def test_inject_audit_and_startup_log_reflect_injection(config_root_real, tmp_pa
     audit = json.loads(audit_path.read_text(encoding="utf-8"))
     assert "nodes" not in audit                                     # 非占位,无全集群 nodes 数组
     assert audit["engine_config"]["data_parallel_start_rank"]["final_value"] == 2   # worker index1×dp_local2
+    address = audit["engine_config"]["data_parallel_address"]
+    assert address["final_value"] == "10.0.0.1"
+    assert address["final_layer"] == "strategy_topology_inject"
+    assert address["source_file"] == "<strategy:topology_inject>"
+    assert address["source_path"] == "strategy.topology_inject.data_parallel_address"
+    assert [event["value"] for event in address["events"]] == ["$node0_ip", "10.0.0.1"]
     notes = audit["resolution_notes"]
     assert notes["multi_node_role"] == "worker" and notes["multi_node_index"] == "1"
     assert audit["env"]["HCCL_IF_IP"]["final_layer"] == "strategy_network_env"

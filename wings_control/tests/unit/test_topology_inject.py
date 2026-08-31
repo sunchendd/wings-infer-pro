@@ -7,6 +7,7 @@ import pytest
 from wings_ctl.strategy.topology_inject import (
     LAYOUT_DP_ACROSS,
     LAYOUT_TP_ACROSS,
+    build_data_parallel_address_override,
     build_rendezvous_address_override,
     coordinate_parallelism,
     detect_layout,
@@ -255,6 +256,67 @@ def test_substitute_literal_ascend_and_nvidia_tokens():
     ec = {"data_parallel_address": "${HEAD_IP}:5000", "addr2": "$node0_ip", "host": "0.0.0.0"}
     override = substitute_literal_placeholders(ec, rank_ip="10.0.0.2", master_ip="10.0.0.1")
     assert override == {"data_parallel_address": "10.0.0.1:5000", "addr2": "10.0.0.1"}
+
+
+@pytest.mark.parametrize(
+    ("recipe_value", "parallelism"),
+    [
+        ("$HEAD_IP", {}),
+        ("$MASTER_IP_ADDRESS", {}),
+        ("$local_ip", {}),
+        ("$LOCAL_IP", {}),
+        ("$NODE0_IP", {}),
+        ("192.168.1.10", {}),
+        ("$HEAD_IP", {"data_parallel_size": 1}),
+        ("$HEAD_IP", {"node_rank": 1}),
+    ],
+)
+def test_data_parallel_address_uses_runtime_master_ip_for_declared_key(recipe_value, parallelism):
+    """验证普通多机按参数 key 接管 DP 地址，不依赖 value、DP 或 layout。"""
+    override = build_data_parallel_address_override(
+        {"data_parallel_address": recipe_value, **parallelism},
+        master_ip="10.0.0.1",
+    )
+
+    assert override == {"data_parallel_address": "10.0.0.1"}
+
+
+def test_data_parallel_address_worker_local_token_still_uses_master_ip():
+    """验证 worker recipe 即使使用可识别 $local_ip，最终地址仍取 MASTER_IP。"""
+    override = build_data_parallel_address_override(
+        {"data_parallel_address": "$local_ip"},
+        master_ip="10.0.0.1",
+    )
+
+    assert override["data_parallel_address"] != "10.0.0.2"
+    assert override["data_parallel_address"] == "10.0.0.1"
+
+
+def test_data_parallel_address_is_not_added_when_recipe_does_not_declare_it():
+    """验证 recipe 未声明 DP 地址时不扩展新参数。"""
+    assert build_data_parallel_address_override(
+        {"tensor_parallel_size": 8},
+        master_ip="10.0.0.1",
+    ) == {}
+
+
+@pytest.mark.parametrize("master_ip", [None, ""])
+def test_data_parallel_address_requires_master_ip_when_declared(master_ip):
+    """验证 recipe 声明 DP 地址但 MASTER_IP 缺失时明确失败。"""
+    with pytest.raises(ValueError, match="data_parallel_address.*MASTER_IP"):
+        build_data_parallel_address_override(
+            {"data_parallel_address": "$HEAD_IP"},
+            master_ip=master_ip,
+        )
+
+
+def test_data_parallel_address_override_does_not_mutate_recipe():
+    """验证 DP 地址运行时派生不修改 recipe 输入。"""
+    recipe = {"data_parallel_address": "$HEAD_IP"}
+
+    build_data_parallel_address_override(recipe, master_ip="10.0.0.1")
+
+    assert recipe == {"data_parallel_address": "$HEAD_IP"}
 
 
 def test_sglang_rendezvous_uses_runtime_master_ip_and_recipe_port():

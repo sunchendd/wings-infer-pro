@@ -110,6 +110,7 @@ from wings_ctl.strategy.post_merge import apply_network_env_strategy, apply_post
 
 from wings_ctl.strategy.topology_inject import (
     LAYOUT_TP_ACROSS,
+    build_data_parallel_address_override,
     build_rendezvous_address_override,
     coordinate_parallelism,
     detect_layout,
@@ -1115,6 +1116,19 @@ def _resolve_multi_node(
         # 注入路径:选本 Pod 节点 + DP 调整 + 占位注入,升顶层可执行。
         sel = select_node(pod_count, rank_ip=rank_ip, node_ips=node_ips, master_ip=master_ip)
         spec = node_specs[sel.index]
+        if "data_parallel_address" in spec.engine_config:
+            later_overrides = {
+                "strategy_feature": feature_overrides,
+                "strategy_feature_inject": strategy_feature_inject_overrides or {},
+                "strategy_accel": accel_overrides,
+                "user_cli": user_layer,
+            }
+            for layer_name, overrides in later_overrides.items():
+                if "data_parallel_address" in overrides:
+                    raise ValueError(
+                        "multi_node runtime-owned parameter conflict: "
+                        f"layer={layer_name} cannot override data_parallel_address"
+                    )
         if device_count is not None and detect_layout(spec.engine_config) == LAYOUT_TP_ACROSS:
             if hardware is None:
                 raise ValueError("TP-across shrink requires hardware context for capacity validation")
@@ -1133,8 +1147,14 @@ def _resolve_multi_node(
             index=sel.index,
         )
         # 字面占位替换($local_ip/$node0_ip → 真实 IP)，并以运行时 master IP
-        # 重建引擎契约声明的 rendezvous 地址，单独记一层 trace。
+        # 接管 recipe 声明的 DP 地址、重建引擎契约声明的 rendezvous 地址，单独记一层 trace。
         ec_inject = substitute_literal_placeholders(spec.engine_config, rank_ip=rank_ip, master_ip=master_ip)
+        ec_inject.update(
+            build_data_parallel_address_override(
+                spec.engine_config,
+                master_ip=master_ip,
+            )
+        )
         rendezvous_override = build_rendezvous_address_override(
             spec.engine_config,
             engine=engine,

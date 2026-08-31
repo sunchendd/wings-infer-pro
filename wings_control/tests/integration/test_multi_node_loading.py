@@ -14,6 +14,7 @@ import pytest
 from wings_ctl.core.config_resolver import _resolve_multi_node, normalize_nodes, resolve_config
 from wings_ctl.core.models import PipelineRequest, ResolvedEnv, Target, UserInput
 from wings_ctl.core.topology import Topology
+from wings_ctl.engines.vllm_adapter import build_argv
 from wings_ctl.engines.version_resolver import resolve_engine_version
 from wings_ctl.hardware.resolver import resolve_hardware
 from wings_ctl.pipeline import run_pipeline
@@ -63,6 +64,158 @@ def _node_specs_with_rpc_port(rpc_port: object):
     return node_specs
 
 
+def _node_specs_with_data_parallel_address(recipe_address="$local_ip"):
+    """构造声明 runtime-owned DP 地址的最小普通多机 recipe。"""
+    strategy = {
+        "head": {
+            "engine_config": {
+                "model": "demo/model",
+                "tensor_parallel_size": 1,
+                "data_parallel_size": 2,
+                "data_parallel_size_local": 1,
+                "data_parallel_start_rank": 0,
+                "data_parallel_address": recipe_address,
+            },
+            "env": {},
+        },
+        "worker": {
+            "engine_config": {
+                "model": "demo/model",
+                "tensor_parallel_size": 1,
+                "data_parallel_size": 2,
+                "data_parallel_size_local": 1,
+                "data_parallel_start_rank": 1,
+                "data_parallel_address": recipe_address,
+            },
+            "env": {},
+        },
+    }
+    node_specs = normalize_nodes(strategy, "scenarios.multi_node.strategies.test", pod_count=2)
+    assert node_specs is not None
+    return node_specs
+
+
+def _resolve_runtime_node(
+    node_specs,
+    *,
+    feature_overrides=None,
+    strategy_feature_inject_overrides=None,
+    accel_overrides=None,
+    user_layer=None,
+):
+    """用最小 runtime placement 调用普通 multi-node resolver。"""
+    return _resolve_multi_node(
+        node_specs,
+        model_path="<test-model>",
+        user_layer=user_layer or {},
+        feature_overrides=feature_overrides or {},
+        feature_trace_sources={},
+        accel_overrides=accel_overrides or {},
+        accel_env={},
+        device_count=None,
+        rank_ip="10.0.0.2",
+        node_ips=["10.0.0.1", "10.0.0.2"],
+        master_ip="10.0.0.1",
+        strategy_feature_inject_overrides=strategy_feature_inject_overrides,
+    )
+
+
+@pytest.mark.parametrize(
+    ("layer", "kwargs"),
+    [
+        ("strategy_feature", {"feature_overrides": {"data_parallel_address": "feature-host"}}),
+        (
+            "strategy_feature_inject",
+            {"strategy_feature_inject_overrides": {"data_parallel_address": "feature-inject-host"}},
+        ),
+        ("strategy_accel", {"accel_overrides": {"data_parallel_address": "accel-host"}}),
+        ("user_cli", {"user_layer": {"data_parallel_address": "user-host"}}),
+    ],
+)
+def test_runtime_owned_data_parallel_address_rejects_later_layer_override(layer, kwargs):
+    """验证已声明 DP 地址时，所有后续层的同名覆盖都 fail-fast。"""
+    with pytest.raises(ValueError, match=rf"multi_node.*{layer}.*data_parallel_address"):
+        _resolve_runtime_node(_node_specs_with_data_parallel_address(), **kwargs)
+
+
+def test_undeclared_data_parallel_address_does_not_enable_ownership_check():
+    """验证当前 recipe 未声明 DP 地址时不触发专项后续层冲突检查。"""
+    engine_config_traces, *_ = _resolve_runtime_node(
+        _node_specs_with_rpc_port(12321),
+        feature_overrides={"data_parallel_address": "feature-host"},
+    )
+
+    assert engine_config_traces["data_parallel_address"].final_value == "feature-host"
+
+
+def test_runtime_owned_data_parallel_address_uses_master_for_worker_local_token():
+    """验证 worker 的 $local_ip 被 key-owned runtime 值覆盖为 MASTER_IP。"""
+    engine_config_traces, *_ = _resolve_runtime_node(_node_specs_with_data_parallel_address())
+
+    address = engine_config_traces["data_parallel_address"]
+    assert address.final_value == "10.0.0.1"
+    assert address.final_layer == "strategy_topology_inject"
+    assert [event.value for event in address.events] == ["$local_ip", "10.0.0.1"]
+
+
+@pytest.mark.parametrize("recipe_address", ["$LOCAL_IP", "$NODE0_IP", "$MASTER_IP_ADDRESS", "192.168.1.10"])
+def test_runtime_owned_data_parallel_address_reaches_argv_as_master_ip(recipe_address):
+    """验证未知 token 和旧字面地址均不能进入最终 argv。"""
+    engine_config_traces, *_ = _resolve_runtime_node(
+        _node_specs_with_data_parallel_address(recipe_address)
+    )
+
+    argv = build_argv(engine_config_traces, engine="vllm")
+    address_index = argv.index("--data-parallel-address")
+    assert argv[address_index + 1] == "10.0.0.1"
+    assert recipe_address not in argv
+
+
+@pytest.mark.parametrize(
+    ("rank_ip", "node_ips", "master_ip"),
+    [
+        ("10.0.0.1", None, None),
+        (None, ["10.0.0.1", "10.0.0.2"], None),
+        (None, None, "10.0.0.1"),
+    ],
+)
+def test_partial_runtime_placement_currently_keeps_placeholder_view(rank_ip, node_ips, master_ip):
+    """验证不足以进入 runtime injection 的 partial placement 保持占位视图。"""
+    engine_config_traces, _, _, nodes, notes = _resolve_multi_node(
+        _node_specs_with_data_parallel_address(),
+        model_path="<test-model>",
+        user_layer={},
+        feature_overrides={},
+        feature_trace_sources={},
+        accel_overrides={},
+        accel_env={},
+        device_count=None,
+        rank_ip=rank_ip,
+        node_ips=node_ips,
+        master_ip=master_ip,
+    )
+
+    assert engine_config_traces == {}
+    assert nodes is not None
+    assert notes["multi_node_injection_status"] == "pending_runtime_context"
+
+
+def test_runtime_placement_without_master_ip_fails_after_node_selection():
+    """验证 RANK_IP 和 NODE_IPS 齐全但缺 MASTER_IP 时不能生成 owned 地址。"""
+    with pytest.raises(ValueError, match="MASTER_IP"):
+        _resolve_multi_node(
+            _node_specs_with_data_parallel_address(),
+            model_path="<test-model>",
+            user_layer={},
+            feature_overrides={},
+            feature_trace_sources={},
+            accel_overrides={},
+            accel_env={},
+            device_count=None,
+            rank_ip="10.0.0.2",
+            node_ips=["10.0.0.1", "10.0.0.2"],
+            master_ip=None,
+        )
 
 
 def test_multi_node_accepts_numeric_data_parallel_rpc_port() -> None:
