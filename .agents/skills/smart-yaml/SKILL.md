@@ -24,10 +24,17 @@ description: Use when creating, editing, or validating a `wings_control` smart-a
    `DeepSeek-V4-Flash-fp8`（`ENGINE_VERSION=v0.22.0`）和
    `DeepSeek-V4-Flash-0731`（`ENGINE_VERSION=v0.26.0`）必须分别落在
    `smart-accel/vllm/v0.22.0/...` 和 `smart-accel/vllm/v0.26.0/...`，不能
-   互相代替或强行归入 `v0.23.0`。
-4. 先用同类资产起稿，再按本文件检查。无受支持 feature 时保留
-    `smart_accel: {}`。
-5. 完成后运行：
+   互相代替或强行归入 `v0.23.0`。同时，SmartAccel 版本目录不得低于对应
+   engine YAML 的 `model.min_engine_version`；例如最低要求 `0.24.0` 的模型禁止
+   在 `v0.23.0` 下创建占位资产。
+4. SmartAccel 的 scenario 键必须是对应 engine recipe `scenarios` 键的**子集**。
+   逐份读取完整 engine YAML 后只生成其明确声明的 `standalone`、`multi_node`、
+   `pd_disaggregation`；禁止为套用模板补齐 engine 未声明的场景。缺少场景键表示
+   该拓扑 no-op 降级，不是资产缺失。若 smart 资产没有可唯一匹配的 engine recipe，
+   不得猜测场景，应先补齐或确认 engine recipe。
+5. 先用同类资产起稿，再按本文件检查。无受支持 feature 时保留
+   `smart_accel: {}`。
+6. 完成后运行：
     `cd wings_control && python3 tests/wings_accel/smart_accel_io.py <yaml路径> --matrix`
     它验证 loader、选择、渲染和 `files` 的 JSON/YAML/bash 语法；**不是** 0day。
     只有实际部署的功能/性能结果才能作为 0day 证据，且要记录其相对 recipe 的增删。
@@ -73,10 +80,17 @@ PD prefill 只能有 `sparse`；PD decode 只能有 `decoding`、`sparse`；PD �
 
 - `cli_params` 是原样传入引擎的结构化配置；投机参数放在
    `speculative_config` 内。`num_speculative_tokens_per_batch_size` 也必须放在
-   此处，并保留 `num_speculative_tokens` 作为兜底。
+   此处，并保留 `num_speculative_tokens` 作为兜底。必须解析 engine YAML
+   `features.spec_decoding.args` 中 `--speculative-config` 的完整 JSON，并把所有
+   功能必需字段同步到每个对应 smart decoding 方案；不得只复制 `method` 和
+   `num_speculative_tokens` 而遗漏 `enforce_eager`、`draft_sample_method` 等字段。
+   只有明确的动态占位替换（如固定草稿路径改 `$path`）或有 0day 依据的覆盖才可不同。
 - `requires_model_path: true` 的草稿方案在 `speculative_config.model` 使用
    `$path`。多个 `draft_arch` 必须互斥；可有一个未声明 `draft_arch` 的通用草稿兜底。
-- `requires_model_path` 缺省/false 的 no-model 方案（MTP、suffix 等）至多一个。
+- `requires_model_path` 缺省/false 的 no-model 方案（MTP、ERNIE-MTP、suffix 等）
+   至多一个。ERNIE-MTP 的 `model` 即使在上游命令中与主模型相同，也表示读取
+   主 checkpoint 内置的 MTP 权重，不是独立草稿模型；SmartAccel 应省略
+   `requires_model_path`、`draft_arch` 和 `speculative_config.model`。
 - 若任一对应 engine scenario 的 `async_scheduling: true`，所有 smart YAML
    scenario 都不能声明 `suffix`。
 - 仅当 `decoding`、`kv_offload`、`sparse` 至少一个实际产出时，才会合入
@@ -92,7 +106,7 @@ YAML 不写 `ENABLE_*` 开关。`cpu`、`disk`、`cpu_disk` 分别由内存/磁�
 | --- | --- |
 | vLLM 原生 CPU | `name: cpu`，`kv_offloading_backend: native`，容量用 `{memory_capacity_gb}`。 |
 | LMCache disk/cpu_disk | `LMCacheConnectorV1`；按基线保留所需 `envs`、包和配置文件。若使用 `files` 写 LMCache 配置，`envs` 的 `LMCACHE_CONFIG_FILE` 必须指向它。 |
-| Ascend LMCache | `name: cpu`，`LMCacheAscendConnectorV1Dynamic`；按已验证资产声明包和 LMCache 环境变量。 |
+| Ascend LMCache | `name: cpu`，`LMCacheAscendConnectorV1Dynamic`；按已验证资产声明包和 LMCache 环境变量。`LMCACHE_MAX_LOCAL_CPU_SIZE` 是每 worker 上限，而 `{memory_capacity_gb}` 是 Pod 总卸载配额，因此应使用 `{= memory_capacity_gb // (tp_size * dp_size)}`。 |
 | mooncake/memcache | `name: cpu`，`AscendStoreConnector` 和 `backend`；使用 `files` 写配置及 `start_kv_serve.sh`。mooncake 才加 `LD_LIBRARY_PATH`。 |
 | LMCache MP | `name: cpu`，`LMCacheMPConnector`；connector 参数在 `kv_transfer_config`，server 参数在 `start_kv_serve.sh`。 |
 

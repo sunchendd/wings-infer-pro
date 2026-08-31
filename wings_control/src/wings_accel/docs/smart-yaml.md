@@ -205,23 +205,27 @@ smart_accel:                    # scenario 嵌套结构(对齐 wings_control sce
 
 **字段**:`name` / `packages` / `cli_params` / `envs` / `requires_model_path`。
 
-**选择规则**(`decoders.py:30-71`):
+**选择规则**(`decoders.py:20-31`):
 1. `ENABLE_SPECULATIVE_DECODE` 关 / 当前 scenario 子块不含 decoding 键(loader 已按 topology 路由,PD-prefill 子块不声明 decoding 即不产出)→ 不产出(None);
-2. 有草稿路径(`SPECULATIVE_DECODE_MODEL_PATH` 非空)→ **model_based 分支**:`requires_model_path=true` 且 eligible 的方案,取**首序**(无需 priority);
-3. model_based 未命中 → 降级到 **no_model**(`requires_model_path=false`,至多一个,取首序)(标 degraded);
-4. 无草稿路径 → 直接 no_model 分支,取首序(至多一个)。
+2. 有草稿路径(`SPECULATIVE_DECODE_MODEL_PATH` 非空)→ **仅消费 YAML 显式声明的方案**(资产能力声明是唯一真相源,代码不合成任何方案):
+   - 草稿须是本地挂载的模型目录(读其下 `config.json`);非目录(含传入 config.json 文件路径)/缺 config.json/HF repo id/未挂载 → warning + None;
+   - `architectures` 命中某方案声明的 `draft_arch` → 选定该专用方案;
+   - 架构含专用方法关键字(eagle/eagle3/dflash/ernie/dspark/k3dspark)但资产未声明可消费方案 → 专用草稿错配,warning + None(不喂其他方法);
+   - 普通架构 + 资产声明了通用草稿(未声明 `draft_arch` 的 model_based 方案)→ 选定通用草稿;
+   - 其余(含空占位资产)→ warning + None(不降级 no_model、不内置合成);
+3. 无草稿路径 → no_model 分支(`requires_model_path=false`,至多一个,取首序)——没有草稿路径时才允许选 no_model 方案。
 
 **已知方案**(以资产实际声明为准):`mtp`、`suffix`、`ngram`、以及性能/精度优先变体等。⚠️ `suffix` 受 §7 规则约束。
 
-**draft-based 方案(有草稿,可声明多个)**:eagle3/dflash/dspark/draft 等 `requires_model_path: true` 的方案可在同一 yaml 共存。用户传了草稿路径时,框架读草稿模型 `config.json` 的 `architectures` 字段(小写归一),按各方案声明的 `draft_arch`(list,小写关键字)匹配——命中任一关键字即选定该方案;未匹配到任何 `draft_arch` → 降级到通用 `draft`(未声明 `draft_arch` 的 model_based 方案);无通用 draft → 降级 no_model。草稿路径非本地(无 config.json)→ 直接降级通用 draft。
+**draft-based 方案(有草稿,可声明多个)**:eagle3/dflash/dspark/draft 等 `requires_model_path: true` 的方案可在同一 yaml 共存。用户传了草稿路径时,框架读草稿模型目录下 `config.json` 的 `architectures` 字段(小写归一),按各方案声明的 `draft_arch`(list,小写关键字,词边界匹配)匹配——命中任一关键字即选定该专用方案;普通架构且资产声明了通用草稿(未声明 `draft_arch` 的 model_based 方案)→ 选通用草稿;专用错配 / 无声明方案 / 非本地目录 → warning + None。
 
-**dspark 双形态**(特殊):dspark 既可「有草稿」(如 Kimi K3 单独发草稿模型,`requires_model_path: true` + `draft_arch: [dspark]`),也可「无草稿」(如 DeepSeek V4 Pro/Flash 0731,dspark 权重内嵌主模型 checkpoint,`requires_model_path` 不设 → 进 no_model 分支)。同一 yaml 可同时声明两种形态:传草稿路径且 config.json 含 dspark → 选有草稿形态(带 `model`);否则选无草稿形态(无 `model`)。
+**dspark 双形态**(特殊):dspark 既可「有草稿」(如 Kimi K3 单独发草稿模型,`requires_model_path: true` + `draft_arch: [dspark, k3dspark]`——数字边界匹配下裸 `dspark` 关键字匹配不了 `K3DSparkModel` 架构,必须同时声明 `k3dspark`),也可「无草稿」(如 DeepSeek V4 Pro/Flash 0731,dspark 权重内嵌主模型 checkpoint,`requires_model_path` 不设 → 进 no_model 分支)。同一 yaml 可同时声明两种形态:传草稿路径且 config.json 架构命中 `k3dspark` → 选有草稿形态(带 `model`);否则选无草稿形态(无 `model`)。
 
-**no_model 方案(无草稿,至多一个)**:mtp/suffix 等 `requires_model_path` 缺省/false 的方案,仅在无草稿路径或 model_based 降级时取首序(no_model 至多声明一个,无需 priority 排序)。
+**no_model 方案(无草稿,至多一个)**:mtp/suffix 等 `requires_model_path` 缺省/false 的方案,仅在无草稿路径时取首序(no_model 至多声明一个,无需 priority 排序)。
 
 `cli_params` 典型形态:`speculative_config: { method: <mtp|suffix|...>, num_speculative_tokens: N }`。
 
-**额外参数走 `cli_params`(无需专用字段)**:模型若需 `moe_backend`(如 Qwen3.6-35B → triton)、`speculative_token_range`(如 glm-4.7-floatmtp → "256,512")、`enforce_eager` 等,直接在 `cli_params` 里写即可(`cli_params` 是自由结构化 dict,见 §8)。eagle3/dflash/dspark 这类需草稿路径的方法:加 `requires_model_path: true`,草稿路径在 `speculative_config.model` 用 `$path` 令牌。
+**额外参数走 `cli_params`(无需专用字段)**:模型若需 `moe_backend`(如 Qwen3.6-35B → triton)、`speculative_token_range`(如 glm-4.7-floatmtp → "256,512")、`enforce_eager` 等,直接在 `cli_params` 里写即可(`cli_params` 是自由结构化 dict,见 §8)。eagle3/dflash/dspark 这类需草稿路径的方法:加 `requires_model_path: true` **并声明 `draft_arch`**(专用方案按架构匹配选定,见 §3.0),草稿路径在 `speculative_config.model` 用 `$path` 令牌。
 
 **动态投机解码(按 batch size 分档)**:`speculative_config` 还可声明 `num_speculative_tokens_per_batch_size`(上游 vLLM `SpeculativeConfig` 字段),按当前 batch size 闭区间动态选投机 token 数;`num_speculative_tokens` 保留作兜底(调度表未命中 / 动态 SD 被 DP 禁用时用)。紧凑型 flow 写法:
 
@@ -229,6 +233,7 @@ smart_accel:                    # scenario 嵌套结构(对齐 wings_control sce
 decoding:
   - name: eagle3
     requires_model_path: true
+    draft_arch: [eagle3]              # 专用方案必须声明(数字边界匹配);省略会被当通用草稿方案
     cli_params:
       speculative_config:
         method: eagle3
@@ -252,7 +257,7 @@ decoding:
 
 ### 3.0 多草稿方案 + draft_arch 匹配(示例)
 
-同一 scenario 的 decoding 子块可声明多种有草稿方案(eagle3/dflash/dspark 等),框架读草稿 `config.json` 的 `architectures` 字段(小写)按 `draft_arch` 匹配选定。**单一草稿方案时 `draft_arch` 可省略**(走通用 draft 兜底);多方案共存时必须声明以区分。
+同一 scenario 的 decoding 子块可声明多种有草稿方案(eagle3/dflash/dspark 等),框架读草稿 `config.json` 的 `architectures` 字段(小写)按 `draft_arch` 匹配选定。**专用方案必须声明 `draft_arch`**:未声明的 model_based 方案会被当作**通用草稿方案**(不按架构匹配,任何普通架构草稿都会选中它,参数按模型调),不再是专用 Eagle3/DFlash 方案。
 
 ```yaml
 smart_accel:
@@ -313,7 +318,7 @@ smart_accel:
             sparse: [...]
 ```
 
-匹配规则(`decoders._match_draft_method`):scheme 的任一 `draft_arch` 关键字作为子串出现在任一 architecture 字符串里 → 命中;多命中取首序(yaml 应保证 `draft_arch` 互斥)。常见 architectures 关键字:`Eagle3LlamaForCausalLM` / `DFlashQwen3ForCausalLM` / `K3DSparkModel` 等,对应 `draft_arch: [eagle3]` / `[dflash]` / `[dspark, k3dspark]`。
+匹配规则(`decoders._match_draft_method` / `_keyword_in_arch`):**数字边界匹配**——scheme 的任一 `draft_arch` 关键字在任一 architecture 字符串中命中且关键字两侧不紧邻数字才算命中(`eagle` 不匹配 `eagle3`、`dspark` 不匹配 `k3dspark`);多命中取首序(yaml 应保证 `draft_arch` 互斥)。常见 architectures 关键字:`Eagle3LlamaForCausalLM` / `DFlashQwen3ForCausalLM` / `K3DSparkModel` 等,对应 `draft_arch: [eagle3]` / `[dflash]` / `[dspark, k3dspark]`。
 
 > scenario 间方案重复:standalone/multi_node/pd_disaggregation.decode 的 decoding 方案通常相同(同一模型投机方案不随拓扑变),可在 yaml 中各自声明;PD-prefill 不声明 decoding。
 
