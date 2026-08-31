@@ -112,8 +112,45 @@ def _compute_layout(tp: int, device_count: int, dp: int) -> str:
     return LAYOUT_NONE  # 默认 DP=1:无跨 Pod DP,不派生 size_local/start_rank/address
 
 
-def _derive_common(ctx: MultinodeCtx, sel) -> Dict[str, Any]:
-    """两引擎通用 per-node 参数:nnodes/node_rank/master_addr + worker headless。"""
+# 这些 DP 模式要求"每 Pod/rank 提供 API endpoint"(本地 worker 自行起服务进程,
+# 由 LB / connector / rank 各自对外),而非由 master 远程调起的纯计算节点。
+# 其中 Hybrid 与 headless 直接被 vLLM ``arg_utils``
+# 互斥断言(``not headless or not data_parallel_hybrid_lb``);
+# external / multi-port 则因"每 Pod 须保留对外 API 端点"而不应 headless。
+# 因此多节点派生层在遇到这类 DP 模式时**不注入 headless**,避免与用户显式声明的
+# hybrid / external / multi-port external 参数并置导致引擎启动失败。
+_PER_NODE_API_DP_FLAGS = (
+    "data_parallel_hybrid_lb",
+    "data_parallel_external_lb",
+    "data_parallel_multi_port_external_lb",
+)
+
+
+def _dp_serves_per_node_api(cfg: Dict[str, Any]) -> bool:
+    """判断自定义传参的 DP 模式是否要求"每 Pod/rank 提供 API endpoint"。
+
+    仅当用户显式声明了 hybrid / external / multi-port external 任一标志时为真——
+    这类模式 worker 各自不 headless(见 _PER_NODE_API_DP_FLAGS 上方的成因注释:
+    其中 Hybrid 与 headless 被 vLLM ``arg_utils`` 直接互斥断言;external / multi-port
+    则是"每 Pod 须保留对外 API endpoint"的语义要求)。
+
+    Args:
+        cfg: config-file 已归一 snake params(用户 TP/DP/hybrid/external 等标志)。
+
+    Returns:
+        True → 该 DP 模式每节点/rank 提供 API,派生层**不注入 headless**;
+        False → 内部 DP / 普通 worker(每 Pod 内多 rank 由 master 调起),仍需 headless。
+    """
+    return any(cfg.get(k) for k in _PER_NODE_API_DP_FLAGS)
+
+
+def _derive_common(ctx: MultinodeCtx, sel, cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """两引擎通用 per-node 参数:nnodes/node_rank/master_addr + worker headless。
+
+    Args:
+        cfg: config-file 已归一 snake params,用于判断 DP 模式(hybrid/external/multi-port
+            external 等"每节点提供 API"的布局在 worker 上不注入 headless,见 _dp_serves_per_node_api)。
+    """
     out: Dict[str, Any] = {
         "nnodes": len(ctx.node_ips),
         "node_rank": sel.index,
@@ -121,25 +158,64 @@ def _derive_common(ctx: MultinodeCtx, sel) -> Dict[str, Any]:
     if ctx.master_ip is not None:
         out["master_addr"] = ctx.master_ip
     # worker(非 head)才加 headless;head 不加(index 0 == master)。
-    if sel.role == "worker":
+    # Hybrid / external / multi-port external DP 模式下 worker 各自提供 API endpoint,
+    # 故不注入 headless。内部 DP(未声明上述标志)的 worker 仍是纯计算节点,需 headless。
+    if sel.role == "worker" and not _dp_serves_per_node_api(cfg):
         out["headless"] = True
     return out
 
 
-def _derive_dp(ctx: MultinodeCtx, sel, size_local: int) -> Dict[str, Any]:
-    """vllm-ascend DP 通信参数:data_parallel_start_rank/address。
+def _is_external_dp(cfg: Dict[str, Any]) -> bool:
+    """仅判断用户显式声明的 pure-external DP(``data_parallel_external_lb``)。
+
+    与 ``_dp_serves_per_node_api``(三者都管 headless)不同,这里只看 external:
+    只有它会被 vLLM serve.py 用 ``data_parallel_start_rank is not None`` 误判为
+    hybrid 而撞车(``is_external_lb and is_hybrid_lb`` → 启动被拒),故需去掉 start_rank。
+    hybrid / multi-port external 自身带显式标志,serve.py 各自归位,不因 start_rank
+    撞车,保留 start_rank(仍作 DP 通信 rank 来源)。
+    """
+    return bool(cfg.get("data_parallel_external_lb"))
+
+
+def _derive_dp(ctx: MultinodeCtx, sel, size_local: int, cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """vllm DP 通信参数:data_parallel_start_rank/address(纯 internal/hybrid 路径)。
 
     DP_across:TP 在单 Pod 内,DP 跨 Pod。``data_parallel_size_local`` **由用户填写**
     (custom 用户自管,不在黑名单);这里只派生框架权威的 start_rank 与 address:
     start_rank = 本 Pod index × 用户 size_local。
+
+    例外: **pure-external**(用户声明 ``data_parallel_external_lb``)时**不派生**
+    ``data_parallel_start_rank``——vLLM serve.py 会把 start_rank 识别为 hybrid,
+    与 external 撞成"多种 LB 模式"而拒绝启动。external 每 Pod 独立对外、DP 组由
+    vLLM 按节点自推断 rank。
+
+    external(外部负载均衡)要求每条 rank 各带独立对外 API 端点、由外部 LoadBalancer
+    统一分发,因此 **``data_parallel_size_local`` 必须为 1**;>1 时 vLLM 会拒绝启动。
+    要让 ``data_parallel_external_lb + data_parallel_size_local>1`` 成立,必须做
+    **per-rank 进程展开**(每个 Pod 展开成 size_local 个独立进程、各自 rank/端口/端点),
+    而普通 custom 是"每 Pod 单进程"模型,不做该展开——**per-rank 展开已由 PD 场景实现
+    (``_pd_process_derive_vllm``),普通 custom 不建议重复实现**。故此处对 external 仅
+    透传(保 address、去 start_rank);用户显式声明 external 时打一条**告警日志**
+    提醒该约束、并引导 size_local>1 的诉求走 PD 布局。不硬报错以免破坏存量 external 用户。
     """
-    start_rank = dp_start_rank(sel.index, size_local)
-    return {
-        "data_parallel_start_rank": start_rank,
-        # DP 通信的 master 地址(head IP),各节点一致(recipe: head/worker 均 $HEAD_IP)。
-        # $5.1.3 归框架派生(用户填不出,黑名单内 data_parallel_address)。
-        "data_parallel_address": ctx.master_ip or ctx.node_ips[0],
-    }
+    out: Dict[str, Any] = {}
+    if not _is_external_dp(cfg):
+        out["data_parallel_start_rank"] = dp_start_rank(sel.index, size_local)
+    else:
+        # external 要求 data_parallel_size_local==1;>1 需 per-rank 进程展开,该展开已由
+        # PD 实现(_pd_process_derive_vllm),普通 custom 单进程模型不重复实现。故此处
+        # 不校验用户填的 size_local、只外传 external 时吐一条用户告警说明该约束。
+        # 每个 Pod 进程内 _derive_dp 仅调一次,告警不重复。
+        logger.warning(
+            "data_parallel_external_lb(外部负载均衡)要求 data_parallel_size_local==1,"
+            "否则 vLLM 会拒绝启动。data_parallel_external_lb + "
+            "data_parallel_size_local>1 时,建议使用 PD 分离部署方式。"
+        )
+    # DP 协调的 master 地址(head IP),各节点一致(recipe: head/worker 均 $HEAD_IP)。
+    # external 亦需该地址(DP>1 时 Coordinator 用它建 ZMQ,见 vLLM coordinator.py)。
+    # $5.1.3 归框架派生(用户填不出,黑名单内 data_parallel_address)。
+    out["data_parallel_address"] = ctx.master_ip or ctx.node_ips[0]
+    return out
 
 
 def _require_user_size_local(cfg: Dict[str, Any], engine: str) -> int:
@@ -255,10 +331,10 @@ def _derive_vllm(ctx: MultinodeCtx, sel, cfg: Dict[str, Any]) -> Dict[str, Any]:
     device_count = ctx.device_count
     dp = cfg.get("data_parallel_size") or 1
     tp = cfg.get("tensor_parallel_size") or 1
-    out = _derive_common(ctx, sel)
+    out = _derive_common(ctx, sel, cfg)
     if device_count is not None and _compute_layout(tp, device_count, dp) == LAYOUT_DP_ACROSS:
         size_local = _require_user_size_local(cfg, "vllm")
-        out.update(_derive_dp(ctx, sel, size_local))
+        out.update(_derive_dp(ctx, sel, size_local, cfg))
     return out
 
 
@@ -268,10 +344,10 @@ def _derive_vllm_ascend(ctx: MultinodeCtx, sel, cfg: Dict[str, Any]) -> Dict[str
     device_count = ctx.device_count
     dp = cfg.get("data_parallel_size") or 1
     tp = cfg.get("tensor_parallel_size") or 1
-    out = _derive_common(ctx, sel)
+    out = _derive_common(ctx, sel, cfg)
     if device_count is not None and _compute_layout(tp, device_count, dp) == LAYOUT_DP_ACROSS:
         size_local = _require_user_size_local(cfg, "vllm-ascend")
-        out.update(_derive_dp(ctx, sel, size_local))
+        out.update(_derive_dp(ctx, sel, size_local, cfg))
     return out
 
 
