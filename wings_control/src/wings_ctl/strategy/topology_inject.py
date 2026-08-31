@@ -318,6 +318,35 @@ def substitute_literal_placeholders(
     return override
 
 
+def build_data_parallel_address_override(
+    engine_config: dict,
+    *,
+    master_ip: str | None,
+) -> dict:
+    """按 recipe 参数声明生成普通多机 DP 协调地址覆盖。
+
+    recipe 中的值只声明参数形态，最终地址由当前 runtime placement 独占。
+    未声明该参数时不为引擎扩展新参数。
+
+    Args:
+        engine_config: 当前选中节点的 recipe 参数。
+        master_ip: 当前 engine instance 的 master IP。
+
+    Returns:
+        包含 runtime ``data_parallel_address`` 的覆盖层，或空字典。
+
+    Raises:
+        ValueError: recipe 声明该参数但 runtime placement 缺少 ``MASTER_IP``。
+    """
+    if "data_parallel_address" not in engine_config:
+        return {}
+    if not master_ip:
+        raise ValueError(
+            "multi_node recipe declares data_parallel_address but runtime placement is missing MASTER_IP"
+        )
+    return {"data_parallel_address": master_ip}
+
+
 def validate_recipe_rendezvous_address(
     engine_config: dict,
     *,
