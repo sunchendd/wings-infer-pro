@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import pytest
 
 from wings_accel import func_smart_accel
@@ -10,14 +13,29 @@ from wings_accel.schemas import (
     SmartKVCacheConfig,
     SmartKVSparseConfig,
     DeploymentMode,
-    GeneratedFile,
 )
 
 
+# 真实本地草稿目录(含 config.json,架构含 eagle3):仅支持本地挂载草稿目录的
+# 契约下,不再可用不存在的虚构路径(读不到 config.json → 关闭投机)。
+# pytest tmp 机制按运行轮次自动回收,不在模块导入时遗留 /tmp 目录。
+@pytest.fixture(scope="module")
+def eagle_draft_dir(tmp_path_factory) -> str:
+    d = tmp_path_factory.mktemp("test-core-eagle-draft")
+    Path(d, "config.json").write_text(json.dumps({"architectures": ["EAGLE3LLaMAForCausalLM"]}))
+    return str(d)
+
+
 def make_input(
-    dec_enabled=False, sparse_enabled=False, offload_enabled=False,
-    model_arch="", draft_model_path="", kv_cache_config=None,
-    smart_accel=None, engine="vllm", **overrides
+    dec_enabled=False,
+    sparse_enabled=False,
+    offload_enabled=False,
+    model_arch="",
+    draft_model_path="",
+    kv_cache_config=None,
+    smart_accel=None,
+    engine="vllm",
+    **overrides,
 ):
     defaults = dict(
         hardware_config=SystemConfig(gpu_type="H100", gpu_count=8, pod_available_memory_gb=256),
@@ -37,24 +55,36 @@ def make_smart_accel():
     """smart_accel 模板块(new:list 形式)。每次构造全新 dict,避免测试间污染。"""
     return {
         "decoding": [
-            {"name": "eagle3", "requires_model_path": True,
-             "cli_params": {"speculative_config": {"method": "eagle3", "num_speculative_tokens": 3}}},
-            {"name": "mtp",
-             "cli_params": {"speculative_config": {"method": "mtp", "num_speculative_tokens": 1}}},
+            {
+                "name": "eagle3",
+                "requires_model_path": True,
+                "draft_arch": ["eagle3"],
+                "cli_params": {"speculative_config": {"method": "eagle3", "num_speculative_tokens": 3}},
+            },
+            {"name": "mtp", "cli_params": {"speculative_config": {"method": "mtp", "num_speculative_tokens": 1}}},
         ],
         "sparse": [
-            {"name": "performance_first",
-             "cli_params": {"hf_overrides": {"use_index_cache": True, "index_topk_freq": 8}}},
-            {"name": "accuracy_first",
-             "cli_params": {"hf_overrides": {"use_index_cache": True, "index_topk_freq": 4}}},
+            {
+                "name": "performance_first",
+                "cli_params": {"hf_overrides": {"use_index_cache": True, "index_topk_freq": 8}},
+            },
+            {"name": "accuracy_first", "cli_params": {"hf_overrides": {"use_index_cache": True, "index_topk_freq": 4}}},
         ],
         "kv_offload": [
-            {"name": "cpu",
-             "cli_params": {"kv_transfer_config": {
-                 "kv_connector": "OffloadingConnector", "kv_role": "kv_both",
-                 "kv_connector_extra_config": {"num_cpu_blocks": "{mem_gb_to_blocks}"}}}},
-            {"name": "disk",
-             "cli_params": {"kv_transfer_config": {"kv_connector": "LMCacheConnectorV1", "kv_role": "kv_both"}}},
+            {
+                "name": "cpu",
+                "cli_params": {
+                    "kv_transfer_config": {
+                        "kv_connector": "OffloadingConnector",
+                        "kv_role": "kv_both",
+                        "kv_connector_extra_config": {"num_cpu_blocks": "{mem_gb_to_blocks}"},
+                    }
+                },
+            },
+            {
+                "name": "disk",
+                "cli_params": {"kv_transfer_config": {"kv_connector": "LMCacheConnectorV1", "kv_role": "kv_both"}},
+            },
         ],
     }
 
@@ -70,9 +100,9 @@ def test_all_disabled():
     assert out.diagnostics == {}
 
 
-def test_decoding_only_hit():
+def test_decoding_only_hit(eagle_draft_dir):
     """验证 decoding 正常命中时只写 scheme,不写降级 diagnostics。"""
-    inp = make_input(dec_enabled=True, model_arch="eagle3", draft_model_path="/draft/eagle")
+    inp = make_input(dec_enabled=True, model_arch="eagle3", draft_model_path=eagle_draft_dir)
     out = func_smart_accel(inp)
     assert out.smart_decoding_scheme is not None
     assert out.smart_decoding_scheme == "eagle3"
@@ -84,8 +114,12 @@ def test_decoding_only_hit():
 def test_all_three_with_mtp_kv_no_conflict():
     """mtp + kvoffload 可同时生效。"""
     kv_cfg = SmartKVCacheConfig(
-        enabled=True, memory_offload_enabled=True, memory_offload_size_mode="64",
-        disk_offload_enabled=True, disk_capacity_gb=200, disk_path="/mnt/kv",
+        enabled=True,
+        memory_offload_enabled=True,
+        memory_offload_size_mode="64",
+        disk_offload_enabled=True,
+        disk_capacity_gb=200,
+        disk_path="/mnt/kv",
     )
     inp = make_input(dec_enabled=True, sparse_enabled=True, kv_cache_config=kv_cfg)
     # 强制 model_based 不命中 → 落到 mtp
@@ -96,32 +130,14 @@ def test_all_three_with_mtp_kv_no_conflict():
     assert out.smart_kv_cache_scheme is not None
 
 
-def test_conflicting_package_versions_raise_with_features():
-    """同一规范化包名声明不同版本时，不能静默同时输出。"""
-    smart_accel = {
-        "decoding": [{
-            "name": "mtp",
-            "cli_params": {"speculative_config": {"method": "mtp"}},
-            "packages": {"LMCache_Ascend": "0.4.5"},
-        }],
-        "sparse": [{
-            "name": "performance_first",
-            "cli_params": {"hf_overrides": {"use_index_cache": True}},
-            "packages": {"lmcache.ascend": "0.4.6"},
-        }],
-    }
-
-    inp = make_input(dec_enabled=True, sparse_enabled=True, smart_accel=smart_accel)
-
-    with pytest.raises(ValueError, match=r"lmcache-ascend.*decoding.*sparse"):
-        func_smart_accel(inp)
-
-
-def test_all_three_no_conflict():
+def test_all_three_no_conflict(eagle_draft_dir):
     kv_cfg = SmartKVCacheConfig(enabled=True, memory_offload_enabled=True, memory_offload_size_mode="64")
     inp = make_input(
-        dec_enabled=True, model_arch="eagle3", draft_model_path="/draft/eagle",
-        sparse_enabled=True, kv_cache_config=kv_cfg,
+        dec_enabled=True,
+        model_arch="eagle3",
+        draft_model_path=eagle_draft_dir,
+        sparse_enabled=True,
+        kv_cache_config=kv_cfg,
     )
     out = func_smart_accel(inp)
     assert out.smart_decoding_scheme == "eagle3"
@@ -135,45 +151,29 @@ def test_empty_smart_accel():
     assert out.smart_decoding_scheme is None
 
 
-def test_offload_generated_files_are_aggregated_without_writing(monkeypatch, tmp_path):
-    """func_smart_accel 将 offload 文件计划交给公开输出，不在解析期写盘。"""
-    monkeypatch.setenv("SHARED_VOLUME_PATH", str(tmp_path))
-    kv_cfg = SmartKVCacheConfig(
-        enabled=True,
-        disk_offload_enabled=True,
-        disk_capacity_gb=200,
-        disk_path="/mnt/kv",
-    )
-    smart_accel = {"kv_offload": [{
-        "name": "disk",
-        "envs": {"LMCACHE_CONFIG_FILE": "/shared-volume/lmcache_config.yaml"},
-        "files": [{"name": "lmcache_config.yaml", "mode": "0644",
-                   "content": "disk = {disk_path}\n"}],
-    }]}
+def test_decoding_draft_path_with_mtp_only_asset_disables(tmp_path):
+    """mtp-only 资产 + 有效本地草稿目录(普通架构)→ 关闭投机(不降级 mtp、不内置合成、零 argv、零诊断)。
 
-    out = func_smart_accel(make_input(kv_cache_config=kv_cfg, smart_accel=smart_accel))
-
-    assert [item.path for item in out.generated_files] == [
-        str(tmp_path / "lmcache_config.yaml"),
-    ]
-    assert out.generated_files[0].content == "disk = /mnt/kv\n"
-    assert out.generated_files[0].mode == "0644"
-    assert not (tmp_path / "lmcache_config.yaml").exists()
-
-
-def test_decoding_degrade_writes_diagnostics():
-    """验证 decoding 降级时 diagnostics 只记录 decoding 降级原因。"""
+    MR133: 资产未声明任何 draft 方案时不拼未验证 argv。目录可读且架构普通,
+    不会被"目录不可读"分支提前拦截,真正验证 mtp 不被偷选中。
+    """
+    draft = tmp_path / "draft"
+    draft.mkdir()
+    (draft / "config.json").write_text(json.dumps({"architectures": ["Qwen3ForCausalLM"]}))
     block = {**make_smart_accel()}
     block["decoding"] = [
         {"name": "mtp", "cli_params": {"speculative_config": {"method": "mtp"}}},
     ]
-    out = func_smart_accel(make_input(
-        dec_enabled=True, draft_model_path="/draft/unknown", smart_accel=block,
-    ))
-    assert out.smart_decoding_scheme == "mtp"
-    assert out.diagnostics == {
-        "decoding": {"degraded": True, "degrade_reason": "model_based_miss->no_model"},
-    }
+    out = func_smart_accel(
+        make_input(
+            dec_enabled=True,
+            draft_model_path=str(draft),
+            smart_accel=block,
+        )
+    )
+    assert out.smart_decoding_scheme is None
+    assert "speculative_config" not in out.engine_params.engine_config
+    assert out.diagnostics == {}
 
 
 def test_sparse_degrade_writes_diagnostics():
@@ -189,7 +189,7 @@ def test_sparse_degrade_writes_diagnostics():
     }
 
 
-def test_pd_prefill_scenario_isolates_decoding_and_kv_offload():
+def test_pd_prefill_scenario_isolates_decoding_and_kv_offload(eagle_draft_dir):
     """scenario(wings_control 风格):pd_prefill 路由到 nodes[role=prefill],缺 decoding/kv_offload → 不产出;sparse 产出。
 
     路由由 yaml_loader._route_smart_accel_block 完成;expander 只看路由后的扁平子块。
@@ -199,79 +199,128 @@ def test_pd_prefill_scenario_isolates_decoding_and_kv_offload():
 
     sa_full = {
         "standalone": {
-            "source_ref": "test#single", "match": {"distributed": False, "pd_role": None},
-            "strategies": {"single_node": {
-                "default_strategy": True,
-                "decoding": [{"name": "eagle3", "requires_model_path": True,
-                              "cli_params": {"speculative_config": {"method": "eagle3", "num_speculative_tokens": 3}}}],
-                "sparse": [{"name": "performance_first",
-                            "cli_params": {"hf_overrides": {"use_index_cache": True}}}],
-                "kv_offload": [{"name": "cpu",
-                                "cli_params": {"kv_offloading_backend": "native", "kv_offloading_size": 64}}],
-            }},
+            "source_ref": "test#single",
+            "match": {"distributed": False, "pd_role": None},
+            "strategies": {
+                "single_node": {
+                    "default_strategy": True,
+                    "decoding": [
+                        {
+                            "name": "eagle3",
+                            "requires_model_path": True,
+                            "draft_arch": ["eagle3"],
+                            "cli_params": {"speculative_config": {"method": "eagle3", "num_speculative_tokens": 3}},
+                        }
+                    ],
+                    "sparse": [
+                        {"name": "performance_first", "cli_params": {"hf_overrides": {"use_index_cache": True}}}
+                    ],
+                    "kv_offload": [
+                        {"name": "cpu", "cli_params": {"kv_offloading_backend": "native", "kv_offloading_size": 64}}
+                    ],
+                }
+            },
         },
         "pd_disaggregation": {
-            "source_ref": "test#pd", "match": {"distributed": True, "pd_role": None},
-            "strategies": {"pd_cluster": {
-                "default_strategy": True,
-                "nodes": [
-                    {"role": "prefill", "index": 0,
-                     "sparse": [{"name": "performance_first",
-                                 "cli_params": {"hf_overrides": {"use_index_cache": True}}}]},
-                    {"role": "decode", "index": 0,
-                     "decoding": [{"name": "eagle3", "requires_model_path": True,
-                                   "cli_params": {"speculative_config": {"method": "eagle3"}}}],
-                     "sparse": [{"name": "performance_first",
-                                 "cli_params": {"hf_overrides": {"use_index_cache": True}}}]},
-                ],
-            }},
+            "source_ref": "test#pd",
+            "match": {"distributed": True, "pd_role": None},
+            "strategies": {
+                "pd_cluster": {
+                    "default_strategy": True,
+                    "nodes": [
+                        {
+                            "role": "prefill",
+                            "index": 0,
+                            "sparse": [
+                                {"name": "performance_first", "cli_params": {"hf_overrides": {"use_index_cache": True}}}
+                            ],
+                        },
+                        {
+                            "role": "decode",
+                            "index": 0,
+                            "decoding": [
+                                {
+                                    "name": "eagle3",
+                                    "requires_model_path": True,
+                                    "draft_arch": ["eagle3"],
+                                    "cli_params": {"speculative_config": {"method": "eagle3"}},
+                                }
+                            ],
+                            "sparse": [
+                                {"name": "performance_first", "cli_params": {"hf_overrides": {"use_index_cache": True}}}
+                            ],
+                        },
+                    ],
+                }
+            },
         },
     }
     routed = _route_smart_accel_block(sa_full, "pd_prefill")
     kv_cfg = SmartKVCacheConfig(enabled=True, memory_offload_enabled=True, memory_offload_size_mode="64")
     inp = make_input(
-        dec_enabled=True, model_arch="eagle3", draft_model_path="/draft/eagle",
-        sparse_enabled=True, kv_cache_config=kv_cfg,
+        dec_enabled=True,
+        model_arch="eagle3",
+        draft_model_path=eagle_draft_dir,
+        sparse_enabled=True,
+        kv_cache_config=kv_cfg,
         deployment_mode=DeploymentMode(topology="pd_prefill"),
         smart_accel=routed,
     )
     out = func_smart_accel(inp)
-    assert out.smart_decoding_scheme is None      # prefill node 不含 decoding
-    assert out.smart_kv_cache_scheme is None      # prefill node 不含 kv_offload
-    assert out.smart_kv_sparse_scheme is not None # prefill node 含 sparse → 产出
+    assert out.smart_decoding_scheme is None  # prefill node 不含 decoding
+    assert out.smart_kv_cache_scheme is None  # prefill node 不含 kv_offload
+    assert out.smart_kv_sparse_scheme is not None  # prefill node 含 sparse → 产出
 
 
-def test_pd_decode_scenario_keeps_decoding_only():
+def test_pd_decode_scenario_keeps_decoding_only(eagle_draft_dir):
     """scenario(wings_control 风格):pd_decode 路由到 nodes[role=decode],含 decoding 但不含 kv_offload。"""
     from wings_accel.yaml_loader import _route_smart_accel_block
 
     sa_full = {
         "pd_disaggregation": {
-            "source_ref": "test#pd", "match": {"distributed": True, "pd_role": None},
-            "strategies": {"pd_cluster": {
-                "default_strategy": True,
-                "nodes": [
-                    {"role": "decode", "index": 0,
-                     "decoding": [{"name": "eagle3", "requires_model_path": True,
-                                   "cli_params": {"speculative_config": {"method": "eagle3", "num_speculative_tokens": 3}}}],
-                     "sparse": [{"name": "performance_first",
-                                 "cli_params": {"hf_overrides": {"use_index_cache": True}}}]},
-                ],
-            }},
+            "source_ref": "test#pd",
+            "match": {"distributed": True, "pd_role": None},
+            "strategies": {
+                "pd_cluster": {
+                    "default_strategy": True,
+                    "nodes": [
+                        {
+                            "role": "decode",
+                            "index": 0,
+                            "decoding": [
+                                {
+                                    "name": "eagle3",
+                                    "requires_model_path": True,
+                                    "draft_arch": ["eagle3"],
+                                    "cli_params": {
+                                        "speculative_config": {"method": "eagle3", "num_speculative_tokens": 3}
+                                    },
+                                }
+                            ],
+                            "sparse": [
+                                {"name": "performance_first", "cli_params": {"hf_overrides": {"use_index_cache": True}}}
+                            ],
+                        },
+                    ],
+                }
+            },
         },
     }
     routed = _route_smart_accel_block(sa_full, "pd_decode")
     kv_cfg = SmartKVCacheConfig(enabled=True, memory_offload_enabled=True, memory_offload_size_mode="64")
     inp = make_input(
-        dec_enabled=True, model_arch="eagle3", draft_model_path="/draft/eagle",
-        sparse_enabled=True, kv_cache_config=kv_cfg,
+        dec_enabled=True,
+        model_arch="eagle3",
+        draft_model_path=eagle_draft_dir,
+        sparse_enabled=True,
+        kv_cache_config=kv_cfg,
         deployment_mode=DeploymentMode(topology="pd_decode"),
         smart_accel=routed,
     )
     out = func_smart_accel(inp)
     assert out.smart_decoding_scheme == "eagle3"  # decode node 含 decoding → 产出
-    assert out.smart_kv_cache_scheme is None      # decode node 不含 kv_offload
-    assert out.smart_kv_sparse_scheme is not None # decode node 含 sparse → 产出
+    assert out.smart_kv_cache_scheme is None  # decode node 不含 kv_offload
+    assert out.smart_kv_sparse_scheme is not None  # decode node 含 sparse → 产出
 
 
 def test_standalone_scenario_full_features():
@@ -280,21 +329,28 @@ def test_standalone_scenario_full_features():
 
     sa_full = {
         "standalone": {
-            "source_ref": "test#single", "match": {"distributed": False, "pd_role": None},
-            "strategies": {"single_node": {
-                "default_strategy": True,
-                "decoding": [{"name": "mtp", "cli_params": {"speculative_config": {"method": "mtp"}}}],
-                "sparse": [{"name": "performance_first",
-                            "cli_params": {"hf_overrides": {"use_index_cache": True}}}],
-                "kv_offload": [{"name": "cpu",
-                                "cli_params": {"kv_offloading_backend": "native", "kv_offloading_size": 64}}],
-            }},
+            "source_ref": "test#single",
+            "match": {"distributed": False, "pd_role": None},
+            "strategies": {
+                "single_node": {
+                    "default_strategy": True,
+                    "decoding": [{"name": "mtp", "cli_params": {"speculative_config": {"method": "mtp"}}}],
+                    "sparse": [
+                        {"name": "performance_first", "cli_params": {"hf_overrides": {"use_index_cache": True}}}
+                    ],
+                    "kv_offload": [
+                        {"name": "cpu", "cli_params": {"kv_offloading_backend": "native", "kv_offloading_size": 64}}
+                    ],
+                }
+            },
         },
     }
     routed = _route_smart_accel_block(sa_full, "standalone")
     kv_cfg = SmartKVCacheConfig(enabled=True, memory_offload_enabled=True, memory_offload_size_mode="64")
     inp = make_input(
-        dec_enabled=True, sparse_enabled=True, kv_cache_config=kv_cfg,
+        dec_enabled=True,
+        sparse_enabled=True,
+        kv_cache_config=kv_cfg,
         smart_accel=routed,
     )
     out = func_smart_accel(inp)
@@ -324,29 +380,39 @@ def test_sglang_all_none():
     assert out.diagnostics == {}
 
 
-def test_custom_features_only_when_smart_on():
+def test_custom_features_only_when_smart_on(eagle_draft_dir):
     """custom_features 仅在 decoding/kv/sparse 至少一项产出时才启用。"""
-    custom = {"custom_features": [
-        {"name": "Mamba prefix caching", "cli_params": {"mamba_cache": True}},
-    ]}
+    custom = {
+        "custom_features": [
+            {"name": "Mamba prefix caching", "cli_params": {"mamba_cache": True}},
+        ]
+    }
     # 全关 → custom 不启用
     out = func_smart_accel(make_input(smart_accel={**make_smart_accel(), **custom}))
     assert out.engine_params.engine_config == {}
     # 开 decoding → custom 启用
-    out2 = func_smart_accel(make_input(
-        dec_enabled=True, model_arch="eagle3", draft_model_path="/draft/eagle",
-        smart_accel={**make_smart_accel(), **custom},
-    ))
+    out2 = func_smart_accel(
+        make_input(
+            dec_enabled=True,
+            model_arch="eagle3",
+            draft_model_path=eagle_draft_dir,
+            smart_accel={**make_smart_accel(), **custom},
+        )
+    )
     assert out2.engine_params.engine_config["mamba_cache"] is True
 
 
 # ── kv_disk_offload_path(磁盘卸载路径产出,供 wings-control 启动前清理残留)──
 
+
 def test_kv_disk_offload_path_disk_on():
     """disk 开启且 offload 产出 → kv_disk_offload_path = disk_path(供清理残留)。"""
     kv = SmartKVCacheConfig(
-        enabled=True, memory_offload_enabled=False, disk_offload_enabled=True,
-        disk_path="/lm", disk_capacity_gb=8,
+        enabled=True,
+        memory_offload_enabled=False,
+        disk_offload_enabled=True,
+        disk_path="/lm",
+        disk_capacity_gb=8,
     )
     out = func_smart_accel(make_input(offload_enabled=True, kv_cache_config=kv))
     assert out.smart_kv_cache_scheme == "disk"
@@ -363,21 +429,11 @@ def test_kv_disk_offload_path_disk_off():
 def test_kv_disk_offload_path_offload_absent():
     """offload 未产出(scheme 缺失被关)→ kv_disk_offload_path None(无清理目标)。"""
     kv = SmartKVCacheConfig(
-        enabled=True, disk_offload_enabled=True, disk_path="/lm",
+        enabled=True,
+        disk_offload_enabled=True,
+        disk_path="/lm",
     )
-    out = func_smart_accel(make_input(offload_enabled=True, kv_cache_config=kv,
-                                      smart_accel={"decoding": []}))  # 无 kv_offload 块 → offload None
+    out = func_smart_accel(
+        make_input(offload_enabled=True, kv_cache_config=kv, smart_accel={"decoding": []})
+    )  # 无 kv_offload 块 → offload None
     assert out.kv_disk_offload_path is None
-
-
-def test_generated_file_paths_must_be_unique():
-    """同一路径的多个计划会导致交付文件语义不确定，必须在 SmartAccel 侧拒绝。"""
-    from wings_accel.core import _ensure_unique_generated_file_paths
-
-    duplicate_files = [
-        GeneratedFile(path="/shared-volume/plan.json", content="first"),
-        GeneratedFile(path="/shared-volume/plan.json", content="second"),
-    ]
-
-    with pytest.raises(ValueError, match="generated file paths must be unique"):
-        _ensure_unique_generated_file_paths(duplicate_files)

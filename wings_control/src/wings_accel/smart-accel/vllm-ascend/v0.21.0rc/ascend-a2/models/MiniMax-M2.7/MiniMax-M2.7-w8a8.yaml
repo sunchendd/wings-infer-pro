@@ -19,6 +19,8 @@ smart_accel:
         decoding:
         - name: eagle3
           requires_model_path: true
+          draft_arch:
+            - eagle3
           cli_params:
             speculative_config:
               method: eagle3
@@ -62,79 +64,3 @@ smart_accel:
                   --eviction_high_watermark_ratio 0.9 \
                   --eviction_ratio 0.1 \
                   --default_kv_lease_ttl 11000
-  multi_node:
-    source_ref: smart_accel#multi_node
-    match:
-      distributed: true
-      pd_role: null
-    strategies:
-      multi_node_dp:
-        default_strategy: true
-        decoding:
-        - name: eagle3
-          requires_model_path: true
-          cli_params:
-            speculative_config:
-              method: eagle3
-              model: $path
-              num_speculative_tokens: 3
-              enforce_eager: true
-          envs: {}
-        kv_offload:
-        - name: cpu
-          cli_params:
-            kv_transfer_config:
-              kv_connector: AscendStoreConnector
-              kv_role: kv_both
-              kv_load_failure_policy: recompute
-              kv_connector_extra_config:
-                lookup_rpc_port: '1'
-                backend: mooncake
-          envs:
-            MOONCAKE_CONFIG_PATH: /shared-volume/mooncake.json
-            LD_LIBRARY_PATH: /usr/local/lib:${LD_LIBRARY_PATH:-}
-          files:
-          - path: mooncake.json
-            scope: all
-            content: |
-              {
-                "local_hostname": "{rank_ip}",
-                "metadata_server": "P2PHANDSHAKE",
-                "protocol": "ascend",
-                "device_name": "",
-                "master_server_address": "{master_ip}:50088",
-                "global_segment_size": "{= memory_capacity_gb // gpu_count}GB",
-                "preferred_segment": false,
-                "prefer_alloc_in_same_node": true
-              }
-          - path: start_kv_serve.sh
-            mode: '0755'
-            content: |
-              #!/usr/bin/env bash
-              # mooncake master daemon(仅 master 节点起;framework 自动 bash <path> &)。
-              /usr/local/bin/mooncake_master --port 50088 \
-                  --eviction_high_watermark_ratio 0.9 \
-                  --eviction_ratio 0.1 \
-                  --default_kv_lease_ttl 11000
-  pd_disaggregation:
-    source_ref: smart_accel#pd_cluster
-    match:
-      distributed: true
-      pd_role: null
-    strategies:
-      pd_cluster:
-        display_name: Prefill/Decode Disaggregation
-        default_strategy: true
-        nodes:
-        - role: decode
-          index: 0
-          decoding:
-          - name: eagle3
-            requires_model_path: true
-            cli_params:
-              speculative_config:
-                method: eagle3
-                model: $path
-                num_speculative_tokens: 3
-                enforce_eager: true
-            envs: {}

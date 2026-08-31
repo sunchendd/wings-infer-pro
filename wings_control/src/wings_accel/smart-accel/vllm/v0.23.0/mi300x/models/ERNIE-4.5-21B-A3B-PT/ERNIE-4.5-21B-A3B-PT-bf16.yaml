@@ -1,4 +1,4 @@
-# SmartAccel 加速配置(decoding=ernie_mtp [model_based])
+# SmartAccel 加速配置(decoding=ernie_mtp [no_model])
 # 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
 # 由 features.spec_decoding 自动生成;仅 decoding,无 kv_offload/sparse。
 model:
@@ -17,11 +17,9 @@ smart_accel:
         default_strategy: true
         decoding:
         - name: ernie_mtp
-          requires_model_path: true
           cli_params:
             speculative_config:
               method: ernie_mtp
-              model: $path
               num_speculative_tokens: 1
           envs: {}
   multi_node:
@@ -34,31 +32,8 @@ smart_accel:
         default_strategy: true
         decoding:
         - name: ernie_mtp
-          requires_model_path: true
           cli_params:
             speculative_config:
               method: ernie_mtp
-              model: $path
               num_speculative_tokens: 1
           envs: {}
-  pd_disaggregation:
-    source_ref: smart_accel#pd_cluster
-    match:
-      distributed: true
-      pd_role: null
-    strategies:
-      pd_cluster:
-        display_name: Prefill/Decode Disaggregation
-        default_strategy: true
-        nodes:
-        - role: decode
-          index: 0
-          decoding:
-          - name: ernie_mtp
-            requires_model_path: true
-            cli_params:
-              speculative_config:
-                method: ernie_mtp
-                model: $path
-                num_speculative_tokens: 1
-            envs: {}

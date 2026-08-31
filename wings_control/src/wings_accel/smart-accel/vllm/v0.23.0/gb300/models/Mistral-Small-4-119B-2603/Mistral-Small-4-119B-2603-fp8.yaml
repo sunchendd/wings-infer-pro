@@ -18,6 +18,8 @@ smart_accel:
         decoding:
         - name: eagle
           requires_model_path: true
+          draft_arch:
+            - eagle
           cli_params:
             speculative_config:
               method: eagle
@@ -36,6 +38,8 @@ smart_accel:
         decoding:
         - name: eagle
           requires_model_path: true
+          draft_arch:
+            - eagle
           cli_params:
             speculative_config:
               method: eagle
@@ -58,6 +62,8 @@ smart_accel:
           decoding:
           - name: eagle
             requires_model_path: true
+            draft_arch:
+              - eagle
             cli_params:
               speculative_config:
                 method: eagle

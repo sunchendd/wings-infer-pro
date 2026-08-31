@@ -8,10 +8,12 @@
 from __future__ import annotations
 
 import re
+import json
 from pathlib import Path
 from typing import Any, Iterator
 
 import yaml
+from packaging.version import InvalidVersion, Version
 
 from wings_ctl.hardware.resolver import strip_gpu_mem_suffix
 
@@ -68,9 +70,7 @@ def _model_patterns(data: Any) -> list[str]:
     if not isinstance(rules, list):
         return []
     return [
-        rule["name_pattern"]
-        for rule in rules
-        if isinstance(rule, dict) and isinstance(rule.get("name_pattern"), str)
+        rule["name_pattern"] for rule in rules if isinstance(rule, dict) and isinstance(rule.get("name_pattern"), str)
     ]
 
 
@@ -99,9 +99,8 @@ def test_config_family_dir_no_bare_and_suffixed_collision(config_root_real):
                 base = strip_gpu_mem_suffix(f).casefold()
                 if base in bare:
                     violations.append(f"{parent.name}: '{f}' 与裸目录 '{base}' 并存")
-    assert not violations, (
-        "config 硬件目录不变量被破坏(同型号裸目录 + 后缀目录并存 → 剥后缀会静默坍缩):\n"
-        + "\n".join(violations)
+    assert not violations, "config 硬件目录不变量被破坏(同型号裸目录 + 后缀目录并存 → 剥后缀会静默坍缩):\n" + "\n".join(
+        violations
     )
 
 
@@ -128,12 +127,10 @@ def test_vllm_flashinfer_kernel_config_uses_native_dotted_key(config_root_real):
 
     assert not legacy_entries, (
         "vLLM YAML 仍含扁平 FlashInfer kernel 配置;应改为 "
-        "kernel_config.enable_flashinfer_autotune: \"False\":\n"
-        + "\n".join(legacy_entries)
+        'kernel_config.enable_flashinfer_autotune: "False":\n' + "\n".join(legacy_entries)
     )
-    assert not invalid_native_entries, (
-        "vLLM native FlashInfer kernel 配置必须使用字符串字面值 \"False\":\n"
-        + "\n".join(invalid_native_entries)
+    assert not invalid_native_entries, 'vLLM native FlashInfer kernel 配置必须使用字符串字面值 "False":\n' + "\n".join(
+        invalid_native_entries
     )
 
 
@@ -165,9 +162,8 @@ def test_deepseek_mtp_assets_do_not_match_unsupported_models(config_root_real):
                 if matched:
                     violations.append(f"{path}: {pattern!r} -> {', '.join(matched)}")
 
-    assert not violations, (
-        "以下 DeepSeek YAML 声明了 MTP，却会匹配不支持 MTP 的 Coder/Distill 模型:\n"
-        + "\n".join(violations)
+    assert not violations, "以下 DeepSeek YAML 声明了 MTP，却会匹配不支持 MTP 的 Coder/Distill 模型:\n" + "\n".join(
+        violations
     )
 
 
@@ -196,6 +192,41 @@ def _model_variant_keys_by_hardware(root: Path) -> set[tuple[str, str]]:
     return keys
 
 
+def _minimum_engine_version(path: Path) -> Version | None:
+    """解析 engine YAML 的最低版本；缺失或非 PEP 440 版本时不参与版本门禁。"""
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    raw = str((data.get("model") or {}).get("min_engine_version", "")).strip().lstrip("v")
+    if not raw:
+        return None
+    try:
+        return Version(raw)
+    except InvalidVersion:
+        return None
+
+
+def _feature_speculative_config(data: dict[str, Any]) -> dict[str, Any]:
+    """从 features.spec_decoding.args 提取 --speculative-config JSON。"""
+    args = ((data.get("features") or {}).get("spec_decoding") or {}).get("args") or []
+    for index, value in enumerate(args[:-1]):
+        if value == "--speculative-config":
+            parsed = json.loads(args[index + 1])
+            return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _smart_decoding_configs(value: Any) -> Iterator[dict[str, Any]]:
+    """递归返回 SmartAccel 资产中的 speculative_config mapping。"""
+    if isinstance(value, dict):
+        config = value.get("speculative_config")
+        if isinstance(config, dict):
+            yield config
+        for nested in value.values():
+            yield from _smart_decoding_configs(nested)
+    elif isinstance(value, list):
+        for nested in value:
+            yield from _smart_decoding_configs(nested)
+
+
 def test_vllm_ascend_engine_variants_have_smart_assets(config_root_real):
     """每个 vLLM-Ascend engine variant 必须有同版本、同硬件、同身份的 SmartAccel 资产。"""
     engine_keys = _model_variant_keys(config_root_real / "engines" / "vllm-ascend")
@@ -217,11 +248,87 @@ def test_vllm_engine_variants_have_smart_assets(config_root_real):
     故以 ``(hardware, variant_name)`` 为键对比,并跨 smart-accel 所有版本合并。
     """
     engine_keys = _model_variant_keys_by_hardware(config_root_real / "engines" / "vllm")
+    # DiffusionGemma 最低要求 v0.24.0，而当前没有 v0.24.0 SmartAccel 资产目录；
+    # 按产品约定仅保证基础拉起，禁止用 v0.23.0 空占位冒充支持。
+    engine_keys = {key for key in engine_keys if not key[1].startswith("diffusiongemma-26b-a4b-it-")}
     smart_root = Path(__file__).resolve().parents[2] / "src" / "wings_accel" / "smart-accel" / "vllm"
     smart_keys = _model_variant_keys_by_hardware(smart_root)
     engine_only = sorted(engine_keys - smart_keys)
 
-    assert not engine_only, (
-        "以下 vLLM engine variant 缺少同硬件、同身份的 SmartAccel 资产：\n"
-        + "\n".join(map(str, engine_only))
+    assert not engine_only, "以下 vLLM engine variant 缺少同硬件、同身份的 SmartAccel 资产：\n" + "\n".join(
+        map(str, engine_only)
     )
+
+
+def test_diffusiongemma_has_no_smart_asset_below_minimum_version(config_root_real):
+    """DiffusionGemma 最低要求 v0.24.0，不得在 v0.23.0 创建 SmartAccel 资产。"""
+    engine_root = config_root_real / "engines" / "vllm"
+    smart_root = Path(__file__).resolve().parents[2] / "src" / "wings_accel" / "smart-accel" / "vllm"
+    minimums: dict[tuple[str, str], Version] = {}
+    for path in engine_root.glob("**/models/*/*.yaml"):
+        minimum = _minimum_engine_version(path)
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        variant_name = (data.get("model") or {}).get("variant_name")
+        if minimum is not None and isinstance(variant_name, str) and variant_name.strip():
+            minimums[(path.parts[-4], variant_name.strip().casefold())] = minimum
+
+    violations: list[str] = []
+    for path in smart_root.glob("v*/*/models/diffusiongemma-26B-A4B-it/*.yaml"):
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        variant_name = (data.get("model") or {}).get("variant_name")
+        if not isinstance(variant_name, str) or not variant_name.strip():
+            continue
+        smart_version = Version(path.parts[-5].lstrip("v"))
+        minimum = minimums.get((path.parts[-4], variant_name.strip().casefold()))
+        if minimum is not None and smart_version < minimum:
+            violations.append(f"{path}: smart={smart_version}, engine minimum={minimum}")
+
+    assert not violations, "以下 DiffusionGemma SmartAccel 资产低于 engine 最低版本：\n" + "\n".join(violations)
+
+
+def _normalized_spec_value(value: Any) -> Any:
+    """归一化 JSON/YAML 中等价的整数与整数字符串。"""
+    if isinstance(value, str) and re.fullmatch(r"-?\d+", value.strip()):
+        return int(value)
+    return value
+
+
+def test_vllm_ascend_smart_speculative_configs_preserve_required_fields(config_root_real):
+    """vLLM-Ascend Smart decoding 必须保留 engine feature 的关键投机参数。"""
+    smart_root = Path(__file__).resolve().parents[2] / "src" / "wings_accel" / "smart-accel"
+    violations: list[str] = []
+    required_fields = {
+        "enforce_eager",
+        "draft_sample_method",
+        "parallel_drafting",
+        "draft_tensor_parallel_size",
+        "speculative_token_range",
+    }
+    for engine_path in (config_root_real / "engines" / "vllm-ascend").glob("v*/**/models/*/*.yaml"):
+        engine = yaml.safe_load(engine_path.read_text(encoding="utf-8")) or {}
+        expected = _feature_speculative_config(engine)
+        expected_fields = required_fields & expected.keys()
+        if not expected_fields:
+            continue
+        model = engine.get("model") or {}
+        variant = str(model.get("variant_name", "")).casefold()
+        if not variant:
+            continue
+        parts = engine_path.parts
+        engine_name = parts[parts.index("engines") + 1]
+        version = parts[parts.index("engines") + 2]
+        hardware = parts[parts.index("models") - 1]
+        for smart_path in smart_root.glob(f"{engine_name}/{version}/{hardware}/models/*/*.yaml"):
+            smart = yaml.safe_load(smart_path.read_text(encoding="utf-8")) or {}
+            if str((smart.get("model") or {}).get("variant_name", "")).casefold() != variant:
+                continue
+            for actual in _smart_decoding_configs(smart.get("smart_accel") or {}):
+                for field in sorted(expected_fields):
+                    actual_value = _normalized_spec_value(actual.get(field))
+                    expected_value = _normalized_spec_value(expected[field])
+                    if actual_value != expected_value:
+                        violations.append(
+                            f"{smart_path}: {field}={actual_value!r}, expected {expected_value!r} from {engine_path}"
+                        )
+
+    assert not violations, "以下 SmartAccel 投机参数未完整继承 engine feature：\n" + "\n".join(violations)

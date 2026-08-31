@@ -7,21 +7,6 @@ model:
   match:
     - name_pattern: "(?i)deepseek[-.]?v4[-.]?pro"
 smart_accel:
-  standalone:
-    source_ref: smart_accel#standalone
-    match:
-      distributed: false
-      pd_role: null
-    strategies:
-      single_node:
-        default_strategy: true
-        decoding:
-        - name: mtp
-          cli_params:
-            speculative_config:
-              method: mtp
-              num_speculative_tokens: 1
-          envs: {}
   multi_node:
     source_ref: smart_accel#multi_node
     match:
@@ -36,6 +21,7 @@ smart_accel:
             speculative_config:
               method: mtp
               num_speculative_tokens: 1
+              enforce_eager: true
           envs: {}
   pd_disaggregation:
     source_ref: smart_accel#pd_cluster
@@ -55,4 +41,5 @@ smart_accel:
               speculative_config:
                 method: mtp
                 num_speculative_tokens: 1
+                enforce_eager: true
             envs: {}

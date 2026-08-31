@@ -28,7 +28,7 @@ from typing import Optional
 
 from wings_accel.conflict import resolve_conflicts
 from wings_accel.custom import smart_custom_features_expander
-from wings_accel.decoders import smart_decoding_expander
+from wings_accel.decoders import _normalize_optional_path, smart_decoding_expander
 from wings_accel.offload import smart_kv_offload_expander
 from wings_accel.render import PlaceholderContext, merge_engine_params
 from wings_accel.schemas import (
@@ -110,12 +110,19 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
     # Step 4: run expanders
     # smart_accel 已在 yaml_loader 按 topology 路由出扁平子块(scenario 嵌套结构,见 smart-yaml.md §1),
     # expander 直接消费 decoding/kv_offload/sparse,不再感知 scenario / topology。
-    decoding = smart_decoding_expander(
-        smart_input.smart_decoding_config,
-        smart_input.model_config,
-        smart_accel.get("decoding"),
-        ctx,
-    )
+    # PD prefill 节点不做投机(loader 路由剥 decoding 键的意图)——
+    # topology/pd_role 为 prefill 侧时直接不产出 decoding。
+    _topology = (smart_input.deployment_mode.topology or "").lower()
+    _pd_role = (smart_input.deployment_mode.pd_role or "").lower()
+    if "prefill" in _topology or _pd_role in ("prefill", "p"):
+        decoding = None
+    else:
+        decoding = smart_decoding_expander(
+            smart_input.smart_decoding_config,
+            smart_input.model_config,
+            smart_accel.get("decoding"),
+            ctx,
+        )
     sparse = smart_sparse_expander(
         smart_input.smart_kv_sparse_config,
         smart_accel.get("sparse"),
@@ -130,7 +137,11 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
 
     # Step 5: conflict resolution extension point(currently no-op)
     decoding, sparse, offload, _ = resolve_conflicts(
-        decoding, sparse, offload, smart_accel.get("decoding"), ctx,
+        decoding,
+        sparse,
+        offload,
+        smart_accel.get("decoding"),
+        ctx,
     )
 
     # custom_features:仅当 decoding/kv_cache/sparse 至少一项产出时才启用
@@ -265,7 +276,8 @@ def _build_placeholder_context(smart_input: SmartAccelInput) -> PlaceholderConte
         qat_enabled=kv.qat_enabled,
         qat_device_count=kv.qat_device_count,
         qat_compression_level=kv.qat_compression_level,
-        draft_model_path=smart_input.smart_decoding_config.model_path,
+        # 归一(none/null 字面量→空、strip 空格):防字面量/带空格路径被 $path 渲染进 config
+        draft_model_path=_normalize_optional_path(smart_input.smart_decoding_config.model_path),
         gpu_count=smart_input.hardware_config.gpu_count,
         tp_size=kv.tp_size,
         dp_size=kv.dp_size,

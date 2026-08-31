@@ -138,11 +138,11 @@ class SmartDecodingConfig:
       - `ENABLE_SPECULATIVE_DECODE`:必填,bool,投机推理开关(smart 一级),取值 true/false;
         AI perf 未传时 wings-control 按 False 处理。
       - `SPECULATIVE_DECODE_MODEL_PATH`:条件必填,str;当 ENABLE_SPECULATIVE_DECODE=true 时必填
-        (具体路径或 none),false 时不下发。
+        (本地挂载的草稿模型目录或 none;仅消费目录,config.json 文件路径/HF repo id 不接受),false 时不下发。
     """
 
     enabled: bool = False # 投机推理开关;MaaS 必填 `ENABLE_SPECULATIVE_DECODE`(bool true/false;缺省按 False)
-    model_path: str = "" # 草稿模型路径;MaaS 条件必填 `SPECULATIVE_DECODE_MODEL_PATH`(spec=true 时路径或 none)
+    model_path: str = "" # 草稿模型路径(本地挂载的模型目录或 none);MaaS 条件必填 `SPECULATIVE_DECODE_MODEL_PATH`(spec=true 时目录或 none)
 
 
 @dataclass

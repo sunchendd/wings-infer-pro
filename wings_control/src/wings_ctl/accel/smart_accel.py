@@ -161,6 +161,7 @@ def collect_accel_switches(env: dict) -> dict[str, Any]:
     """收口读取 MaaS smart/accel ENV 开关(v3 命名)→ 归一字典(单一真相源)。"""
     memory_size_mode = _kv_mem_size(env.get("KV_MEM_OFFLOAD_SIZE") or env.get("ENABLE_KV_MEM_OFFLOAD"))
     mem_enabled = _as_bool(env, "ENABLE_KV_MEM_OFFLOAD") or bool(memory_size_mode)
+    disk_enabled = _as_bool(env, "ENABLE_KV_DISK_OFFLOAD")
     return {
         # 投机解码;草稿路径原样透传,none/null 字面量的归一在消费点(wings_accel/decoders._eligible)做
         "speculative_enabled": _as_bool(env, "ENABLE_SPECULATIVE_DECODE"),
@@ -169,11 +170,11 @@ def collect_accel_switches(env: dict) -> dict[str, Any]:
         "sparse_enabled": _as_bool(env, "ENABLE_SPARSE"),
         "sparse_level": env.get("SPARSE_LEVEL", "performance_first") or "performance_first",
         # KV 卸载(一级 → 二级 mem/disk → 三级 qat)
-        "kv_offload_enabled": _as_bool(env, "ENABLE_KV_OFFLOAD") or mem_enabled,
+        "kv_offload_enabled": _as_bool(env, "ENABLE_KV_OFFLOAD") or mem_enabled or disk_enabled,
         "kv_mem_enabled": mem_enabled,
         "kv_mem_size_mode": memory_size_mode,
         "kv_mem_size_gb": 0 if memory_size_mode in ("", "auto") else _as_int(memory_size_mode),
-        "kv_disk_enabled": _as_bool(env, "ENABLE_KV_DISK_OFFLOAD"),
+        "kv_disk_enabled": disk_enabled,
         "kv_disk_path": env.get("KV_DISK_OFFLOAD_PATH", "") or "",
         "kv_disk_size_gb": _as_int(env.get("KV_DISK_OFFLOAD_SIZE")),
         "kv_qat_enabled": _as_bool(env, "ENABLE_KV_QAT"),
@@ -207,9 +208,39 @@ def active_accel_switch_names(env: dict) -> list[str]:
     return names
 
 
-def build_smart_input(mod, *, hardware_family: str, gpu_count: int | None, model_path: str | None,
-                      model_name: str | None, engine: str, engine_version: str | None,
-                      switches: dict):
+def _warn_unmet_accel_switches(switches: dict[str, Any], result: AccelResult, reason: str) -> None:
+    """记录已请求但未产出 scheme 的特性及关闭原因。"""
+    unmet: list[str] = []
+    if switches["speculative_enabled"] and "smart_decoding_scheme" not in result.audit:
+        unmet.append("ENABLE_SPECULATIVE_DECODE")
+    if switches["sparse_enabled"] and "smart_kv_sparse_scheme" not in result.audit:
+        unmet.append("ENABLE_SPARSE")
+    if switches["kv_offload_enabled"] and "smart_kv_cache_scheme" not in result.audit:
+        if switches["kv_mem_enabled"]:
+            unmet.append("ENABLE_KV_MEM_OFFLOAD/KV_MEM_OFFLOAD_SIZE")
+        if switches["kv_disk_enabled"]:
+            unmet.append("ENABLE_KV_DISK_OFFLOAD")
+        if not switches["kv_mem_enabled"] and not switches["kv_disk_enabled"]:
+            unmet.append("ENABLE_KV_OFFLOAD")
+    if unmet:
+        logger.warning(
+            "SmartAccel disabled requested feature(s) %s: %s",
+            ", ".join(unmet),
+            reason,
+        )
+
+
+def build_smart_input(
+    mod,
+    *,
+    hardware_family: str,
+    gpu_count: int | None,
+    model_path: str | None,
+    model_name: str | None,
+    engine: str,
+    engine_version: str | None,
+    switches: dict,
+):
     """兼容旧单测/旧调用:构造 SmartAccelInput;生产路径不使用本函数。"""
     system_config_cls = mod.SystemConfig if hasattr(mod, "SystemConfig") else mod.HardwareConfig
 
@@ -262,14 +293,16 @@ def _collect_generated_files(raw_files: list) -> list[GeneratedFileSpec]:
         path = str(getattr(raw, "path", "") or "").strip()
         if not path:
             continue
-        specs.append(GeneratedFileSpec(
-            path=path,
-            content=str(getattr(raw, "content", "") or ""),
-            mode=getattr(raw, "mode", None),
-            scope=str(getattr(raw, "scope", "all") or "all"),
-            source_file=str(getattr(raw, "source_file", "") or ""),
-            source_path=str(getattr(raw, "source_path", "") or ""),
-        ))
+        specs.append(
+            GeneratedFileSpec(
+                path=path,
+                content=str(getattr(raw, "content", "") or ""),
+                mode=getattr(raw, "mode", None),
+                scope=str(getattr(raw, "scope", "all") or "all"),
+                source_file=str(getattr(raw, "source_file", "") or ""),
+                source_path=str(getattr(raw, "source_path", "") or ""),
+            )
+        )
     return specs
 
 
@@ -282,15 +315,9 @@ def _validate_pre_serve_trust(result: AccelResult) -> None:
     Raises:
         ValueError: 存在启动前命令但来源不是包内受审核资产时抛出。
     """
-    has_commands = bool(
-        result.pre_serve
-        or result.pre_serve_master
-        or result.pre_serve_client
-    )
+    has_commands = bool(result.pre_serve or result.pre_serve_master or result.pre_serve_client)
     if has_commands and result.pre_serve_trusted is not True:
-        raise ValueError(
-            "SmartAccel pre-serve commands do not have a trusted package source"
-        )
+        raise ValueError("SmartAccel pre-serve commands do not have a trusted package source")
 
 
 def collect_output(output) -> AccelResult:
@@ -303,9 +330,7 @@ def collect_output(output) -> AccelResult:
         pre_serve = list(getattr(output, "pre_serve", []) or [])
         pre_serve_master = list(getattr(output, "pre_serve_master", []) or [])
         pre_serve_client = list(getattr(output, "pre_serve_client", []) or [])
-        generated_files = _collect_generated_files(
-            getattr(output, "generated_files", None) or []
-        )
+        generated_files = _collect_generated_files(getattr(output, "generated_files", None) or [])
         scheme_fields = {
             "smart_decoding_scheme": getattr(output, "smart_decoding_scheme", None),
             "smart_kv_sparse_scheme": getattr(output, "smart_kv_sparse_scheme", None),
@@ -337,13 +362,7 @@ def collect_output(output) -> AccelResult:
             # 任一运行时产出均表示 accel 已生效。文件计划、依赖和 pre-serve 不能因
             # engine_config/env 为空而漏掉安装或启动准备阶段。
             enabled=bool(
-                engine_config
-                or env
-                or packages
-                or pre_serve
-                or pre_serve_master
-                or pre_serve_client
-                or generated_files
+                engine_config or env or packages or pre_serve or pre_serve_master or pre_serve_client or generated_files
             ),
         )
 
@@ -363,40 +382,55 @@ def collect_output(output) -> AccelResult:
     if top:
         audit["wings_accel"] = top
     return AccelResult(
-        engine_config=engine_config, env=env, audit=audit,
+        engine_config=engine_config,
+        env=env,
+        audit=audit,
         enabled=bool(engine_config or env),
         kv_mem_offload_size_gb=getattr(output, "kv_mem_offload_size_gb", None),
         kv_disk_offload_path=getattr(output, "kv_disk_offload_path", None),
     )
 
 
-def apply_smart_accel(*, hardware_family: str, gpu_count: int | None, model_path: str | None,
-                      model_name: str | None, engine: str, engine_version: str | None,
-                      config_root: str = "", pd_role: str | None = None,
-                      topology: str | None = None,
-                      tp_size: int = 0, dp_size: int = 0,
-                      enabled: bool = True,
-                      env: dict | None = None) -> AccelResult:
+def apply_smart_accel(
+    *,
+    hardware_family: str,
+    gpu_count: int | None,
+    model_path: str | None,
+    model_name: str | None,
+    engine: str,
+    engine_version: str | None,
+    config_root: str = "",
+    pd_role: str | None = None,
+    topology: str | None = None,
+    tp_size: int = 0,
+    dp_size: int = 0,
+    enabled: bool = True,
+    env: dict | None = None,
+) -> AccelResult:
     """委托 wings-accel 生成加速产出。
 
-模块缺失或普通可选集成故障会降级为空 :class:`AccelResult`；SmartAccel 配置
-    错误以及来源不受信任的启动前命令必须向上抛出，避免带风险资产继续启动。
+    模块缺失或普通可选集成故障会降级为空 :class:`AccelResult`；SmartAccel 配置
+        错误以及来源不受信任的启动前命令必须向上抛出，避免带风险资产继续启动。
 
-    topology 由上层 ``config_resolver`` 传入(已聚合 PD_ROLE/DISTRIBUTED/NODE_IPS,
-    对齐 wings-control ``Topology`` 枚举值);本适配层不再从 env 推导拓扑。
+        topology 由上层 ``config_resolver`` 传入(已聚合 PD_ROLE/DISTRIBUTED/NODE_IPS,
+        对齐 wings-control ``Topology`` 枚举值);本适配层不再从 env 推导拓扑。
 
-    tp_size/dp_size 由调用方从 model recipe 的 scenarios.engine_config 透传,供 KV 内存
-    auto 估算 worker_count;smart-accel YAML 常无 scenarios 字段,故需上游注入。0 = 未下发。
+        tp_size/dp_size 由调用方从 model recipe 的 scenarios.engine_config 透传,供 KV 内存
+        auto 估算 worker_count;smart-accel YAML 常无 scenarios 字段,故需上游注入。0 = 未下发。
     """
     if not enabled:
         return AccelResult()
+    resolved_env = os.environ if env is None else env
+    switches = collect_accel_switches(resolved_env)
     mod = _import_accel()
     if mod is None:
-        logger.debug("wings-accel module is unavailable; skipping smart acceleration delegation")
+        _warn_unmet_accel_switches(
+            switches,
+            AccelResult(),
+            "wings-accel module is unavailable",
+        )
         return AccelResult()
-    resolved_env = os.environ if env is None else env
     try:
-        switches = collect_accel_switches(resolved_env)
         if pd_role is not None:
             # 调用方显式覆盖 pd_role;topology 不再在此重算,
             # 由上层 config_resolver 一并负责(它已能根据 PD_ROLE 推导 Topology)。
@@ -434,6 +468,11 @@ def apply_smart_accel(*, hardware_family: str, gpu_count: int | None, model_path
             gpu_count=gpu_count or 1,
         )
         if output is None:
+            _warn_unmet_accel_switches(
+                switches,
+                AccelResult(),
+                "no matching SmartAccel asset for the engine version, hardware, model, or topology",
+            )
             return AccelResult()
         result = collect_output(output)
     except Exception as exc:  # optional integration 故障按既有契约降级；配置错误不能吞掉。
@@ -441,11 +480,19 @@ def apply_smart_accel(*, hardware_family: str, gpu_count: int | None, model_path
         if isinstance(configuration_error, type) and isinstance(exc, configuration_error):
             raise
         logger.warning("wings-accel invocation failed; continuing without acceleration: %s", exc)
+        _warn_unmet_accel_switches(switches, AccelResult(), f"wings-accel invocation failed: {exc}")
         return AccelResult()
 
     _validate_pre_serve_trust(result)
+    _warn_unmet_accel_switches(
+        switches,
+        result,
+        "the matched SmartAccel asset produced no eligible scheme for the requested configuration",
+    )
     logger.info(
         "wings-accel applied: +%d engine_config / +%d env / audit=%s",
-        len(result.engine_config), len(result.env), list(result.audit),
+        len(result.engine_config),
+        len(result.env),
+        list(result.audit),
     )
     return result
