@@ -114,6 +114,63 @@ def test_apply_module_absent_is_noop(monkeypatch) -> None:
     assert result.enabled is False
 
 
+def test_apply_module_absent_warns_enabled_feature_reason(monkeypatch, caplog) -> None:
+    """开关已开启但模块缺失时明确说明特性被关闭及原因。"""
+    monkeypatch.setattr(smart_accel, "_import_accel", lambda: None)
+    with caplog.at_level("WARNING", logger="wings_ctl.accel.smart_accel"):
+        apply_smart_accel(
+            hardware_family="h100",
+            gpu_count=8,
+            model_path="/m",
+            model_name="M",
+            engine="vllm",
+            engine_version="0.19.0",
+            env={"ENABLE_SPECULATIVE_DECODE": "true"},
+        )
+    assert "ENABLE_SPECULATIVE_DECODE" in caplog.text
+    assert "module is unavailable" in caplog.text
+
+
+def test_apply_warns_when_enabled_feature_produces_no_scheme(monkeypatch, caplog) -> None:
+    """资产命中但开关没有产出 scheme 时明确说明关闭原因。"""
+    monkeypatch.setattr(smart_accel, "_import_accel", _make_stub_module)
+    with caplog.at_level("WARNING", logger="wings_ctl.accel.smart_accel"):
+        apply_smart_accel(
+            hardware_family="h100",
+            gpu_count=8,
+            model_path="/m",
+            model_name="M",
+            engine="vllm",
+            engine_version="0.19.0",
+            env={"ENABLE_KV_OFFLOAD": "true"},
+        )
+    assert "ENABLE_KV_OFFLOAD" in caplog.text
+    assert "produced no eligible scheme" in caplog.text
+
+
+def test_apply_warning_names_memory_subswitch(monkeypatch, caplog) -> None:
+    """仅由容量参数打开内存卸载时，告警应指向实际子开关。"""
+    monkeypatch.setattr(smart_accel, "_import_accel", _make_stub_module)
+    with caplog.at_level("WARNING", logger="wings_ctl.accel.smart_accel"):
+        apply_smart_accel(
+            hardware_family="h100",
+            gpu_count=8,
+            model_path="/m",
+            model_name="M",
+            engine="vllm",
+            engine_version="0.19.0",
+            env={"KV_MEM_OFFLOAD_SIZE": "64"},
+        )
+    assert "ENABLE_KV_MEM_OFFLOAD/KV_MEM_OFFLOAD_SIZE" in caplog.text
+
+
+def test_disk_offload_switch_alone_is_active() -> None:
+    """仅开启磁盘卸载也必须打开 KV 一级解析，不能在调用 SmartAccel 前被跳过。"""
+    switches = collect_accel_switches({"ENABLE_KV_DISK_OFFLOAD": "true"})
+    assert switches["kv_offload_enabled"] is True
+    assert switches["kv_disk_enabled"] is True
+
+
 def test_apply_with_stub_module_appends_spec(monkeypatch) -> None:
     """验证 stub 模块在场 + spec 开 → cli 含 --speculative-config、诊断进 audit。"""
     monkeypatch.setattr(smart_accel, "_import_accel", _make_stub_module)
