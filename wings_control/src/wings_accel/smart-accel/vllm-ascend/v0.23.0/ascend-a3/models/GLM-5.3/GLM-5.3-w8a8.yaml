@@ -1,0 +1,24 @@
+# SmartAccel 加速配置(decoding=deepseek_mtp)
+# 投机参数与引擎 features.spec_decoding 同源。
+model:
+  name: GLM-5.3
+  variant_name: "GLM-5.3-w8a8"
+  match:
+    - name_pattern: "(?i)glm[-.]?5.3"
+smart_accel:
+  multi_node:
+    source_ref: "vllm_ascend_glm-5.3_w8a8_manual#multi_node_dp"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dp:
+        default_strategy: true
+        decoding:
+          - name: deepseek_mtp
+            cli_params:
+              speculative_config:
+                num_speculative_tokens: 3
+                method: deepseek_mtp
+                enforce_eager: true
+            envs: {}
