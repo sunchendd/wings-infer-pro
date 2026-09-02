@@ -1,0 +1,51 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_glm_5_3_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://recipes.vllm.ai/zai-org/GLM-5.3"
+    note: 用户提供启动命令，手工录入。
+
+# 模型基本信息
+model:
+  name: GLM-5.3
+  slug: glm-5.3
+  provider: Z-AI
+  model_id: zai-org/GLM-5.3
+  min_engine_version: "0.28.0"
+  match:
+    - name_pattern: "(?i)glm[-.]?5[.]3"
+  variant_name: GLM-5.3
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 1128
+  multi_node: false
+
+# 可选功能列表
+features:
+  tool_calling:
+    args: [--tool-call-parser, glm47, --enable-auto-tool-choice]
+  reasoning:
+    args: [--reasoning-parser, glm45]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_glm_5_3_manual#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: zai-org/GLM-5.3
+          host: "0.0.0.0"
+          tensor_parallel_size: 8
+          kv_cache_dtype: fp8
+        env: {}
