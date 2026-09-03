@@ -207,9 +207,10 @@ def _derive_dp(ctx: MultinodeCtx, sel, size_local: int, cfg: Dict[str, Any]) -> 
         # 不校验用户填的 size_local、只外传 external 时吐一条用户告警说明该约束。
         # 每个 Pod 进程内 _derive_dp 仅调一次,告警不重复。
         logger.warning(
-            "data_parallel_external_lb(外部负载均衡)要求 data_parallel_size_local==1,"
-            "否则 vLLM 会拒绝启动。data_parallel_external_lb + "
-            "data_parallel_size_local>1 时,建议使用 PD 分离部署方式。"
+            "data_parallel_external_lb (external load balancer) requires "
+            "data_parallel_size_local==1, otherwise vLLM will refuse to start. "
+            "For data_parallel_external_lb with data_parallel_size_local>1, "
+            "prefer the PD (parallel deployment) separation mode."
         )
     # DP 协调的 master 地址(head IP),各节点一致(recipe: head/worker 均 $HEAD_IP)。
     # external 亦需该地址(DP>1 时 Coordinator 用它建 ZMQ,见 vLLM coordinator.py)。
