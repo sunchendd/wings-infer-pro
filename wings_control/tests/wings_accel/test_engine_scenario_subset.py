@@ -33,6 +33,7 @@ ASSETS = [
     "vllm-ascend/v0.23.0/ascend-a2/models/GLM-5.1/GLM-5.1-w4a8.yaml",
     "vllm-ascend/v0.23.0/ascend-a2/models/GLM-5.1/GLM-5.1-w8a8.yaml",
     "vllm-ascend/v0.23.0/ascend-a2/models/GLM-5/GLM-5-w4a8.yaml",
+    "vllm-ascend/v0.23.0/ascend-a3/models/GLM-5.3/GLM-5.3-w8a8.yaml",
 ]
 
 
@@ -88,6 +89,30 @@ def test_smart_assets_have_no_placeholder_source_ref(rel):
         assert not ref.startswith("smart_accel#"), (
             f"{rel}#{name}: source_ref {ref!r} 是占位值,应改为引擎 recipe 的真实 source_ref"
         )
+
+
+def test_glm53_multi_node_speculative_decoding():
+    """GLM-5.3 多机开启投机解码后必须产出原始命令声明的 deepseek_mtp 参数。"""
+    from wings_accel import resolve_smart_accel_from_config
+    from wings_accel.yaml_loader import _package_smart_accel_root
+
+    out = resolve_smart_accel_from_config(
+        config_root=_package_smart_accel_root().parent,
+        engine="vllm-ascend",
+        engine_version="v0.23.0",
+        hardware_family="ascend-a3",
+        model_name="GLM-5.3-w8a8",
+        gpu_count=16,
+        flags=LoadFlags(topology="multi_node", decoding_enabled=True),
+    )
+
+    assert out is not None
+    assert out.smart_decoding_scheme == "deepseek_mtp"
+    assert out.engine_params.engine_config["speculative_config"] == {
+        "num_speculative_tokens": 3,
+        "method": "deepseek_mtp",
+        "enforce_eager": True,
+    }
 
 
 def test_kimi_k3_multi_node_kv_per_rank_bytes():
