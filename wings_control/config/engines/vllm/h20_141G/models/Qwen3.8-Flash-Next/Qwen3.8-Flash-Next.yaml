@@ -5,7 +5,7 @@ upstream_sources:
     repo: null
     file: null
     url: "https://huggingface.co/Qwen/Qwen3.8-Flash-Next"
-    date_updated: 2026-08-31
+    date_updated: 2026-09-03
     note: 用户提供 vLLM OpenAI API Server 启动命令，手工录入。
 
 # 模型基本信息
@@ -18,7 +18,7 @@ model:
   architecture: moe  # 模型架构（dense/moe），命令使用 --moe-backend triton
   tasks: [text]  # 支持的任务类型
   min_engine_version: "qwen38-flash-next"  # 用户确认的特殊/定制引擎版本，未做 semver 校验
-  date_updated: 2026-08-31  # 录入日期
+  date_updated: 2026-09-03  # 录入日期
   match:  # 模型名匹配规则
     - name_pattern: "(?i)Qwen3[-.]?8[-.]?Flash[-.]?Next"
   variant_name: Qwen3.8-Flash-Next  # 模型量化版本精确名称
@@ -35,6 +35,8 @@ features:
     args: [--enable-auto-tool-choice, --tool-call-parser, qwen3_xml]
   reasoning:
     args: [--reasoning-parser, qwen3]
+  spec_decoding:
+    args: [--speculative-config, "{\"method\":\"mtp\",\"num_speculative_tokens\":1}"]
 
 # 部署场景
 scenarios:
@@ -57,5 +59,8 @@ scenarios:
           no_enable_flashinfer_autotune: true
           tensor_parallel_size: 4
           moe_backend: triton
-          gpu_memory_utilization: 0.85
+          gpu_memory_utilization: 0.95
+          max_cudagraph_capture_size: 256
+          block_size: 128
+          enable_expert_parallel: true
         env: {}

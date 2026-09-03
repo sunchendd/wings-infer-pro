@@ -1,7 +1,22 @@
-# SmartAccel exact-identity placeholder; no acceleration feature has been validated.
+# SmartAccel 加速配置(h20: decoding=mtp)
 model:
   name: Qwen3.8-Flash-Next
   variant_name: "Qwen3.8-Flash-Next"
   match:
-    - name_pattern: "(?i)^qwen3[.-]?8[.-]?flash[.-]?next$"
-smart_accel: {}
+    - name_pattern: "(?i)Qwen3[-.]?8[-.]?Flash[-.]?Next"
+smart_accel:
+  standalone:
+    source_ref: vllm_qwen3.8-flash-next_manual#single_node_tp
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+        - name: mtp
+          cli_params:
+            speculative_config:
+              method: mtp
+              num_speculative_tokens: 1
+          envs: {}
