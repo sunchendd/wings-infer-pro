@@ -9,6 +9,7 @@
 | MaaS 参数、PD 字段、placement 和端口 | [MaaS 接口参数契约](guideline/Maas侧与wins-control侧交互接口参数锲约说明.md) |
 | 已支持能力、限制和验证边界 | [支持边界](capabilities/support-boundaries.md) |
 | 启动脚本、审计、日志和共享卷文件 | [配置、产物与日志](contracts/configuration-artifacts-and-logs.md) |
+| Proxy 请求转发、排队、健康和监控 | [Proxy 服务](contracts/proxy-service.md) |
 | Wings Accel 输入、返回内容、安装和启动前命令 | [Wings Accel 接口](contracts/wings-accel-interface.md) |
 | 配置匹配、来源追踪、并行度和回退规则 | [TP/DP 并行策略](policies/parallelism-and-resolution.md) |
 | 部署检查、排障、验收和回退 | [运行维护手册](operations/maintenance-handover.md) |
