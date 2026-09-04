@@ -113,3 +113,38 @@ def test_exact_variant_only_rejects_pattern_fallback(tmp_path):
             has_version_dir=False,
             exact_variant_only=True,
         )
+
+
+def test_glm53_w8a8_real_asset_is_variant_specific(config_root_real):
+    """The real GLM-5.3-w8a8 recipe must not capture sibling variants."""
+    data, path, matched = load_model_config(
+        config_root_real,
+        "ascend-a3",
+        "vllm-ascend",
+        "v0.23.0",
+        "GLM-5.3-w8a8",
+    )
+
+    assert data is not None
+    assert path.name == "GLM-5.3-w8a8.yaml"
+    assert matched == "variant_name=GLM-5.3-w8a8"
+
+    short_data, short_path, short_matched = load_model_config(
+        config_root_real,
+        "ascend-a3",
+        "vllm-ascend",
+        "v0.23.0",
+        "GLM-5.3",
+    )
+    assert short_data is not None
+    assert short_path.name == "GLM-5.3-w8a8.yaml"
+    assert short_matched == "(?i)^glm[-.]?5[.]3(?:[-.]?w8a8)?$"
+
+    for model_name in ("GLM-5.3-Flash", "GLM-5.3-w4a8"):
+        assert load_model_config(
+            config_root_real,
+            "ascend-a3",
+            "vllm-ascend",
+            "v0.23.0",
+            model_name,
+        ) == (None, None, "")

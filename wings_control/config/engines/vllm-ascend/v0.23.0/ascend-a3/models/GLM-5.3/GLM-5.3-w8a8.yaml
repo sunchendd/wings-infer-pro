@@ -14,7 +14,7 @@ model:
   model_id: Eco-Tech/GLM-5.3-w8a8
   min_engine_version: v0.23.0
   match:
-    - name_pattern: "(?i)glm[-.]?5.3"
+    - name_pattern: "(?i)^glm[-.]?5[.]3(?:[-.]?w8a8)?$"
   variant_name: GLM-5.3-w8a8
 
 # Per-node Ascend 910C hardware profile

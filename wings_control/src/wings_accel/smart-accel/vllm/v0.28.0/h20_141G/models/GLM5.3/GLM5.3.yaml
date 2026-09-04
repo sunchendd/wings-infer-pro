@@ -1,0 +1,7 @@
+# SmartAccel exact-identity placeholder; no acceleration feature has been validated.
+model:
+  name: GLM-5.3
+  variant_name: "GLM-5.3"
+  match:
+    - name_pattern: "(?i)^glm[-.]?5[.]3$"
+smart_accel: {}

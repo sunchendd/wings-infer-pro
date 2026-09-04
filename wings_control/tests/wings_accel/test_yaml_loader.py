@@ -474,6 +474,34 @@ def test_package_kimi_k3_gpu_asset_reachable_by_custom_version():
     assert "kimi-k3" in p.parts
 
 
+@pytest.mark.parametrize(
+    ("engine_version", "model_name", "expected_version_dir"),
+    [
+        ("0.28.0", "GLM-5.3", "v0.28.0"),
+        ("glm53-flash", "GLM-5.3-Flash", "glm53-flash"),
+        ("qwen38-flash-next", "Qwen3.8-Flash-Next", "qwen38-flash-next"),
+    ],
+)
+def test_package_h20_vllm_identity_assets_are_reachable(
+    engine_version,
+    model_name,
+    expected_version_dir,
+):
+    """New h20 vLLM variants must resolve to their matching SmartAccel identity assets."""
+    from wings_accel.yaml_loader import _package_smart_accel_root
+
+    path = find_smart_accel_yaml_path(
+        _package_smart_accel_root(),
+        "vllm",
+        engine_version,
+        "h20_141G",
+        model_name,
+    )
+
+    assert path is not None
+    assert expected_version_dir in path.parts
+
+
 def test_package_kimi_k3_a3_ascend_asset_reachable_by_build_version():
     """包内资产回归:vllm-ascend kimi-k3-a3 存量资产在构建号形态 ENGINE_VERSION 下可命中。"""
     from wings_accel.yaml_loader import _package_smart_accel_root

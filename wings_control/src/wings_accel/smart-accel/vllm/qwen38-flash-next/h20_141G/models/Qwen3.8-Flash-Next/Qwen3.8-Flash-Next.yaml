@@ -1,0 +1,7 @@
+# SmartAccel exact-identity placeholder; no acceleration feature has been validated.
+model:
+  name: Qwen3.8-Flash-Next
+  variant_name: "Qwen3.8-Flash-Next"
+  match:
+    - name_pattern: "(?i)^qwen3[.-]?8[.-]?flash[.-]?next$"
+smart_accel: {}
