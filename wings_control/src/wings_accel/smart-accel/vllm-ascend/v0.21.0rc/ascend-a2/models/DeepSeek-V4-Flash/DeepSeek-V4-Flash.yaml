@@ -26,6 +26,7 @@ smart_accel:
         kv_offload:
         - name: cpu
           cli_params:
+            no_disable_hybrid_kv_cache_manager: true
             kv_transfer_config:
               kv_connector: LMCacheAscendConnectorV1Dynamic
               kv_role: kv_both
@@ -33,6 +34,7 @@ smart_accel:
           packages:
             lmcache-ascend: v0.4.5
           envs:
+            PYTHONHASHSEED: '0'
             LMCACHE_TRACK_USAGE: 'false'
             LMCACHE_LOCAL_CPU: 'True'
             LMCACHE_MAX_LOCAL_CPU_SIZE: '{= memory_capacity_gb // (tp_size * dp_size)}'
@@ -74,6 +76,7 @@ smart_accel:
         kv_offload:
         - name: cpu
           cli_params:
+            no_disable_hybrid_kv_cache_manager: true
             kv_transfer_config:
               kv_connector: LMCacheAscendConnectorV1Dynamic
               kv_role: kv_both
@@ -81,6 +84,7 @@ smart_accel:
           packages:
             lmcache-ascend: v0.4.5
           envs:
+            PYTHONHASHSEED: '0'
             LMCACHE_TRACK_USAGE: 'false'
             LMCACHE_LOCAL_CPU: 'True'
             LMCACHE_MAX_LOCAL_CPU_SIZE: '{= memory_capacity_gb // (tp_size * dp_size)}'
