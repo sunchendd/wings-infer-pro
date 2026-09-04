@@ -286,6 +286,7 @@ architectures:
       DeepSeek-V4-Flash-fp8: {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
       DeepSeek-V4-Flash-0731: {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
       DeepSeek-V4-Flash-nvfp4: {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
+      DeepSeek-V4-Flash-Vision-Exp: {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
       DeepSeek-V4-Pro-dspark: {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
       DeepSeek-V4-Pro-fp8: {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
       DeepSeek-V4-Pro-nvfp4: {vllm: deepseek_v4, vllm_ascend: deepseek_v4}

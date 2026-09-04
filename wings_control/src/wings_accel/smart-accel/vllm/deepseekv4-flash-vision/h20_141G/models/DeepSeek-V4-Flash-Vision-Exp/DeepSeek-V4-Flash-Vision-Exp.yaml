@@ -1,0 +1,25 @@
+# SmartAccel 加速配置(decoding=dspark)
+# 基线来自用户提供的 H20 141G 单节点启动参数；无额外 0day 覆盖项。
+model:
+  name: DeepSeek-V4-Flash-Vision-Exp
+  variant_name: "DeepSeek-V4-Flash-Vision-Exp"
+  match:
+    - name_pattern: "(?i)deepseek[-.]?v4[-.]?flash[-.]?vision[-.]?exp"
+smart_accel:
+  standalone:
+    source_ref: vllm_deepseek_v4_flash_vision_exp_manual#single_node_tep
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+        - name: dspark
+          cli_params:
+            speculative_config:
+              method: dspark
+              num_speculative_tokens: 3
+              draft_sample_method: probabilistic
+              enable_adaptive_verification: true
+          envs: {}

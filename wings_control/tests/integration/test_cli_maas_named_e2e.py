@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 
 from tests.script_test_utils import run_vllm_command_as_echo
 from wings_ctl import cli
@@ -139,3 +140,102 @@ def test_cli_enable_auto_think_choice_dropped_warn_and_keeps_recipe(config_root_
         row.get("key") == "enable_auto_think_choice" and "FeatureOverlay" in str(row.get("reason"))
         for row in dropped_rows
     )
+
+
+def test_deepseek_v4_flash_vision_reasoning_is_switch_controlled(config_root_real, tmp_path, monkeypatch, capsys):
+    """Both reasoning flags are emitted together only when the MaaS reasoning switch is enabled."""
+    hardware_info_path = tmp_path / "hardware_info.json"
+    hardware_info_path.write_text(
+        json.dumps({"hardware_family": "h20_141G", "device": "nvidia", "count": 8}),
+        encoding="utf-8",
+    )
+    base_args = [
+        "wings-ctl",
+        "--model-name",
+        "DeepSeek-V4-Flash-Vision-Exp",
+        "--config-root",
+        str(config_root_real),
+        "--hardware-info",
+        str(hardware_info_path),
+        "--engine",
+        "vllm",
+        "--device-count",
+        "8",
+        "--trust-remote-code",
+        "--dry-run",
+    ]
+    monkeypatch.setenv("ENGINE_VERSION", "deepseekv4-flash-vision")
+    monkeypatch.setenv("PD_ROLE", "none")
+
+    monkeypatch.setattr("sys.argv", base_args)
+    cli.main()
+    disabled_output = capsys.readouterr().out
+    assert "--reasoning-parser" not in disabled_output
+    assert "--reasoning-config" not in disabled_output
+
+    monkeypatch.setattr("sys.argv", base_args + ["--enable-auto-think-choice"])
+    cli.main()
+    enabled_output = capsys.readouterr().out
+    assert enabled_output.count("--reasoning-parser") == 1
+    assert enabled_output.count("--reasoning-config") == 1
+    assert '"reasoning_parser":"deepseek_v4"' in enabled_output
+
+
+def test_deepseek_v4_flash_vision_dry_run_uses_internal_dspark_weights(
+    config_root_real,
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    """DSpark must reuse the target checkpoint without requiring a separate draft model path."""
+    hardware_info_path = tmp_path / "hardware_info.json"
+    hardware_info_path.write_text(
+        json.dumps({"hardware_family": "h20_141G", "device": "nvidia", "count": 8}),
+        encoding="utf-8",
+    )
+    weights_path = tmp_path / "DeepSeek-V4-Flash-Vision-Exp"
+    weights_path.mkdir()
+    monkeypatch.setenv("ENGINE_VERSION", "deepseekv4-flash-vision")
+    monkeypatch.setenv("PD_ROLE", "none")
+    monkeypatch.setenv("ENABLE_SPECULATIVE_DECODE", "true")
+    monkeypatch.delenv("SPECULATIVE_DECODE_MODEL_PATH", raising=False)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "wings-ctl",
+            "--model-name",
+            "DeepSeek-V4-Flash-Vision-Exp",
+            "--model-path",
+            str(weights_path),
+            "--config-root",
+            str(config_root_real),
+            "--hardware-info",
+            str(hardware_info_path),
+            "--engine",
+            "vllm",
+            "--device-count",
+            "8",
+            "--trust-remote-code",
+            "--enable-auto-tool-choice",
+            "--enable-auto-think-choice",
+            "--dry-run",
+        ],
+    )
+
+    cli.main()
+
+    command = next(line for line in capsys.readouterr().out.splitlines() if line.startswith("vllm serve "))
+    argv = shlex.split(command)
+    assert argv[2] == str(weights_path)
+    assert argv.count("--tool-call-parser") == 1
+    assert argv.count("--enable-auto-tool-choice") == 1
+    assert argv.count("--reasoning-parser") == 1
+    assert argv.count("--reasoning-config") == 1
+    assert argv.count("--speculative-config") == 1
+    speculative_config = json.loads(argv[argv.index("--speculative-config") + 1])
+    assert speculative_config == {
+        "method": "dspark",
+        "num_speculative_tokens": 3,
+        "draft_sample_method": "probabilistic",
+        "enable_adaptive_verification": True,
+    }
