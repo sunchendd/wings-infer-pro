@@ -4,7 +4,7 @@ model:
   name: GLM-5.3
   variant_name: "GLM-5.3-w8a8"
   match:
-    - name_pattern: "(?i)glm[-.]?5.3"
+    - name_pattern: "(?i)^glm[-.]?5[.]3(?:[-.]?w8a8)?$"
 smart_accel:
   multi_node:
     source_ref: "vllm_ascend_glm-5.3_w8a8_manual#multi_node_dp"

@@ -115,6 +115,25 @@ def test_glm53_multi_node_speculative_decoding():
     }
 
 
+@pytest.mark.parametrize("model_name", ["GLM-5.3-Flash", "GLM-5.3-w4a8"])
+def test_glm53_sibling_variants_do_not_enable_speculative_decoding(model_name):
+    """GLM-5.3-w8a8 SmartAccel must not inject deepseek_mtp into sibling variants."""
+    from wings_accel import resolve_smart_accel_from_config
+    from wings_accel.yaml_loader import _package_smart_accel_root
+
+    out = resolve_smart_accel_from_config(
+        config_root=_package_smart_accel_root().parent,
+        engine="vllm-ascend",
+        engine_version="v0.23.0",
+        hardware_family="ascend-a3",
+        model_name=model_name,
+        gpu_count=16,
+        flags=LoadFlags(topology="multi_node", decoding_enabled=True),
+    )
+
+    assert out is None
+
+
 def test_kimi_k3_multi_node_kv_per_rank_bytes():
     """Kimi-K3 multi_node KV 卸载的 per-rank 字节数按卡均分(multi_node 实际渲染断言)。
 
