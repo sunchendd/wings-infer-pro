@@ -1,0 +1,52 @@
+upstream_sources:
+  - id: vllm_deepseek_v4_flash_vision_exp_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-Vision-Exp"
+    note: 用户提供 vLLM H20 141G 单节点启动参数，手工录入；运行镜像为 vllm/vllm-openai:deepseekv4-flash-vision。
+
+model:
+  name: DeepSeek-V4-Flash-Vision-Exp
+  slug: deepseek-v4-flash-vision-exp
+  provider: DeepSeek
+  model_id: deepseek-ai/DeepSeek-V4-Flash-Vision-Exp
+  match:
+    - name_pattern: "(?i)deepseek[-.]?v4[-.]?flash[-.]?vision[-.]?exp"
+  variant_name: DeepSeek-V4-Flash-Vision-Exp
+
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 1128
+  multi_node: false
+
+features:
+  tool_calling:
+    description: Enable DeepSeek V4 automatic tool calling.
+    args: [--tool-call-parser, deepseek_v4, --enable-auto-tool-choice]
+  reasoning:
+    description: Enable DeepSeek V4 reasoning parsing.
+    args: [--reasoning-parser, deepseek_v4, --reasoning-config, '{"reasoning_parser":"deepseek_v4","reasoning_start_str":"","reasoning_end_str":""}']
+  spec_decoding:
+    description: Enable DSpark using draft weights embedded in the target model checkpoint.
+    args: [--speculative-config, "{\"method\":\"dspark\",\"num_speculative_tokens\":3,\"draft_sample_method\":\"probabilistic\",\"enable_adaptive_verification\":true}"]
+
+scenarios:
+  standalone:
+    source_ref: "vllm_deepseek_v4_flash_vision_exp_manual#single_node_tep"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tep:
+        display_name: Tensor + Expert Parallel
+        orientation: balanced
+        default_strategy: true
+        engine_config:
+          model: deepseek-ai/DeepSeek-V4-Flash-Vision-Exp
+          kv_cache_dtype: fp8
+          block_size: 256
+          enable_expert_parallel: true
+          tensor_parallel_size: 8
+          host: "0.0.0.0"
+        env: {}
