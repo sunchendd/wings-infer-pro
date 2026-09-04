@@ -16,6 +16,8 @@
 - `wings_control/config/` 由配置/工具责任方维护。`wings_control/src/wings_accel/` 和 smart-accel 资产由 Wings Accel 责任方维护。没有明确任务时，不要顺带重构、删除或合并这些范围的改动。
 - `proxy/`、`rag_acc/`、`common/` 和 `wings_control.py` 不属于配置解析主流程。除非任务直接涉及这些目录，不要广泛清理。
 - MindIE 支持 recipe standalone 和固定双节点路径，不支持 PD。`--config-file` 未接入完整特殊引擎生命周期，不是 MindIE 支持路径。
+- Day0 新增或修改模型配置时，必须同步新增或更新同版本、同硬件、同 `model.variant_name` 的 SmartAccel 资产。缺少资产或未经验证的空占位资产均不得合入。
+- 季度收编或发布验收时，SmartAccel 仍需独立复验。负责该版本的 Agent 必须盘点计划收编的模型、引擎版本、硬件和拓扑，核对资产与实际解析结果；未验证能力和例外项必须明确列出，并经发布责任人确认后才能声明该版本支持 SmartAccel。
 - `direct_vllm_serve` 尚未实现。不得在没有明确任务和独立安全评审时实现或放宽它的安全边界。
 
 ## 不可变规则
@@ -45,6 +47,7 @@
 - 未经明确批准，不改变 CLI 选项和语义、环境变量和优先级、YAML schema、trace 层名和事件顺序、audit 字段、argv 顺序、脚本行为、日志、错误类型、退出码或输出文件名。
 - 契约变化需要影响分析、文档更新和专门测试。不要通过修改测试或 golden 掩盖生产回归。
 - 修改外部接口、支持边界、产物、策略或运维行为时，同步更新 `wings_control/docs/` 中唯一对应的精华文档。
+- 新增、拆分、替代或废弃正式文档时，同步更新 `wings_control/docs/README.md` 的阅读入口。先更新已有的唯一权威文档；只有现有文档无法清楚承载独立、稳定规则时，才新建文档。不得为同一事实维护两份独立规则。
 - 大型设计稿、方案比较、历史评审和临时交接记录不进入正式 docs。它们应在公司项目目录或 issue 中维护。
 
 ## 测试与验证
@@ -55,15 +58,14 @@
 - Wings Accel 包自身的行为放 `tests/wings_accel/`。
 - 同时改变内部判定和最终产物时，单元测试与集成测试都要补：前者保护规则，后者保护 argv、脚本、audit、日志或退出码。
 - 修复缺陷时，尽量补一条修复前失败、修复后通过的回归测试。纯可读性修改必须保持行为和产物不变。
-- 有意义的代码改动前后，在可行时运行：
+- 所有代码、配置或测试修改在提交前必须运行：
 
 ```bash
 cd wings_control
-pip install -e '.[dev]'
 bash scripts/check.sh
 ```
 
-- pytest 和 Ruff 是开发依赖。缺少它们导致 `check.sh` 失败时，如实报告依赖缺失和未完成验证，不要把它描述为通过。
+- 只有输出 `check OK` 才能创建提交。pytest、Ruff 或运行环境缺失时，不要自行安装依赖；如实报告失败原因和未完成验证，且不得把检查描述为通过。
 - 完成前检查 `git diff --stat`、`git diff` 和 `git status --short --branch`。报告实际执行过的命令、真实结果、未验证项和剩余风险。
 
 ## Git 与协作
