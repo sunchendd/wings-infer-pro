@@ -25,6 +25,34 @@ hardware_profile:
 
 # 部署场景
 scenarios:
+  standalone:
+    source_ref: "vllm_ascend_qwen3-vl-235b-a22b-instruct_manual#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: Eco-Tech/Qwen3-VL-235B-A22B-Instruct
+          trust_remote_code: true
+          max_model_len: 4096
+          host: "0.0.0.0"
+          port: 17000
+          gpu_memory_utilization: 0.97
+          served_model_name: Qwen3-VL-235B-A22B-Instruct
+          default_chat_template_kwargs:
+            enable_thinking: false
+          tensor_parallel_size: 8
+        env:
+          HCCL_BUFFSIZE: 1024
+          OMP_PROC_BIND: "false"
+          OMP_NUM_THREADS: 1
+          TASK_QUEUE_ENABLE: 1
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          HCCL_OP_EXPANSION_MODE: AIV
+
   multi_node:
     source_ref: "vllm_ascend_qwen3-vl-235b-a22b-instruct#multi_node"
     match:

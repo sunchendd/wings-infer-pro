@@ -28,19 +28,17 @@ model:
     - name_pattern: "(?i)deepseek[-.]?r1[-.]?distill[-.]?llama[-.]?70b"
   variant_name: DeepSeek-R1-Distill-Llama-70B
 
-# 可选功能列表
-features:
-  tool_calling:
-    description: Enable automatic tool/function calling via the model's tool-call parser.
-    args: [--enable-auto-tool-choice, --tool-call-parser, llama3_json]
-
 # 硬件信息
 hardware_profile:
   name: ascend-a2
   display_name: Ascend A2
   gpu_count: 8
   vram_gb: 512
-  multi_node: true
+  multi_node: true  # 支持单节点及多节点场景
+features:
+  tool_calling:
+    description: Enable automatic tool/function calling via the model's tool-call parser.
+    args: [--enable-auto-tool-choice, --tool-call-parser, llama3_json]
 
 # 部署场景
 scenarios:
@@ -65,3 +63,60 @@ scenarios:
           max_num_seqs: 64
           tokenizer_mode: deepseek_v32 # Llama 模型必须配置解决乱码问题，tokenizer不配置 默认取 model路径
         env: {}
+
+  multi_node:
+    source_ref: vllm_ascend_deepseek-r1-distill-llama-70b_manual#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        display_name: Multi-Node
+        default_strategy: true
+        head:
+          engine_config:
+            model: deepseek-ai/DeepSeek-R1-Distill-Llama-70B
+            served_model_name: DeepSeek-R1-Distill-Llama-70B
+            host: 0.0.0.0
+            port: 17000
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 0
+            data_parallel_address: $local_ip
+            data_parallel_rpc_port: 12321
+            tensor_parallel_size: 8
+            trust_remote_code: true
+            max_model_len: 4096
+            max_num_seqs: 64
+            tokenizer_mode: deepseek_v32
+          env:
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            HCCL_OP_EXPANSION_MODE: AIV
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+        worker:
+          engine_config:
+            model: deepseek-ai/DeepSeek-R1-Distill-Llama-70B
+            served_model_name: DeepSeek-R1-Distill-Llama-70B
+            host: 0.0.0.0
+            port: 17000
+            headless: true
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 1
+            data_parallel_address: $node0_ip
+            data_parallel_rpc_port: 12321
+            tensor_parallel_size: 8
+            trust_remote_code: true
+            max_model_len: 4096
+            max_num_seqs: 64
+            tokenizer_mode: deepseek_v32
+          env:
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            HCCL_OP_EXPANSION_MODE: AIV
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True

@@ -21,7 +21,7 @@ model:
 hardware_profile:
   gpu_count: 8  # 单节点 GPU/NPU 数量
   vram_gb: 512  # 单节点总显存(GB)
-  multi_node: true  # 是否支持多节点
+  multi_node: true  # 支持单节点及多节点场景
 
 # 部署场景
 scenarios:
@@ -42,3 +42,54 @@ scenarios:
           port: 17000
           tensor_parallel_size: 2
         env: {}
+
+  multi_node:
+    source_ref: vllm_ascend_qwq-32b_manual#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        display_name: Multi-Node
+        default_strategy: true
+        head:
+          engine_config:
+            model: Qwen/QwQ-32B
+            trust_remote_code: true
+            max_model_len: 4096
+            host: 0.0.0.0
+            port: 17000
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 0
+            data_parallel_address: $local_ip
+            data_parallel_rpc_port: 12321
+            tensor_parallel_size: 8
+          env:
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            HCCL_OP_EXPANSION_MODE: AIV
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+        worker:
+          engine_config:
+            model: Qwen/QwQ-32B
+            trust_remote_code: true
+            max_model_len: 4096
+            host: 0.0.0.0
+            port: 17000
+            headless: true
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 1
+            data_parallel_address: $node0_ip
+            data_parallel_rpc_port: 12321
+            tensor_parallel_size: 8
+          env:
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            HCCL_OP_EXPANSION_MODE: AIV
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True

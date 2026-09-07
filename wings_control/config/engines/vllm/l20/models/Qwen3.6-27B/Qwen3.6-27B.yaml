@@ -31,7 +31,7 @@ model:
 hardware_profile:
   gpu_count: 2  # 单节点 GPU 数量
   vram_gb: 96  # 单节点总显存(GB)
-  multi_node: false  # 仅支持单节点
+  multi_node: true  # 支持单节点及多节点场景
 
 # 可选功能列表
 features:
@@ -46,7 +46,7 @@ features:
     args: [--mm-encoder-tp-mode, data]
   kv_offloading:
     description: KV cache native offloading to reduce GPU memory usage.
-    args: [--kv-offloading-backend, native, --kv-offloading-size, 20]
+    args: [--kv-offloading-backend, native, --kv-offloading-size, '20']
   spec_decoding:
     description: Multi-token prediction speculative decoding for lower latency.
     args: [--speculative-config, "{\"method\":\"mtp\",\"num_speculative_tokens\":1}"]
@@ -70,3 +70,41 @@ scenarios:
           kv_cache_dtype: fp8
           enable_prefix_caching: true
         env: {}
+
+  multi_node:
+    source_ref: vllm_qwen3.6-27b_manual#multi_node_tp
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        head:
+          engine_config:
+            model: Qwen/Qwen3.6-27B
+            trust_remote_code: true
+            tensor_parallel_size: 4
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+            kv_cache_dtype: fp8
+            enable_prefix_caching: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:
+          engine_config:
+            model: Qwen/Qwen3.6-27B
+            trust_remote_code: true
+            tensor_parallel_size: 4
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+            kv_cache_dtype: fp8
+            enable_prefix_caching: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME

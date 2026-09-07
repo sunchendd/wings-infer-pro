@@ -21,9 +21,7 @@ model:
 hardware_profile:
   gpu_count: 16
   vram_gb: 1024
-  multi_node: false
-
-# 可选功能列表
+  multi_node: true  # 支持单节点及多节点场景
 features:
   tool_calling:
     description: Enable automatic tool/function calling via the model's tool-call parser.
@@ -80,3 +78,99 @@ scenarios:
           PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
           VLLM_ASCEND_ENABLE_FLASHCOMM1: 1  # 解决GLM5.2 v0.23.0 运行乱码问题
           VLLM_ASCEND_ENABLE_FUSED_MC2: 0  # 解决GLM5.2 v0.23.0 运行乱码问题
+
+  multi_node:
+    source_ref: vllm_ascend_glm-5.2#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        display_name: Multi-Node
+        default_strategy: true
+        head:
+          engine_config:
+            model: Eco-Tech/GLM-5.2-w4a8
+            host: 0.0.0.0
+            port: 8077
+            data_parallel_size: 2
+            api_server_count: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 0
+            data_parallel_address: $local_ip
+            data_parallel_rpc_port: 12321
+            enable_expert_parallel: true
+            tensor_parallel_size: 16
+            seed: 1024
+            served_model_name: glm-5
+            max_num_seqs: 12
+            max_model_len: 135000
+            max_num_batched_tokens: 8192
+            trust_remote_code: true
+            gpu_memory_utilization: 0.92
+            quantization: ascend
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+            additional_config:
+              enable_dsa_cp: true
+              enable_sparse_li_c8: true
+              enable_balance_scheduling: true
+              multistream_overlap_shared_expert: true
+          env:
+            HCCL_OP_EXPANSION_MODE: AIV
+            HCCL_TRANSFER_TIMEOUT: 600
+            HCCL_EXEC_TIMEOUT: 3600
+            HCCL_CONNECT_TIMEOUT: 3600
+            OMP_PROC_BIND: 'false'
+            OMP_NUM_THREADS: 1
+            HCCL_BUFFSIZE: 200
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+            VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
+            VLLM_ASCEND_ENABLE_FUSED_MC2: 0
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+        worker:
+          engine_config:
+            model: Eco-Tech/GLM-5.2-w4a8
+            host: 0.0.0.0
+            port: 8077
+            headless: true
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 1
+            data_parallel_address: $node0_ip
+            data_parallel_rpc_port: 12321
+            enable_expert_parallel: true
+            tensor_parallel_size: 16
+            seed: 1024
+            served_model_name: glm-5
+            max_num_seqs: 12
+            max_model_len: 135000
+            max_num_batched_tokens: 8192
+            trust_remote_code: true
+            gpu_memory_utilization: 0.92
+            quantization: ascend
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+            additional_config:
+              enable_dsa_cp: true
+              enable_sparse_li_c8: true
+              enable_balance_scheduling: true
+              multistream_overlap_shared_expert: true
+          env:
+            HCCL_OP_EXPANSION_MODE: AIV
+            HCCL_TRANSFER_TIMEOUT: 600
+            HCCL_EXEC_TIMEOUT: 3600
+            HCCL_CONNECT_TIMEOUT: 3600
+            OMP_PROC_BIND: 'false'
+            OMP_NUM_THREADS: 1
+            HCCL_BUFFSIZE: 200
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+            VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
+            VLLM_ASCEND_ENABLE_FUSED_MC2: 0
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name

@@ -21,7 +21,7 @@ model:
 hardware_profile:
   gpu_count: 16  # 单节点 GPU/NPU 数量
   vram_gb: 1024  # 单节点总显存(GB)
-  multi_node: true  # 是否支持多节点
+  multi_node: true  # 支持单节点及多节点场景
 
 # 可选功能列表
 features:
@@ -270,3 +270,104 @@ scenarios:
               HCCL_OP_EXPANSION_MODE: AIV
             system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
               commands: [unset ftp_proxy, unset https_proxy, unset http_proxy, "nic_name=\"xxx\"", "local_ip=\"xxx\"", "node0_ip=\"xxxx\""]
+
+  multi_node:
+    source_ref: vllm_ascend_qwen3.5-397b-a17b#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        display_name: Multi-Node
+        default_strategy: true
+        head:
+          engine_config:
+            model: Eco-Tech/Qwen3.5-397B-A17B-w8a8-mtp
+            host: 0.0.0.0
+            port: 8000
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 0
+            data_parallel_address: $local_ip
+            data_parallel_rpc_port: 12321
+            tensor_parallel_size: 16
+            enable_expert_parallel: true
+            seed: 1024
+            quantization: ascend
+            served_model_name: qwen3.5
+            max_num_seqs: 128
+            max_model_len: 133000
+            max_num_batched_tokens: 16384
+            trust_remote_code: true
+            gpu_memory_utilization: 0.9
+            enable_prefix_caching: true
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+            additional_config:
+              enable_cpu_binding: true
+              enable_fused_mc2: 1
+              enable_flashcomm1: true
+          env:
+            VLLM_USE_MODELSCOPE: 'True'
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+            HCCL_OP_EXPANSION_MODE: AIV
+            HCCL_BUFFSIZE: 1024
+            OMP_NUM_THREADS: 1
+            TASK_QUEUE_ENABLE: 1
+            LD_PRELOAD: /usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+          system_setup:
+            sysctls:
+              vm.swappiness: 0
+              kernel.numa_balancing: 0
+              kernel.sched_migration_cost_ns: 50000
+            sysfs_writes: [{path: /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor, value: performance}]
+        worker:
+          engine_config:
+            model: Eco-Tech/Qwen3.5-397B-A17B-w8a8-mtp
+            host: 0.0.0.0
+            port: 8000
+            headless: true
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 1
+            data_parallel_address: $node0_ip
+            data_parallel_rpc_port: 12321
+            tensor_parallel_size: 16
+            enable_expert_parallel: true
+            seed: 1024
+            quantization: ascend
+            served_model_name: qwen3.5
+            max_num_seqs: 128
+            max_model_len: 133000
+            max_num_batched_tokens: 16384
+            trust_remote_code: true
+            gpu_memory_utilization: 0.9
+            enable_prefix_caching: true
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+            additional_config:
+              enable_cpu_binding: true
+              enable_fused_mc2: 1
+              enable_flashcomm1: true
+          env:
+            VLLM_USE_MODELSCOPE: 'True'
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+            HCCL_OP_EXPANSION_MODE: AIV
+            HCCL_BUFFSIZE: 1024
+            OMP_NUM_THREADS: 1
+            TASK_QUEUE_ENABLE: 1
+            LD_PRELOAD: /usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+          system_setup:
+            sysctls:
+              vm.swappiness: 0
+              kernel.numa_balancing: 0
+              kernel.sched_migration_cost_ns: 50000
+            sysfs_writes: [{path: /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor, value: performance}]
