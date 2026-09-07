@@ -1,7 +1,7 @@
-# AI Perf 示例部署（适配 wings-infer-pro）
+# AI Perf 示例部署
 
-本目录是 AI Perf 在新版 **wings-infer-pro**（Wings Control 重构版）上的 Docker Compose
-示例，合并自原独立代码仓（AIPerf），保留原有使用习惯：
+本目录是 AI Perf 在wings-infer-pro上的 Docker Compose
+示例
 
 - 以 **tar 镜像包 + docker-compose.yaml + env 文件** 交付；
 - 用户适配新模型**只需修改 env 配置项**（模型名/路径/端口/启动参数），无需改其他文件。
@@ -20,22 +20,11 @@ ai_perf/
         └── (同上，runtime 换为 nvidia)
 ```
 
-## 与新版 wings-infer-pro 的适配点
-
-相对旧版 AI Perf 仓库，本示例做了以下对齐（与康雯验证过的 Wings 重构版路径一致）：
-
-| 旧版行为 | 新版适配 |
-|---|---|
-| `wings_start.sh` 透传 `--enable-speculative-decode` | 新 CLI 已移除该 flag；改为通过环境变量 `ENABLE_SPECULATIVE_DECODE` / `ENABLE_SPARSE` 交给 SmartAccel 子系统消费 |
-| 无 hardware_info 概念 | 新框架按 `hardware_family` 定位配置目录（`config/engines/<engine>/<version>/<family>/models/`）；control 入口根据 env 中 `HARDWARE_FAMILY` 自动生成 `/shared-volume/hardware_info.json` |
-| 引擎版本只做展示 | `ENGINE_VERSION` 环境变量被新框架用于选择配置资产版本树（如 `vllm-ascend/v0.18.0`）。注意填**配置树中实际存在的版本目录**：框架按 `vX.Y.Z`（可含 rc 渠道，如 `v0.21.0rc1-20260709` → `v0.21.0rc`）匹配，引擎镜像 tag 可以比它更详细（`v0.18.0rc1` → 配置目录 `v0.18.0`）；未精确命中时会回退 latest 并告警 |
-| `ENGINE_PORT` 由 control 显式下发 | 新框架中 `ENGINE_PORT` 是 backend 真实监听端口，`PORT`(=`CONTROL_PORT`) 是 proxy 对外端口，语义一致、保持下发 |
-
-启动流程（三容器，与旧版一致）：
+启动流程：
 
 1. `accel-init`：把加速包镜像内 `/opt/packages/` 拷入共享卷 `accel-vol`；
 2. `aiperf-control`：调用 `wings_start.sh` 生成 `start_command.sh` / `repro.sh` / `audit.json`
-   到 `/shared-volume`（新版框架**只生成不拉起**引擎），随后常驻；
+   到 `/shared-volume`，随后常驻；
 3. `aiperf-engine`：等待 `/shared-volume/start_command.sh` 出现，把 `--host` 补丁为
    `0.0.0.0` 后 `exec` 拉起推理引擎。
 
@@ -132,4 +121,3 @@ docker load -i Wings_control_<版本>_<arch>.tar  # → IMAGE_CONTROL
 ## 已验证基线
 
 - 昇腾 NPU + `vllm-ascend`（`ascend-a2` 硬件族，Qwen3-32B W8A8）全流程验证可行
-  （与康雯测试 Wings 重构版时的 Docker Compose 方案一致）。
