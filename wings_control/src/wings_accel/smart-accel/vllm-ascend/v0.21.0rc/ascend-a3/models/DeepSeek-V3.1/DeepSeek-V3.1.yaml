@@ -1,4 +1,4 @@
-# SmartAccel 加速配置(decoding=mtp)
+# SmartAccel 加速配置(decoding=deepseek_mtp)
 # 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
 # 由 features.spec_decoding 自动生成;仅 decoding,无 kv_offload/sparse。
 model:
@@ -16,10 +16,10 @@ smart_accel:
       single_node:
         default_strategy: true
         decoding:
-        - name: mtp
+        - name: deepseek_mtp
           cli_params:
             speculative_config:
-              method: mtp
+              method: deepseek_mtp
               num_speculative_tokens: 3
           envs: {}
   multi_node:
@@ -31,10 +31,10 @@ smart_accel:
       multi_node_dp:
         default_strategy: true
         decoding:
-        - name: mtp
+        - name: deepseek_mtp
           cli_params:
             speculative_config:
-              method: mtp
+              method: deepseek_mtp
               num_speculative_tokens: 3
           envs: {}
   pd_disaggregation:
@@ -50,9 +50,9 @@ smart_accel:
         - role: decode
           index: 0
           decoding:
-          - name: mtp
+          - name: deepseek_mtp
             cli_params:
               speculative_config:
-                method: mtp
+                method: deepseek_mtp
                 num_speculative_tokens: 3
             envs: {}

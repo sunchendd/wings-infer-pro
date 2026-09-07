@@ -33,7 +33,7 @@ features:
     args: [--reasoning-parser, deepseek_r1]
   spec_decoding:
     description: Speculative decoding (MTP draft) to accelerate generation.
-    args: [--speculative-config, "{\"num_speculative_tokens\":3,\"method\":\"mtp\"}"]
+    args: [--speculative-config, "{\"num_speculative_tokens\":3,\"method\":\"deepseek_mtp\"}"]
 
 # 部署场景
 scenarios:

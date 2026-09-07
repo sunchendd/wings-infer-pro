@@ -11,9 +11,9 @@ smart_accel:
       single_node:
         default_strategy: true
         decoding:
-        - name: mtp
+        - name: deepseek_mtp
           cli_params:
-            speculative_config: {method: mtp, num_speculative_tokens: 3}
+            speculative_config: {method: deepseek_mtp, num_speculative_tokens: 3}
           envs: {}
   multi_node:
     source_ref: smart_accel#multi_node
@@ -22,9 +22,9 @@ smart_accel:
       multi_node_dp:
         default_strategy: true
         decoding:
-        - name: mtp
+        - name: deepseek_mtp
           cli_params:
-            speculative_config: {method: mtp, num_speculative_tokens: 3}
+            speculative_config: {method: deepseek_mtp, num_speculative_tokens: 3}
           envs: {}
   pd_disaggregation:
     source_ref: smart_accel#pd_cluster
@@ -37,7 +37,7 @@ smart_accel:
         - role: decode
           index: 0
           decoding:
-          - name: mtp
+          - name: deepseek_mtp
             cli_params:
-              speculative_config: {method: mtp, num_speculative_tokens: 3}
+              speculative_config: {method: deepseek_mtp, num_speculative_tokens: 3}
             envs: {}
