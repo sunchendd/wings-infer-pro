@@ -1,0 +1,92 @@
+# 来源追溯
+upstream_sources:
+  - id: dsv4_pro_patch_vllm0280_sm120_tp16
+    kind: manual
+    repo: null
+    file: dsv4_pro_patch/deployment/perf_start_v4pro_tp16ep_lmcache_mp.sh
+    url: null
+    note: DeepSeek V4 Pro 单机 16 卡 TP16+EP16+LMCache MP 实测配置，补丁已移植至 vLLM 0.28.0。
+
+# 模型基本信息
+model:
+  name: DeepSeek-V4-Pro-0813
+  slug: deepseek-v4-pro-0813
+  provider: DeepSeek
+  description: DeepSeek V4 Pro MoE model using the 0813 patched SM120 checkpoint.
+  model_id: deepseek-ai/DeepSeek-V4-Pro
+  architecture: moe
+  parameter_count: 1600B
+  active_parameters: 49B
+  context_length: 1048576
+  vram_minimum_gb: 960
+  tasks: [text]
+  min_engine_version: "0.28.0"
+  match:
+    - name_pattern: "(?i)deepseek[-.]?v4[-.]?pro[-.]?0813"
+  variant_name: DeepSeek-V4-Pro-0813
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 16
+  vram_gb: 1152
+  multi_node: false
+
+# 可选功能列表（不进 engine_config）
+features:
+  tool_calling:
+    description: Enable DeepSeek V4 tool calling.
+    args: [--tokenizer-mode, deepseek_v4, --enable-auto-tool-choice, --tool-call-parser, deepseek_v4]
+  reasoning:
+    description: Enable DeepSeek V4 reasoning parsing.
+    args: [--reasoning-parser, deepseek_v4]
+  spec_decoding:
+    description: Enable the validated D-Spark probabilistic decoding configuration.
+    args: [--speculative-config, "{\"method\":\"dspark\",\"num_speculative_tokens\":5,\"draft_sample_method\":\"probabilistic\"}"]
+  lmcache:
+    description: Enable the patched LMCache MP native-pointer connector.
+    kv_transfer:
+      description: Connect vLLM to the colocated LMCache MP server.
+      args: [--kv-transfer-config, "{\"kv_connector\":\"LMCacheMPConnector\",\"kv_role\":\"kv_both\",\"kv_connector_extra_config\":{\"lmcache.mp.port\":5555,\"lmcache.mp.mq_timeout\":300,\"lmcache.mp.sync_retrieve_before_forward\":true}}"]
+  sparse_index:
+    description: Use the validated MXFP4 indexer cache performance mode.
+    args: [--no-enable-flashinfer-autotune, --hf-overrides, "{\"use_index_cache\":true,\"index_topk_freq\":8}"]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "dsv4_pro_patch_vllm0280_sm120_tp16#single_node_tep"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tep:
+        display_name: Tensor + Expert Parallel
+        orientation: throughput
+        default_strategy: true
+        engine_config:
+          model: deepseek-ai/DeepSeek-V4-Pro
+          host: "0.0.0.0"
+          port: 8000
+          trust_remote_code: true
+          tensor_parallel_size: 16
+          enable_expert_parallel: true
+          enable_ep_weight_filter: true
+          max_model_len: 150000
+          block_size: 256
+          gpu_memory_utilization: 0.92
+          kv_cache_memory_bytes: 5583457485
+          kv_cache_dtype: fp8
+          max_num_seqs: 256
+          attention_config:
+            use_fp4_indexer_cache: true
+          max_num_batched_tokens: 2048
+          compilation_config:
+            mode: 0
+            cudagraph_mode: FULL_DECODE_ONLY
+            max_cudagraph_capture_size: 64
+        env:
+          NCCL_P2P_LEVEL: SYS
+          NCCL_SHM_DISABLE: 1
+          NCCL_CUMEM_ENABLE: 0
+          VLLM_USE_BREAKABLE_CUDAGRAPH: 1
+          LD_LIBRARY_PATH: "/usr/local/lib/python3.12/dist-packages/torch/lib:/usr/local/lib/python3.12/dist-packages/nvidia/cu13/lib:${LD_LIBRARY_PATH:-}"

@@ -185,6 +185,7 @@ architectures:
   - name: ReasoningParserModels
     config: {}
     models:
+      DeepSeek-V4-Pro-0813: {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
       diffusiongemma-26B-A4B-it: {vllm: gemma4, vllm_ascend: gemma4}
       diffusiongemma-26B-A4B-it-fp8: {vllm: gemma4, vllm_ascend: gemma4}
       diffusiongemma-26B-A4B-it-nvfp4: {vllm: gemma4, vllm_ascend: gemma4}

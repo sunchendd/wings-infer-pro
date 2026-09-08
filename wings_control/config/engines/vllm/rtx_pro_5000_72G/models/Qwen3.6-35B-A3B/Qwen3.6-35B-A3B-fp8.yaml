@@ -1,0 +1,79 @@
+# 来源追溯
+upstream_sources:
+  - id: qwen36_35b_vllm0280_sm120_tp4_router
+    kind: manual
+    repo: null
+    file: start_qwen36_35b_lmcache_router.sh
+    url: https://huggingface.co/Qwen/Qwen3.6-35B-A3B-FP8
+    note: Qwen3.6-35B-A3B-FP8 vLLM 0.28.0 双实例路由脚本；本资产描述单个 TP4 实例。
+
+# 模型基本信息
+model:
+  name: Qwen3.6-35B-A3B
+  slug: qwen3.6-35b-a3b
+  provider: Qwen
+  description: Qwen3.6 35B-A3B MoE model using the FP8 checkpoint.
+  model_id: Qwen/Qwen3.6-35B-A3B-FP8
+  architecture: moe
+  parameter_count: 35B
+  active_parameters: 3B
+  context_length: 262144
+  vram_minimum_gb: 42
+  tasks: [multimodal, text]
+  min_engine_version: "0.28.0"
+  match:
+    - name_pattern: "(?i)qwen3.6[-.]?35b[-.]?a3b[-.]?fp8"
+  variant_name: Qwen3.6-35B-A3B-fp8
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 576
+  multi_node: false
+
+# 可选功能列表（不进 engine_config）
+features:
+  tool_calling:
+    description: Enable Qwen3 XML tool parsing with automatic tool choice.
+    args: [--tool-call-parser, qwen3_xml, --enable-auto-tool-choice]
+  reasoning:
+    description: Enable Qwen3 reasoning parsing.
+    args: [--reasoning-parser, qwen3]
+  spec_decoding:
+    description: Enable four-token MTP speculative decoding with the Triton MoE backend.
+    args: [--speculative-config, "{\"method\":\"mtp\",\"num_speculative_tokens\":4,\"moe_backend\":\"triton\"}"]
+  lmcache:
+    description: Enable LMCache MP KV cache acceleration.
+    kv_transfer:
+      description: Connect the TP4 instance to its LMCache MP server.
+      args: [--kv-transfer-config, "{\"kv_connector\":\"LMCacheMPConnector\",\"kv_role\":\"kv_both\",\"kv_connector_extra_config\":{\"lmcache.mp.port\":5556,\"lmcache.mp.mq_timeout\":300}}"]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "qwen36_35b_vllm0280_sm120_tp4_router#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: throughput
+        default_strategy: true
+        engine_config:
+          model: Qwen/Qwen3.6-35B-A3B-FP8
+          host: "0.0.0.0"
+          port: 5690
+          trust_remote_code: true
+          tensor_parallel_size: 4
+          kv_cache_dtype: fp8
+          gpu_memory_utilization: 0.9
+          max_model_len: 262144
+          enable_prefix_caching: true
+          async_scheduling: true
+        env:
+          NCCL_IB_DISABLE: 1
+          VLLM_USE_DEEP_GEMM: 0
+          VLLM_SSM_CONV_STATE_LAYOUT: DS
+          NCCL_P2P_LEVEL: SYS
+          NCCL_SHM_DISABLE: 1
