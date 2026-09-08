@@ -40,6 +40,8 @@ ASSETS = [
     "vllm-ascend/v0.23.0/ascend-a3/models/GLM-5.3/GLM-5.3-w8a8.yaml",
     "vllm-ascend/v0.23.0/ascend-a3/models/GLM-5.3-1M/GLM-5.3-w8a8-1M.yaml",
     "vllm-ascend/glm-5.3-flash-a3/ascend-a3/models/GLM-5.3-Flash/GLM-5.3-Flash-w8a8.yaml",
+    "vllm-ascend/v0.26.0rc1/ascend-a3/models/GLM-5.3/GLM-5.3-w8a8c8.yaml",
+    "vllm-ascend/v0.26.0rc1/ascend-a3/models/DeepSeek-V4-Pro/DeepSeek-V4-Pro-0813-w4a8.yaml",
 ]
 
 

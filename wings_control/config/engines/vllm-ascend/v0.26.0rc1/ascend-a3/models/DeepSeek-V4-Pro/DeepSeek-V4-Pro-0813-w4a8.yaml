@@ -82,7 +82,7 @@ scenarios:
                 enable_npugraph_ex: true
                 enable_static_kernel: false
               enable_cpu_binding: true
-              enable_flashcomm1: true
+              # enable_flashcomm1: true
               multistream_overlap_shared_expert: true
               enable_fused_mc2: 0
               enable_mc2_hierarchy_comm: true
@@ -104,6 +104,8 @@ scenarios:
             LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
             LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:/usr/local/lib/"
             VLLM_PREFIX_CACHE_RETENTION_INTERVAL: 4096
+            HCCL_INTER_HCCS_DISABLE: true
+            HCCL_INTRA_ROCE_ENABLE: 1
           system_setup:
             commands: ["nic_name=\"xxxx\" # change to the NIC that owns local_ip", "local_ip=\"xx.xx.xx.x\" # use the IP of Node0", "node0_ip=\"xx.xx.xx.x\" # use Node0 local_ip"]
         worker:
@@ -140,7 +142,7 @@ scenarios:
                 enable_npugraph_ex: true
                 enable_static_kernel: false
               enable_cpu_binding: true
-              enable_flashcomm1: true
+              # enable_flashcomm1: true
               multistream_overlap_shared_expert: true
               enable_fused_mc2: 0
               enable_mc2_hierarchy_comm: true
@@ -162,6 +164,8 @@ scenarios:
             LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
             LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:/usr/local/lib/"
             VLLM_PREFIX_CACHE_RETENTION_INTERVAL: 4096
+            HCCL_INTER_HCCS_DISABLE: true
+            HCCL_INTRA_ROCE_ENABLE: 1
           system_setup:
             commands: ["nic_name=\"xxxx\" # change to the NIC that owns local_ip", "local_ip=\"xx.xx.xx.x\" # use the IP of Node1", "node0_ip=\"xx.xx.xx.x\" # use Node0 local_ip"]
 
@@ -249,6 +253,9 @@ scenarios:
               TASK_QUEUE_ENABLE: 1
               HCCL_OP_EXPANSION_MODE: AIV
               VLLM_PREFIX_CACHE_RETENTION_INTERVAL: 4096
+              ASCEND_BUFFER_POOL: "4:8"
+              HCCL_INTER_HCCS_DISABLE: true
+              HCCL_INTRA_ROCE_ENABLE: 1
             system_setup:
               commands: ["nic_name=\"xxxx\" # change to the NIC that owns local_ip", "local_ip=\"xx.xx.xx.x\" # use the IP of the current Prefill node"]
           - role: prefill
@@ -318,6 +325,9 @@ scenarios:
               TASK_QUEUE_ENABLE: 1
               HCCL_OP_EXPANSION_MODE: AIV
               VLLM_PREFIX_CACHE_RETENTION_INTERVAL: 4096
+              ASCEND_BUFFER_POOL: "4:8"
+              HCCL_INTER_HCCS_DISABLE: true
+              HCCL_INTRA_ROCE_ENABLE: 1
             system_setup:
               commands: ["nic_name=\"xxxx\" # change to the NIC that owns local_ip", "local_ip=\"xx.xx.xx.x\" # use the IP of the current Prefill node"]
           - role: decode
@@ -390,6 +400,9 @@ scenarios:
               PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
               HCCL_BUFFSIZE: 1800
               TASK_QUEUE_ENABLE: 1
+              ASCEND_BUFFER_POOL: "4:8"
+              HCCL_INTER_HCCS_DISABLE: true
+              HCCL_INTRA_ROCE_ENABLE: 1
             system_setup:
               commands: ["nic_name=\"xxxx\" # change to the NIC that owns local_ip", "local_ip=\"xx.xx.xx.x\" # use the IP of the current Decode node"]
           - role: decode
@@ -462,5 +475,8 @@ scenarios:
               PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
               HCCL_BUFFSIZE: 1800
               TASK_QUEUE_ENABLE: 1
+              ASCEND_BUFFER_POOL: "4:8"
+              HCCL_INTER_HCCS_DISABLE: true
+              HCCL_INTRA_ROCE_ENABLE: 1
             system_setup:
               commands: ["nic_name=\"xxxx\" # change to the NIC that owns local_ip", "local_ip=\"xx.xx.xx.x\" # use the IP of the current Decode node"]
