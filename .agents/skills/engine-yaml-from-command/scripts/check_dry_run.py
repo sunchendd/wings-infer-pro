@@ -152,6 +152,32 @@ def command_env(text: str) -> dict[str, str]:
     return result
 
 
+def _extract_source_paths(lines: list[str], source_label: str) -> list[str]:
+    """从命令行中提取 ``source <path>`` 路径，并保留出现顺序。"""
+    sources: list[str] = []
+    for raw in lines:
+        line = raw.strip()
+        if not line.startswith("source"):
+            continue
+        try:
+            tokens = shlex.split(line, comments=True, posix=True)
+        except ValueError as exc:
+            raise DryRunMismatch(f"invalid {source_label} source command: {line!r}") from exc
+        if not tokens or tokens[0] != "source":
+            continue
+        if len(tokens) != 2 or not tokens[1].startswith("/"):
+            raise DryRunMismatch(
+                f"{source_label} source command must be 'source <absolute-path>': {line!r}"
+            )
+        sources.append(tokens[1])
+    return sources
+
+
+def command_source_commands(text: str) -> list[str]:
+    """提取启动脚本中的 ``source <path>`` 命令，并保留出现顺序。"""
+    return _extract_source_paths(text.splitlines(), "command")
+
+
 def yaml_environment(config: dict[str, Any]) -> dict[str, str]:
     """Return YAML ``env`` values in the same scalar form as shell exports."""
     env = config.get("env", {})
@@ -160,6 +186,23 @@ def yaml_environment(config: dict[str, Any]) -> dict[str, str]:
     if not isinstance(env, dict):
         raise DryRunMismatch("engine_config.env must be a mapping")
     return {str(key): scalar(value) for key, value in env.items()}
+
+
+def yaml_source_commands(system_setup: Any) -> list[str]:
+    """提取 YAML ``system_setup.commands`` 中的 source 路径，并保留出现顺序。"""
+    if system_setup is None:
+        return []
+    if not isinstance(system_setup, dict):
+        raise DryRunMismatch("system_setup must be a mapping")
+    commands = system_setup.get("commands", [])
+    if commands is None:
+        return []
+    if not isinstance(commands, list):
+        raise DryRunMismatch("system_setup.commands must be a list")
+
+    if not all(isinstance(command, str) for command in commands):
+        raise DryRunMismatch("system_setup.commands must contain only strings")
+    return _extract_source_paths(commands, "YAML")
 
 
 def compare_environment(
@@ -194,6 +237,25 @@ def compare_environment(
     return details
 
 
+def compare_source_commands(expected: list[str], actual: list[str], label: str) -> list[str]:
+    """比较 YAML 与原始启动脚本中的 source 命令，顺序也属于启动契约。"""
+    details = [f"{label} source commands: {'OK' if expected == actual else '异常'}"]
+    for index, (yaml_path, command_path) in enumerate(zip(expected, actual)):
+        if yaml_path == command_path:
+            details.append(f"  OK       source[{index}]: {yaml_path!r}")
+        else:
+            details.append(
+                f"  不一致   source[{index}]: YAML={yaml_path!r}, command={command_path!r}"
+            )
+    for index, yaml_path in enumerate(expected[len(actual):], start=len(actual)):
+        details.append(f"  缺失     source[{index}]: YAML={yaml_path!r}")
+    for index, command_path in enumerate(actual[len(expected):], start=len(expected)):
+        details.append(f"  多余     source[{index}]: command={command_path!r}")
+    if expected != actual:
+        raise DryRunMismatch("\n".join(details))
+    return details
+
+
 def command_tokens(text: str) -> list[str]:
     try:
         tokens = shlex.split(text, comments=True, posix=True)
@@ -210,18 +272,23 @@ def command_tokens(text: str) -> list[str]:
     raise DryRunMismatch("no supported engine launch command found")
 
 
-def iter_engine_configs(strategy: dict[str, Any]) -> list[tuple[dict[str, Any], dict[str, Any]]]:
-    configs: list[tuple[dict[str, Any], dict[str, Any]]] = []
+def iter_engine_configs(strategy: dict[str, Any]) -> list[tuple[dict[str, Any], dict[str, Any], Any]]:
+    configs: list[tuple[dict[str, Any], dict[str, Any], Any]] = []
     strategy_env = strategy.get("env", {})
+    strategy_setup = strategy.get("system_setup")
     if isinstance(strategy.get("engine_config"), dict):
-        configs.append((strategy["engine_config"], strategy_env))
+        configs.append((strategy["engine_config"], strategy_env, strategy_setup))
     for role in ("head", "worker"):
         node = strategy.get(role)
         if isinstance(node, dict) and isinstance(node.get("engine_config"), dict):
-            configs.append((node["engine_config"], node.get("env", strategy_env)))
+            configs.append(
+                (node["engine_config"], node.get("env", strategy_env), node.get("system_setup", strategy_setup))
+            )
     for node in strategy.get("nodes", []) or []:
         if isinstance(node, dict) and isinstance(node.get("engine_config"), dict):
-            configs.append((node["engine_config"], node.get("env", strategy_env)))
+            configs.append(
+                (node["engine_config"], node.get("env", strategy_env), node.get("system_setup", strategy_setup))
+            )
     return configs
 
 
@@ -248,7 +315,7 @@ def yaml_configs(data: dict[str, Any], scenario: str) -> list[dict[str, Any]]:
             continue
         feature_args.update(parse_tokens(["sglang", *args], "sglang"))
     result: list[dict[str, Any]] = []
-    for config, strategy_env in iter_engine_configs(strategy):
+    for config, strategy_env, system_setup in iter_engine_configs(strategy):
         values: dict[str, str] = {}
         for key, value in config.items():
             if key == "env":
@@ -259,7 +326,13 @@ def yaml_configs(data: dict[str, Any], scenario: str) -> list[dict[str, Any]]:
             add_argument(values, flag, value)
         values.update(feature_args)
         environment = config.get("env", strategy_env)
-        result.append({"arguments": values, "env": yaml_environment({"env": environment})})
+        result.append(
+            {
+                "arguments": values,
+                "env": yaml_environment({"env": environment}),
+                "source_commands": yaml_source_commands(system_setup),
+            }
+        )
     return result
 
 
@@ -420,6 +493,7 @@ def check(yaml_path: Path, command_paths: list[Path], engine: str, scenario: str
     command_texts = [path.read_text(encoding="utf-8") for path in command_paths]
     commands = [parse_tokens(command_tokens(text), engine) for text in command_texts]
     environments = [command_env(text) for text in command_texts]
+    source_commands = [command_source_commands(text) for text in command_texts]
     if len(configs) != len(commands):
         raise DryRunMismatch(
             f"YAML has {len(configs)} engine configs but commands provide {len(commands)}"
@@ -430,10 +504,13 @@ def check(yaml_path: Path, command_paths: list[Path], engine: str, scenario: str
         else frozenset()
     )
     report: list[str] = []
-    for index, (expected, actual, environment) in enumerate(zip(configs, commands, environments)):
+    for index, (expected, actual, environment, sources) in enumerate(
+        zip(configs, commands, environments, source_commands)
+    ):
         label = f"node[{index}]"
         expected_arguments = expected["arguments"]
         expected_environment = expected["env"]
+        expected_source_commands = expected["source_commands"]
         report.extend(
             [
                 f"[{label}] YAML 重建命令:",
@@ -458,6 +535,7 @@ def check(yaml_path: Path, command_paths: list[Path], engine: str, scenario: str
                     auto_env_ignored,
                 )
             )
+            report.extend(compare_source_commands(expected_source_commands, sources, label))
         except DryRunMismatch as exc:
             raise DryRunMismatch("\n".join(report + [str(exc)])) from exc
     return report

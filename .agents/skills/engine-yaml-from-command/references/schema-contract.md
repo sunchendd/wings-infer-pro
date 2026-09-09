@@ -189,7 +189,7 @@ JSON/dict 参数优先转为 YAML mapping。进入 `features.*.args` 时保留�
 
 1. 运行 `scripts/normalize_input.py`，输入无错误和待确认警告。
 2. 运行 `scripts/validate_yaml.py --engine ... --scenario ... --reasoning-registry wings_control/docs/features/reasoning_parser/reason_parser.yaml`；存在 `features.reasoning` 时必须提供 registry。
-3. 执行 `scripts/check_dry_run.py`，重建每个策略/节点命令，并把 `features`（至少包括 `tool_calling` 和 `reasoning`）合并回命令进行 normalized diff。用户直接粘贴 inline 命令时，必须先将原始命令原样物化为临时 command file 再执行；不能因为没有现成脚本文件而跳过。只有用户没有提供完整原始命令时，才可报告 round-trip 未完成。
-4. dry-run 比较必须报告缺失参数、额外参数、值不一致和节点数量不一致；任一项存在都必须失败。
+3. 执行 `scripts/check_dry_run.py`，重建每个策略/节点命令，并把 `features`（至少包括 `tool_calling` 和 `reasoning`）合并回命令进行 normalized diff。`system_setup.commands` 中严格形如 `source <path>` 的命令也必须与原始脚本逐条、按顺序比较。用户直接粘贴 inline 命令时，必须先将原始命令原样物化为临时 command file 再执行；不能因为没有现成脚本文件而跳过。只有用户没有提供完整原始命令时，才可报告 round-trip 未完成。
+4. dry-run 比较必须报告缺失参数、额外参数、值不一致、source 命令不一致和节点数量不一致；任一项存在都必须失败。
 5. 仅运行 skill 自带的结构校验和 dry-run 校验；本 skill 不要求不存在的项目级验证器。
 6. 校验结果必须说明是否完成参数白名单检查以及 dry-run 参数一致性检查。

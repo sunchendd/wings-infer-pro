@@ -20,6 +20,14 @@ hardware_profile:
   vram_gb: 1024
   multi_node: false
 
+features:
+  tool_calling:
+    description: Enable DeepSeek V4 automatic tool calling.
+    args: [--tool-call-parser, deepseek_v4, --enable-auto-tool-choice]
+  reasoning:
+    description: Enable DeepSeek V4 reasoning parsing.
+    args: [--reasoning-parser, deepseek_v4, --reasoning-config, '{"reasoning_parser":"deepseek_v4","reasoning_start_str":"","reasoning_end_str":""}']
+
 scenarios:
   standalone:
     source_ref: "vllm_ascend_deepseek_v4_flash_vision_exp_w8a8_quarot_manual#single_node"

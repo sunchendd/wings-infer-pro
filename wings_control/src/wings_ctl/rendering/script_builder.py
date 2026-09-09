@@ -28,6 +28,7 @@ from wings_ctl.engines.vllm_adapter import (
     MODEL_KEYS,
     build_argv,
     build_command_head,
+    build_system_setup_source_commands,
     render_param_tokens,
     resolve_model_traced,
 )
@@ -52,14 +53,19 @@ def _render_env_section(env_traces: Dict[str, TracedValue]) -> List[str]:
     return lines
 
 
-def _render_system_setup_comments(system_setup: Optional[SystemSetup]) -> List[str]:
+def _render_system_setup_comments(
+    system_setup: Optional[SystemSetup],
+    rendered_source_commands: Optional[List[str]] = None,
+) -> List[str]:
     """渲染 system_setup 为注释形式(不生成可执行行)。
 
-    ⚠️ 安全敏感:仅输出注释,不生成可执行指令。特权 sysctls / sysfs_writes **恒注释**
-    (维持单机「注释不执行」安全立场,留运维/容器 init)。
+    安全敏感:特权 sysctls / sysfs_writes **恒注释**(维持单机「注释不执行」
+    安全立场,留运维/容器 init)。只有引擎启动计划已明确给出的 source 初始化命令
+    会在 engine argv 前执行，其余 commands 仍只保留为注释信息。
 
     Args:
         system_setup: 系统级设置(None 返回空)。
+        rendered_source_commands: 已由引擎命令规格校验、将要执行的 source 命令。
     """
     if system_setup is None:
         return []
@@ -82,12 +88,32 @@ def _render_system_setup_comments(system_setup: Optional[SystemSetup]) -> List[s
             lines.append(f"#   echo {value!r} > {path}")
 
     if system_setup.commands:
-        lines.append(f"# commands ({len(system_setup.commands)} entries, not rendered)")
+        rendered_count = len(rendered_source_commands or [])
+        not_rendered_count = len(system_setup.commands) - rendered_count
+        if rendered_count:
+            lines.append(
+                "# commands "
+                f"({rendered_count} source entries rendered before engine; "
+                f"{not_rendered_count} entries not rendered)"
+            )
+        else:
+            lines.append(f"# commands ({len(system_setup.commands)} entries, not rendered)")
 
     if lines:
         lines.append("")
 
     return lines
+
+
+def _render_system_setup_source_section(source_commands: Optional[List[str]]) -> List[str]:
+    """渲染已校验的 source 环境初始化命令段。"""
+    if not source_commands:
+        return []
+    return [
+        "# ─── System Setup source commands ───",
+        *source_commands,
+        "",
+    ]
 
 
 def _render_accel_install_preamble(engine: str, engine_version: str, packages: List[str]) -> List[str]:
@@ -551,6 +577,7 @@ def _render_start_command_sh(
     kv_disk_offload_path: Optional[str] = None,
     analyzer_preamble: Optional[str] = None,
     engine_pre_start: Optional[List[str]] = None,
+    system_setup_source_commands: Optional[List[str]] = None,
 ) -> str:
     """生成 start_command.sh 内容。简洁执行脚本。
 
@@ -573,6 +600,8 @@ def _render_start_command_sh(
             启动后台分析器进程并注册 trap 清理。
         engine_pre_start: extension 生成的引擎专属启动前片段。公共渲染层只保证
             它位于通用 env/accel 准备之后、唯一引擎生命周期之前，不解释内容。
+        system_setup_source_commands: 已校验的 source 环境初始化命令；紧邻 engine
+            argv 前执行。
     """
     lines = [
         "#!/usr/bin/env bash",
@@ -616,8 +645,7 @@ def _render_start_command_sh(
         lines.extend(env_lines)
         lines.append("")
 
-    # system_setup 恒以注释形式渲染，不在启动脚本中执行。
-    setup_lines = _render_system_setup_comments(system_setup)
+    setup_lines = _render_system_setup_comments(system_setup, system_setup_source_commands)
     if setup_lines:
         lines.extend(setup_lines)
 
@@ -639,6 +667,7 @@ def _render_start_command_sh(
     # extension 不能自行启动后台进程；进程回收和 analyzer cleanup 仍由公共层持有。
     if engine_pre_start:
         lines.extend(engine_pre_start)
+    lines.extend(_render_system_setup_source_section(system_setup_source_commands))
     # 后台化引擎进程(而非 exec 替换 shell),使 trap cleanup_analyzer 保持有效。
     # exec 会替换 shell 进程导致 trap 失效:引擎退出时 cleanup 无法触发,
     # log_analyzer 成为孤儿进程。后台化 + wait 保持 shell 存活,trap 正常工作,
@@ -684,7 +713,10 @@ def _render_plan_repro_sh(
     return "\n".join([lines[0], *header, *lines[1:]]) + "\n"
 
 
-def _render_repro_sh(resolved: ResolvedConfig) -> str:
+def _render_repro_sh(
+    resolved: ResolvedConfig,
+    system_setup_source_commands: Optional[List[str]] = None,
+) -> str:
     """生成 repro.sh 内容。可移植复现脚本,含来源注释。
 
     直接遍历 resolved.engine_config_traces 生成带注释的参数行,
@@ -727,8 +759,7 @@ def _render_repro_sh(resolved: ResolvedConfig) -> str:
     # KV 磁盘卸载残留清理(与 start_command.sh 同款;repro 复现也需干净基线)
     lines.extend(_render_kv_disk_cleanup_section(resolved.accel.kv_disk_offload_path))
 
-    # system_setup 仅以注释形式渲染。
-    setup_lines = _render_system_setup_comments(resolved.system_setup)
+    setup_lines = _render_system_setup_comments(resolved.system_setup, system_setup_source_commands)
     if setup_lines:
         lines.extend(setup_lines)
 
@@ -767,6 +798,7 @@ def _render_repro_sh(resolved: ResolvedConfig) -> str:
     # 上方主循环已渲染并标来源,这里无需重复追加。
 
     # repro.sh 使用 exec 直接替换进程(无需 trap/cleanup,repro 仅用于复现,无 log_analyzer)
+    lines.extend(_render_system_setup_source_section(system_setup_source_commands))
     lines.append("exec " + shlex.join(command_tokens))
 
     lines.append("")
@@ -812,6 +844,10 @@ def _render_multi_node_placeholder(resolved: ResolvedConfig) -> str:
             lines.extend(f"#     {line}" for line in env_lines)
         setup_lines = _render_system_setup_comments(node.system_setup)
         lines.extend(f"# {line}" if line else "#" for line in setup_lines)
+        source_commands = build_system_setup_source_commands(resolved.engine, node.system_setup)
+        if source_commands:
+            lines.append("#   source commands (runtime injection pending):")
+            lines.extend(f"#     {command}" for command in source_commands)
         argv = build_argv(node.engine_config_traces, engine=resolved.engine)
         lines.append("#   argv (runtime injection pending; placeholders are literal):")
         lines.append(f"#     {shlex.join(argv)}")
@@ -856,6 +892,7 @@ def _render_pd_process_plan(
     resolved: ResolvedConfig,
     *,
     analyzer_preamble: Optional[str] = None,
+    system_setup_source_commands: Optional[List[str]] = None,
 ) -> str:
     """从唯一 ``ProcessPlan`` 渲染 single 或 fail-together 脚本。
 
@@ -870,6 +907,8 @@ def _render_pd_process_plan(
     Args:
         resolved: ``process_plan`` 非空的 PD 解析结果。
         analyzer_preamble: log_analyzer shell 片段;None → 不注入。
+        system_setup_source_commands: 当前 PD Pod 在启动全部 engine 前执行一次的 source
+            环境初始化命令。
 
     Returns:
         可执行 bash 脚本文本；每条命令来自结构化 argv 并经 ``shlex.join``。
@@ -905,6 +944,12 @@ def _render_pd_process_plan(
             "export PYTHONUNBUFFERED=1",
             "",
         ]
+
+    if system_setup_source_commands:
+        setup_lines = _render_system_setup_comments(resolved.system_setup, system_setup_source_commands)
+        if setup_lines:
+            lines.extend(setup_lines)
+    lines.extend(_render_system_setup_source_section(system_setup_source_commands))
 
     if plan.lifecycle == "single":
         process = plan.processes[0]
@@ -981,7 +1026,10 @@ _LOG_ANALYZER_MARKERS = (
 )
 
 
-def _render_pd_repro_sh(resolved: ResolvedConfig) -> str:
+def _render_pd_repro_sh(
+    resolved: ResolvedConfig,
+    system_setup_source_commands: Optional[List[str]] = None,
+) -> str:
     """从同一 ProcessPlan 渲染无部署副作用的 PD 复现脚本。
 
     repro 只保留逐进程 env/argv 与 fail-together 监督，不启动 analyzer、不清理
@@ -1003,6 +1051,12 @@ def _render_pd_repro_sh(resolved: ResolvedConfig) -> str:
         "set -euo pipefail",
         "",
     ]
+
+    if system_setup_source_commands:
+        setup_lines = _render_system_setup_comments(resolved.system_setup, system_setup_source_commands)
+        if setup_lines:
+            lines.extend(setup_lines)
+    lines.extend(_render_system_setup_source_section(system_setup_source_commands))
 
     if plan.lifecycle == "single":
         process = plan.processes[0]
@@ -1106,7 +1160,8 @@ def build_scripts(
     - multi_node 已注入(topology==MULTI_NODE 且已选 node)→ 渲染可执行脚本。
     - standalone → 渲染可执行脚本。
 
-    ``system_setup.commands`` 在所有路径均仅以注释形式保留，不会被脚本执行。
+    ``system_setup.commands`` 默认仅以注释形式保留；引擎启动计划明确给出的
+    ``source <absolute-path>`` 初始化命令会在对应 engine argv 前执行。
 
     Returns:
         (start_command_path, repro_path) 元组。
@@ -1118,8 +1173,13 @@ def build_scripts(
     if resolved.process_plan:
         # PD 场景补齐 log_analyzer 进度监控(见设计 §4.4):从 ProcessPlan 构建 preamble。
         analyzer_preamble = _build_analyzer_preamble_from_plan(resolved)
-        pd_script = _render_pd_process_plan(resolved, analyzer_preamble=analyzer_preamble)
-        repro_script = _render_pd_repro_sh(resolved)
+        source_commands = build_system_setup_source_commands(resolved.engine, resolved.system_setup)
+        pd_script = _render_pd_process_plan(
+            resolved,
+            analyzer_preamble=analyzer_preamble,
+            system_setup_source_commands=source_commands,
+        )
+        repro_script = _render_pd_repro_sh(resolved, source_commands)
         # 部署进度功能守卫:PD 属真实部署路径,必须含 log_analyzer 片段(fail-fast)。
         # 先校验后落盘,守卫失败时不留半成品交付件。
         _validate_log_analyzer_present(resolved, pd_script)
@@ -1167,6 +1227,7 @@ def build_scripts(
         kv_disk_offload_path=resolved.accel.kv_disk_offload_path,
         analyzer_preamble=analyzer_preamble,
         engine_pre_start=launch_plan.pre_start_lines,
+        system_setup_source_commands=launch_plan.system_setup_source_commands,
     )
     # 部署进度功能守卫:standalone / multi_node 真实部署须含 log_analyzer 片段。
     # worker 与占位按 §5.2 口径跳过;任何真实部署路径漏接都会在此 fail-fast。
@@ -1183,7 +1244,7 @@ def build_scripts(
             launch_plan.repro_trace_lines,
         )
     else:
-        repro_content = _render_repro_sh(resolved)
+        repro_content = _render_repro_sh(resolved, launch_plan.system_setup_source_commands)
     repro_path.write_text(repro_content, encoding="utf-8")
     repro_path.chmod(0o755)
 

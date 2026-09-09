@@ -16,7 +16,9 @@
 | `repro.sh` | 用于复现或核对启动参数。执行前先查看内容，它可能设置环境变量、执行启动前命令或清理 KV 磁盘文件。 | 非 dry-run 启动 |
 | `audit.json` | 本次解析的完整记录，包括最终参数、参数来源、配置文件、版本判断和进程/节点计划。追查参数来源时以它为准。 | 非 dry-run 启动 |
 
-`--dry-run` 只打印解析后的环境变量、命令和进程预览，不生成上述文件、`wings_start.log`、`advanced_features.json` 或 Accel 文件。不过 CLI 初始化时仍可能写入 `wings_control.log`。
+`--dry-run` 只打印解析后的环境变量、启动前 `source` 初始化命令和引擎命令/进程预览，不生成上述文件、`wings_start.log`、`advanced_features.json` 或 Accel 文件。不过 CLI 初始化时仍可能写入 `wings_control.log`。
+
+对于 `vllm-ascend`，recipe 的 `system_setup.commands` 中严格形如 `source <absolute-path>` 的命令会经过安全解析后写入 `start_command.sh` 和 `repro.sh`，并在当前 Pod 的 `vllm serve` 命令前执行一次，例如 Ascend toolkit 与 ATB 的 `set_env.sh`。PD 的多个 engine 进程继承同一 shell 环境，因此不会为每条命令重复 source。multi_node 尚未注入运行时上下文时，产物和 dry-run 仅以注释展示各节点 source 命令，不执行它们。其他 `commands`、全部 `sysctls` 和 `sysfs_writes` 仍仅作为注释保留，不会由启动脚本执行。
 
 ## 日志
 
