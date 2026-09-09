@@ -2163,6 +2163,11 @@ def _resolve_pd_config(
     pd_topology = resolve_pd_topology(pd_input, pair, device_count)
     rank_ip = pd_topology.placement.rank_ip
     assert rank_ip is not None
+    system_setup = _build_system_setup(
+        role_recipe.system_setup,
+        str(model_path),
+        f"{role_recipe.source_prefix}.system_setup",
+    )
     # recipe env 保留可审计的字面占位符，只有当前 Pod placement 明确后才注入真实 IP。
     network_env_overrides = substitute_literal_placeholders(
         role_recipe.env,
@@ -2280,7 +2285,7 @@ def _resolve_pd_config(
             *([reasoning_table_source] if reasoning_table_source else []),
             *([tool_calling_source] if tool_calling_source else []),
         ],
-        system_setup=None,
+        system_setup=system_setup,
         resolution_notes=notes,
         user_cli_params=_build_user_cli_audit_entries(user_layer, user_input.cli_dropped),
         accel=AccelResult(),

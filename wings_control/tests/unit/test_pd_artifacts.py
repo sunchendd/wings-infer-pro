@@ -11,6 +11,7 @@ import pytest
 
 from wings_ctl.audit.emitter import emit_audit
 from wings_ctl.audit.startup_log import _build_summary_lines
+from wings_ctl import cli
 from wings_ctl.core.models import (
     ClusterPlacement,
     EngineProcessPlan,
@@ -22,12 +23,18 @@ from wings_ctl.core.models import (
     ResolvedConfig,
     ResolvedNode,
     ResolvedPdTopology,
+    SystemSetup,
 )
 from wings_ctl.core.topology import Topology
 from wings_ctl.rendering.script_builder import _endpoint_port, _validate_log_analyzer_present, build_scripts
 
 
-def _resolved(process_count: int = 2) -> ResolvedConfig:
+def _resolved(
+    process_count: int = 2,
+    *,
+    engine: str = "vllm",
+    system_setup: SystemSetup | None = None,
+) -> ResolvedConfig:
     """构造不依赖真实 engine 的 synthetic PD ProcessPlan。"""
     processes = [
         EngineProcessPlan(
@@ -54,22 +61,26 @@ def _resolved(process_count: int = 2) -> ResolvedConfig:
         rank_start=0,
         rank_end_exclusive=process_count,
     )
-    return internal_resolved(topology, processes, process_count)
+    return internal_resolved(topology, processes, process_count, engine=engine, system_setup=system_setup)
 
 
 def internal_resolved(
     topology: ResolvedPdTopology,
     processes: list,
     process_count: int,
+    *,
+    engine: str = "vllm",
+    system_setup: SystemSetup | None = None,
 ) -> ResolvedConfig:
     return ResolvedConfig(
         topology=Topology.PD_DECODE,
         hardware=HardwareContext("synthetic", "nvidia"),
-        engine="vllm",
+        engine=engine,
         engine_version=EngineVersion("1.0.0", "", False, False),
         engine_config_traces={},
         env_traces={},
         source_files=["synthetic.yaml"],
+        system_setup=system_setup,
         pd_topology=topology,
         resolution_notes={
             "pd_recipe_recommendation_status": "custom",
@@ -134,6 +145,41 @@ def test_pd_fail_together_script_has_log_analyzer_and_tee(tmp_path: Path) -> Non
     assert "trap terminate_children EXIT TERM INT" in content
     # 有 pids 收集
     assert 'pids+=("$!")' in content
+
+
+def test_pd_source_commands_are_rendered_once_before_all_processes(tmp_path: Path, capsys, monkeypatch) -> None:
+    """PD source 在父 shell 执行一次，所有 engine 子进程和 dry-run 均可继承。"""
+    setup = SystemSetup(commands=["source /dev/null"])
+    resolved = _resolved(process_count=2, engine="vllm-ascend", system_setup=setup)
+    start, repro = build_scripts(resolved, tmp_path)
+    start_content = start.read_text(encoding="utf-8")
+    repro_content = repro.read_text(encoding="utf-8")
+
+    hardware_file = tmp_path / "hardware_info.json"
+    hardware_file.write_text('{"hardware_family":"synthetic","device":"ascend","count":1}', encoding="utf-8")
+    monkeypatch.setattr(cli, "resolve_pipeline", lambda _request: resolved)
+    monkeypatch.setattr(cli, "setup_root_logging", lambda: None)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "wings-ctl",
+            "--engine",
+            "vllm-ascend",
+            "--model-name",
+            "synthetic",
+            "--hardware-info",
+            str(hardware_file),
+            "--dry-run",
+        ],
+    )
+    cli.main()
+    preview = capsys.readouterr().out
+
+    assert start_content.count("source /dev/null") == 1
+    assert start_content.index("source /dev/null") < start_content.index("python -c")
+    assert repro_content.count("source /dev/null") == 1
+    assert repro_content.index("source /dev/null") < repro_content.index("exec python -c")
+    assert preview.index("source /dev/null") < preview.index("# process[0]")
 
 
 @pytest.mark.parametrize(

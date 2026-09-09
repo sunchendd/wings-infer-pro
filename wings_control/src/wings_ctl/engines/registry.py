@@ -11,12 +11,15 @@ import shlex
 
 from wings_ctl.core.models import ResolvedConfig
 from wings_ctl.engines.extension import EngineLaunchPlan, get_engine_extension
-from wings_ctl.engines.vllm_adapter import build_argv
+from wings_ctl.engines.vllm_adapter import build_argv, build_system_setup_source_commands
 
 
 def _build_argv_launch_plan(resolved: ResolvedConfig) -> EngineLaunchPlan:
     """为未声明扩展启动能力的 argv 引擎保持历史行为。"""
-    return EngineLaunchPlan(argv=build_argv(resolved.engine_config_traces, engine=resolved.engine))
+    return EngineLaunchPlan(
+        argv=build_argv(resolved.engine_config_traces, engine=resolved.engine),
+        system_setup_source_commands=build_system_setup_source_commands(resolved.engine, resolved.system_setup),
+    )
 
 
 def build_launch_plan(resolved: ResolvedConfig) -> EngineLaunchPlan:
@@ -31,6 +34,21 @@ def format_launch_preview(resolved: ResolvedConfig) -> str:
     return plan.preview or shlex.join(plan.argv)
 
 
+def format_launch_dry_run_preview(resolved: ResolvedConfig) -> str:
+    """生成包含受支持 source 初始化命令的 dry-run 预览。"""
+    plan = build_launch_plan(resolved)
+    lines = []
+    if plan.system_setup_source_commands:
+        lines.extend(
+            [
+                "# System Setup source commands",
+                *plan.system_setup_source_commands,
+            ]
+        )
+    lines.append(plan.preview or shlex.join(plan.argv))
+    return "\n".join(lines)
+
+
 def format_launch_summary(resolved: ResolvedConfig) -> str:
     """按启动计划声明的标签与换行方式生成摘要。"""
     plan = build_launch_plan(resolved)
@@ -42,6 +60,7 @@ def format_launch_summary(resolved: ResolvedConfig) -> str:
 __all__ = [
     "EngineLaunchPlan",
     "build_launch_plan",
+    "format_launch_dry_run_preview",
     "format_launch_preview",
     "format_launch_summary",
 ]

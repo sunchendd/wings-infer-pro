@@ -240,7 +240,9 @@ python3 <skill-dir>/scripts/validate_yaml.py \
 
 dry-run 默认视为已开启 `tool_calling` 和 `reasoning`：只要 YAML 中存在
 `features.tool_calling` 或 `features.reasoning`，就必须合并其 args 并与用户原始启动命令逐项比较；
-其它已配置 feature 也继续参与比较。`--chat-template` 是例外：仅当用户明确要求保留且确认模板在实际运行环境中存在并可读取时，生成 YAML 才能包含与原始命令相同的 `--chat-template <value>`。默认移除该参数时，dry-run 必须从比较用的原始命令副本中同时排除 `--chat-template` 及其值，再进行逐项比较；原始命令文件本身不得改写。引用 YAML、跨引擎 fallback 或其他非用户命令来源带入的 `--chat-template` 必须使 dry-run 失败，不能写入生成结果。
+其它已配置 feature 也继续参与比较。`system_setup.commands` 中每条严格形如
+`source <path>` 的初始化命令也必须与原始启动脚本逐条、按顺序比较；YAML 缺失、原始
+脚本多出、路径不同或顺序不同都必须使 dry-run 失败。`--chat-template` 是例外：仅当用户明确要求保留且确认模板在实际运行环境中存在并可读取时，生成 YAML 才能包含与原始命令相同的 `--chat-template <value>`。默认移除该参数时，dry-run 必须从比较用的原始命令副本中同时排除 `--chat-template` 及其值，再进行逐项比较；原始命令文件本身不得改写。引用 YAML、跨引擎 fallback 或其他非用户命令来源带入的 `--chat-template` 必须使 dry-run 失败，不能写入生成结果。
 
 用户可能直接在消息中粘贴多行命令，而不是提供脚本文件。此时必须先将命令原样写入
 临时 command file（保留续行、引号和 JSON 参数），再执行 dry-run；“没有现成的脚本
@@ -262,7 +264,7 @@ inline 命令物化后，必须检查 command file 内容与用户消息逐项�
 `$6` 等非数字端口的原始命令直接与 YAML 宣称为 dry-run 匹配；应报告端口待确认。用户确认
 回退端口后，才可将临时命令中的该参数解析为对应值并完成 dry-run：multi-node 的所有节点为
 `12321`；PD 的 prefill（`p`）节点为 `12321`，decode（`d`）节点为 `12322`。
-脚本会打印每个节点的 YAML 重建命令、原始启动命令和逐项比较结果：`OK` 表示匹配，
+脚本会打印每个节点的 YAML 重建命令、原始启动命令、环境变量和 `source` 初始化命令的逐项比较结果：`OK` 表示匹配，
 `缺失`、`多余`、`不一致` 会分别列出参数及 YAML/command 的值；异常报告输出到 stderr，
 并以退出码 1 结束。成功报告输出到 stdout 并以退出码 0 结束，便于日志和 CI 查看。
 尤其必须确认 `features.tool_calling` 和 `features.reasoning` 中的参数分别出现在
@@ -273,7 +275,7 @@ inline 命令物化后，必须检查 command file 内容与用户消息逐项�
 1. YAML 可解析，顶层顺序和字段类型正确；`system_setup.commands` 必须是同一行的 flow-style 字符串列表。
 2. 场景结构与 reference 一致，且恰有一个 `default_strategy: true`。
 3. multi-node 节点结构完整；PD 同时存在 prefill/decode。
-4. `engine_config` 可按原顺序重建命令，features 参数可合并回原始命令；若存在带点号的 key，必须逐项确认输出为 `--顶层-flag.原生路径=value`，并覆盖值为 `false` 的情形。
+4. `engine_config` 可按原顺序重建命令，features 参数可合并回原始命令；若存在带点号的 key，必须逐项确认输出为 `--顶层-flag.原生路径=value`，并覆盖值为 `false` 的情形。`system_setup.commands` 中的 `source <path>` 也必须与原始脚本逐条、按顺序一致。
 5. 除明确的路径归一化、feature 拆分、参数名映射和 standalone `host: "0.0.0.0"` 规范化外，不允许核心参数缺失或值变化。
 6. 若存在 `features.reasoning`，核对 `model.variant_name` 在 `wings_control/docs/features/reasoning_parser/reason_parser.yaml` 的 `ReasoningParserModels.models` 中已唯一登记，且 `vllm` 与 `vllm_ascend` 的 parser 配置相同；若是新登记项，确认公共表同步已包含在同一变更中。
 

@@ -31,12 +31,14 @@ class EngineLaunchPlan:
     """脚本渲染层消费的最小引擎启动计划。
 
     ``argv`` 始终交给公共 ScriptBuilder 启动和监督；特殊引擎需要的配置落盘或
-    环境准备只能放在 ``pre_start_lines``。该模型只描述执行协议，不携带 topology
-    或引擎私有状态，因此渲染层无需按引擎分支。
+    环境准备只能放在 ``pre_start_lines``。``system_setup_source_commands`` 是经过
+    引擎命令规格校验后、紧邻 engine argv 执行的 source 环境初始化命令。该模型只
+    描述执行协议，不携带 topology 或引擎私有状态，因此渲染层无需按引擎分支。
     """
 
     argv: List[str]
     pre_start_lines: List[str] = field(default_factory=list)
+    system_setup_source_commands: List[str] = field(default_factory=list)
     preview: str = ""
     preview_label: str = "argv"
     preview_on_new_line: bool = False

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Dict
 
 from wings_ctl.core.constants import DEFAULT_ENGINE_PORT
+from wings_ctl.core.system_setup import extract_source_commands
 from wings_ctl.core.models import (
     ConnectorProfile,
     KvPortPolicy,
@@ -61,6 +62,8 @@ class PdRoleRecipe:
     source_prefix: str
     engine_config: Dict[str, Any]
     env: Dict[str, Any]
+    system_setup: Dict[str, Any] | None
+    source_commands: list[str]
     runtime: PdRuntimeSpec
 
 
@@ -73,6 +76,8 @@ class _NormalizedNode:
     source_prefix: str
     engine_config: Dict[str, Any]
     env: Dict[str, Any]
+    system_setup: Dict[str, Any] | None
+    source_commands: list[str]
     prefill_shape: ParallelShape
     decode_shape: ParallelShape
     connector_name: str
@@ -201,12 +206,23 @@ def _normalize_node(raw: Any, path: str, expected_index: int) -> _NormalizedNode
     config["kv_transfer_config"] = transfer
 
     env = deepcopy(_required_mapping(node.get("env", {}), f"{path}.env"))
+    raw_system_setup = node.get("system_setup")
+    source_commands = (
+        extract_source_commands(
+            raw_system_setup.get("commands", []),
+            context=f"PD recipe {path}.system_setup",
+        )
+        if isinstance(raw_system_setup, dict)
+        else []
+    )
     return _NormalizedNode(
         role=role,
         index=index,
         source_prefix=path,
         engine_config=config,
         env=env,
+        system_setup=deepcopy(raw_system_setup),
+        source_commands=source_commands,
         prefill_shape=prefill_shape,
         decode_shape=decode_shape,
         connector_name=connector_name.strip(),
@@ -290,6 +306,10 @@ def _validate_role_nodes(nodes: list[_NormalizedNode], role: PdRole) -> _Normali
             raise ValueError(f"PD recipe role={role.value} nodes have inconsistent static engine_config: {node.source_prefix}")
         if node.env != first.env:
             raise ValueError(f"PD recipe role={role.value} nodes have inconsistent env: {node.source_prefix}")
+        if node.source_commands != first.source_commands:
+            raise ValueError(
+                f"PD recipe role={role.value} nodes have inconsistent source commands: {node.source_prefix}"
+            )
         if (node.prefill_shape, node.decode_shape) != (first.prefill_shape, first.decode_shape):
             raise ValueError(f"PD recipe role={role.value} nodes have inconsistent P/D shape: {node.source_prefix}")
         if node.connector_name != first.connector_name or node.rpc_port != first.rpc_port:
@@ -363,6 +383,8 @@ def select_pd_recipe_pair(
             source_prefix=node.source_prefix,
             engine_config=node.engine_config,
             env=node.env,
+            system_setup=node.system_setup,
+            source_commands=node.source_commands,
             runtime=runtime,
         )
     logger.info(

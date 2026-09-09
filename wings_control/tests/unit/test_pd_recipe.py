@@ -123,6 +123,45 @@ def test_select_pd_recipe_pair_normalizes_nodes_without_duplicate_runtime_schema
     assert prefill.engine_config["tensor_parallel_size"] == 4
 
 
+def test_select_pd_recipe_pair_preserves_role_system_setup() -> None:
+    """PD role recipe 保留 system_setup，供当前 Pod 启动脚本执行安全 source 命令。"""
+    model = _model()
+    nodes = model["scenarios"]["pd_disaggregation"]["strategies"]["pd_cluster"]["nodes"]
+    for node in nodes:
+        node["system_setup"] = {"commands": ["source /dev/null"]}
+
+    pair = select_pd_recipe_pair(model, "explicit_allocation")
+
+    assert pair[PdRole.PREFILL].system_setup == {"commands": ["source /dev/null"]}
+    assert pair[PdRole.DECODE].system_setup == {"commands": ["source /dev/null"]}
+
+
+def test_select_pd_recipe_pair_ignores_non_source_system_setup_drift() -> None:
+    """同一 role 的普通 commands、sysctl 和 sysfs 差异不会阻断 PD 解析。"""
+    model = _model()
+    nodes = model["scenarios"]["pd_disaggregation"]["strategies"]["pd_cluster"]["nodes"]
+    nodes[0]["system_setup"] = {"commands": ['nic_name="eth0"'], "sysctls": {"vm.swappiness": 0}}
+    nodes[1]["system_setup"] = {
+        "commands": ['local_ip="10.0.0.1"'],
+        "sysfs_writes": [{"path": "/sys/test", "value": "1"}],
+    }
+
+    pair = select_pd_recipe_pair(model, "explicit_allocation")
+
+    assert pair[PdRole.PREFILL].system_setup == nodes[0]["system_setup"]
+
+
+def test_select_pd_recipe_pair_rejects_source_command_drift() -> None:
+    """同一 role 的可执行 source 环境初始化命令必须一致。"""
+    model = _model()
+    nodes = model["scenarios"]["pd_disaggregation"]["strategies"]["pd_cluster"]["nodes"]
+    nodes[0]["system_setup"] = {"commands": ["source /dev/null"]}
+    nodes[1]["system_setup"] = {"commands": ["source /etc/profile"]}
+
+    with pytest.raises(ValueError, match="inconsistent source commands"):
+        select_pd_recipe_pair(model, "explicit_allocation")
+
+
 def test_select_pd_recipe_pair_accepts_global_engine_identity_sequence() -> None:
     """验证显式 connector identity 被归一化为 PD_INDEX 派生策略。"""
     pair = select_pd_recipe_pair(_model(with_engine_id=True), "explicit_allocation")
