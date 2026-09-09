@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "check_dry_run.py"
 spec = importlib.util.spec_from_file_location("check_dry_run", SCRIPT)
@@ -162,6 +164,79 @@ def test_environment_mismatch_fails(tmp_path: Path) -> None:
         assert "缺失" in str(exc)
     else:
         raise AssertionError("missing environment export was accepted")
+
+
+def test_source_commands_match_in_order(tmp_path: Path) -> None:
+    yaml_path, command_path = write_case(tmp_path, feature_args="", command_args="")
+    yaml_text = yaml_path.read_text(encoding="utf-8")
+    yaml_path.write_text(
+        yaml_text.replace(
+            "          tensor_parallel_size: 1\n",
+            "          tensor_parallel_size: 1\n"
+            "        system_setup:\n"
+            "          commands: [source /usr/local/Ascend/ascend-toolkit/set_env.sh, "
+            "source /usr/local/Ascend/nnal/atb/set_env.sh]\n",
+        ),
+        encoding="utf-8",
+    )
+    command_path.write_text(
+        "source /usr/local/Ascend/ascend-toolkit/set_env.sh\n"
+        "source /usr/local/Ascend/nnal/atb/set_env.sh\n"
+        "vllm serve demo/model --tensor-parallel-size 1\n",
+        encoding="utf-8",
+    )
+
+    report = module.check(yaml_path, [command_path], "vllm-ascend", "standalone")
+
+    assert "node[0] source commands: OK" in "\n".join(report)
+
+
+def test_source_command_order_mismatch_fails(tmp_path: Path) -> None:
+    yaml_path, command_path = write_case(tmp_path, feature_args="", command_args="")
+    yaml_text = yaml_path.read_text(encoding="utf-8")
+    yaml_path.write_text(
+        yaml_text.replace(
+            "          tensor_parallel_size: 1\n",
+            "          tensor_parallel_size: 1\n"
+            "        system_setup:\n"
+            "          commands: [source /usr/local/Ascend/ascend-toolkit/set_env.sh]\n",
+        ),
+        encoding="utf-8",
+    )
+    command_path.write_text(
+        "source /usr/local/Ascend/nnal/atb/set_env.sh\n"
+        "vllm serve demo/model --tensor-parallel-size 1\n",
+        encoding="utf-8",
+    )
+
+    try:
+        module.check(yaml_path, [command_path], "vllm-ascend", "standalone")
+    except module.DryRunMismatch as exc:
+        assert "source[0]" in str(exc)
+    else:
+        raise AssertionError("source command mismatch was accepted")
+
+
+def test_relative_source_command_fails(tmp_path: Path) -> None:
+    yaml_path, command_path = write_case(tmp_path, feature_args="", command_args="")
+    yaml_text = yaml_path.read_text(encoding="utf-8")
+    yaml_path.write_text(
+        yaml_text.replace(
+            "          tensor_parallel_size: 1\n",
+            "          tensor_parallel_size: 1\n"
+            "        system_setup:\n"
+            "          commands: [source relative/set_env.sh]\n",
+        ),
+        encoding="utf-8",
+    )
+    command_path.write_text(
+        "source relative/set_env.sh\n"
+        "vllm serve demo/model --tensor-parallel-size 1\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(module.DryRunMismatch, match="source <absolute-path>"):
+        module.check(yaml_path, [command_path], "vllm-ascend", "standalone")
 
 
 def test_missing_reasoning_parameter_fails(tmp_path: Path) -> None:

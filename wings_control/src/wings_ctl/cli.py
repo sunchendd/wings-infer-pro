@@ -39,8 +39,8 @@ from typing import Any, Dict, List
 from wings_ctl.common.log_config import LOGGER_LAUNCHER, setup_root_logging
 from wings_ctl.core.config_resolver import DEFAULT_ENGINE_PORT
 from wings_ctl.core.models import ClusterPlacement, CustomConfigFile, PipelineRequest, Target, UserInput
-from wings_ctl.engines.registry import format_launch_preview, format_launch_summary
-from wings_ctl.engines.vllm_adapter import build_argv
+from wings_ctl.engines.registry import format_launch_dry_run_preview, format_launch_summary
+from wings_ctl.engines.vllm_adapter import build_argv, build_system_setup_source_commands
 from wings_ctl.pd.input_contract import parse_pd_runtime_input
 from wings_ctl.pipeline import resolve_pipeline, resolve_pipeline_custom, run_pipeline, run_pipeline_custom
 from wings_ctl.strategy.pre_template import pre_template_strategy
@@ -474,6 +474,14 @@ def _print_env_dry_run(env_traces: dict[str, Any]) -> None:
             print(f"export {env_key}={shlex.quote(str(value))}")
 
 
+def _print_system_setup_source_dry_run(engine: str, system_setup: Any) -> None:
+    """打印当前节点或 Pod 会在 engine 前执行的 source 初始化命令。"""
+    source_commands = build_system_setup_source_commands(engine, system_setup)
+    if source_commands:
+        print("# System Setup source commands")
+        print("\n".join(source_commands))
+
+
 def _print_multi_node_dry_run(engine: str, nodes: List[Any]) -> None:
     """打印 dry-run 下的 multi_node 占位 argv 列表。
 
@@ -488,7 +496,19 @@ def _print_multi_node_dry_run(engine: str, nodes: List[Any]) -> None:
         node_argv = build_argv(node.engine_config_traces, engine=engine)
         print(f"# node[{node.role}] (multi_node placeholder; runtime variables are not injected)")
         _print_env_dry_run(node.env_traces)
+        _print_system_setup_source_dry_run(engine, node.system_setup)
         print(shlex.join(node_argv))
+
+
+def _print_process_plan_dry_run(engine: str, resolved: Any) -> None:
+    """打印 PD 当前 Pod 的 source 初始化命令和每条 engine argv。"""
+    _print_system_setup_source_dry_run(engine, resolved.system_setup)
+    for process in resolved.process_plan.processes:
+        print(
+            f"# process[{process.process_index}] rank={process.dp_rank} "
+            f"devices={','.join(str(item) for item in process.visible_devices)}"
+        )
+        print(shlex.join(process.argv))
 
 
 def _print_multi_node_summary(engine: str, nodes: List[Any]) -> None:
@@ -539,12 +559,7 @@ def _run_dry_mode(
             _print_multi_node_dry_run(engine, resolved.nodes)
             return
         if resolved.process_plan:
-            for process in resolved.process_plan.processes:
-                print(
-                    f"# process[{process.process_index}] rank={process.dp_rank} "
-                    f"devices={','.join(str(item) for item in process.visible_devices)}"
-                )
-                print(shlex.join(process.argv))
+            _print_process_plan_dry_run(engine, resolved)
             return
 
     except (ValueError, FileNotFoundError, NotImplementedError) as exc:
@@ -554,7 +569,7 @@ def _run_dry_mode(
     _print_env_dry_run(resolved.env_traces)
     # 普通 argv 与结构化配置引擎统一通过启动计划展示。MindIE 预览包含外部
     # config 路径和领域覆盖摘要，但不会在 dry-run 阶段执行任何文件副作用。
-    print(format_launch_preview(resolved))
+    print(format_launch_dry_run_preview(resolved))
 
 
 def _validate_unknown_args(unknown_args: List[str]) -> None:

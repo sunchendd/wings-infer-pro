@@ -424,13 +424,15 @@ class ResolvedEnv:
 class SystemSetup:
     """系统级设置(sysctl / sysfs / commands)。
 
-    仅记录+渲染(注释形式),框架不执行。
+    默认仅记录并以注释渲染。引擎命令规格明确允许时，可在启动命令前执行经过
+    安全校验的 ``source <absolute-path>`` 环境初始化命令；sysctl、sysfs 和其余
+    commands 不由框架执行。
     默认从空集合开始,不从 _platform.yaml 预置。
     """
 
     sysctls: Dict[str, Any] = field(default_factory=dict)
     sysfs_writes: List[Dict[str, str]] = field(default_factory=list)
-    # standalone 路径按注释渲染;multi_node 已注入路径会 inline 执行其中的运行时命令。
+    # 仅允许引擎命令规格显式声明的 source 环境初始化命令被渲染为可执行行。
     commands: List[str] = field(default_factory=list)
     source_file: str = ""  # 来源文件(用于 audit)
     source_path: str = ""  # YAML 路径

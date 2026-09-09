@@ -16,7 +16,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, NamedTuple, Optional
 
-from wings_ctl.core.models import TracedValue
+from wings_ctl.core.models import SystemSetup, TracedValue
+from wings_ctl.core.system_setup import extract_source_commands
 from wings_ctl.engines.param_names import key_to_flag
 from wings_ctl.rendering.serializer import serialize_nested_value
 
@@ -28,15 +29,18 @@ class EngineCmd(NamedTuple):
         prefix: 命令前缀 token(启动入口)。
         model_arg: model 的传法——``None`` = 位置参数(紧跟前缀,如 ``vllm serve <model>``);
             非空 = 具名参数,渲成 ``--{model_arg} <model>``(如 sglang ``--model-path <model>``)。
+        render_system_setup_source_commands: 是否将 ``system_setup.commands`` 中的
+            ``source <absolute-path>`` 指令渲染到 engine argv 前。
     """
     prefix: List[str]
     model_arg: Optional[str]
+    render_system_setup_source_commands: bool = False
 
 
 # 引擎 → 命令规格。新增引擎时优先在表中补充命令前缀和 model 参数形态。
 _ENGINE_CMD: Dict[str, EngineCmd] = {
     "vllm": EngineCmd(["vllm", "serve"], None),                # 位置:vllm serve <model>
-    "vllm-ascend": EngineCmd(["vllm", "serve"], None),          # 同 vllm CLI 入口
+    "vllm-ascend": EngineCmd(["vllm", "serve"], None, True),    # 同 vllm CLI 入口
     "sglang": EngineCmd(["python3", "-m", "sglang.launch_server"], "model-path"),  # 具名:--model-path <model>
 }
 
@@ -92,6 +96,32 @@ def build_command_head(engine: str, model_value: str) -> List[str]:
     if spec.model_arg is None:
         return list(spec.prefix) + [model_value]
     return list(spec.prefix) + [f"--{spec.model_arg}", model_value]
+
+
+def build_system_setup_source_commands(engine: str, system_setup: Optional[SystemSetup]) -> List[str]:
+    """提取引擎允许执行的 ``system_setup`` source 环境初始化命令。
+
+    ``system_setup.commands`` 通常只保留为审阅注释。命令规格明确启用该能力的引擎，
+    才能执行其中严格形如 ``source <absolute-path>`` 的条目。路径经 ``shlex.quote``
+    重渲染，避免 YAML 中的 shell 元字符改变脚本结构；其他 commands 仍不执行。
+
+    Args:
+        engine: 规范化后的引擎名。
+        system_setup: 已解析的系统设置；无设置时返回空列表。
+
+    Returns:
+        紧邻 engine argv 前执行的 source 命令列表。
+
+    Raises:
+        ValueError: source 指令不是单个绝对路径，无法安全渲染。
+    """
+    if system_setup is None or not get_engine_cmd(engine).render_system_setup_source_commands:
+        return []
+
+    return extract_source_commands(
+        system_setup.commands,
+        context=f"system_setup for engine '{engine}'",
+    )
 
 
 def render_param_tokens(key: str, value: Any) -> Optional[List[str]]:
