@@ -117,7 +117,14 @@ def test_glm53_multi_node_speculative_decoding():
     }
 
 
-def test_vllm_glm53_standalone_decoding_and_sparse():
+@pytest.mark.parametrize(
+    ("sparse_level", "index_topk_freq"),
+    [
+        ("performance_first", 8),
+        ("accuracy_first", 4),
+    ],
+)
+def test_vllm_glm53_standalone_decoding_and_sparse(sparse_level, index_topk_freq):
     """GLM-5.3 standalone must reproduce the validated MTP and sparse parameters."""
     from wings_accel import resolve_smart_accel_from_config
     from wings_accel.yaml_loader import _package_smart_accel_root
@@ -133,13 +140,13 @@ def test_vllm_glm53_standalone_decoding_and_sparse():
             topology="standalone",
             decoding_enabled=True,
             sparse=True,
-            sparse_level="performance_first",
+            sparse_level=sparse_level,
         ),
     )
 
     assert out is not None
     assert out.smart_decoding_scheme == "mtp"
-    assert out.smart_kv_sparse_scheme == "performance_first"
+    assert out.smart_kv_sparse_scheme == sparse_level
     assert out.engine_params.engine_config == {
         "speculative_config": {
             "method": "mtp",
@@ -147,7 +154,7 @@ def test_vllm_glm53_standalone_decoding_and_sparse():
         },
         "kv_cache_dtype": "fp8",
         "hf_overrides": {
-            "index_topk_freq": 8,
+            "index_topk_freq": index_topk_freq,
         },
     }
 
