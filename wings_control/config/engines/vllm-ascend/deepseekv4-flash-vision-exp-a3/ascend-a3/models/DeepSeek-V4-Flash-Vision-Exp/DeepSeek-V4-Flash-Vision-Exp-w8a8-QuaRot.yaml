@@ -1,0 +1,62 @@
+upstream_sources:
+  - id: vllm_ascend_deepseek_v4_flash_vision_exp_w8a8_quarot_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4-Flash-Vision-Exp-w8a8-QuaRot"
+    note: 用户提供 vLLM Ascend 启动命令，手工录入；运行镜像为 quay.io/ascend/vllm-ascend:deepseekv4-flash-vision-exp-a3。
+
+model:
+  name: DeepSeek-V4-Flash-Vision-Exp
+  provider: Eco-Tech
+  model_id: Eco-Tech/DeepSeek-V4-Flash-Vision-Exp-w8a8-QuaRot
+  min_engine_version: deepseekv4-flash-vision-exp-a3
+  match:
+    - name_pattern: "(?i)deepseek[-.]?v4[-.]?flash[-.]?vision[-.]?exp"
+  variant_name: DeepSeek-V4-Flash-Vision-Exp-w8a8-QuaRot
+
+hardware_profile:
+  gpu_count: 16
+  vram_gb: 1024
+  multi_node: false
+
+features:
+  tool_calling:
+    description: Enable DeepSeek V4 automatic tool calling.
+    args: [--tool-call-parser, deepseek_v4, --enable-auto-tool-choice]
+  reasoning:
+    description: Enable DeepSeek V4 reasoning parsing.
+    args: [--reasoning-parser, deepseek_v4, --reasoning-config, '{"reasoning_parser":"deepseek_v4","reasoning_start_str":"","reasoning_end_str":""}']
+
+scenarios:
+  standalone:
+    source_ref: "vllm_ascend_deepseek_v4_flash_vision_exp_w8a8_quarot_manual#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: Eco-Tech/DeepSeek-V4-Flash-Vision-Exp-w8a8-QuaRot
+          host: "0.0.0.0"
+          served_model_name: DeepSeek-V4-Flash-Vision-Exp-w8a8-QuaRot
+          max_model_len: 130000
+          max_num_batched_tokens: 4096
+          max_num_seqs: 32
+          gpu_memory_utilization: 0.9
+          data_parallel_size: 4
+          tensor_parallel_size: 4
+          enable_expert_parallel: true
+          tokenizer_mode: deepseek_v4
+          quantization: ascend
+          model_loader_extra_config:
+            enable_multithread_load: true
+            num_threads: 32
+          block_size: 32
+          compilation_config:
+            cudagraph_mode: FULL_DECODE_ONLY
+          port: 17000
+        env:
+          HCCL_BUFFSIZE: 1024

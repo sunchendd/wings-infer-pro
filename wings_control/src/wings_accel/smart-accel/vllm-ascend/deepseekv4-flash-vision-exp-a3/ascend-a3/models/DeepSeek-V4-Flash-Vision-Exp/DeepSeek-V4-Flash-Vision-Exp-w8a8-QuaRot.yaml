@@ -1,0 +1,8 @@
+# SmartAccel no-op asset: the corresponding engine recipe declares no supported SmartAccel feature.
+# variant_name must exactly match the MaaS --model-name; name_pattern is family fallback only.
+model:
+  name: DeepSeek-V4-Flash-Vision-Exp
+  variant_name: "DeepSeek-V4-Flash-Vision-Exp-w8a8-QuaRot"
+  match:
+    - name_pattern: "(?i)deepseek[-.]?v4[-.]?flash[-.]?vision[-.]?exp"
+smart_accel: {}
