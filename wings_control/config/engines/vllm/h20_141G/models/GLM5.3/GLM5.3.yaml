@@ -30,6 +30,10 @@ features:
     args: [--tool-call-parser, glm47, --enable-auto-tool-choice]
   reasoning:
     args: [--reasoning-parser, glm45]
+  spec_decoding:
+    args: [--speculative-config, "{\"method\":\"mtp\",\"num_speculative_tokens\":3}"]
+  sparse_index:
+    args: [--hf-overrides, "{\"index_topk_freq\":8}"]
 
 # 部署场景
 scenarios:
@@ -46,6 +50,8 @@ scenarios:
         engine_config:
           model: zai-org/GLM-5.3
           host: "0.0.0.0"
+          port: 18000
           tensor_parallel_size: 8
           kv_cache_dtype: fp8
+          max_model_len: 512000
         env: {}
