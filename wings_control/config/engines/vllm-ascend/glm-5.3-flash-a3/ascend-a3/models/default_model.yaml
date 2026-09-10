@@ -1,0 +1,133 @@
+# Hardware and engine common defaults
+
+hardware:
+  gpu_count: 16  # NPU count per node
+  vram_gb: 1024  # Total VRAM per node (GB)
+  multi_node: true  # Whether multi-node deployment is supported
+
+engine:
+  name: vllm-ascend
+  version: glm-5.3-flash-a3
+
+scenarios:
+  standalone:
+    source_ref: default#single_node
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Single Node
+        default_strategy: true
+        engine_config:
+          trust_remote_code: true
+          max_model_len: 4096
+          tensor_parallel_size: 16
+  multi_node:
+    source_ref: default#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        display_name: Multi-Node
+        default_strategy: true
+        head:
+          engine_config:
+            trust_remote_code: true
+            max_model_len: 4096
+            tensor_parallel_size: 32
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            HCCL_OP_EXPANSION_MODE: AIV
+            PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+        worker:
+          engine_config:
+            trust_remote_code: true
+            max_model_len: 4096
+            tensor_parallel_size: 32
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            HCCL_OP_EXPANSION_MODE: AIV
+            PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+
+  pd_disaggregation:
+    source_ref: default#pd_cluster
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        orientation: production
+        default_strategy: true
+        nodes:
+          - role: prefill
+            index: 0
+            engine_config:
+              trust_remote_code: true
+              max_model_len: 4096
+              tensor_parallel_size: 16
+              enforce_eager: true
+              kv_transfer_config:
+                kv_connector: MooncakeConnectorV1
+                kv_role: kv_producer
+                kv_port: 30100
+                engine_id: 0
+                kv_connector_extra_config:
+                  prefill:
+                    dp_size: 1
+                    tp_size: 16
+                  decode:
+                    dp_size: 1
+                    tp_size: 16
+            env:
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              TP_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+              HCCL_OP_EXPANSION_MODE: AIV
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+
+          - role: decode
+            index: 0
+            engine_config:
+              trust_remote_code: true
+              max_model_len: 4096
+              tensor_parallel_size: 16
+              disable_hybrid_kv_cache_manager: true
+              compilation_config:
+                cudagraph_mode: FULL_DECODE_ONLY
+              kv_transfer_config:
+                kv_connector: MooncakeConnectorV1
+                kv_role: kv_consumer
+                kv_port: 30400
+                engine_id: 1
+                kv_connector_extra_config:
+                  prefill:
+                    dp_size: 1
+                    tp_size: 16
+                  decode:
+                    dp_size: 1
+                    tp_size: 16
+            env:
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              TP_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+              HCCL_OP_EXPANSION_MODE: AIV
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              TASK_QUEUE_ENABLE: 1
