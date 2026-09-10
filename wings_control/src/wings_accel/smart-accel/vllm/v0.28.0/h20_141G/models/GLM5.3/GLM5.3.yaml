@@ -1,7 +1,29 @@
-# SmartAccel exact-identity placeholder; no acceleration feature has been validated.
+# SmartAccel acceleration configuration (decoding=mtp / sparse=performance_first).
 model:
   name: GLM-5.3
   variant_name: "GLM-5.3"
   match:
     - name_pattern: "(?i)^glm[-.]?5[.]3$"
-smart_accel: {}
+smart_accel:
+  standalone:
+    source_ref: "vllm_glm_5_3_manual#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        default_strategy: true
+        decoding:
+          - name: mtp
+            cli_params:
+              speculative_config:
+                method: mtp
+                num_speculative_tokens: 3
+            envs: {}
+        sparse:
+          - name: performance_first
+            cli_params:
+              kv_cache_dtype: fp8
+              hf_overrides:
+                index_topk_freq: 8
+            envs: {}
