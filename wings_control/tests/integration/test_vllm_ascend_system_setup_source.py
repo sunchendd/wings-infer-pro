@@ -77,3 +77,50 @@ def test_dry_run_prints_recipe_source_commands(config_root_real, tmp_path, monke
 
     assert "# System Setup source commands" in output
     assert output.index(source_toolkit) < output.index(source_atb) < output.index(engine_command)
+
+
+def test_glm53_flash_dry_run_keeps_manual_feature_args_without_source(
+    config_root_real, tmp_path, monkeypatch, capsys
+):
+    """GLM-5.3-Flash 手工 recipe 的环境变量和 feature argv 保持可复现。"""
+    hardware_file = tmp_path / "hardware_info.json"
+    hardware_file.write_text(
+        json.dumps({"hardware_family": "ascend-a3", "device": "ascend", "count": 16}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ENGINE_VERSION", "glm-5.3-flash-a3")
+    monkeypatch.setenv("PD_ROLE", "none")
+    monkeypatch.setenv("ENABLE_SPECULATIVE_DECODE", "true")
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "wings-ctl",
+            "--config-root",
+            str(config_root_real),
+            "--hardware-info",
+            str(hardware_file),
+            "--engine",
+            "vllm-ascend",
+            "--model-path",
+            "/var/ai-model/GLM-5.3-Flash-w8a8",
+            "--device-count",
+            "16",
+            "--trust-remote-code",
+            "--enable-auto-tool-choice",
+            "--enable-auto-think-choice",
+            "--dry-run",
+        ],
+    )
+
+    cli.main()
+
+    output = capsys.readouterr().out
+
+    assert "# System Setup source commands" not in output
+    assert "export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True" in output
+    assert "export HCCL_OP_EXPANSION_MODE=AIV" in output
+    assert "export HCCL_BUFFSIZE=400" in output
+    assert "--served-model-name glm-5.3-flash-w8a8" in output
+    assert "--tool-call-parser glm47 --enable-auto-tool-choice" in output
+    assert "--reasoning-parser glm45" in output
+    assert '--speculative-config \'{"num_speculative_tokens":3,"method":"deepseek_mtp",' in output

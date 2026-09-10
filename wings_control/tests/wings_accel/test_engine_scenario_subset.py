@@ -35,6 +35,7 @@ ASSETS = [
     "vllm-ascend/v0.23.0/ascend-a2/models/GLM-5.1/GLM-5.1-w8a8.yaml",
     "vllm-ascend/v0.23.0/ascend-a2/models/GLM-5/GLM-5-w4a8.yaml",
     "vllm-ascend/v0.23.0/ascend-a3/models/GLM-5.3/GLM-5.3-w8a8.yaml",
+    "vllm-ascend/glm-5.3-flash-a3/ascend-a3/models/GLM-5.3-Flash/GLM-5.3-Flash-w8a8.yaml",
 ]
 
 

@@ -1,0 +1,74 @@
+# Source provenance
+upstream_sources:
+  - id: vllm_ascend_glm-5.3-flash_w8a8_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://huggingface.co/zai-org/GLM-5.3-Flash"
+    note: User-provided vLLM Ascend launch command, manually recorded. Engine version glm-5.3-flash-a3 is a user-confirmed special/custom release and was not semver validated.
+
+# Model metadata
+model:
+  name: GLM-5.3-Flash
+  provider: Z-AI
+  model_id: zai-org/GLM-5.3-Flash
+  min_engine_version: glm-5.3-flash-a3
+  match:
+    - name_pattern: "(?i)^glm[-.]?5[.]3[-.]?flash[-.]?w8a8$"
+  variant_name: GLM-5.3-Flash-w8a8
+
+# Per-node Ascend 910C hardware profile
+hardware_profile:
+  gpu_count: 16
+  vram_gb: 1024
+  multi_node: false
+
+# Optional model features extracted from the launch command
+features:
+  tool_calling:
+    description: GLM-4.7 tool call parser with automatic tool choice
+    args: [--tool-call-parser, glm47, --enable-auto-tool-choice]
+  reasoning:
+    description: GLM-4.5 reasoning parser — thinking mode enabled by default on requests
+    args: [--reasoning-parser, glm45]
+  spec_decoding:
+    description: Speculative decoding (MTP draft) to accelerate generation.
+    args: [--speculative-config, "{\"num_speculative_tokens\":3,\"method\":\"deepseek_mtp\",\"enforce_eager\":true}"]
+
+# Deployment scenarios
+scenarios:
+  standalone:
+    source_ref: "vllm_ascend_glm-5.3-flash_w8a8_manual#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: zai-org/GLM-5.3-Flash
+          host: "0.0.0.0"
+          port: 17000
+          data_parallel_size: 1
+          tensor_parallel_size: 16
+          enable_expert_parallel: true
+          seed: 1024
+          served_model_name: glm-5.3-flash-w8a8
+          safetensors_load_strategy: prefetch
+          max_num_seqs: 32
+          max_num_batched_tokens: 8192
+          trust_remote_code: true
+          quantization: ascend
+          limit_mm_per_prompt:
+            image: 1
+            video: 0
+          gpu_memory_utilization: 0.85
+          compilation_config:
+            cudagraph_mode: FULL_DECODE_ONLY
+            cudagraph_capture_sizes: [1, 2, 4, 8, 16, 32, 64, 96, 128]
+          api_server_count: 1
+        env:
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          HCCL_OP_EXPANSION_MODE: AIV
+          HCCL_BUFFSIZE: 400
