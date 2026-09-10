@@ -1,7 +1,6 @@
 # --- log_analyzer: 启动部署进度监控 ---
 # 清空旧日志,确保 log_analyzer 只分析新日志(避免残留触发误判)
 rm -f {ENGINE_LOG}
-rm -f {ENGINE_FULL_LOG}
 rm -f {PROGRESS_FILE}
 
 # 记录脚本开始时间(用于计算耗时)

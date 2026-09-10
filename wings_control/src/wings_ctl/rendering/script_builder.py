@@ -501,7 +501,6 @@ def _render_analyzer_preamble_template(config_escaped: str) -> str:
         template.replace("{ANALYZER_CONFIG}", config_escaped)
         .replace("{PROGRESS_FILE}", settings.PROGRESS_FILE)
         .replace("{ENGINE_LOG}", settings.ENGINE_LOG_FILE)
-        .replace("{ENGINE_FULL_LOG}", settings.ENGINE_FULL_LOG_FILE)
         .replace("{SHARED_VOLUME}", settings.SHARED_VOLUME_PATH)
     )
 
@@ -629,11 +628,10 @@ def _render_start_command_sh(
             # 与旧版 wings_entry.py:1899-1911 逻辑一致:
             # 1) mkdir 确保日志目录存在
             # 2) PYTHONUNBUFFERED 确保引擎 ready 消息立即到达 engine.log(不卡在 8KB 缓冲区)
-            # 3) tee 管道:完整日志→engine-full.log,过滤健康检查/调度噪声→engine.log
+# 3) 过滤健康检查和调度噪声后写入 engine.log
             f"mkdir -p {settings.ENGINE_LOG_DIR}",
             "export PYTHONUNBUFFERED=1",
-            f"exec > >(tee -a {settings.ENGINE_FULL_LOG_FILE}"
-            " | grep --line-buffered -vE"
+            "exec > >(grep --line-buffered -vE"
             " '\"GET\\s+/(health|metrics)\\s|\\b(Prefill|Decode) batch\\b'"
             f" | tee -a {settings.ENGINE_LOG_FILE}) 2>&1",
             "",
@@ -855,18 +853,17 @@ def _render_multi_node_placeholder(resolved: ResolvedConfig) -> str:
     return "\n".join(lines)
 
 
-def _pd_render_engine_line(process: EngineProcessPlan, engine_log: str, engine_full_log: str) -> List[str]:
-    """渲染 fail_together 单条进程启动子块（tee 聚合 + env + exec）。
+def _pd_render_engine_line(process: EngineProcessPlan, engine_log: str) -> List[str]:
+    """渲染 fail_together 单条进程启动子块（管道聚合 + env + exec）。
 
-    ``( ) &`` 子进程的 stdout 不会继承顶层 ``exec > >(tee ...)`` 重定向，
-    故每条进程单独接 tee，聚合同一 ``engine.log`` 供 log_analyzer ``tail -F``。
+    ``( ) &`` 子进程的 stdout 不会继承顶层管道重定向，
+    故每条进程单独接 grep + tee，聚合同一 ``engine.log`` 供 log_analyzer ``tail -F``。
     过滤模式与标准路径一致（health/metrics + Prefill/Decode batch 去噪）。
     进程级 env 在子块内 export，保持 per-process 独立。
 
     Args:
         process: 单条 EngineProcessPlan。
         engine_log: engine.log 路径。
-        engine_full_log: engine-full.log 路径。
 
     Returns:
         ``( ) &`` 子块脚本行（含 ``pids+=("$!")`` 与收尾空行）。
@@ -874,8 +871,7 @@ def _pd_render_engine_line(process: EngineProcessPlan, engine_log: str, engine_f
     lines = ["("]
     lines.extend(f"  {line}" for line in _render_env_section(process.env_traces))
     lines.append(
-        f"  exec > >(tee -a {engine_full_log}"
-        " | grep --line-buffered -vE"
+        "  exec > >(grep --line-buffered -vE"
         " '\"GET\\s+/(health|metrics)\\s|\\b(Prefill|Decode) batch\\b'"
         f" | tee -a {engine_log}) 2>&1"
     )
@@ -957,8 +953,7 @@ def _render_pd_process_plan(
         # 定位引擎进程。exec 会替换 shell 使 trap 失效,故改为后台化 + wait。
         # 引擎启动后失败只终止进程,analyzer 不写失败进度,失败状态由 FOA 判定。
         lines.append(
-            f"exec > >(tee -a {settings.ENGINE_FULL_LOG_FILE}"
-            " | grep --line-buffered -vE"
+            "exec > >(grep --line-buffered -vE"
             " '\"GET\\s+/(health|metrics)\\s|\\b(Prefill|Decode) batch\\b'"
             f" | tee -a {settings.ENGINE_LOG_FILE}) 2>&1"
         )
@@ -1000,7 +995,7 @@ def _render_pd_process_plan(
     for process in plan.processes:
         lines.append(f"# process[{process.process_index}] rank={process.dp_rank}")
         lines += _pd_render_engine_line(
-            process, settings.ENGINE_LOG_FILE, settings.ENGINE_FULL_LOG_FILE
+            process, settings.ENGINE_LOG_FILE
         )
     lines += [
         "status=0",

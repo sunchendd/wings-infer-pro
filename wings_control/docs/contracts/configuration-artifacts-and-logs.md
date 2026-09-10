@@ -29,12 +29,11 @@
 | `wings_start.log` | 每次正常启动时都会追加一段 `[STARTUP]` 摘要，记录硬件、引擎版本、模型、配置和产物上下文。默认路径是 `/var/log/wings/wings_start.log`，可用 `WINGS_START_LOG` 覆盖；默认位置不可写时回退到 `output_dir/wings_start.log`。不轮转，dry-run 不写。 |
 | `wings_control.log` | wings-control、proxy 和 health 的持续 Python 日志，例如后端连接、健康检查、502 和重启。默认路径是 `/var/log/wings/wings_control.log`，只能用 `LOG_FILE_PATH` 覆盖；无法创建时关闭文件日志，不回退到 `output_dir`。使用轮转，dry-run 也可能产生。 |
 | `prometheus_multiproc/` | 多进程 Prometheus 指标目录。启动 proxy/health 前重建，proxy worker 写入其中的指标文件。 |
-| `engine-full.log` | 仅 standalone 或多 Pod 的 master/head engine 容器生成。启动脚本在该 Pod 中用 `tee` 保存完整 stdout/stderr；worker Pod 不生成此文件。 |
 | `engine.log` | 仅 standalone 或 master/head 生成。它从完整日志中过滤部分健康检查和调度噪声，并供 log analyzer 跟踪；worker Pod 不生成此文件。 |
 
-`engine-full.log` 和 `engine.log` 的写入方是 master/head 启动脚本中的 shell `tee`。log analyzer 只读取 `engine.log` 用于进度分析，并写入 `progress.jsonl`；它不直接写这两份 engine 日志。worker Pod 不启动 log analyzer，也没有这两份本地 engine 日志。
+`engine.log` 的写入方是 master/head 启动脚本中的 shell `tee`，先经 `grep` 过滤健康检查和调度噪声。log analyzer 只读取 `engine.log` 用于进度分析，并写入 `progress.jsonl`；它不直接写这份 engine 日志。worker Pod 不启动 log analyzer，也没有本地 engine 日志。
 
-排障时，先用 `wings_start.log` 确认生成上下文；参数为何生效看 `audit.json`；master/head 的引擎异常优先看 `engine-full.log`；worker 引擎异常直接使用 `kubectl logs -c engine <worker-pod>`，重启后的上一实例使用 `--previous`。proxy、health 或 backend 连通性问题看 `wings_control.log`。
+排障时，先用 `wings_start.log` 确认生成上下文；参数为何生效看 `audit.json`；master/head 的引擎异常优先看 `engine.log`；worker 引擎异常直接使用 `kubectl logs -c engine <worker-pod>`，重启后的上一实例使用 `--previous`。proxy、health 或 backend 连通性问题看 `wings_control.log`。
 
 ## Accel 文件
 

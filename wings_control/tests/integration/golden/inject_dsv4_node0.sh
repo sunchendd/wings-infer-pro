@@ -12,7 +12,6 @@ _wings_log() {
 # --- log_analyzer: 启动部署进度监控 ---
 # 清空旧日志,确保 log_analyzer 只分析新日志(避免残留触发误判)
 rm -f /var/log/wings/engine.log
-rm -f /var/log/wings/engine-full.log
 rm -f /shared-volume/progress.jsonl
 
 # 记录脚本开始时间(用于计算耗时)
@@ -68,7 +67,7 @@ trap cleanup_analyzer EXIT SIGTERM SIGINT
 
 mkdir -p /var/log/wings
 export PYTHONUNBUFFERED=1
-exec > >(tee -a /var/log/wings/engine-full.log | grep --line-buffered -vE '"GET\s+/(health|metrics)\s|\b(Prefill|Decode) batch\b' | tee -a /var/log/wings/engine.log) 2>&1
+exec > >(grep --line-buffered -vE '"GET\s+/(health|metrics)\s|\b(Prefill|Decode) batch\b' | tee -a /var/log/wings/engine.log) 2>&1
 
 export HCCL_OP_EXPANSION_MODE=AIV
 export HCCL_IF_IP=10.0.0.1
