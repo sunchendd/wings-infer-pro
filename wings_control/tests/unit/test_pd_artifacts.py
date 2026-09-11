@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import subprocess
 from dataclasses import replace
@@ -24,9 +25,28 @@ from wings_ctl.core.models import (
     ResolvedNode,
     ResolvedPdTopology,
     SystemSetup,
+    TracedValue,
 )
 from wings_ctl.core.topology import Topology
+from wings_ctl.rendering.env_renderer import render_env_export
 from wings_ctl.rendering.script_builder import _endpoint_port, _validate_log_analyzer_present, build_scripts
+
+
+class CliExitError(Exception):
+    """测试中用于截获 argparse 的退出状态。"""
+
+    def __init__(self, code: int, message: str | None) -> None:
+        super().__init__(message or "")
+        self.code = code
+
+
+def _raise_cli_exit(
+    _parser: argparse.ArgumentParser,
+    status: int = 0,
+    message: str | None = None,
+) -> None:
+    """以携带 argparse 错误信息的测试异常代替进程退出。"""
+    raise CliExitError(status, message)
 
 
 def _resolved(
@@ -94,6 +114,33 @@ def internal_resolved(
             endpoints=[process.advertised_endpoint for process in processes],
         ),
     )
+
+
+def _run_cli_dry_run(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    resolved: ResolvedConfig,
+) -> None:
+    """通过公开 CLI 入口执行 synthetic dry-run。"""
+    hardware_file = tmp_path / "hardware_info.json"
+    hardware_file.write_text('{"hardware_family":"synthetic","device":"nvidia","count":1}', encoding="utf-8")
+    monkeypatch.setattr(cli, "resolve_pipeline", lambda _request: resolved)
+    monkeypatch.setattr(cli, "setup_root_logging", lambda: None)
+    monkeypatch.setattr(argparse.ArgumentParser, "exit", _raise_cli_exit)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "wings-ctl",
+            "--engine",
+            resolved.engine,
+            "--model-name",
+            "synthetic",
+            "--hardware-info",
+            str(hardware_file),
+            "--dry-run",
+        ],
+    )
+    cli.main()
 
 
 def test_pd_fail_together_repro_is_valid_and_propagates_failure(tmp_path: Path) -> None:
@@ -180,6 +227,147 @@ def test_pd_source_commands_are_rendered_once_before_all_processes(tmp_path: Pat
     assert repro_content.count("source /dev/null") == 1
     assert repro_content.index("source /dev/null") < repro_content.index("exec python -c")
     assert preview.index("source /dev/null") < preview.index("# process[0]")
+
+
+def test_pd_dry_run_prints_each_process_environment_before_argv(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """PD dry-run 按进程展示最终环境变量，避免设备和 rank 配置脱离对应 argv。"""
+    resolved = _resolved(process_count=2)
+    processes = [
+        replace(
+            process,
+            env_traces={
+                "CUDA_VISIBLE_DEVICES": TracedValue(
+                    str(process.process_index),
+                    "strategy_topology_inject",
+                    "synthetic.yaml",
+                    "env.CUDA_VISIBLE_DEVICES",
+                ),
+                "PD_RANK": TracedValue(
+                    process.dp_rank,
+                    "strategy_topology_inject",
+                    "synthetic.yaml",
+                    "env.PD_RANK",
+                ),
+            },
+        )
+        for process in resolved.process_plan.processes
+    ]
+    resolved = replace(resolved, process_plan=replace(resolved.process_plan, processes=processes))
+
+    _run_cli_dry_run(monkeypatch, tmp_path, resolved)
+    preview = capsys.readouterr().out
+
+    process_0_start = preview.index("# process[0]")
+    process_1_start = preview.index("# process[1]")
+    process_0 = preview[process_0_start:process_1_start]
+    process_1 = preview[process_1_start:]
+    assert process_0.index("export CUDA_VISIBLE_DEVICES=0") < process_0.index("python -c")
+    assert process_0.index("export PD_RANK=0") < process_0.index("python -c")
+    assert "export CUDA_VISIBLE_DEVICES=1" not in process_0
+    assert "export PD_RANK=1" not in process_0
+    assert process_1.index("export CUDA_VISIBLE_DEVICES=1") < process_1.index("python -c")
+    assert process_1.index("export PD_RANK=1") < process_1.index("python -c")
+
+
+def test_dry_run_env_uses_script_rendering_rules() -> None:
+    """dry-run 复用正式脚本的公开环境变量渲染规则。"""
+    assert render_env_export("MODEL_PATH", "$HOME/model") == 'export MODEL_PATH="$HOME/model"'
+    assert render_env_export("ADMIN_VALUE", "$(hostname)", allow_unsafe=True) == 'export ADMIN_VALUE="$(hostname)"'
+
+
+def test_dry_run_env_rejects_unsafe_value_like_script_renderer() -> None:
+    """普通配置中的命令替换必须在 dry-run 阶段按正式脚本规则拒绝。"""
+    with pytest.raises(ValueError, match="unsafe shell constructs"):
+        render_env_export("UNSAFE", "$(hostname)")
+
+
+def test_pd_dry_run_error_does_not_print_partial_preview(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """后续进程 env 非法时，PD dry-run 不得输出前序进程的半成品预览。"""
+    resolved = _resolved(process_count=2)
+    processes = [
+        replace(
+            process,
+            env_traces={
+                "UNSAFE": TracedValue(
+                    "$(hostname)" if process.process_index == 1 else "safe",
+                    "model_scenario",
+                    "synthetic.yaml",
+                    "env.UNSAFE",
+                )
+            },
+        )
+        for process in resolved.process_plan.processes
+    ]
+    resolved = replace(resolved, process_plan=replace(resolved.process_plan, processes=processes))
+    with pytest.raises(CliExitError) as exc_info:
+        _run_cli_dry_run(monkeypatch, tmp_path, resolved)
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 2
+    assert captured.out == ""
+    assert "unsafe shell constructs" in str(exc_info.value)
+
+
+def test_multi_node_dry_run_error_does_not_print_partial_preview(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """后续节点 env 非法时，multi-node dry-run 不得输出前序节点预览。"""
+    model_trace = TracedValue("synthetic-model", "model_scenario", "synthetic.yaml", "engine_config.model")
+    nodes = [
+        ResolvedNode(
+            role=role,
+            index=index,
+            engine_config_traces={"model": model_trace},
+            env_traces={
+                "UNSAFE": TracedValue(
+                    "$(hostname)" if index == 1 else "safe",
+                    "model_scenario",
+                    "synthetic.yaml",
+                    "env.UNSAFE",
+                )
+            },
+        )
+        for index, role in enumerate(("head", "worker"))
+    ]
+    resolved = replace(_resolved(process_count=1), process_plan=None, nodes=nodes)
+    with pytest.raises(CliExitError) as exc_info:
+        _run_cli_dry_run(monkeypatch, tmp_path, resolved)
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 2
+    assert captured.out == ""
+    assert "unsafe shell constructs" in str(exc_info.value)
+
+
+def test_dry_run_env_omits_empty_section(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """无最终值时不打印空环境变量标题。"""
+    model_trace = TracedValue("synthetic-model", "model_scenario", "synthetic.yaml", "engine_config.model")
+    resolved = replace(
+        _resolved(process_count=1),
+        topology=Topology.STANDALONE,
+        pd_topology=None,
+        process_plan=None,
+        engine_config_traces={"model": model_trace},
+        env_traces={"REMOVED": TracedValue(None, "model_scenario", "synthetic.yaml", "env.REMOVED")},
+    )
+
+    _run_cli_dry_run(monkeypatch, tmp_path, resolved)
+
+    assert "# Environment Variables" not in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(
@@ -299,9 +487,7 @@ def test_pd_worker_pod_skips_log_analyzer(tmp_path: Path) -> None:
         prefill=ParallelShape(1, 2),
         decode=ParallelShape(2, 1),
         dp_size_local=1,
-        placement=ClusterPlacement(
-            master_ip="10.0.0.1", rank_ip="10.0.0.2", node_ips=["10.0.0.1", "10.0.0.2"]
-        ),
+        placement=ClusterPlacement(master_ip="10.0.0.1", rank_ip="10.0.0.2", node_ips=["10.0.0.1", "10.0.0.2"]),
         member_index=1,
         rank_start=1,
         rank_end_exclusive=2,
@@ -338,9 +524,7 @@ def test_pd_head_pod_injects_log_analyzer_and_progress_file(tmp_path: Path) -> N
         prefill=ParallelShape(2, 1),
         decode=ParallelShape(2, 1),
         dp_size_local=1,
-        placement=ClusterPlacement(
-            master_ip="10.0.0.1", rank_ip="10.0.0.1", node_ips=["10.0.0.1", "10.0.0.2"]
-        ),
+        placement=ClusterPlacement(master_ip="10.0.0.1", rank_ip="10.0.0.1", node_ips=["10.0.0.1", "10.0.0.2"]),
         member_index=0,
         rank_start=0,
         rank_end_exclusive=1,
