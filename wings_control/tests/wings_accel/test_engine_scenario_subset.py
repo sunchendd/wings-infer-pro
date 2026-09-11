@@ -27,6 +27,7 @@ ASSETS = [
     "vllm/kimi-k3/h20_141G/models/Kimi-K3/Kimi-K3.yaml",
     "vllm/deepseekv4-flash-vision/h20_141G/models/DeepSeek-V4-Flash-Vision-Exp/DeepSeek-V4-Flash-Vision-Exp.yaml",
     "vllm/v0.28.0/h20_141G/models/GLM5.3/GLM5.3.yaml",
+    "vllm/v0.23.0/rtx_pro_5000_72G/models/DeepSeek-V4-Flash/DeepSeek-V4-Flash-fp8.yaml",
     "vllm-ascend/v0.21.0rc/ascend-a2/models/DeepSeek-R1-0528/DeepSeek-R1-0528-w8a8-mtp-QuaRot.yaml",
     "vllm-ascend/v0.21.0rc/ascend-a2/models/DeepSeek-V3-0324/DeepSeek-V3-0324-w8a8-mtp-QuaRot.yaml",
     "vllm-ascend/v0.21.0rc/ascend-a3/models/Qwen3.6-35B-A3B/Qwen3.6-35B-A3B-bf16.yaml",
