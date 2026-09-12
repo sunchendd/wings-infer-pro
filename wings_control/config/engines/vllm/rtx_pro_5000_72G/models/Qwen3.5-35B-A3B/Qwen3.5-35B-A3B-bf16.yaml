@@ -31,7 +31,7 @@ model:
 hardware_profile:
   gpu_count: 8  # 单节点 GPU 数量
   vram_gb: 576  # 单节点总显存(GB)（8 × 72GB）
-  multi_node: false  # 仅支持单节点
+  multi_node: true  # 支持单节点及多节点场景
 
 # 可选功能列表（不进 engine_config）
 features:
@@ -77,3 +77,67 @@ scenarios:
           PYTHONHASHSEED: "0"
           NCCL_P2P_LEVEL: SYS
           NCCL_SHM_DISABLE: 1
+
+  multi_node:
+    source_ref: qwen3.5_35b_a3b_manual#multi_node_tp
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: balanced
+        default_strategy: true
+        head:
+          engine_config:
+            model: Qwen/Qwen3.5-35B-A3B
+            host: 0.0.0.0
+            port: 7906
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+            data_parallel_size: 1
+            enable_expert_parallel: true
+            max_num_seqs: 200
+            max_model_len: 65536
+            max_num_batched_tokens: 16384
+            gpu_memory_utilization: 0.95
+            seed: 1024
+            trust_remote_code: true
+            async_scheduling: true
+            enable_prefix_caching: true
+          env:
+            VLLM_USE_V1: '1'
+            PYTHONHASHSEED: '0'
+            NCCL_P2P_LEVEL: SYS
+            NCCL_SHM_DISABLE: 1
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:
+          engine_config:
+            model: Qwen/Qwen3.5-35B-A3B
+            host: 0.0.0.0
+            port: 7906
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+            data_parallel_size: 1
+            enable_expert_parallel: true
+            max_num_seqs: 200
+            max_model_len: 65536
+            max_num_batched_tokens: 16384
+            gpu_memory_utilization: 0.95
+            seed: 1024
+            trust_remote_code: true
+            async_scheduling: true
+            enable_prefix_caching: true
+          env:
+            VLLM_USE_V1: '1'
+            PYTHONHASHSEED: '0'
+            NCCL_P2P_LEVEL: SYS
+            NCCL_SHM_DISABLE: 1
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME

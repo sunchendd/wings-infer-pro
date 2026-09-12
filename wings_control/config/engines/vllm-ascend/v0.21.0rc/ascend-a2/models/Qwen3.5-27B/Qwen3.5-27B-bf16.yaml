@@ -22,7 +22,7 @@ model:
 hardware_profile:
   gpu_count: 4  # 单节点 GPU/NPU 数量
   vram_gb: 256  # 单节点总显存(GB)
-  multi_node: false  # 是否支持多节点
+  multi_node: true  # 支持单节点及多节点场景
 
 # 可选功能列表
 features:
@@ -78,3 +78,100 @@ scenarios:
           HCCL_OP_EXPANSION_MODE: AIV
         system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
           commands: [source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh]
+
+  multi_node:
+    source_ref: vllm_ascend_qwen3.5-27b_bf16_manual#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        display_name: Multi-Node
+        default_strategy: true
+        head:
+          engine_config:
+            model: Qwen/Qwen3.5-27B
+            host: 0.0.0.0
+            port: 7898
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 0
+            data_parallel_address: $local_ip
+            data_parallel_rpc_port: 12321
+            served_model_name: qwen35
+            tensor_parallel_size: 4
+            max_num_seqs: 8
+            max_model_len: 8192
+            max_num_batched_tokens: 8192
+            gpu_memory_utilization: 0.75
+            seed: 1024
+            trust_remote_code: true
+            additional_config:
+              enable_cpu_binding: false
+              ascend_compilation_config:
+                enable_npugraph_ex: true
+                enable_static_kernel: false
+              multistream_overlap_shared_expert: false
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+            async_scheduling: true
+          env:
+            PYTHONHASHSEED: 0
+            HCCL_BUFFSIZE: 512
+            OMP_PROC_BIND: 'false'
+            OMP_NUM_THREADS: 1
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+            VLLM_USE_V1: 1
+            LD_PRELOAD: /usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}
+            TASK_QUEUE_ENABLE: 1
+            HCCL_OP_EXPANSION_MODE: AIV
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+          system_setup:
+            commands: [source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh]
+        worker:
+          engine_config:
+            model: Qwen/Qwen3.5-27B
+            host: 0.0.0.0
+            port: 7898
+            headless: true
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 1
+            data_parallel_address: $node0_ip
+            data_parallel_rpc_port: 12321
+            served_model_name: qwen35
+            tensor_parallel_size: 4
+            max_num_seqs: 8
+            max_model_len: 8192
+            max_num_batched_tokens: 8192
+            gpu_memory_utilization: 0.75
+            seed: 1024
+            trust_remote_code: true
+            additional_config:
+              enable_cpu_binding: false
+              ascend_compilation_config:
+                enable_npugraph_ex: true
+                enable_static_kernel: false
+              multistream_overlap_shared_expert: false
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+            async_scheduling: true
+          env:
+            PYTHONHASHSEED: 0
+            HCCL_BUFFSIZE: 512
+            OMP_PROC_BIND: 'false'
+            OMP_NUM_THREADS: 1
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+            VLLM_USE_V1: 1
+            LD_PRELOAD: /usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}
+            TASK_QUEUE_ENABLE: 1
+            HCCL_OP_EXPANSION_MODE: AIV
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+          system_setup:
+            commands: [source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh]

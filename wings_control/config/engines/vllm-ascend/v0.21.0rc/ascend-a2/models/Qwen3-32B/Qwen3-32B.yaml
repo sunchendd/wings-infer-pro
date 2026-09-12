@@ -21,7 +21,7 @@ model:
 hardware_profile:
   gpu_count: 8  # 单节点 GPU/NPU 数量
   vram_gb: 512  # 单节点总显存(GB)
-  multi_node: true  # 是否支持多节点
+  multi_node: true  # 支持单节点及多节点场景
 
 # 部署场景
 scenarios:
@@ -54,3 +54,76 @@ scenarios:
         env:
           TASK_QUEUE_ENABLE: 1
           HCCL_OP_EXPANSION_MODE: AIV
+
+  multi_node:
+    source_ref: vllm_ascend_qwen3-32b#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        display_name: Multi-Node
+        default_strategy: true
+        head:
+          engine_config:
+            model: Qwen/Qwen3-32B
+            served_model_name: qwen3
+            trust_remote_code: true
+            distributed_executor_backend: mp
+            tensor_parallel_size: 8
+            max_model_len: 5500
+            max_num_batched_tokens: 40960
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+            additional_config:
+              pa_shape_list: [48, 64, 72, 80]
+              weight_prefetch_config:
+                enabled: true
+            port: 8113
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 0
+            data_parallel_address: $local_ip
+            data_parallel_rpc_port: 12321
+            block_size: 128
+            gpu_memory_utilization: 0.9
+          env:
+            TASK_QUEUE_ENABLE: 1
+            HCCL_OP_EXPANSION_MODE: AIV
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+        worker:
+          engine_config:
+            model: Qwen/Qwen3-32B
+            served_model_name: qwen3
+            trust_remote_code: true
+            distributed_executor_backend: mp
+            tensor_parallel_size: 8
+            max_model_len: 5500
+            max_num_batched_tokens: 40960
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+            additional_config:
+              pa_shape_list: [48, 64, 72, 80]
+              weight_prefetch_config:
+                enabled: true
+            port: 8113
+            headless: true
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 1
+            data_parallel_address: $node0_ip
+            data_parallel_rpc_port: 12321
+            block_size: 128
+            gpu_memory_utilization: 0.9
+          env:
+            TASK_QUEUE_ENABLE: 1
+            HCCL_OP_EXPANSION_MODE: AIV
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True

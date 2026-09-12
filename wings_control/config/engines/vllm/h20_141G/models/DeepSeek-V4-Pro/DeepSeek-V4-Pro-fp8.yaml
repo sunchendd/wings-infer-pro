@@ -31,7 +31,7 @@ model:
 hardware_profile:
   gpu_count: 8  # 单节点 GPU 数量
   vram_gb: 1128  # 单节点总显存(GB)（8 × 141GB）
-  multi_node: false  # 仅支持单节点
+  multi_node: true  # 支持单节点及多节点场景
 
 # 可选功能列表
 features:
@@ -75,3 +75,69 @@ scenarios:
           VLLM_ENGINE_READY_TIMEOUT_S: 3600
           VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS: 0
           VLLM_MXFP4_BACKEND: marlin
+
+  multi_node:
+    source_ref: vllm_deepseek-v4-pro_fp8_manual#multi_node_tp
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: balanced
+        default_strategy: true
+        head:
+          engine_config:
+            model: deepseek-ai/DeepSeek-V4-Pro
+            port: 18000
+            trust_remote_code: true
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+            enable_expert_parallel: true
+            kv_cache_dtype: fp8
+            gpu_memory_utilization: 0.9
+            max_model_len: 135936
+            max_num_seqs: 256
+            max_num_batched_tokens: 8192
+            block_size: 256
+            enable_chunked_prefill: true
+            no_enable_flashinfer_autotune: true
+            compilation_config:
+              mode: 0
+              cudagraph_mode: FULL_DECODE_ONLY
+          env:
+            VLLM_ENGINE_READY_TIMEOUT_S: 3600
+            VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS: 0
+            VLLM_MXFP4_BACKEND: marlin
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:
+          engine_config:
+            model: deepseek-ai/DeepSeek-V4-Pro
+            port: 18000
+            trust_remote_code: true
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+            enable_expert_parallel: true
+            kv_cache_dtype: fp8
+            gpu_memory_utilization: 0.9
+            max_model_len: 135936
+            max_num_seqs: 256
+            max_num_batched_tokens: 8192
+            block_size: 256
+            enable_chunked_prefill: true
+            no_enable_flashinfer_autotune: true
+            compilation_config:
+              mode: 0
+              cudagraph_mode: FULL_DECODE_ONLY
+          env:
+            VLLM_ENGINE_READY_TIMEOUT_S: 3600
+            VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS: 0
+            VLLM_MXFP4_BACKEND: marlin
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
