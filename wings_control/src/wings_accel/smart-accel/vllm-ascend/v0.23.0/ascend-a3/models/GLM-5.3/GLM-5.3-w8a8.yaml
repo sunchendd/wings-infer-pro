@@ -1,5 +1,5 @@
-# SmartAccel 加速配置(decoding=deepseek_mtp)
-# 投机参数与引擎 features.spec_decoding 同源。
+# SmartAccel 加速配置(decoding=deepseek_mtp / sparse=index_topk)
+# 投机与稀疏参数均与引擎 features 中的实测启动参数同源。
 model:
   name: GLM-5.3
   variant_name: "GLM-5.3-w8a8"
@@ -22,3 +22,14 @@ smart_accel:
                 method: deepseek_mtp
                 enforce_eager: true
             envs: {}
+        sparse:
+        - name: performance_first
+          cli_params:
+            hf_overrides:
+              index_topk_freq: 8
+          envs: {}
+        - name: accuracy_first
+          cli_params:
+            hf_overrides:
+              index_topk_freq: 4
+          envs: {}

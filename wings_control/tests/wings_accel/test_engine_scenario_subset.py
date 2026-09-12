@@ -125,6 +125,38 @@ def test_glm53_multi_node_speculative_decoding():
         ("accuracy_first", 4),
     ],
 )
+def test_glm53_multi_node_sparse(sparse_level, index_topk_freq):
+    """GLM-5.3 多机稀疏加速必须按策略下发对应的重算频率。"""
+    from wings_accel import resolve_smart_accel_from_config
+    from wings_accel.yaml_loader import _package_smart_accel_root
+
+    out = resolve_smart_accel_from_config(
+        config_root=_package_smart_accel_root().parent,
+        engine="vllm-ascend",
+        engine_version="v0.23.0",
+        hardware_family="ascend-a3",
+        model_name="GLM-5.3-w8a8",
+        gpu_count=16,
+        flags=LoadFlags(
+            topology="multi_node",
+            sparse=True,
+            sparse_level=sparse_level,
+        ),
+    )
+
+    assert out is not None
+    assert out.engine_params.engine_config["hf_overrides"] == {
+        "index_topk_freq": index_topk_freq,
+    }
+
+
+@pytest.mark.parametrize(
+    ("sparse_level", "index_topk_freq"),
+    [
+        ("performance_first", 8),
+        ("accuracy_first", 4),
+    ],
+)
 def test_vllm_glm53_standalone_decoding_and_sparse(sparse_level, index_topk_freq):
     """GLM-5.3 standalone must reproduce the validated MTP and sparse parameters."""
     from wings_accel import resolve_smart_accel_from_config
