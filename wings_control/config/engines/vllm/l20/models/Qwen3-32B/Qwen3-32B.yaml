@@ -31,7 +31,7 @@ model:
 hardware_profile:
   gpu_count: 2  # 单节点 GPU 数量
   vram_gb: 96  # 单节点总显存(GB)（2 × 48GB）
-  multi_node: false  # 仅支持单节点
+  multi_node: true  # 支持单节点及多节点场景
 
 # 部署场景
 scenarios:
@@ -53,3 +53,43 @@ scenarios:
           port: 17000
           tensor_parallel_size: 2
         env: {}
+
+  multi_node:
+    source_ref: vllm_qwen3-32b_manual#multi_node_tp
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        head:
+          engine_config:
+            model: Qwen/Qwen3-32B
+            trust_remote_code: true
+            max_model_len: 4096
+            host: 0.0.0.0
+            port: 17000
+            tensor_parallel_size: 4
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:
+          engine_config:
+            model: Qwen/Qwen3-32B
+            trust_remote_code: true
+            max_model_len: 4096
+            host: 0.0.0.0
+            port: 17000
+            tensor_parallel_size: 4
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME

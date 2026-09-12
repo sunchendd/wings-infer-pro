@@ -58,6 +58,7 @@ scenarios:
           gpu_memory_utilization: 0.9
           quantization: ascend
           async_scheduling: true
+          enable_expert_parallel: true
           additional_config:
             enable_npugraph_ex: true
             fuse_muls_add: true

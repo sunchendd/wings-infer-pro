@@ -31,7 +31,7 @@ model:
 hardware_profile:
   gpu_count: 8  # 单节点 GPU 数量
   vram_gb: 576  # 单节点总显存(GB)（8 × 72GB）
-  multi_node: false  # 仅支持单节点
+  multi_node: true  # 支持单节点及多节点场景
 
 # 可选功能列表（不进 engine_config）
 features:
@@ -73,3 +73,53 @@ scenarios:
           VLLM_USE_V1: "1"
           NCCL_P2P_LEVEL: SYS
           NCCL_SHM_DISABLE: 1
+
+  multi_node:
+    source_ref: minimax_m2.5_nvfp4_manual#multi_node_tp
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        head:
+          engine_config:
+            model: nvidia/MiniMax-M2.5-NVFP4
+            host: 0.0.0.0
+            port: 7699
+            trust_remote_code: true
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+            kv_cache_dtype: fp8
+            gpu_memory_utilization: 0.9
+            max_model_len: 196608
+          env:
+            VLLM_USE_V1: '1'
+            NCCL_P2P_LEVEL: SYS
+            NCCL_SHM_DISABLE: 1
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:
+          engine_config:
+            model: nvidia/MiniMax-M2.5-NVFP4
+            host: 0.0.0.0
+            port: 7699
+            trust_remote_code: true
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+            kv_cache_dtype: fp8
+            gpu_memory_utilization: 0.9
+            max_model_len: 196608
+          env:
+            VLLM_USE_V1: '1'
+            NCCL_P2P_LEVEL: SYS
+            NCCL_SHM_DISABLE: 1
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME

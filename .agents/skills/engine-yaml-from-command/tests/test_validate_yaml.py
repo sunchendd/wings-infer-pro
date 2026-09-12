@@ -128,3 +128,87 @@ def test_accepts_numeric_kv_transfer_field(field: str) -> None:
         }
     }
     module.validate_scenarios(data, "vllm", "pd_disaggregation")
+
+
+def reasoning_data() -> dict:
+    return {
+        "model": {"variant_name": "MiniMax-M2.5-nvfp4"},
+        "features": {
+            "reasoning": {
+                "args": ["--reasoning-parser", "minimax_m2"],
+            }
+        },
+    }
+
+
+def test_reasoning_requires_registry_when_yaml_enables_it() -> None:
+    with pytest.raises(module.ValidationError, match="--reasoning-registry is required"):
+        module.validate_reasoning_registry_presence(reasoning_data(), None)
+
+
+def test_reasoning_accepts_existing_registry_entry_without_parser_comparison(
+    tmp_path: Path,
+) -> None:
+    registry = tmp_path / "reason_parser.yaml"
+    registry.write_text(
+        """
+architectures:
+  - name: MiniMax
+    models:
+      MiniMax-M2.5-NVFP4:
+        vllm: different_parser
+        vllm_ascend: another_parser
+""",
+        encoding="utf-8",
+    )
+    module.validate_reasoning_registry_presence(reasoning_data(), registry)
+
+
+def test_reasoning_requires_missing_variant_to_be_registered(tmp_path: Path) -> None:
+    registry = tmp_path / "reason_parser.yaml"
+    registry.write_text(
+        """
+architectures:
+  - name: MiniMax
+    models: {}
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(module.ValidationError, match="Add the missing model entry"):
+        module.validate_reasoning_registry_presence(reasoning_data(), registry)
+
+
+def test_reasoning_rejects_non_mapping_registry_entry(tmp_path: Path) -> None:
+    registry = tmp_path / "reason_parser.yaml"
+    registry.write_text(
+        """
+architectures:
+  - name: MiniMax
+    models:
+      MiniMax-M2.5-NVFP4: null
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        module.ValidationError,
+        match="MiniMax.models.MiniMax-M2.5-NVFP4 must be a mapping",
+    ):
+        module.validate_reasoning_registry_presence(reasoning_data(), registry)
+
+
+def test_reasoning_requires_parser_in_yaml_args() -> None:
+    with pytest.raises(
+        module.ValidationError,
+        match="must contain --reasoning-parser",
+    ):
+        module.validate_reasoning_registry_presence(
+            {
+                "model": {"variant_name": "MiniMax-M2.5-nvfp4"},
+                "features": {
+                    "reasoning": {
+                        "args": ["--enable-auto-think-choice"],
+                    }
+                }
+            },
+            None,
+        )

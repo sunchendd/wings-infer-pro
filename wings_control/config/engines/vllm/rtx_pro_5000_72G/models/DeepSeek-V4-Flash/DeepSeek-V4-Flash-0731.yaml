@@ -29,9 +29,7 @@ model:
 hardware_profile:
   gpu_count: 8
   vram_gb: 576
-  multi_node: false
-
-# 可选功能列表（不进 engine_config）
+  multi_node: true  # 支持单节点及多节点场景
 features:
   tool_calling:
     description: Enable tool calling with the DeepSeek V4 chat template tool parser.
@@ -83,3 +81,67 @@ scenarios:
         env:
           NCCL_P2P_LEVEL: SYS
           NCCL_SHM_DISABLE: 1
+
+  multi_node:
+    source_ref: deepseek-v4-flash-0731_manual#multi_node_tp
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        head:
+          engine_config:
+            model: deepseek-ai/DeepSeek-V4-Flash
+            host: 0.0.0.0
+            port: 5685
+            kv_cache_dtype: fp8
+            block_size: 256
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+            gpu_memory_utilization: 0.8
+            max_model_len: 1048576
+            enable_prefix_caching: true
+            compilation_config:
+              cudagraph_mode: FULL_AND_PIECEWISE
+              custom_ops: [all]
+            async_scheduling: true
+            enable_expert_parallel: true
+            attention_backend: FLASHINFER_MLA_SPARSE_DSV4
+            all2all_backend: deepep_high_throughput
+          env:
+            NCCL_P2P_LEVEL: SYS
+            NCCL_SHM_DISABLE: 1
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:
+          engine_config:
+            model: deepseek-ai/DeepSeek-V4-Flash
+            host: 0.0.0.0
+            port: 5685
+            kv_cache_dtype: fp8
+            block_size: 256
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+            gpu_memory_utilization: 0.8
+            max_model_len: 1048576
+            enable_prefix_caching: true
+            compilation_config:
+              cudagraph_mode: FULL_AND_PIECEWISE
+              custom_ops: [all]
+            async_scheduling: true
+            enable_expert_parallel: true
+            attention_backend: FLASHINFER_MLA_SPARSE_DSV4
+            all2all_backend: deepep_high_throughput
+          env:
+            NCCL_P2P_LEVEL: SYS
+            NCCL_SHM_DISABLE: 1
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME

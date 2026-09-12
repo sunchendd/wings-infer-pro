@@ -21,7 +21,7 @@ model:
 hardware_profile:
   gpu_count: 16  # 单节点 GPU/NPU 数量
   vram_gb: 1024  # 单节点总显存(GB)
-  multi_node: true  # 是否支持多节点
+  multi_node: true  # 支持单节点及多节点场景
 
 # 可选功能列表
 features:
@@ -71,3 +71,96 @@ scenarios:
           VLLM_ASCEND_ENABLE_MLAPO: 1
           VLLM_VERSION: 0.21.0
           LOG_PREFIX_CACHE_STATS_PER_REQUEST: 1
+
+  multi_node:
+    source_ref: vllm_ascend_kimi-k2.7-code_manual#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        display_name: Multi-Node
+        default_strategy: true
+        head:
+          engine_config:
+            model: moonshotai/Kimi-K2.7-Code
+            served_model_name: kimi_k27
+            port: 8088
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 0
+            data_parallel_address: $local_ip
+            data_parallel_rpc_port: 12321
+            trust_remote_code: true
+            tensor_parallel_size: 16
+            max_num_seqs: 48
+            max_model_len: 81920
+            max_num_batched_tokens: 4096
+            gpu_memory_utilization: 0.9
+            async_scheduling: true
+            additional_config:
+              enable_npugraph_ex: true
+              fuse_muls_add: true
+              multistream_overlap_shared_expert: true
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+          env:
+            MMC_LOCAL_CONFIG_PATH: /shared-volume/mmc_local.conf
+            ACL_OP_INIT_MODE: 1
+            PYTHONHASHSEED: 0
+            HCCL_BUFFSIZE: 1024
+            OMP_PROC_BIND: 'false'
+            OMP_NUM_THREADS: 10
+            VLLM_USE_V1: 1
+            HCCL_OP_EXPANSION_MODE: AIV
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+            VLLM_ASCEND_BALANCE_SCHEDULING: 1
+            VLLM_ASCEND_ENABLE_MLAPO: 1
+            VLLM_VERSION: 0.21.0
+            LOG_PREFIX_CACHE_STATS_PER_REQUEST: 1
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+        worker:
+          engine_config:
+            model: moonshotai/Kimi-K2.7-Code
+            served_model_name: kimi_k27
+            port: 8088
+            headless: true
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 1
+            data_parallel_address: $node0_ip
+            data_parallel_rpc_port: 12321
+            trust_remote_code: true
+            tensor_parallel_size: 16
+            max_num_seqs: 48
+            max_model_len: 81920
+            max_num_batched_tokens: 4096
+            gpu_memory_utilization: 0.9
+            async_scheduling: true
+            additional_config:
+              enable_npugraph_ex: true
+              fuse_muls_add: true
+              multistream_overlap_shared_expert: true
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+          env:
+            MMC_LOCAL_CONFIG_PATH: /shared-volume/mmc_local.conf
+            ACL_OP_INIT_MODE: 1
+            PYTHONHASHSEED: 0
+            HCCL_BUFFSIZE: 1024
+            OMP_PROC_BIND: 'false'
+            OMP_NUM_THREADS: 10
+            VLLM_USE_V1: 1
+            HCCL_OP_EXPANSION_MODE: AIV
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+            VLLM_ASCEND_BALANCE_SCHEDULING: 1
+            VLLM_ASCEND_ENABLE_MLAPO: 1
+            VLLM_VERSION: 0.21.0
+            LOG_PREFIX_CACHE_STATS_PER_REQUEST: 1
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name

@@ -194,26 +194,19 @@ Wings Control 的 `engine_config` 参数名映射以**第一个点号**为边界
 可选功能抽取到 `features`；但同一 YAML 具有 PD 场景时，不能让顶层 feature 覆盖或替代
 PD 节点的显式参数。
 
-#### reasoning parser 公共表同步
+#### reasoning parser 优先级
 
-每次**新增或更新**模型 YAML，都必须在写入文件前检查是否包含 `features.reasoning`：
+模型 YAML 中的 `features.reasoning` 是部署配置的最高优先级来源：
 
-1. 若不包含 `features.reasoning`，不修改公共 reasoning parser 表。
-2. 若包含 `features.reasoning`，读取目标仓库的 `wings_control/docs/features/reasoning_parser/reason_parser.yaml`，在 `name: ReasoningParserModels` 条目的 `models` 下按 `model.variant_name` 做**大小写不敏感的完整匹配**。不得只按模型目录、`model.name`、`model_id` 或子串判断。
-3. 若已存在，核对其 `vllm` 和 `vllm_ascend` 配置与 YAML 中的 reasoning parser；发现不一致、`null` 或只配置一个引擎时，停止并报告差异，不能静默覆盖。
-4. 若不存在，必须在 `ReasoningParserModels.models` 下新增一项，并从 `features.reasoning.args` 中读取已确认的 `--reasoning-parser` 值：
-
-   ```yaml
-   - name: ReasoningParserModels
-     config: {}
-     models:
-       <variant_name>: {vllm: <parser>, vllm_ascend: <parser>}
-   ```
-
-   `vllm` 和 `vllm_ascend` 必须使用完全相同的 parser 配置。若 args 中没有明确的 parser 名称，或 parser 名称无法从用户命令/可靠资料确认，必须先让用户确认，不能猜测或使用默认值。
-5. 同一变体已有公共表条目时，不要重复添加；更新模型 YAML 和公共表必须作为同一变更一起验证。
-
-这项检查适用于 standalone、multi-node 和 PD 的每个模型 YAML；PD 的多个节点只登记一次同一个 `variant_name`。生成结果必须说明公共表是“未涉及”“已命中并核对”还是“已新增并同步”，以及两个引擎使用的 parser 值。
+1. 若存在 `features.reasoning`，校验 `args` 中包含明确的
+   `--reasoning-parser <parser>`，并在 dry-run 中使用该值。
+2. 读取 `wings_control/docs/features/reasoning_parser/reason_parser.yaml`，
+   按 `model.variant_name` 做大小写不敏感的完整匹配。
+3. 若公共表中没有当前变体，必须新增条目；新增条目的 `vllm` 和
+   `vllm_ascend` 初始值使用 YAML 中明确配置的 parser。
+4. 若公共表已有当前变体，不比较 parser 值，也不覆盖公共表；运行时和校验均以
+   YAML 的 `features.reasoning` 为优先。
+5. 同一变体在公共表中出现零次或多次均为校验错误；零次时先补充再验证。
 
 ### 场景
 
@@ -277,7 +270,10 @@ inline 命令物化后，必须检查 command file 内容与用户消息逐项�
 3. multi-node 节点结构完整；PD 同时存在 prefill/decode。
 4. `engine_config` 可按原顺序重建命令，features 参数可合并回原始命令；若存在带点号的 key，必须逐项确认输出为 `--顶层-flag.原生路径=value`，并覆盖值为 `false` 的情形。`system_setup.commands` 中的 `source <path>` 也必须与原始脚本逐条、按顺序一致。
 5. 除明确的路径归一化、feature 拆分、参数名映射和 standalone `host: "0.0.0.0"` 规范化外，不允许核心参数缺失或值变化。
-6. 若存在 `features.reasoning`，核对 `model.variant_name` 在 `wings_control/docs/features/reasoning_parser/reason_parser.yaml` 的 `ReasoningParserModels.models` 中已唯一登记，且 `vllm` 与 `vllm_ascend` 的 parser 配置相同；若是新登记项，确认公共表同步已包含在同一变更中。
+6. 若存在 `features.reasoning`，确认 YAML 自身包含明确的
+   `--reasoning-parser`，该参数已合并进 dry-run 命令，并且
+   `reason_parser.yaml` 中存在唯一的当前 `variant_name` 条目；已有条目的
+   parser 值不与 YAML 比较。
 
 除 `system_setup.commands` 的 canonical flow-style 约束外，YAML 的引号、其它 flow/block list、`0.90`/`0.9` 属于序列化差异，应比较解析后的结构。若用户要求其余内容逐字一致，必须使用用户指定模板或确定性 renderer，不能依赖自由生成。
 

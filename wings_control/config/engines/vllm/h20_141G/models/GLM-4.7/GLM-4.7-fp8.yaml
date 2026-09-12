@@ -31,9 +31,7 @@ model:
 hardware_profile:
   gpu_count: 8
   vram_gb: 1128
-  multi_node: false
-
-# 可选功能列表
+  multi_node: true  # 支持单节点及多节点场景
 features:
   tool_calling:
     description: GLM-4.7 tool call parser with automatic tool choice
@@ -43,10 +41,10 @@ features:
     args: [--reasoning-parser, glm45]
   kv_offloading:
     description: KV cache native offloading to reduce GPU memory usage
-    args: [--kv-offloading-backend, native, --kv-offloading-size, 200]
+    args: [--kv-offloading-backend, native, --kv-offloading-size, '200']
   spec_decoding:
     description: Multi-Token Prediction speculative decoding using the model's built-in MTP layers
-    args: [--speculative-config.method, mtp, --speculative-config.num_speculative_tokens, 1]
+    args: [--speculative-config.method, mtp, --speculative-config.num_speculative_tokens, '1']
 
 # 部署场景
 scenarios:
@@ -65,3 +63,37 @@ scenarios:
           trust_remote_code: true
           tensor_parallel_size: 8
         env: {}
+
+  multi_node:
+    source_ref: glm_4.7_fp8_manual#multi_node_tp
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        head:
+          engine_config:
+            model: zai-org/GLM-4.7-FP8
+            trust_remote_code: true
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:
+          engine_config:
+            model: zai-org/GLM-4.7-FP8
+            trust_remote_code: true
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME

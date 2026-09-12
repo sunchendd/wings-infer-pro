@@ -157,22 +157,16 @@ JSON/dict 参数优先转为 YAML mapping。进入 `features.*.args` 时保留�
 
 核心 PD 数据通道配置仍放在对应 node 的 `engine_config`。只有能从主命令独立开关的加速功能才抽到 `features`。
 
-### reasoning parser 公共表同步
+### reasoning parser 优先级
 
-新增或更新 YAML 时，只要顶层存在 `features.reasoning`，就必须读取 `wings_control/docs/features/reasoning_parser/reason_parser.yaml`，并将 `model.variant_name` 与 `ReasoningParserModels.models` 做大小写不敏感的完整匹配。没有 `features.reasoning` 时不得因为模型名称相似而登记。
+`features.reasoning` 是模型 YAML 的显式部署覆盖，优先于公共
+`reason_parser.yaml`。存在该 feature 时：
 
-- 已有完整匹配：核对其 `vllm`、`vllm_ascend` 与 YAML `features.reasoning.args` 中的 `--reasoning-parser` 值；差异、`null` 或缺少引擎配置必须报告并停止，不能静默改写。
-- 没有匹配：在 `ReasoningParserModels.models` 下新增唯一键，并让两个引擎使用同一个已确认 parser：
-
-  ```yaml
-  - name: ReasoningParserModels
-    config: {}
-    models:
-      <variant_name>: {vllm: <parser>, vllm_ascend: <parser>}
-  ```
-
-- parser 名称必须来自用户命令或可靠资料；`features.reasoning.args` 未明确给出时不能猜测。multi-node/PD 的多个节点对相同变体只登记一次。
-- 生成结果必须说明公共表同步状态（未涉及、已命中并核对、已新增并同步）及 `vllm`/`vllm_ascend` parser 值。
+- `args` 必须包含明确的 `--reasoning-parser <parser>`。
+- 在公共 `reason_parser.yaml` 中按 `model.variant_name` 做大小写不敏感的完整匹配。
+- 若公共表没有当前变体，必须使用 YAML 中明确的 parser 新增条目。
+- 若公共表已有当前变体，不比较 parser 值、不覆盖公共表；YAML 配置优先。
+- 公共表中零个或多个同名条目均为校验错误。
 
 ## 序列化规则
 
@@ -188,7 +182,10 @@ JSON/dict 参数优先转为 YAML mapping。进入 `features.*.args` 时保留�
 ## 验证清单
 
 1. 运行 `scripts/normalize_input.py`，输入无错误和待确认警告。
-2. 运行 `scripts/validate_yaml.py --engine ... --scenario ... --reasoning-registry wings_control/docs/features/reasoning_parser/reason_parser.yaml`；存在 `features.reasoning` 时必须提供 registry。
+2. 运行 `scripts/validate_yaml.py --engine ... --scenario ...
+   --reasoning-registry wings_control/docs/features/reasoning_parser/reason_parser.yaml`；
+   存在 `features.reasoning` 时校验 YAML 自身的 `--reasoning-parser`，并确认
+   公共表中存在唯一的当前模型条目，但不比较 parser 值。
 3. 执行 `scripts/check_dry_run.py`，重建每个策略/节点命令，并把 `features`（至少包括 `tool_calling` 和 `reasoning`）合并回命令进行 normalized diff。`system_setup.commands` 中严格形如 `source <path>` 的命令也必须与原始脚本逐条、按顺序比较。用户直接粘贴 inline 命令时，必须先将原始命令原样物化为临时 command file 再执行；不能因为没有现成脚本文件而跳过。只有用户没有提供完整原始命令时，才可报告 round-trip 未完成。
 4. dry-run 比较必须报告缺失参数、额外参数、值不一致、source 命令不一致和节点数量不一致；任一项存在都必须失败。
 5. 仅运行 skill 自带的结构校验和 dry-run 校验；本 skill 不要求不存在的项目级验证器。

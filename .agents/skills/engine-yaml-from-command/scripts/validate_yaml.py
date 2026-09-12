@@ -41,7 +41,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--reasoning-registry",
         type=Path,
-        help="Path to the reasoning parser registry when features.reasoning is present.",
+        help=(
+            "Path to the shared reasoning registry. The model variant must be "
+            "registered, but its parser value is not compared with the YAML "
+            "because features.reasoning is authoritative."
+        ),
     )
     return parser.parse_args()
 
@@ -125,43 +129,54 @@ def parser_from_args(args: list[Any]) -> str | None:
     raise ValidationError("features.reasoning.args must contain --reasoning-parser and its value")
 
 
-def validate_reasoning_registry(data: dict[str, Any], registry_path: Path | None) -> None:
+def validate_reasoning_registry_presence(
+    data: dict[str, Any], registry_path: Path | None
+) -> None:
     features = data.get("features")
     if not isinstance(features, dict) or "reasoning" not in features:
         return
+    reasoning = require_mapping(features["reasoning"], "features.reasoning")
+    parser = parser_from_args(
+        require_list(reasoning.get("args"), "features.reasoning.args")
+    )
     if registry_path is None:
-        raise ValidationError("--reasoning-registry is required when features.reasoning is present")
+        raise ValidationError(
+            "--reasoning-registry is required when features.reasoning is present"
+        )
     try:
         registry = yaml.safe_load(registry_path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
         raise ValidationError(f"cannot read reasoning registry: {exc}") from exc
-    parser = parser_from_args(require_list(features["reasoning"].get("args"), "features.reasoning.args"))
-    matches = []
-    architectures = require_list(registry.get("architectures"), "reasoning registry architectures")
+
+    variant_name = data["model"]["variant_name"]
+    matched_configs: list[dict[str, Any]] = []
+    architectures = require_list(
+        registry.get("architectures"), "reasoning registry architectures"
+    )
     for architecture in architectures:
-        architecture_map = require_mapping(architecture, "reasoning registry architecture")
+        architecture_map = require_mapping(
+            architecture, "reasoning registry architecture"
+        )
         models = architecture_map.get("models")
         if not isinstance(models, dict):
             continue
         for name, config in models.items():
-            if name.casefold() == data["model"]["variant_name"].casefold():
-                matches.append(
-                    require_mapping(
-                        config,
-                        f"{architecture_map.get('name', '<unnamed>')}.models.{name}",
-                    )
+            if str(name).casefold() != variant_name.casefold():
+                continue
+            matched_configs.append(
+                require_mapping(
+                    config,
+                    f"{architecture_map.get('name', '<unnamed>')}.models.{name}",
                 )
-    if len(matches) != 1:
-        raise ValidationError(
-            f"reasoning registry must contain exactly one case-insensitive full match for "
-            f"{data['model']['variant_name']!r}; found {len(matches)}"
-        )
-    entry = matches[0]
-    for engine in ("vllm", "vllm_ascend"):
-        if entry.get(engine) != parser:
-            raise ValidationError(
-                f"reasoning registry {engine} parser {entry.get(engine)!r} does not match {parser!r}"
             )
+    matches = len(matched_configs)
+    if matches != 1:
+        raise ValidationError(
+            "reasoning registry must contain exactly one case-insensitive full "
+            f"match for {variant_name!r}; found {matches}. Add the missing model "
+            f"entry with parser {parser!r} from features.reasoning without "
+            "comparing or overriding an existing parser value."
+        )
 
 
 def validate_serialization(text: str) -> None:
@@ -389,7 +404,7 @@ def main() -> int:
         validate_model(root)
         validate_hardware(root)
         validate_features(root)
-        validate_reasoning_registry(root, args.reasoning_registry)
+        validate_reasoning_registry_presence(root, args.reasoning_registry)
         validate_scenarios(root, args.engine, args.scenario)
     except (OSError, yaml.YAMLError, ValidationError) as exc:
         print(f"error: {exc}", file=sys.stderr)

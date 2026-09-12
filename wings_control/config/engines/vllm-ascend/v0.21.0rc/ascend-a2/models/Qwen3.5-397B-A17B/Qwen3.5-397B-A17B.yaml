@@ -31,6 +31,53 @@ features:
 
 # 部署场景
 scenarios:
+  standalone:
+    source_ref: "vllm_ascend_qwen3.5-397b-a17b_w8a8_mtp_manual#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: Eco-Tech/Qwen3.5-397B-A17B-w8a8-mtp
+          host: "0.0.0.0"
+          port: 7898
+          served_model_name: qwen397
+          tensor_parallel_size: 8
+          data_parallel_size: 1
+          enable_expert_parallel: true
+          max_num_seqs: 32
+          max_model_len: 131072
+          max_num_batched_tokens: 8192
+          gpu_memory_utilization: 0.95
+          seed: 1024
+          trust_remote_code: true
+          async_scheduling: true
+          compilation_config:
+            cudagraph_mode: FULL_DECODE_ONLY
+          additional_config:
+            enable_cpu_binding: true
+            ascend_compilation_config:
+              enable_npugraph_ex: true
+        env:
+          HCCL_IF_IP: "127.0.0.1"
+          GLOO_SOCKET_IFNAME: lo
+          TP_SOCKET_IFNAME: lo
+          HCCL_SOCKET_IFNAME: lo
+          PYTHONHASHSEED: 0
+          HCCL_BUFFSIZE: 512
+          OMP_PROC_BIND: "false"
+          OMP_NUM_THREADS: 1
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          VLLM_USE_V1: 1
+          LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+          TASK_QUEUE_ENABLE: 1
+          HCCL_OP_EXPANSION_MODE: AIV
+        system_setup:
+          commands: [source /usr/local/Ascend/ascend-toolkit/set_env.sh, source /usr/local/Ascend/nnal/atb/set_env.sh]
+
   multi_node:
     source_ref: "vllm_ascend_qwen3.5-397b-a17b#multi_node"
     match:

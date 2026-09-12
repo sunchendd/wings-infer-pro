@@ -32,7 +32,7 @@ hardware_profile:
   display_name: Ascend A2
   gpu_count: 8
   vram_gb: 512
-  multi_node: true
+  multi_node: true  # 支持单节点及多节点场景
 
 scenarios:
   standalone:
@@ -57,3 +57,62 @@ scenarios:
           host: "0.0.0.0"
           port: 17000
         env: {}
+
+  multi_node:
+    source_ref: vllm_ascend_qwen2.5-vl-72b-instruct_manual#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        display_name: Multi-Node
+        default_strategy: true
+        head:
+          engine_config:
+            model: Qwen/Qwen2.5-VL-72B-Instruct
+            served_model_name: Qwen/Qwen2.5-VL-72B-Instruct
+            trust_remote_code: true
+            dtype: bfloat16
+            max_model_len: 4096
+            tensor_parallel_size: 8
+            gpu_memory_utilization: 0.9
+            enforce_eager: true
+            host: 0.0.0.0
+            port: 17000
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 0
+            data_parallel_address: $local_ip
+            data_parallel_rpc_port: 12321
+          env:
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            HCCL_OP_EXPANSION_MODE: AIV
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+        worker:
+          engine_config:
+            model: Qwen/Qwen2.5-VL-72B-Instruct
+            served_model_name: Qwen/Qwen2.5-VL-72B-Instruct
+            trust_remote_code: true
+            dtype: bfloat16
+            max_model_len: 4096
+            tensor_parallel_size: 8
+            gpu_memory_utilization: 0.9
+            enforce_eager: true
+            host: 0.0.0.0
+            port: 17000
+            headless: true
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 1
+            data_parallel_address: $node0_ip
+            data_parallel_rpc_port: 12321
+          env:
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            HCCL_OP_EXPANSION_MODE: AIV
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True

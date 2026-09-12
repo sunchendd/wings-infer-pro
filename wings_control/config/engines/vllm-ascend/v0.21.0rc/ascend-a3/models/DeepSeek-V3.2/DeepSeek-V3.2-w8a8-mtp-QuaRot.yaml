@@ -21,7 +21,7 @@ model:
 hardware_profile:
   gpu_count: 16  # 单节点 GPU/NPU 数量
   vram_gb: 1024  # 单节点总显存(GB)
-  multi_node: true  # 是否支持多节点
+  multi_node: true  # 支持单节点及多节点场景
 
 # 可选功能列表
 features:
@@ -318,3 +318,86 @@ scenarios:
               TASK_QUEUE_ENABLE: 1
             system_setup:  # 系统级设置（sysctl / sysfs / 其他命令）
               commands: ["nic_name=\"enp48s3u1u1\" # change to your own nic name", "local_ip=141.61.39.181 # change to your own ip"]
+
+  multi_node:
+    source_ref: vllm_ascend_deepseek-v3.2#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        display_name: Multi-Node
+        default_strategy: true
+        head:
+          engine_config:
+            model: Eco-Tech/DeepSeek-V3.2-w8a8-mtp-QuaRot
+            host: 0.0.0.0
+            port: 8000
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 0
+            data_parallel_address: $local_ip
+            data_parallel_rpc_port: 12321
+            tensor_parallel_size: 16
+            quantization: ascend
+            seed: 1024
+            served_model_name: deepseek_v3_2
+            enable_expert_parallel: true
+            max_num_seqs: 16
+            max_model_len: 8192
+            max_num_batched_tokens: 4096
+            trust_remote_code: true
+            no_enable_prefix_caching: true
+            gpu_memory_utilization: 0.92
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+          env:
+            HCCL_OP_EXPANSION_MODE: AIV
+            OMP_PROC_BIND: 'false'
+            OMP_NUM_THREADS: 10
+            VLLM_USE_V1: 1
+            HCCL_BUFFSIZE: 200
+            VLLM_ASCEND_ENABLE_MLAPO: 1
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+            VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+        worker:
+          engine_config:
+            model: Eco-Tech/DeepSeek-V3.2-w8a8-mtp-QuaRot
+            host: 0.0.0.0
+            port: 8000
+            headless: true
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 1
+            data_parallel_address: $node0_ip
+            data_parallel_rpc_port: 12321
+            tensor_parallel_size: 16
+            quantization: ascend
+            seed: 1024
+            served_model_name: deepseek_v3_2
+            enable_expert_parallel: true
+            max_num_seqs: 16
+            max_model_len: 8192
+            max_num_batched_tokens: 4096
+            trust_remote_code: true
+            no_enable_prefix_caching: true
+            gpu_memory_utilization: 0.92
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+          env:
+            HCCL_OP_EXPANSION_MODE: AIV
+            OMP_PROC_BIND: 'false'
+            OMP_NUM_THREADS: 10
+            VLLM_USE_V1: 1
+            HCCL_BUFFSIZE: 200
+            VLLM_ASCEND_ENABLE_MLAPO: 1
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+            VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name

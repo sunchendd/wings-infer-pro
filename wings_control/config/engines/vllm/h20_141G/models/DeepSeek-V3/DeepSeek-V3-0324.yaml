@@ -31,7 +31,7 @@ model:
 hardware_profile:
   gpu_count: 8  # 单节点 GPU 数量
   vram_gb: 1128  # 单节点总显存(GB)（8 × 141GB）
-  multi_node: false  # 仅支持单节点
+  multi_node: true  # 支持单节点及多节点场景
 
 # 部署场景
 scenarios:
@@ -54,3 +54,45 @@ scenarios:
           port: 17000
           tensor_parallel_size: 8
         env: {}
+
+  multi_node:
+    source_ref: vllm_deepseek-v3_manual#multi_node_tp
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: balanced
+        default_strategy: true
+        head:
+          engine_config:
+            model: deepseek-ai/DeepSeek-V3-0324
+            trust_remote_code: true
+            max_model_len: 4096
+            enable_expert_parallel: true
+            host: 0.0.0.0
+            port: 17000
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:
+          engine_config:
+            model: deepseek-ai/DeepSeek-V3-0324
+            trust_remote_code: true
+            max_model_len: 4096
+            enable_expert_parallel: true
+            host: 0.0.0.0
+            port: 17000
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
