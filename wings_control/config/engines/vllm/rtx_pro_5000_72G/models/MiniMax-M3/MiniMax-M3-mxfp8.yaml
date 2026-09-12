@@ -1,80 +1,82 @@
 # 来源追溯
 upstream_sources:
-  - id: minimax_m3_mxfp8_manual
+  - id: minimax_m3_vllm0280_sm120_tp4dp2
     kind: manual
     repo: null
-    file: null
+    file: minimax_m3/8_perf_start_minimax.sh
     url: https://huggingface.co/MiniMaxAI/MiniMax-M3-MXFP8
-    date_updated: 2026-07-14
-    note: 手工录入
+    note: MiniMax-M3-MXFP8 vLLM 0.28.0 单机 8 卡 TP4×DP2×EP 实测容量配置。
 
 # 模型基本信息
 model:
-  name: MiniMax-M3  # 模型名称
-  slug: minimax-m3  # 模型标识
-  provider: MiniMax  # 提供者/厂商
-  description: "MiniMax-M3 原生多模态 MoE 模型，采用 MiniMax Sparse Attention (MSA)，MXFP8 量化权重。"  # 模型描述
-  model_id: MiniMaxAI/MiniMax-M3-MXFP8  # HuggingFace 模型 ID
-  architecture: moe  # 模型架构（dense/moe）
-  parameter_count: 428B  # 总参数量
-  active_parameters: 23B  # 激活参数量（MoE 模型）
-  context_length: 1048576  # 最大上下文长度
-  vram_minimum_gb: 384  # 最低显存需求(GB)
-  tasks: [text]  # 支持的任务类型
-  min_engine_version: "vllm-minimax-m3"  # 最低引擎版本要求
-  date_updated: 2026-07-14  # 录入日期
-  match:  # 模型名匹配规则
-    - name_pattern: "(?i)minimax[-.]?m3"
-  variant_name: MiniMax-M3-mxfp8  # 模型量化版本精确名称
+  name: MiniMax-M3
+  slug: minimax-m3
+  provider: MiniMax
+  description: MiniMax-M3 MoE language model using the MXFP8 checkpoint.
+  model_id: MiniMaxAI/MiniMax-M3-MXFP8
+  architecture: moe
+  parameter_count: 428B
+  active_parameters: 23B
+  context_length: 1048576
+  vram_minimum_gb: 384
+  tasks: [text]
+  min_engine_version: "0.28.0"
+  match:
+    - name_pattern: "(?i)minimax[-.]?m3[-.]?mxfp8"
+  variant_name: MiniMax-M3-mxfp8
 
 # 硬件信息
 hardware_profile:
-  gpu_count: 8  # 单节点 GPU 数量
-  vram_gb: 576  # 单节点总显存(GB)（8 × 72GB）
-  multi_node: true  # 支持单节点及多节点场景
+  gpu_count: 8
+  vram_gb: 576
+  multi_node: false
 
 # 可选功能列表（不进 engine_config）
 features:
   tool_calling:
-    description: Enable tool calling with MiniMax M3 tool parser.
-    args: ["--tool-call-parser", "minimax_m3", "--enable-auto-tool-choice"]
+    description: Enable MiniMax M3 tool parsing with automatic tool choice.
+    args: [--tool-call-parser, minimax_m3, --enable-auto-tool-choice]
   reasoning:
-    description: Enable reasoning/thinking mode via MiniMax M3 reasoning parser.
-    args: ["--reasoning-parser", "minimax_m3"]
-  spec_decoding:
-    description: Suffix-based speculative decoding.
-    args: ["--speculative-config", "{\"method\": \"suffix\", \"num_speculative_tokens\": 32}"]
-  kv_offloading:
-    description: KV cache native offloading to reduce GPU memory usage.
-    args: ["--kv-offloading-size", "20"]
+    description: Enable MiniMax M3 reasoning parsing.
+    args: [--reasoning-parser, minimax_m3]
 
 # 部署场景
 scenarios:
   standalone:
-    source_ref: "minimax_m3_mxfp8_manual#single_node_tp"
+    source_ref: "minimax_m3_vllm0280_sm120_tp4dp2#single_node_dep"
     match:
       distributed: false
       pd_role: null
     strategies:
-      single_node_tp:
-        display_name: Tensor Parallel
-        orientation: latency
+      single_node_dep:
+        display_name: Tensor + Data + Expert Parallel
+        orientation: throughput
         default_strategy: true
         engine_config:
-          model: "MiniMaxAI/MiniMax-M3-MXFP8"
+          model: MiniMaxAI/MiniMax-M3-MXFP8
           host: "0.0.0.0"
-          port: 16000
+          port: 8001
+          tensor_parallel_size: 4
+          pipeline_parallel_size: 1
+          data_parallel_size: 2
+          enable_expert_parallel: true
+          language_model_only: true
+          max_model_len: auto
+          max_num_seqs: 128
+          max_num_batched_tokens: 4096
+          gpu_memory_utilization: 0.97
+          kv_cache_dtype: fp8
+          attention_backend: B12X
           block_size: 128
-          tensor_parallel_size: 8
-          max_model_len: 80000
-          gpu_memory_utilization: 0.95
-          model_loader_extra_config:
-            enable_multithread_load: "true"
-            num_threads: 128
-          trust_remote_code: true
+          compilation_config:
+            mode: 0
+            cudagraph_mode: FULL_DECODE_ONLY
+            max_cudagraph_capture_size: 128
+          kernel_config:
+            enable_cutedsl_warmup: false
+            enable_flashinfer_autotune: false
+            enable_jit_warmup: false
         env:
-          VLLM_USE_V1: "1"
-          PYTHONHASHSEED: "0"
           NCCL_P2P_LEVEL: SYS
           NCCL_SHM_DISABLE: 1
 

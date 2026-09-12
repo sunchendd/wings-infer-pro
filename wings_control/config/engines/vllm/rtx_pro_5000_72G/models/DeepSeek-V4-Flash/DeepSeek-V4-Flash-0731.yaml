@@ -1,11 +1,11 @@
 # 来源追溯
 upstream_sources:
-  - id: deepseek-v4-flash-0731_manual
+  - id: wings_accel_vllm028_sm120_tp4
     kind: manual
     repo: null
-    file: null
+    file: wings-accel/docs/vllm-v0.28.0-sm120-tp4dp4.md
     url: https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash
-    note: 用户提供 vLLM v0.26.0 启动命令，手工录入。
+    note: wings-accel vLLM v0.28.0 SM120 TP4×DP4×EP 实测交付基线。
 
 # 模型基本信息
 model:
@@ -20,7 +20,7 @@ model:
   context_length: 1048576
   vram_minimum_gb: 288
   tasks: [text]
-  min_engine_version: "0.26.0"
+  min_engine_version: "0.28.0"
   match:
     - name_pattern: "(?i)deepseek[-.]?v4[-.]?flash[-.]?0731"
   variant_name: DeepSeek-V4-Flash-0731
@@ -42,12 +42,17 @@ features:
     args: [--speculative_config, "{\"method\":\"dspark\", \"num_speculative_tokens\":5, \"draft_sample_method\": \"greedy\"}"]
   sparse_index:
     description: Enable FlashInfer autotuning and configure the DeepSeek sparse index cache.
-    args: [--enable-flashinfer-autotune, --hf-overrides, "{\"use_index_cache\":true, \"index_topk_freq\":4}"]
+    args: [--enable-flashinfer-autotune, --hf-overrides, "{\"use_index_cache\":true,\"index_topk_freq\":4,\"index_skip_topk_offset\":2}"]
+  lmcache:
+    description: LMCache MP KV cache acceleration for the SM120 delivery.
+    kv_transfer:
+      description: Connect vLLM to the colocated LMCache multiprocess server.
+      args: [--kv-transfer-config, "{\"kv_connector\":\"LMCacheMPConnector\",\"kv_role\":\"kv_both\",\"kv_connector_extra_config\":{\"lmcache.mp.port\":5555,\"lmcache.mp.sync_retrieve_before_forward\":true,\"lmcache.mp.mq_timeout\":300}}"]
 
 # 部署场景
 scenarios:
   standalone:
-    source_ref: "deepseek-v4-flash-0731_manual#single_node_tp"
+    source_ref: "wings_accel_vllm028_sm120_tp4#single_node_tp"
     match:
       distributed: false
       pd_role: null
@@ -59,19 +64,19 @@ scenarios:
         engine_config:
           model: deepseek-ai/DeepSeek-V4-Flash
           host: "0.0.0.0"
-          port: 5685
+          port: 17000
           kv_cache_dtype: fp8
           block_size: 256
           tensor_parallel_size: 4
-          gpu_memory_utilization: 0.8
-          max_model_len: 1048576
+          gpu_memory_utilization: 0.80
+          max_model_len: 140000
           enable_prefix_caching: true
           compilation_config:
             cudagraph_mode: FULL_AND_PIECEWISE
             custom_ops: [all]
           async_scheduling: true
           enable_expert_parallel: true
-          attention_backend: FLASHINFER_MLA_SPARSE_DSV4
+          attention_backend: FLASHINFER_MLA_SPARSE_SM120
           all2all_backend: deepep_high_throughput
         env:
           NCCL_P2P_LEVEL: SYS

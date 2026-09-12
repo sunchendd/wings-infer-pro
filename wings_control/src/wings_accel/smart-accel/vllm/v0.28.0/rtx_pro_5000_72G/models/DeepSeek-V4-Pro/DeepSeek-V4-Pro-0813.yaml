@@ -1,0 +1,79 @@
+# SmartAccel configuration for the patched vLLM v0.28.0 SM120 TP16 delivery.
+model:
+  name: DeepSeek-V4-Pro
+  variant_name: "DeepSeek-V4-Pro-0813"
+  match:
+    - name_pattern: "(?i)deepseek[-.]?v4[-.]?pro[-.]?0813"
+smart_accel:
+  standalone:
+    source_ref: dsv4_pro_patch/deployment/perf_start_v4pro_tp16ep_lmcache_mp.sh#vllm-v0.28.0-port
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+          - name: dspark
+            packages:
+              flashinfer-sm120: 9dc1b249-v4pro-tp16
+            cli_params:
+              speculative_config:
+                method: dspark
+                num_speculative_tokens: 5
+                draft_sample_method: probabilistic
+            envs: {}
+        kv_offload:
+          - name: cpu
+            packages:
+              lmcache: v0.5.3-sm120-mp-140819c9
+            cli_params:
+              kv_transfer_config:
+                kv_connector: LMCacheMPConnector
+                kv_role: kv_both
+                kv_connector_extra_config:
+                  lmcache.mp.port: 5555
+                  lmcache.mp.mq_timeout: 300
+                  lmcache.mp.sync_retrieve_before_forward: true
+            envs: {}
+            files:
+              - path: start_kv_serve.sh
+                mode: "0755"
+                scope: master
+                content: |
+                  #!/usr/bin/env bash
+                  export LD_LIBRARY_PATH="/usr/local/lib/python3.12/dist-packages/torch/lib:/usr/local/lib/python3.12/dist-packages/nvidia/cu13/lib:${LD_LIBRARY_PATH:-}"
+                  exec lmcache server \
+                    --port 5555 \
+                    --http-port 8080 \
+                    --l1-size-gb {memory_capacity_gb} \
+                    --l1-init-size-gb 20 \
+                    --max-gpu-workers 1 \
+                    --max-cpu-workers 8 \
+                    --chunk-size 1024 \
+                    --l1-align-bytes 16384 \
+                    --eviction-trigger-watermark 0.85 \
+                    --eviction-ratio 0.10 \
+                    --eviction-policy LRU \
+                    --supported-transfer-mode lmcache_driven
+        sparse:
+          - name: performance_first
+            packages:
+              flashinfer-sm120: 9dc1b249-v4pro-tp16
+            cli_params:
+              kv_cache_dtype: fp8
+              no_enable_flashinfer_autotune: true
+              hf_overrides:
+                use_index_cache: true
+                index_topk_freq: 8
+            envs: {}
+          - name: accuracy_first
+            packages:
+              flashinfer-sm120: 9dc1b249-v4pro-tp16
+            cli_params:
+              kv_cache_dtype: fp8
+              no_enable_flashinfer_autotune: true
+              hf_overrides:
+                use_index_cache: true
+                index_topk_freq: 4
+            envs: {}
