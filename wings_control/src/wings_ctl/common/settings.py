@@ -57,14 +57,13 @@ class Settings(BaseSettings):
     # log_analyzer 通过 tail -F ENGINE_LOG_FILE 跟踪引擎日志。
     ENGINE_LOG_DIR: str = "/var/log/wings"
     ENGINE_LOG_FILE: str = ""
-    ENGINE_FULL_LOG_FILE: str = ""
 
     @model_validator(mode="before")
     @classmethod
     def _derive_volume_paths(cls, data: Any) -> Any:
         """在所有字段验证完成前，派生以下路径（若未被环境变量覆盖）：
         - PROGRESS_FILE / ADVANCED_FEATURES_FILE: 基于 SHARED_VOLUME_PATH
-        - ENGINE_LOG_FILE / ENGINE_FULL_LOG_FILE: 基于 ENGINE_LOG_DIR
+        - ENGINE_LOG_FILE: 基于 ENGINE_LOG_DIR
         """
         if not isinstance(data, dict):
             return data
@@ -76,8 +75,6 @@ class Settings(BaseSettings):
         log_dir = data.get("ENGINE_LOG_DIR") or "/var/log/wings"
         if not data.get("ENGINE_LOG_FILE"):
             data["ENGINE_LOG_FILE"] = f"{log_dir}/engine.log"
-        if not data.get("ENGINE_FULL_LOG_FILE"):
-            data["ENGINE_FULL_LOG_FILE"] = f"{log_dir}/engine-full.log"
         return data
 
     # 引擎基础配置。ENGINE_PORT 是 backend 真实监听端口，不是对外代理端口。

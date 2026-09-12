@@ -139,7 +139,7 @@ def test_pd_fail_together_script_has_log_analyzer_and_tee(tmp_path: Path) -> Non
     assert "log_analyzer.log_analyzer" in content
     assert "--progress-file" in content
     # 每条进程单独 tee 聚合到 engine.log
-    assert content.count("exec > >(tee -a /var/log/wings/engine-full.log") == 2
+    assert content.count("exec > >(grep --line-buffered -vE") == 2
     # 统一清理(单一 trap)同时终止子进程与 log_analyzer
     assert "kill ${LOG_ANALYZER_PID:-} 2>/dev/null || true" in content
     assert "trap terminate_children EXIT TERM INT" in content
