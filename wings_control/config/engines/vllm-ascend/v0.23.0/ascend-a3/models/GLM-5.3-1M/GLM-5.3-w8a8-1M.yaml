@@ -1,0 +1,162 @@
+# Source provenance
+upstream_sources:
+  - id: vllm_ascend_glm-5.3-w8a8-1m_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://modelscope.cn/models/Eco-Tech/GLM-5.3-w8a8-1m"
+    note: User-provided vLLM Ascend dual-node launch command for GLM-5.3 W8A8 1M context, manually recorded.
+
+# Model metadata
+model:
+  name: GLM-5.3-1M
+  provider: Eco-Tech
+  model_id: Eco-Tech/GLM-5.3-W8A8-1M
+  min_engine_version: v0.23.0
+  match:
+    - name_pattern: "(?i)^glm[-.]?5[.]3[-.]?w8a8[-.]?1m$"
+  variant_name: GLM-5.3-w8a8-1M
+
+# Per-node Ascend 910C hardware profile
+hardware_profile:
+  gpu_count: 16
+  vram_gb: 1024
+  multi_node: true
+
+# Optional model features extracted from the launch command
+features:
+  tool_calling:
+    description: Enable automatic tool/function calling via the model's tool-call parser.
+    args: [--tool-call-parser, glm47, --enable-auto-tool-choice]
+  reasoning:
+    description: Enable the model's reasoning-content parser.
+    args: [--reasoning-parser, glm45]
+  spec_decoding:
+    description: Speculative decoding (MTP deepseek_mtp draft) to accelerate generation.
+    args: [--speculative-config, "{\"num_speculative_tokens\":3,\"method\":\"deepseek_mtp\",\"enforce_eager\":true}"]
+  sparse_index:
+    description: Enable sparse index acceleration with the measured recompute frequency.
+    args: [--hf-overrides, "{\"index_topk_freq\":8}"]
+
+# Deployment scenarios
+scenarios:
+  multi_node:
+    source_ref: "vllm_ascend_glm-5.3-w8a8-1m_manual#multi_node_dp"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dp:
+        display_name: Multi-Node Data Parallel
+        orientation: throughput
+        default_strategy: true
+        head:
+          engine_config:
+            model: Eco-Tech/GLM-5.3-w8a8-1M
+            host: "0.0.0.0"
+            port: 18000
+            api_server_count: 1
+            data_parallel_size: 4
+            data_parallel_start_rank: 0
+            data_parallel_size_local: 2
+            data_parallel_address: $node0_ip
+            data_parallel_rpc_port: 12980
+            tensor_parallel_size: 8
+            enable_expert_parallel: true
+            prefill_context_parallel_size: 1
+            decode_context_parallel_size: 8
+            cp_kv_cache_interleave_size: 128
+            block_size: 128
+            seed: 1024
+            served_model_name: GLM-5.3-W8A8-1M
+            max_num_seqs: 6
+            max_model_len: 1048576
+            max_num_batched_tokens: 4096
+            trust_remote_code: true
+            gpu_memory_utilization: 0.92
+            quantization: ascend
+            enable_chunked_prefill: true
+            enable_prefix_caching: true
+            async_scheduling: true
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+            additional_config:
+              enable_dsa_cp: true
+              enable_mc2_hierarchy_comm: true
+              enable_sparse_sfa_c8: true
+              enable_sparse_li_c8: true
+              enable_balance_scheduling: true
+              fuse_muls_add: true
+          env:
+            HCCL_OP_EXPANSION_MODE: AIV
+            HCCL_BUFFSIZE: 512
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            HCCL_TRANSFER_TIMEOUT: 600
+            HCCL_CONNECT_TIMEOUT: 3600
+            HCCL_EXEC_TIMEOUT: 3600
+            OMP_NUM_THREADS: 1
+            OMP_PROC_BIND: "false"
+            PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+            VLLM_ASCEND_ENABLE_MLAPO: 1
+            VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
+            VLLM_ASCEND_ENABLE_FUSED_MC2: 0
+          system_setup:
+            commands: [nic_name="<nic>", local_ip="<ip>", node0_ip="<head-ip>"]
+        worker:
+          engine_config:
+            model: Eco-Tech/GLM-5.3-W8A8-1M
+            host: "0.0.0.0"
+            port: 18000
+            headless: true
+            data_parallel_size: 4
+            data_parallel_start_rank: 2
+            data_parallel_size_local: 2
+            data_parallel_address: $node0_ip
+            data_parallel_rpc_port: 12980
+            tensor_parallel_size: 8
+            enable_expert_parallel: true
+            prefill_context_parallel_size: 1
+            decode_context_parallel_size: 8
+            cp_kv_cache_interleave_size: 128
+            block_size: 128
+            seed: 1024
+            served_model_name: GLM-5.3-W8A8-1M
+            max_num_seqs: 6
+            max_model_len: 1048576
+            max_num_batched_tokens: 4096
+            trust_remote_code: true
+            gpu_memory_utilization: 0.92
+            quantization: ascend
+            enable_chunked_prefill: true
+            enable_prefix_caching: true
+            async_scheduling: true
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+            additional_config:
+              enable_dsa_cp: true
+              enable_mc2_hierarchy_comm: true
+              enable_sparse_sfa_c8: true
+              enable_sparse_li_c8: true
+              enable_balance_scheduling: true
+              fuse_muls_add: true
+          env:
+            HCCL_OP_EXPANSION_MODE: AIV
+            HCCL_BUFFSIZE: 512
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            HCCL_TRANSFER_TIMEOUT: 600
+            HCCL_CONNECT_TIMEOUT: 3600
+            HCCL_EXEC_TIMEOUT: 3600
+            OMP_NUM_THREADS: 1
+            OMP_PROC_BIND: "false"
+            PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+            VLLM_ASCEND_ENABLE_MLAPO: 1
+            VLLM_ASCEND_ENABLE_FLASHCOMM1: 1
+            VLLM_ASCEND_ENABLE_FUSED_MC2: 0
+          system_setup:
+            commands: [nic_name="<nic>", local_ip="<ip>", node0_ip="<head-ip>"]

@@ -1,0 +1,35 @@
+# SmartAccel acceleration configuration (decoding=deepseek_mtp / sparse=index_topk)
+# Draft and sparse parameters share the source of truth with the engine features.
+model:
+  name: GLM-5.3-1M
+  variant_name: "GLM-5.3-w8a8-1M"
+  match:
+    - name_pattern: "(?i)^glm[-.]?5[.]3[-.]?w8a8[-.]?1m$"
+smart_accel:
+  multi_node:
+    source_ref: "vllm_ascend_glm-5.3-w8a8-1m_manual#multi_node_dp"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dp:
+        default_strategy: true
+        decoding:
+          - name: deepseek_mtp
+            cli_params:
+              speculative_config:
+                num_speculative_tokens: 3
+                method: deepseek_mtp
+                enforce_eager: true
+            envs: {}
+        sparse:
+        - name: performance_first
+          cli_params:
+            hf_overrides:
+              index_topk_freq: 8
+          envs: {}
+        - name: accuracy_first
+          cli_params:
+            hf_overrides:
+              index_topk_freq: 4
+          envs: {}
