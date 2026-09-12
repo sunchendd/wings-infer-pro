@@ -301,6 +301,7 @@ architectures:
       GLM-5.3-Flash-w8a8: {vllm: glm45, vllm_ascend: glm45}
       GLM-5.3-w8a8: {vllm: glm45, vllm_ascend: glm45}
       GLM-5.3: {vllm: glm45, vllm_ascend: glm45}
+      GLM-5.3-w8a8-1m: {vllm: glm45, vllm_ascend: glm45}
       Kimi-K2.5-int4: {vllm: kimi_k2, vllm_ascend: kimi_k2}
       Kimi-K2.5-nvfp4: {vllm: kimi_k2, vllm_ascend: kimi_k2}
       Kimi-K2.6-int4: {vllm: kimi_k2, vllm_ascend: kimi_k2}

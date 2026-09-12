@@ -11,6 +11,7 @@
 匹配(vllm 引擎配置无版本层,版本目录不参与定位)。
 """
 
+import re
 from pathlib import Path
 
 import pytest
@@ -36,8 +37,41 @@ ASSETS = [
     "vllm-ascend/v0.23.0/ascend-a2/models/GLM-5.1/GLM-5.1-w8a8.yaml",
     "vllm-ascend/v0.23.0/ascend-a2/models/GLM-5/GLM-5-w4a8.yaml",
     "vllm-ascend/v0.23.0/ascend-a3/models/GLM-5.3/GLM-5.3-w8a8.yaml",
+    "vllm-ascend/v0.23.0/ascend-a3/models/GLM-5.3-1M/GLM-5.3-w8a8-1M.yaml",
     "vllm-ascend/glm-5.3-flash-a3/ascend-a3/models/GLM-5.3-Flash/GLM-5.3-Flash-w8a8.yaml",
 ]
+
+
+def test_glm53_w8a8_1m_patterns_only_accept_the_supported_ordering():
+    """GLM-5.3 W8A8 1M 仅接受量化标记在上下文长度前的模型名。"""
+    model_name = "GLM-5.3-w8a8-1M"
+    paths = [
+        ENGINE_ROOT
+        / "vllm-ascend"
+        / "v0.23.0"
+        / "ascend-a3"
+        / "models"
+        / "GLM-5.3-1M"
+        / "GLM-5.3-w8a8-1M.yaml",
+        SMART_ROOT
+        / "vllm-ascend"
+        / "v0.23.0"
+        / "ascend-a3"
+        / "models"
+        / "GLM-5.3-1M"
+        / "GLM-5.3-w8a8-1M.yaml",
+    ]
+
+    for path in paths:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        patterns = [
+            rule["name_pattern"]
+            for rule in (data.get("model") or {}).get("match") or []
+            if isinstance(rule, dict) and rule.get("name_pattern")
+        ]
+        assert any(re.fullmatch(pattern, model_name) for pattern in patterns), path
+        for unsupported_name in ("GLM-5.3-1M", "GLM-5.3-1M-w8a8"):
+            assert not any(re.fullmatch(pattern, unsupported_name) for pattern in patterns), path
 
 
 def _locate_engine_yaml(rel: str) -> Path:
