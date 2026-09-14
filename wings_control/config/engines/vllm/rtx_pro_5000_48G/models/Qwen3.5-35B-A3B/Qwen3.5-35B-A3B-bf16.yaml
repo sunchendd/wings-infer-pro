@@ -36,8 +36,8 @@ hardware_profile:
 # 可选功能列表（不进 engine_config）
 features:
   tool_calling:
-    description: Enable tool calling with Hermes tool parser.
-    args: ["--enable-auto-tool-choice", "--tool-call-parser", "hermes"]
+    description: Enable tool calling with Qwen3_coder tool parser.
+    args: ["--enable-auto-tool-choice", "--tool-call-parser", "qwen3_coder"]
   spec_decoding:
     description: Qwen3.5 MTP speculative decoding.
     args: ["--speculative-config", "{\"method\":\"qwen3_5_mtp\",\"num_speculative_tokens\":1}"]
