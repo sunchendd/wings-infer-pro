@@ -7,12 +7,13 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import pytest
 
 from wings_ctl.hardware.resolver import parse_gpu_mem_suffix, strip_gpu_mem_suffix
 from wings_ctl.loaders import locator
-from wings_ctl.loaders.locator import resolve_family_dir
+from wings_ctl.loaders.locator import build_models_dir, resolve_family_dir
 
 
 # ─── 显存后缀解析 / 剥离 ──────────────────────────────────────────────
@@ -77,10 +78,85 @@ def test_resolve_family_dir_casefold_variant(config_root_real):
 
 
 def test_resolve_family_dir_unknown_card_fail_fast(config_root_real):
-    """无对应资产的卡(虚构卡型)→ fail-fast，不静默兜底。
-    """
+    """默认调用保持严格模式：无对应资产的卡仍 fail-fast。"""
     with pytest.raises(FileNotFoundError, match="No configuration assets"):
         resolve_family_dir(config_root_real, "vllm", "NonExistentCard_99G", "", False)
+
+
+def test_generic_directory_is_not_a_user_selectable_hardware(config_root_real):
+    """保底目录只能由 fallback 选择，不能伪装成正常硬件输入。"""
+    with pytest.raises(FileNotFoundError, match="No configuration assets"):
+        resolve_family_dir(config_root_real, "vllm", "_generic", "", False)
+
+
+def test_resolve_family_dir_unknown_card_uses_generic_when_enabled(config_root_real, caplog):
+    """普通 recipe 路径可显式启用未知硬件的通用保底目录。"""
+    with caplog.at_level(logging.WARNING):
+        resolved = resolve_family_dir(
+            config_root_real,
+            "vllm",
+            "NonExistentCard_99G",
+            "",
+            False,
+            allow_generic=True,
+        )
+
+    assert resolved == "_generic"
+    assert "generic best-effort hardware recipe" in caplog.text
+
+
+def test_generic_fallback_requires_default_model_file(tmp_path: Path):
+    """空的 models 目录不是有效 generic 资产。"""
+    (tmp_path / "engines" / "demo" / "_generic" / "models").mkdir(parents=True)
+
+    with pytest.raises(FileNotFoundError, match="No configuration assets"):
+        resolve_family_dir(
+            tmp_path,
+            "demo",
+            "Unknown_1G",
+            "",
+            False,
+            allow_generic=True,
+        )
+
+
+def test_generic_fallback_accepts_default_model_file(tmp_path: Path):
+    """generic fallback 的存在性契约以 default_model.yaml 文件为准。"""
+    default_model = tmp_path / "engines" / "demo" / "_generic" / "models" / "default_model.yaml"
+    default_model.parent.mkdir(parents=True)
+    default_model.write_text("scenarios: {}\n", encoding="utf-8")
+
+    assert resolve_family_dir(
+        tmp_path,
+        "demo",
+        "Unknown_1G",
+        "",
+        False,
+        allow_generic=True,
+    ) == "_generic"
+
+
+def test_versioned_engine_generic_path_is_shared_across_versions(config_root_real):
+    """版本化引擎的 generic 目录不拼接版本，新版本无需复制保底资产。"""
+    expected = config_root_real / "engines" / "vllm-ascend" / "_generic" / "models"
+
+    assert build_models_dir(config_root_real, "vllm-ascend", "_generic", "v0.18.0", True) == expected
+    assert build_models_dir(config_root_real, "vllm-ascend", "_generic", "v9.9.9", True) == expected
+
+
+def test_versioned_engine_unknown_card_uses_shared_generic(config_root_real):
+    """具体版本目录无对应硬件时，定位引擎根目录的共享 generic。"""
+    assert (
+        resolve_family_dir(
+            config_root_real,
+            "vllm-ascend",
+            "NonExistentCard_99G",
+            "v0.23.0",
+            True,
+            allow_generic=True,
+        )
+        == "_generic"
+    )
 
 
 def test_resolve_family_dir_alias_after_exact_miss(config_root_real, monkeypatch):

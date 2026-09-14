@@ -6,6 +6,8 @@
 
 配置资产目录由配置责任方维护，本文件不重复列出。配置根依次取自 `--config-root`、`WINGS_CTL_CONFIG_ROOT`；在开发安装环境中，最后才尝试仓库下的 `config/`。`--config-file` 是自定义 JSON，不是 recipe YAML；其中的 `params` 和 `env` 必须是对象。
 
+未知硬件在普通 standalone/multi-node recipe 路径命中引擎级、跨所有引擎版本兼容的 `_generic` 保底资产时，`audit.json` 的 `resolution_notes` 会记录 `hardware_fallback=true`、请求硬件名和实际 `_generic` 目录；日志同时输出包含 engine 和 `hardware.device` 的 best-effort warning。系统不会据此阻止设备类型不匹配的组合，调用方负责保证 engine、镜像和设备兼容。该状态表示尽力生成命令，不代表硬件已通过验收。
+
 ## 输出文件
 
 `start_command.sh`、`repro.sh` 和 `audit.json` 都写入 `output_dir`。该目录依次取自显式 `--output-dir`、已存在的 `/shared-volume` 和当前工作目录。

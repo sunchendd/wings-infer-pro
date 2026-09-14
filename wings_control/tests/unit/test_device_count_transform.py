@@ -10,12 +10,37 @@ from __future__ import annotations
 
 import pytest
 
-from wings_ctl.strategy.post_template import device_count_transform
+from wings_ctl.strategy.post_template import device_count_transform, generic_fallback_parallelism
 
 
 def _cfg(tp: int = 4, dp: int = 4) -> dict:
     """构造模板 engine_config:tensor_parallel_size=tp(=M)、data_parallel_size=dp。"""
     return {"tensor_parallel_size": tp, "data_parallel_size": dp, "model": "acme/m"}
+
+
+def test_generic_fallback_parallelism_uses_single_tp_group() -> None:
+    overrides, notes = generic_fallback_parallelism(_cfg(tp=1, dp=1), 8, engine="vllm")
+
+    assert overrides == {"tensor_parallel_size": 8}
+    assert notes["generic_fallback_resolved_tp"] == "8"
+    assert notes["generic_fallback_resolved_dp"] == "1"
+
+
+def test_generic_fallback_parallelism_uses_native_sglang_tp_name() -> None:
+    overrides, _ = generic_fallback_parallelism({"tp_size": 1}, 8, engine="sglang")
+
+    assert overrides == {"tp_size": 8}
+
+
+def test_generic_fallback_parallelism_without_count_keeps_template(caplog) -> None:
+    with caplog.at_level("WARNING"):
+        overrides, notes = generic_fallback_parallelism(_cfg(tp=1, dp=1), None, engine="vllm")
+
+    assert overrides == {}
+    assert notes["generic_fallback_parallelism_status"] == "template_no_device_count"
+    assert notes["generic_fallback_resolved_tp"] == "1"
+    assert notes["generic_fallback_resolved_dp"] == "1"
+    assert "keeping template parallelism" in caplog.text
 
 
 def test_not_triggered_without_device_count() -> None:

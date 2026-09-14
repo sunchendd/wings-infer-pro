@@ -34,6 +34,38 @@ Transform = Callable[[dict, dict[str, Any]], tuple[dict, dict]]
 # 未下发 device_count 时不写 status(返回空 override + 空 notes)。
 
 
+def generic_fallback_parallelism(
+    engine_config: dict,
+    device_count: int | None,
+    *,
+    engine: str,
+) -> tuple[dict, dict]:
+    """为 generic/default standalone 保底选择单个 TP 组。
+
+    generic 模板中的 TP 只是无卡数输入时的占位值，不能据此扩展 DP。下发卡数时
+    使用全部设备组成一个 TP 组；DP 不显式渲染，沿用引擎默认值 1。返回值由 resolver
+    作为独立 trace 层合并，用户 CLI 仍可在更高优先级覆盖。
+    """
+    if device_count is None:
+        template_tp, template_dp, _ = read_parallelism_values(engine_config, engine=engine)
+        logger.warning(
+            "Generic hardware fallback has no device-count; keeping template parallelism in best-effort mode"
+        )
+        return {}, {
+            "generic_fallback_parallelism_status": "template_no_device_count",
+            "generic_fallback_resolved_tp": str(template_tp),
+            "generic_fallback_resolved_dp": str(template_dp),
+        }
+    if device_count <= 0:
+        raise ValueError(f"device-count={device_count} is invalid; it must be a positive integer")
+    return build_parallelism_override(engine=engine, tp=device_count), {
+        "generic_fallback_parallelism_status": "tp_from_device_count",
+        "generic_fallback_device_count": str(device_count),
+        "generic_fallback_resolved_tp": str(device_count),
+        "generic_fallback_resolved_dp": "1",
+    }
+
+
 def device_count_transform(engine_config: dict, ctx: dict[str, Any]) -> tuple[dict, dict]:
     """根据 ``device_count`` 计算单机场景的生效 TP/DP。
 

@@ -6,13 +6,15 @@
 
 | 能力 | 是否支持 | 范围与限制 |
 | --- | --- | --- |
-| vLLM / vLLM-Ascend | 是 | 支持按版本解析 recipe，并可生成 standalone 和普通 multi-node 的启动脚本。具体模型、版本、硬件和拓扑以 recipe 和验收记录为准。 |
-| SGLang v0.5.10 | 是 | 支持 standalone 和固定的双 Pod multi-node。要求显式 v0.5.10；不支持 DPA 和 PD。Wings Accel 开关会告警后忽略。 |
+| vLLM / vLLM-Ascend | 是 | 支持按版本解析 recipe，并可生成 standalone 和普通 multi-node 的启动脚本。具体模型、版本、硬件和拓扑以 recipe 和验收记录为准。未知硬件可使用引擎级、跨版本共享的 `_generic` 资产尽力生成 standalone 或固定双 Pod multi-node 命令；该回退不代表硬件已通过准入。 |
+| SGLang v0.5.10 | 是 | 支持 standalone 和固定的双 Pod multi-node。要求显式 v0.5.10；不支持 DPA 和 PD。未知硬件可使用引擎级、跨版本共享的 `_generic` 资产尽力生成命令。Wings Accel 开关会告警后忽略。 |
 | PD 分离 | 是 | 支持输入解析、精确 recipe 选择、`ProcessPlan`、脚本和 audit。普通 `derived_1p1d` 是旧 PD 兼容路径：MaaS 未启用大 EP 时不会下发六个 topology 字段。只有 recipe 明确声明该策略，才按 `--device-count` 派生 1P1D。大 EP 则由 MaaS 一次下发六个 topology 字段。具体组合仍需运行验收。 |
 | `--config-file`：standalone / multi-node | 是 | 自定义 JSON 是主要参数来源，不读取模型 recipe；仍会解析配置根、硬件和引擎版本，并执行别名归一、黑名单、CLI 和运行时派生规则。它不是任意参数的原样透传。 |
 | `--config-file`：PD | 是 | 仅支持 vLLM / vLLM-Ascend。并行度优先取自定义 JSON，缺失时使用 MaaS PD 字段；不保证像 recipe 一样完成精确的组合校验，Accel 开关当前会被忽略。 |
 | Wings Accel | 是 | Day0 新增或修改模型配置时，必须同步提供匹配且已验证的 SmartAccel 资产；缺少资产或使用空占位资产不得合入。共享卷文件、安装包和启动前命令仍受专门的接口和安全边界约束。 |
 | MindIE | 是 | 支持 recipe 驱动的 standalone 和固定双节点路径，包括配置、启动计划、health/progress；不支持 PD。`--config-file` 未接入完整特殊引擎生命周期，不属于支持路径。 |
+
+未知硬件回退仅在普通 recipe 的 standalone/multi-node 路径生效，并在日志和 audit 中标记；PD、MindIE 以及缺少 `_generic/models/default_model.yaml` 文件的引擎仍直接失败。`_generic` 位于引擎根目录并明确跨引擎版本兼容。回退时 Wings Accel 被禁用。Wings Control 不阻止 engine 与 `hardware.device` 的不一致组合，而是输出包含两者的明确 warning；调用方负责保证所选 engine、镜像和设备兼容。通用 multi-node 资产采用现有固定双 Pod TP-across 形态，因此仍受现有卡数、二次幂和 placement 校验约束。
 
 ## dry-run 的边界
 

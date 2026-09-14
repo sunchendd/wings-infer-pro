@@ -52,6 +52,15 @@ def _build_summary_lines(
     lines.append(f"[STARTUP] model_config={model_config}")
     lines.append(f"[STARTUP] artifacts: start={start_path} repro={repro_path} audit={audit_path} log={target_log_path}")
 
+    if notes.get("hardware_fallback") is True:
+        lines.append(
+            "[STARTUP] WARNING: "
+            f"hardware_family={notes.get('requested_hardware_family', resolved.hardware.hardware_family)} "
+            f"used generic best-effort recipe={notes.get('resolved_hardware_family', '_generic')} "
+            f"for engine={resolved.engine} device={resolved.hardware.device}; "
+            "this hardware is unverified and the caller is responsible for engine/device compatibility"
+        )
+
     if (
         resolved.engine_version.is_fallback
         and resolved.engine_version.requested
@@ -75,8 +84,24 @@ def _build_summary_lines(
         lines.append(f"[STARTUP] dropped: {key} reason={reason}")
 
     dc = notes.get("device_count", "unset")
+    generic_status = notes.get("generic_fallback_parallelism_status")
     dc_status = notes.get("device_count_status")
-    if dc_status:
+    if generic_status:
+        generic_tp = notes.get("generic_fallback_resolved_tp", "?")
+        generic_dp = notes.get("generic_fallback_resolved_dp", "?")
+        if generic_status == "template_no_device_count":
+            lines.append(
+                "[STARTUP] "
+                f"device_count={dc} -> keeping generic template TP={generic_tp}, DP={generic_dp} "
+                f"(strategy_generic_fallback, status={generic_status})"
+            )
+        else:
+            lines.append(
+                "[STARTUP] "
+                f"device_count={dc} -> TP={generic_tp}, DP={generic_dp} "
+                f"(strategy_generic_fallback, status={generic_status})"
+            )
+    elif dc_status:
         lines.append(
             "[STARTUP] "
             f"device_count={dc} → DP={notes.get('device_count_resolved_dp', '?')} "

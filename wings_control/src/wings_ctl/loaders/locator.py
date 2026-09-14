@@ -20,6 +20,9 @@ from wings_ctl.loaders.yaml_loader import load_yaml
 
 logger = logging.getLogger(__name__)
 
+# 每个 engine[/version] 可选的通用硬件目录。仅在精确、别名和去显存后缀均未命中时使用。
+GENERIC_HARDWARE_FAMILY = "_generic"
+
 # 卡型基名(下发 resourceCardName 去显存后缀、casefold)→ config 目录名。
 # 只装"卡名 ≠ 目录名"的条目:
 #   - 昇腾芯片名 → 架构代目录(config 按架构代建目录,芯片名对不上,须显式映射);
@@ -57,6 +60,8 @@ def resolve_family_dir(
     hardware_family: str,
     version: str,
     has_version_dir: bool,
+    *,
+    allow_generic: bool = False,
 ) -> str:
     """把下发的 hardware_family 解析成实际存在的 config 目录名(单一判定点)。
 
@@ -67,7 +72,8 @@ def resolve_family_dir(
       2. 别名表:下发值去显存后缀得裸卡型,卡名 ≠ 目录名者
          (昇腾芯片→架构代 / 冗长 NV 名)显式映射到目录;
       3. 剥后缀:去掉 _<N>G 用裸卡名命中普通目录(如 H100_80G → h100,后缀冗余)。
-    三步皆不中 → fail-fast:该卡 / 该显存档无 recipe 资产(不静默兜底,避免错配)。
+    三步皆不中时，若存在引擎级 ``_generic/models``，使用跨版本共享的通用保底资产；
+    否则 fail-fast。通用资产只表达尽力拉起，不代表该硬件已通过产品准入。
 
     顺序要点:精确先于别名。h20 同型号有 h20_96G / h20_141G 两个显存敏感目录,
     下发 h20_141G 必须精确命中 h20_141G,不能被 _ALIAS["h20"]→"h20_96G" 一律吞掉;
@@ -79,6 +85,8 @@ def resolve_family_dir(
         hardware_family: 下发原值(可能带 _<N>G 后缀、大小写不一)。
         version: 引擎版本;仅 has_version_dir=True 时用于拼版本层。
         has_version_dir: 是否含版本层目录(与 build_models_dir 口径一致)。
+        allow_generic: 无具体硬件资产时是否允许使用引擎级 ``_generic`` 保底目录。
+            普通 standalone/multi-node recipe 路径开启；PD 与其他调用保持严格匹配。
 
     Returns:
         磁盘上真实存在的 config 目录名(供 build_models_dir 定位 + accel gpu_type)。
@@ -101,7 +109,10 @@ def resolve_family_dir(
     # ① 精确:下发原值(含显存后缀)直接命中显存敏感目录,优先于别名。
     # h20_96G / h20_141G 这类同型号多显存档卡,显存即区分键,必须按显存精确命中,
     # 不能落到按裸卡型查的别名默认档(否则 h20_141G 会被 _ALIAS["h20"] 吞成 h20_96G)。
-    if hardware_family.casefold() in candidates:
+    if (
+        hardware_family.casefold() != GENERIC_HARDWARE_FAMILY.casefold()
+        and hardware_family.casefold() in candidates
+    ):
         return candidates[hardware_family.casefold()]
 
     # ② 仅在 x86_64 环境且当前版本包含专属目录时使用 910B 配置;
@@ -136,12 +147,30 @@ def resolve_family_dir(
         )
 
     # ③ 剥后缀:普通卡带冗余显存后缀,去掉后用裸卡名命中普通目录(如 H100_80G → h100)。
-    if card.casefold() in candidates:
+    if card.casefold() != GENERIC_HARDWARE_FAMILY.casefold() and card.casefold() in candidates:
         return candidates[card.casefold()]
+
+    # ④ 通用保底:不借用任何已知卡型目录，只使用 engine 根目录下跨版本共享的
+    # _generic 资产。后续模型 fallback、场景选择、拓扑注入和 trace 全部复用既有流程。
+    generic_default = base / GENERIC_HARDWARE_FAMILY / "models" / "default_model.yaml"
+    if (
+        allow_generic
+        and hardware_family.casefold() != GENERIC_HARDWARE_FAMILY.casefold()
+        and generic_default.is_file()
+    ):
+        logger.warning(
+            "No hardware recipe matched hardware_family='%s' for engine='%s'; "
+            "using generic best-effort hardware recipe '%s'",
+            hardware_family,
+            engine,
+            GENERIC_HARDWARE_FAMILY,
+        )
+        return GENERIC_HARDWARE_FAMILY
 
     raise FileNotFoundError(
         f"No configuration assets for hardware_family='{hardware_family}' "
-        f"(engine='{engine}', normalized card='{card}', tried exact/alias/suffix removal). "
+        f"(engine='{engine}', normalized card='{card}', tried exact/alias/suffix removal"
+        f"{'/generic fallback' if allow_generic else ''}). "
         "Verify the hardware_family memory suffix (for example h20_96G) and that the hardware recipe is available."
     )
 
@@ -158,6 +187,7 @@ def build_models_dir(
     布局:
     - 有版本层(has_version_dir=True): engines/{engine}/{version_dir}/{hardware_family}/models
     - 无版本层(has_version_dir=False): engines/{engine}/{hardware_family}/models
+    - 通用保底: engines/{engine}/_generic/models（跨版本共享）
 
     版本层有无由上游版本解析决定，不由引擎名决定;
     无版本层引擎(如 vllm)的 version 参数不参与拼接。
@@ -165,7 +195,7 @@ def build_models_dir(
     Args:
         config_root: 配置根目录,内含 engines/ 子树。
         engine: 引擎名(如 "vllm" / "vllm-ascend")。
-        hardware_family: 硬件族标识(如 "h200")。
+        hardware_family: 硬件族标识(如 "h200")；``_generic`` 使用引擎级共享目录。
         version: 引擎版本字符串;仅 has_version_dir=True 时用于拼版本目录层。
         has_version_dir: 是否含版本层目录(上游 version_resolver 目录自判产出)。
 
@@ -173,6 +203,8 @@ def build_models_dir(
         指向 .../models 目录的 Path(不保证存在,存在性由调用方校验)。
     """
     base = config_root / "engines" / engine
+    if hardware_family == GENERIC_HARDWARE_FAMILY:
+        return base / GENERIC_HARDWARE_FAMILY / "models"
     if has_version_dir:
         return resolve_version_dir(base, version) / hardware_family / "models"
     return base / hardware_family / "models"
@@ -201,6 +233,7 @@ def load_platform_config(
     目录:
     - 有版本层: config_root/engines/{engine}/(版本目录)/{hardware_family}/models/default_model.yaml
     - 无版本层: config_root/engines/{engine}/{hardware_family}/models/default_model.yaml
+    - 通用保底: config_root/engines/{engine}/_generic/models/default_model.yaml
 
     若文件不存在,返回 ({}, None) 而不是抛出异常。
     """
