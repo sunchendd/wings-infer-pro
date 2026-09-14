@@ -1,0 +1,7 @@
+# SmartAccel 加速配置
+model:
+  name: DeepSeek-V4.1-Flash
+  variant_name: "DeepSeek-V4.1-Flash"
+  match:
+    - name_pattern: "(?i)deepseek[-.]?v4[-.]?1[-.]?flash"
+smart_accel: {}

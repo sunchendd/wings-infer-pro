@@ -292,6 +292,7 @@ architectures:
       DeepSeek-V4-Pro-dspark: {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
       DeepSeek-V4-Pro-fp8: {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
       DeepSeek-V4-Pro-nvfp4: {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
+      DeepSeek-V4.1-Flash: {vllm: deepseek_v41, vllm_ascend: deepseek_v41}
       GLM-4.7-nvfp4: {vllm: glm45, vllm_ascend: glm45}
       GLM-5-nvfp4: {vllm: glm45, vllm_ascend: glm45}
       GLM-5-w8a8: {vllm: glm45, vllm_ascend: glm45}
