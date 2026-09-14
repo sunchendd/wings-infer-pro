@@ -204,6 +204,18 @@ def test_collect_unsupported_nested_config_uses_top_level_flag():
     assert not collect_unsupported(traces, {"--kernel-config"})
 
 
+def test_collect_unsupported_cc_single_dash_not_flagged():
+    """vLLM ``cc.*``(pass 配置)渲成单横线 ``-cc.field=False``,不按 ``--`` 清单比对、不误报。
+
+    ``cc.*`` 是引擎原生单横线参数,不在 ``--long-option`` 支持清单的比对范围。
+    """
+    traces = {
+        "model": _tv("m"),
+        "cc.pass_config.fuse_allreduce_rms": _tv(False),
+    }
+    assert not collect_unsupported(traces, {"--max-model-len"})
+
+
 def test_collect_unsupported_sglang_native_not_confused_with_canonical():
     """sglang native context_length 命中 sglang 清单;不因 canonical max_model_len 误判(决策①)。"""
     traces = {"model": _tv("m"), "context_length": _tv(75000)}

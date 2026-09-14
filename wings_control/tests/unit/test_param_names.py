@@ -60,6 +60,23 @@ def test_render_param_tokens_uses_key_to_flag():
     ) == ["--kernel-config.enable_flashinfer_autotune=False"]
 
 
+def test_key_to_flag_cc_single_dash():
+    """验证:vLLM 的 ``cc.*``(pass 配置)顶层前缀用**单横线** ``-cc.``,而非通用 ``--``。"""
+    assert key_to_flag("cc.pass_config.fuse_allreduce_rms") == "-cc.pass_config.fuse_allreduce_rms"
+
+
+def test_flag_to_key_cc_single_dash():
+    """验证:单横线 ``-cc.`` flag 反解回 engine_config key(点号路径原样保留)。"""
+    assert flag_to_key("-cc.pass_config.fuse_allreduce_rms") == "cc.pass_config.fuse_allreduce_rms"
+
+
+def test_render_param_tokens_cc_single_dash():
+    """验证:``cc.*`` 嵌套配置渲成单 token、单横线赋值(值含 bool False 也显式输出)。"""
+    assert render_param_tokens("cc.pass_config.fuse_allreduce_rms", False) == [
+        "-cc.pass_config.fuse_allreduce_rms=False"
+    ]
+
+
 def test_parse_feature_args_uses_flag_to_key():
     """验证:消费方 feature_overlay 反解仍得原 key(委托 helper 后行为不变)。"""
     out = parse_feature_args(["--enable-auto-tool-choice", "--tool-call-parser", "glm45"])
