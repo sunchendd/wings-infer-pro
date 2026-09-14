@@ -1,0 +1,135 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_ascend_deepseek_v41_flash_w8a8_manual
+    kind: manual
+    repo: null
+    file: null
+    url: null
+    note: 根据双机 Ascend A3 实际启动命令手工录入；镜像为 quay.io/ascend/vllm-ascend:deepseek-v4.1-flash-a3。
+
+# 模型基本信息
+model:
+  name: DeepSeek-V4.1-Flash
+  provider: DeepSeek
+  model_id: null  # 本地权重无法可靠映射到公开模型 ID。
+  min_engine_version: deepseek-v4.1-flash-a3
+  match:
+    - name_pattern: "(?i)deepseek[-.]?v4[.-]?1[-.]?flash"
+  variant_name: DeepSeek-V4.1-Flash-w8a8
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 16
+  vram_gb: 1024
+  multi_node: true
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: Enable DeepSeek V4.1 automatic tool calling.
+    args: [--tokenizer-mode, deepseek_v41, --tool-call-parser, deepseek_v41, --enable-auto-tool-choice]
+  reasoning:
+    description: Enable the DeepSeek V4.1 reasoning parser.
+    args: [--reasoning-parser, deepseek_v41]
+  spec_decoding:
+    description: Enable the validated DSpark configuration with five speculative tokens.
+    args: [--speculative-config, "{\"method\":\"dspark\",\"num_speculative_tokens\":5,\"enforce_eager\":true}"]
+
+# 部署场景
+scenarios:
+  multi_node:
+    source_ref: "vllm_ascend_deepseek_v41_flash_w8a8_manual#multi_node"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        display_name: Multi-Node
+        default_strategy: true
+        head:
+          engine_config:
+            model: $MODEL_PATH
+            host: "0.0.0.0"
+            port: 8000
+            data_parallel_address: $NODE0_IP
+            data_parallel_rpc_port: 13399
+            data_parallel_size: 4
+            data_parallel_size_local: 2
+            data_parallel_start_rank: 0
+            tensor_parallel_size: 8
+            enable_expert_parallel: true
+            served_model_name: deepseek-v41
+            max_model_len: 1048576
+            max_num_batched_tokens: 4096
+            max_num_seqs: 32
+            gpu_memory_utilization: 0.9
+            block_size: 128
+            trust_remote_code: true
+            model_loader_extra_config:
+              enable_multithread_load: true
+              num_threads: 128
+            safetensors_load_strategy: lazy
+            quantization: ascend
+            additional_config:
+              enable_engram: true
+              engram_storage: int8
+              enable_cpu_binding: true
+              enable_mc2_hierarchy_comm: true
+              ascend_compilation_config:
+                enable_npugraph_ex: false
+                enable_static_kernel: false
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+          env:
+            HCCL_IF_IP: $LOCAL_IP
+            GLOO_SOCKET_IFNAME: $NIC_NAME
+            TP_SOCKET_IFNAME: $NIC_NAME
+            HCCL_SOCKET_IFNAME: $NIC_NAME
+            VLLM_ASCEND_ENABLE_FUSED_MC2: 0
+            HCCL_BUFFSIZE: 1024
+            HCCL_BUFFSIZE_EP: 2048
+            LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+        worker:
+          engine_config:
+            model: $MODEL_PATH
+            host: "0.0.0.0"
+            port: 8000
+            headless: true
+            data_parallel_address: $NODE0_IP
+            data_parallel_rpc_port: 13399
+            data_parallel_size: 4
+            data_parallel_size_local: 2
+            data_parallel_start_rank: 2
+            tensor_parallel_size: 8
+            enable_expert_parallel: true
+            served_model_name: deepseek-v41
+            max_model_len: 1048576
+            max_num_batched_tokens: 4096
+            max_num_seqs: 32
+            gpu_memory_utilization: 0.9
+            block_size: 128
+            trust_remote_code: true
+            model_loader_extra_config:
+              enable_multithread_load: true
+              num_threads: 128
+            safetensors_load_strategy: lazy
+            quantization: ascend
+            additional_config:
+              enable_engram: true
+              engram_storage: int8
+              enable_cpu_binding: true
+              enable_mc2_hierarchy_comm: true
+              ascend_compilation_config:
+                enable_npugraph_ex: false
+                enable_static_kernel: false
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+          env:
+            HCCL_IF_IP: $LOCAL_IP
+            GLOO_SOCKET_IFNAME: $NIC_NAME
+            TP_SOCKET_IFNAME: $NIC_NAME
+            HCCL_SOCKET_IFNAME: $NIC_NAME
+            VLLM_ASCEND_ENABLE_FUSED_MC2: 0
+            HCCL_BUFFSIZE: 1024
+            HCCL_BUFFSIZE_EP: 2048
+            LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
