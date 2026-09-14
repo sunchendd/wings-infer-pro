@@ -26,9 +26,29 @@ class DryRunMismatch(ValueError):
     """The YAML and launch command do not describe the same parameters."""
 
 
+# vLLM 的 ``cc.*``(pass 配置)顶层前缀是引擎原生**单横线** flag(``-cc.xxx=value``),
+# 与其余 ``--`` 双横线长参数不同。封闭枚举,只影响 ``cc.*``,不扩散到其它顶层前缀。
+SINGLE_DASH_TOP_LEVEL = frozenset({"cc"})
+
+
+def _flag_prefix(name: str) -> str:
+    """按顶层前缀决定 CLI flag 前缀:``cc.*`` 用单横线,其余用 ``--``。"""
+    top_level, _, _ = name.partition(".")
+    return "-" if top_level in SINGLE_DASH_TOP_LEVEL else "--"
+
+
+def is_flag_token(token: str) -> bool:
+    """判断一个 argv token 是否为 flag:``--`` 长参数,或含点号的单横线嵌套配置(如 ``-cc.xxx``)。"""
+    if token.startswith("--"):
+        return True
+    if token.startswith("-") and "." in token:
+        return True
+    return False
+
+
 def kebab(name: str) -> str:
     top_level, dot, nested_path = name.partition(".")
-    return "--" + top_level.replace("_", "-") + dot + nested_path
+    return _flag_prefix(name) + top_level.replace("_", "-") + dot + nested_path
 
 
 def scalar(value: Any) -> str:
@@ -53,7 +73,7 @@ def normalize_value(value: str) -> str:
 
 
 def add_argument(result: dict[str, str], flag: str, value: Any = "true") -> None:
-    if not flag.startswith("--"):
+    if not flag.startswith("-"):
         raise DryRunMismatch(f"invalid flag {flag!r}")
     result[flag] = scalar(value)
 
@@ -93,7 +113,7 @@ def parse_tokens(tokens: list[str], engine: str) -> dict[str, str]:
         index = 1
     while index < len(positional):
         token = positional[index]
-        if not token.startswith("--"):
+        if not is_flag_token(token):
             index += 1
             continue
         if "=" in token:
@@ -101,7 +121,7 @@ def parse_tokens(tokens: list[str], engine: str) -> dict[str, str]:
             add_argument(result, flag, value)
             index += 1
             continue
-        if index + 1 < len(positional) and not positional[index + 1].startswith("--"):
+        if index + 1 < len(positional) and not is_flag_token(positional[index + 1]):
             add_argument(result, token, positional[index + 1])
             index += 2
         else:
@@ -120,11 +140,12 @@ def canonicalize_sglang_arguments(arguments: dict[str, str]) -> dict[str, str]:
 
 
 def canonicalize_vllm_arguments(arguments: dict[str, str]) -> dict[str, str]:
-    """Treat vLLM underscore and kebab-case spellings as equivalent."""
+    """Treat vLLM underscore and kebab-case spellings as equivalent; keep ``cc.*`` single-dash."""
     normalized: dict[str, str] = {}
     for flag, value in arguments.items():
-        top_level, dot, nested_path = flag[2:].partition(".")
-        normalized["--" + top_level.replace("_", "-") + dot + nested_path] = value
+        prefix = "--" if flag.startswith("--") else "-"
+        top_level, dot, nested_path = flag[len(prefix):].partition(".")
+        normalized[prefix + top_level.replace("_", "-") + dot + nested_path] = value
     return normalized
 
 

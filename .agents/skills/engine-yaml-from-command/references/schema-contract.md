@@ -136,7 +136,7 @@ hardware_profile:
 | `sysctl -w a=b` | `system_setup.sysctls.a: b` |
 | 写入 `/sys/...` | `system_setup.sysfs_writes` |
 
-未知 flag 使用通则：去掉 `--`，连字符转下划线；带值保留原始类型，裸 flag 为 `true`。dotted flag 默认保留点号，除非目标项目验证器定义了其它映射。
+未知 flag 使用通则：去掉 `--`，连字符转下划线；带值保留原始类型，裸 flag 为 `true`。dotted flag 默认保留点号，除非目标项目验证器定义了其它映射。唯一例外：vLLM 的 `cc.*`（pass 配置，如 `cc.pass_config.fuse_allreduce_rms`）按引擎原生命名渲成单横线 `-cc.xxx=value`，不得改回 `--cc...`。
 
 JSON/dict 参数优先转为 YAML mapping。进入 `features.*.args` 时保留为转义后的 JSON 字符串，以便重建原始 CLI。
 

@@ -263,19 +263,70 @@ def test_nested_vllm_config_preserves_nested_underscores_and_bool_case(tmp_path:
         yaml_text.replace(
             "          tensor_parallel_size: 1\n",
             "          tensor_parallel_size: 1\n"
+            "          kernel_config.enable_flashinfer_autotune: false\n",
+        ),
+        encoding="utf-8",
+    )
+    command_path.write_text(
+        "vllm serve demo/model --tensor-parallel-size 1 "
+        "--kernel-config.enable_flashinfer_autotune=False\n",
+        encoding="utf-8",
+    )
+
+    report = module.check(yaml_path, [command_path], "vllm", "standalone")
+
+    assert "--kernel-config.enable_flashinfer_autotune=false" in "\n".join(report)
+
+
+def test_cc_pass_config_single_dash_special_case_is_rendered_and_matches(tmp_path: Path) -> None:
+    """vLLM ``cc.*``(pass 配置)渲成单横线 ``-cc.xxx=value``;值为 false 也显式输出并匹配命令。"""
+    yaml_path, command_path = write_case(tmp_path, feature_args="", command_args="")
+    yaml_text = yaml_path.read_text(encoding="utf-8")
+    yaml_path.write_text(
+        yaml_text.replace(
+            "          tensor_parallel_size: 1\n",
+            "          tensor_parallel_size: 1\n"
             "          cc.pass_config.fuse_allreduce_rms: false\n",
         ),
         encoding="utf-8",
     )
     command_path.write_text(
         "vllm serve demo/model --tensor-parallel-size 1 "
-        "--cc.pass_config.fuse_allreduce_rms=False\n",
+        "-cc.pass_config.fuse_allreduce_rms=False\n",
         encoding="utf-8",
     )
 
     report = module.check(yaml_path, [command_path], "vllm", "standalone")
+    output = "\n".join(report)
 
-    assert "--cc.pass_config.fuse_allreduce_rms=false" in "\n".join(report)
+    assert "node[0]: OK" in output
+    assert "-cc.pass_config.fuse_allreduce_rms=false" in output
+
+
+def test_cc_single_dash_flag_is_not_eaten_as_previous_flag_value(tmp_path: Path) -> None:
+    """裸 flag 后紧跟 ``-cc.xxx=value`` 时,后者仍是独立 flag,不被当作前者的值。"""
+    yaml_path, command_path = write_case(tmp_path, feature_args="", command_args="")
+    yaml_text = yaml_path.read_text(encoding="utf-8")
+    yaml_path.write_text(
+        yaml_text.replace(
+            "          tensor_parallel_size: 1\n",
+            "          tensor_parallel_size: 1\n"
+            "          cc.pass_config.fuse_allreduce_rms: false\n",
+        ),
+        encoding="utf-8",
+    )
+    command_path.write_text(
+        "vllm serve demo/model --tensor-parallel-size 1 "
+        "--trust-remote-code -cc.pass_config.fuse_allreduce_rms=False\n",
+        encoding="utf-8",
+    )
+
+    parsed = module.parse_tokens(
+        module.command_tokens(command_path.read_text(encoding="utf-8")), "vllm"
+    )
+
+    assert parsed["--trust-remote-code"] == "true"
+    assert parsed["-cc.pass_config.fuse_allreduce_rms"] == "False"
 
 
 def test_numeric_feature_argument_matches_command(tmp_path: Path) -> None:

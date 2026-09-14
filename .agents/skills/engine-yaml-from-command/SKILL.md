@@ -136,24 +136,26 @@ system_setup:
 Wings Control 的 `engine_config` 参数名映射以**第一个点号**为边界；不得把完整 CLI 名称机械地把 `-` 和 `.` 全部替换成 `_`。该规则适用于 vLLM、vLLM-Ascend、SGLang 的 `engine_config` 渲染，优先级高于“普通顶层参数”的简写规则。
 
 1. **无点号的顶层参数**：CLI 去掉 `--` 后将连字符转换为下划线。例如 `--max-model-len 2048` 写成 `max_model_len: 2048`，渲染回 `--max-model-len 2048`。
-2. **带点号的原生嵌套参数**：只转换点号**前**的顶层段；点号及其后的原生路径必须逐字符保留（包括下划线、额外点号和大小写）。例如：
+2. **带点号的原生嵌套参数**：只转换点号**前**的顶层段；点号及其后的原生路径必须逐字符保留（包括下划线、额外点号和大小写）。默认渲成 `--flag=value`；**唯一例外是 vLLM 的 `cc.*`（pass 配置）顶层前缀按引擎原生命名使用单横线 `-`**，渲成 `-flag=value`。例如：
    ```yaml
-   # --cc.pass_config.fuse_allreduce_rms=False
+   # -cc.pass_config.fuse_allreduce_rms=False  ← cc.* 是单横线特例,渲成 -cc.xxx=value
    cc.pass_config.fuse_allreduce_rms: false
 
    # --speculative-config.num_speculative_tokens 3
    speculative_config.num_speculative_tokens: 3
    ```
-   上述键分别渲染为 `--cc.pass_config.fuse_allreduce_rms=False` 与 `--speculative-config.num_speculative_tokens=3`。
-3. **禁止扁平化嵌套路径**：不得把 `--cc.pass_config.fuse_allreduce_rms=False` 写成 `cc_pass_config_fuse_allreduce_rms: false`。这会错误渲染为 `--cc-pass-config-fuse-allreduce-rms`，且当前顶层布尔 `false` 会被当作关闭的裸开关而省略，造成参数丢失。
-4. **布尔值语义**：顶层 `true` 是裸 flag；顶层 `false` 不输出。带点号的嵌套参数始终使用 `--flag=value`，所以 `true` 和 `false` 都必须显式保留为 YAML 布尔值，不能因为值为 `false` 而删除。若原始命令含有“顶层参数显式传 Boolean 值”但它不是嵌套路径，先核对项目渲染器是否支持；不支持时必须扩展渲染/契约，不能静默写成顶层 `false`。
+   上述键分别渲染为 `-cc.pass_config.fuse_allreduce_rms=False` 与 `--speculative-config.num_speculative_tokens=3`。
+3. **禁止扁平化嵌套路径**：不得把 `-cc.pass_config.fuse_allreduce_rms=False` 写成 `cc_pass_config_fuse_allreduce_rms: false`。这会错误渲染为 `-cc-pass-config-fuse-allreduce-rms`（顶层前缀和 `cc.` 单横线语义都被破坏），且当前顶层布尔 `false` 会被当作关闭的裸开关而省略，造成参数丢失。
+4. **布尔值语义**：顶层 `true` 是裸 flag；顶层 `false` 不输出。带点号的嵌套参数始终使用 `--flag=value`（`cc.*` 用 `-flag=value`），所以 `true` 和 `false` 都必须显式保留为 YAML 布尔值，不能因为值为 `false` 而删除。例如 `-cc.pass_config.fuse_allreduce_rms=False` 的 `False` 必须保留为 YAML `false` 并显式渲染，不能被当作关闭的裸开关省略。若原始命令含有“顶层参数显式传 Boolean 值”但它不是嵌套路径，先核对项目渲染器是否支持；不支持时必须扩展渲染/契约，不能静默写成顶层 `false`。
 5. `features.*.args` 是原始 CLI token 列表，保持原 flag 拼写，不套用 `engine_config` 的 key 转换规则。
 
-所有长参数必须使用 `--` 前缀；`-cc.pass_config...` 不是本项目输出的长参数形式。
+**横线前缀规则**：除 vLLM `cc.*`（pass 配置，如 `cc.pass_config.fuse_allreduce_rms`）这一引擎原生单横线特例外，所有长参数必须使用 `--` 前缀。`-cc.pass_config...` 是项目对 `cc.*` 输出的**唯一**合法长参数形式（渲染器按顶层前缀 `cc` 特判，见 `engines/param_names.key_to_flag`），不得把它改回 `--cc...`，也不得把其它参数套用单横线。
 
 ### 引擎差异
 
 - vLLM 手工配置默认把本地模型路径替换成已确认的 HF/ModelScope ID，并默认丢弃 `served_model_name`。
+- vLLM 的 `cc.*`（pass 配置，如 `cc.pass_config.fuse_allreduce_rms`）渲成单横线
+  `-cc.xxx=value`，是引擎原生命名差异，不得改回 `--cc...`。
 - vLLM-Ascend 保留命令中的 `served_model_name`。官方 `/weights/...`、`$MODEL_PATH` 可部署占位路径可以保留；用户机器私有路径应替换为已确认的模型 ID 或可部署占位路径。
 - SGLang 保留真实参数名，例如 `model_path`、`tp_size`、`dp_size`、`ep_size`、`mem_fraction_static`、`disaggregation_mode`，不得改写为 vLLM 参数名。并行配置必须使用 Wings Control 可识别的 canonical key：`tp_size` 渲染为 SGLang v0.5.10 的 `--tp-size`；不得在 YAML 中使用 `tp`，即使用户原始命令使用了兼容别名 `--tp`。
 
@@ -268,7 +270,7 @@ inline 命令物化后，必须检查 command file 内容与用户消息逐项�
 1. YAML 可解析，顶层顺序和字段类型正确；`system_setup.commands` 必须是同一行的 flow-style 字符串列表。
 2. 场景结构与 reference 一致，且恰有一个 `default_strategy: true`。
 3. multi-node 节点结构完整；PD 同时存在 prefill/decode。
-4. `engine_config` 可按原顺序重建命令，features 参数可合并回原始命令；若存在带点号的 key，必须逐项确认输出为 `--顶层-flag.原生路径=value`，并覆盖值为 `false` 的情形。`system_setup.commands` 中的 `source <path>` 也必须与原始脚本逐条、按顺序一致。
+4. `engine_config` 可按原顺序重建命令，features 参数可合并回原始命令；若存在带点号的 key，必须逐项确认输出为 `--顶层-flag.原生路径=value`（vLLM `cc.*` 例外输出单横线 `-cc.原生路径=value`），并覆盖值为 `false` 的情形。`system_setup.commands` 中的 `source <path>` 也必须与原始脚本逐条、按顺序一致。
 5. 除明确的路径归一化、feature 拆分、参数名映射和 standalone `host: "0.0.0.0"` 规范化外，不允许核心参数缺失或值变化。
 6. 若存在 `features.reasoning`，确认 YAML 自身包含明确的
    `--reasoning-parser`，该参数已合并进 dry-run 命令，并且
