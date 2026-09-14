@@ -79,6 +79,7 @@ from wings_ctl.engines.vllm_adapter import resolve_model_traced
 from wings_ctl.engines.version_resolver import _parse_version_tuple
 from wings_ctl.engines.vllm_adapter import build_argv
 from wings_ctl.loaders.locator import (
+    GENERIC_HARDWARE_FAMILY,
     find_tool_calling_config,
     load_model_config,
     load_platform_config,
@@ -92,6 +93,7 @@ from wings_ctl.strategy.feature_inject import feature_inject_transform
 from wings_ctl.strategy.feature_overlay import feature_overlay_transform
 from wings_ctl.strategy.parallelism import check_capacity, dp_start_rank
 from wings_ctl.strategy.post_template import (
+    generic_fallback_parallelism,
     post_template_strategy,
     requires_parallelism_preflight,
 )
@@ -1045,6 +1047,8 @@ def _resolve_multi_node(
     weights_path: Any = None,
     strategy_env_layer: dict | None = None,
     strategy_feature_inject_overrides: dict | None = None,
+    request_defaults: dict | None = None,
+    model_layer_name: str = "model_scenario",
     engine: str = "vllm",
 ) -> tuple[
     Dict[str, TracedValue],
@@ -1078,6 +1082,9 @@ def _resolve_multi_node(
             由调用方在 resolve_config 中统一计算后传入。
         strategy_feature_inject_overrides: 特性注入层产出的引擎参数覆盖层，
             由调用方在 resolve_config 中统一计算后传入。
+        request_defaults: recipe 未声明但由请求补齐的参数，使用独立 trace 来源。
+        model_layer_name: 节点 recipe 的 trace 层名；模型配置使用 ``model_scenario``，
+            平台默认配置使用 ``default_model``。
 
     Returns:
         ``(engine_config_traces, env_traces, system_setup, nodes, notes)``:
@@ -1097,8 +1104,10 @@ def _resolve_multi_node(
         """单节点 engine_config 的 trace_merge;extra_layers 在 model_scenario 后、user_cli 前插入。"""
         merge_layers: List[MergeLayer] = [
             MergeLayer("builtin_default", _BUILTIN_DEFAULTS, "<builtin_default>", "builtin_default"),
-            MergeLayer("model_scenario", spec.engine_config, model_path_str, spec.engine_config_source_prefix),
+            MergeLayer(model_layer_name, spec.engine_config, model_path_str, spec.engine_config_source_prefix),
         ]
+        if request_defaults:
+            merge_layers.append(MergeLayer("request_default", request_defaults, "<request>", "request"))
         for layer in extra_layers:
             if layer.data:  # 数据为空的层不成层(no-op),与旧逻辑一致
                 merge_layers.append(layer)
@@ -1107,7 +1116,7 @@ def _resolve_multi_node(
 
     def _env_traces(spec: NodeSpec, *, override: dict | None = None) -> Dict[str, TracedValue]:
         merge_layers: List[MergeLayer] = [
-            MergeLayer("model_scenario", spec.env, model_path_str, spec.env_source_prefix),
+            MergeLayer(model_layer_name, spec.env, model_path_str, spec.env_source_prefix),
         ]
         if override:
             merge_layers.append(
@@ -1375,13 +1384,15 @@ def _merge_engine_config_traces(
     model_layer_name: str,
     model_source_file: str,
     scenario_prefix: str,
+    request_defaults: dict | None = None,
+    generic_fallback_overrides: dict | None = None,
     feature_inject_overrides: dict | None = None,
 ) -> Dict[str, TracedValue]:
     """按固定层序深合并出 engine_config 逐参 trace(standalone 命中 / fallback 兜底共用)。
 
-    层序(低→高优先级,trace-first):builtin_default < model(recipe) <
-    strategy_device_count < strategy_feature < strategy_feature_inject <
-    strategy_accel < user_cli。accel 层排 feature 后、user_cli 前 → recipe < accel < user_cli。
+    层序(低→高优先级,trace-first):builtin_default < model(recipe) < request_default <
+    strategy_generic_fallback / strategy_device_count < strategy_feature <
+    strategy_feature_inject < strategy_accel < user_cli。generic 与 device_count 两层按路径互斥。
 
     Args:
         scenario_engine_config: recipe/平台基线的 engine_config(model 层)。
@@ -1394,28 +1405,46 @@ def _merge_engine_config_traces(
             fallback 兜底为 ``"default_model"``。
         model_source_file: model 层来源文件路径(供 trace 溯源)。
         scenario_prefix: model 层 yaml 路径前缀。
+        request_defaults: recipe 未声明但由本次请求补齐的参数；单独记录真实请求来源。
+        generic_fallback_overrides: generic/default standalone 专用并行覆盖层。
         feature_inject_overrides: SmartQoS/EnableTrace/Metrics 特性注入覆盖层。
 
     Returns:
         参数名 → TracedValue。
     """
     # 每个 MergeLayer = 一个合并层;列表顺序即层序(低→高优先):
-    #   builtin_default < model(recipe) < strategy_device_count < strategy_feature < strategy_accel < user_cli。
+    #   builtin_default < model(recipe) < request_default < strategy_generic_fallback /
+    #   strategy_device_count < strategy_feature < strategy_accel < user_cli。
     # 加一个 merge layer = 往这个 list 里插一个 MergeLayer(名 / 数据 / 来源文件 / 来源路径前缀)。
     feature_source_file = "<strategy:feature>"
     feature_source_prefix = "strategy.feature"
     layers: list[MergeLayer] = [
         MergeLayer("builtin_default", _BUILTIN_DEFAULTS, "<builtin_default>", "builtin_default"),
         MergeLayer(model_layer_name, scenario_engine_config, model_source_file, scenario_prefix),
-        MergeLayer("strategy_device_count", strategy_overrides, "<strategy:device_count>", "strategy.device_count"),
-        MergeLayer(
-            "strategy_feature",
-            feature_overrides,
-            feature_source_file,
-            feature_source_prefix,
-            feature_trace_sources,
-        ),
     ]
+    if request_defaults:
+        layers.append(MergeLayer("request_default", request_defaults, "<request>", "request"))
+    if generic_fallback_overrides:
+        layers.append(
+            MergeLayer(
+                "strategy_generic_fallback",
+                generic_fallback_overrides,
+                "<strategy:generic_fallback>",
+                "strategy.generic_fallback",
+            )
+        )
+    layers.extend(
+        [
+            MergeLayer("strategy_device_count", strategy_overrides, "<strategy:device_count>", "strategy.device_count"),
+            MergeLayer(
+                "strategy_feature",
+                feature_overrides,
+                feature_source_file,
+                feature_source_prefix,
+                feature_trace_sources,
+            ),
+        ]
+    )
     if feature_inject_overrides:
         layers.append(
             MergeLayer(
@@ -1455,6 +1484,7 @@ def _resolve_platform_fallback(
     rank_ip: str | None,
     node_ips: List[str] | None,
     master_ip: str | None,
+    hardware_fallback: bool = False,
 ) -> tuple[
     Dict[str, TracedValue],
     Dict[str, TracedValue],
@@ -1494,21 +1524,11 @@ def _resolve_platform_fallback(
     if platform_node_specs:
         # 多机场景被 _select_scenario 统一成 NodeSpec 列表。逐节点保留配置，
         # 确保 head/worker 的角色、node_rank、nnodes 等参数完整传递。
-        fallback_node_specs = []
-        for spec in platform_node_specs:
-            # 复制配置而不是原地修改 platform_data，避免污染 YAML 加载结果，
-            # 也避免同一个配置对象在后续解析中被重复追加 model。
-            node_engine_config = dict(spec.engine_config)
-            if (
-                "model" not in node_engine_config
-                and "model_path" not in node_engine_config
-                and "model" not in user_layer
-                and "model_path" not in user_layer
-            ):
-                # 没有模型 recipe 时只能使用请求中的模型名；这是最低优先级，
-                # _resolve_multi_node 后续仍会让显式 user_layer 覆盖它。
-                node_engine_config["model"] = model_name
-            fallback_node_specs.append(spec._replace(engine_config=node_engine_config))
+        needs_request_model = all(
+            "model" not in spec.engine_config and "model_path" not in spec.engine_config
+            for spec in platform_node_specs
+        ) and "model" not in user_layer and "model_path" not in user_layer
+        fallback_node_specs = list(platform_node_specs)
 
         # 统一复用正常模型 recipe 的多机解析流程：
         # 有运行时 IP 时选择当前 Pod 并注入；没有时生成 head/worker 占位视图。
@@ -1530,31 +1550,45 @@ def _resolve_platform_fallback(
                 weights_path=weights_path,
                 strategy_env_layer=strategy_env_layer,
                 strategy_feature_inject_overrides=strategy_feature_inject_overrides,
+                request_defaults={"model": model_name} if needs_request_model else None,
+                model_layer_name="default_model",
             ),
             fallback_pattern,
         )
 
     # 当前场景未提供节点列表时，使用场景级 engine_config 生成普通引擎配置。
     scenario_engine_config = dict(platform_scenario.get("engine_config", {}))
+    scenario_engine_config_source_prefix = platform_scenario["engine_config_source_prefix"]
 
-    # 平台场景没有 model/model_path 时，用请求名补齐引擎必需的模型参数；
-    # 如果平台或用户已经提供路径，则保留它们，不进行覆盖。
+    # 平台场景没有 model/model_path 时，用请求名补齐引擎必需的模型参数；该值不属于
+    # YAML，必须作为独立请求层写入 trace，不能伪造 default_model 的来源路径。
+    request_defaults = {}
     if (
         "model" not in scenario_engine_config
         and "model_path" not in scenario_engine_config
         and "model" not in user_layer
         and "model_path" not in user_layer
     ):
-        scenario_engine_config["model"] = model_name
+        request_defaults["model"] = model_name
 
-    # 只有实际采用公共 TP/DP transform 的 argv 引擎才执行权重/显存预检。
-    # MindIE 的 device_count 表示本地设备规模，由其 extension 自己校验和计算。
-    if requires_parallelism_preflight(engine):
-        _preflight_shrink_gate(scenario_engine_config, device_count, hardware, weights_path, engine)
-    strategy_overrides, strategy_notes = post_template_strategy(
-        scenario_engine_config,
-        {"device_count": device_count, "topology": topology, "engine": engine},
-    )
+    generic_fallback_overrides: dict = {}
+    if hardware_fallback and topology is Topology.STANDALONE:
+        # generic TP=1 只是无卡数时的保底值，不能进入普通策略并扩展为 DP=device_count。
+        generic_fallback_overrides, strategy_notes = generic_fallback_parallelism(
+            scenario_engine_config,
+            device_count,
+            engine=engine,
+        )
+        strategy_overrides = {}
+    else:
+        # 只有实际采用公共 TP/DP transform 的 argv 引擎才执行权重/显存预检。
+        # MindIE 的 device_count 表示本地设备规模，由其 extension 自己校验和计算。
+        if requires_parallelism_preflight(engine):
+            _preflight_shrink_gate(scenario_engine_config, device_count, hardware, weights_path, engine)
+        strategy_overrides, strategy_notes = post_template_strategy(
+            scenario_engine_config,
+            {"device_count": device_count, "topology": topology, "engine": engine},
+        )
     # 按统一优先级合并平台默认值、策略覆盖、特性注入、智能加速和用户参数，
     # 并为每个最终参数保留来源链。
     engine_config_traces = _merge_engine_config_traces(
@@ -1566,7 +1600,9 @@ def _resolve_platform_fallback(
         user_layer,
         model_layer_name="default_model",
         model_source_file=platform_path_str,
-        scenario_prefix="engine_config",
+        scenario_prefix=scenario_engine_config_source_prefix,
+        request_defaults=request_defaults,
+        generic_fallback_overrides=generic_fallback_overrides,
         feature_inject_overrides=strategy_feature_inject_overrides,
     )
 
@@ -2415,7 +2451,16 @@ def resolve_config(
         hardware.hardware_family,
         engine_version.resolved,
         has_version_dir=engine_version.has_version_dir,
+        allow_generic=True,
     )
+    hardware_fallback = resolved_family_dir == GENERIC_HARDWARE_FAMILY
+    if hardware_fallback:
+        logger.warning(
+            "Generic best-effort recipe selected for engine='%s' device='%s'; "
+            "the caller is responsible for engine/device compatibility",
+            engine,
+            hardware.device,
+        )
 
     # 1. 加载平台默认配置(缺失返回空 dict + None path)
     platform_data, platform_path = load_platform_config(
@@ -2489,6 +2534,16 @@ def resolve_config(
     platform_env = platform_data.get("platform_env", {})
 
     drop_accel, accel_notes = _resolve_accel_policy(engine, os.environ)
+    if hardware_fallback:
+        drop_accel = True
+        accel_notes["accel_policy"] = "disabled_generic_hardware_fallback"
+        switch_names = active_accel_switch_names(os.environ)
+        if switch_names:
+            accel_notes["accel_dropped_switches"] = ",".join(switch_names)
+            logger.warning(
+                "Wings Accel is disabled because generic hardware fallback is active; ignored switches: %s",
+                ",".join(switch_names),
+            )
 
     # wings-accel(智能加速)委托:按开关取加速产出(结构化 engine_config / env / scheme)。
     # 在 trace_merge **之前**计算,把 accel.engine_config 作为 strategy_accel 合并层并入引擎参数,
@@ -2576,6 +2631,7 @@ def resolve_config(
             rank_ip=rank_ip,
             node_ips=node_ips,
             master_ip=master_ip,
+            hardware_fallback=hardware_fallback,
         )
     else:
         # pod_count 供 head/worker 形态展开:有运行时 NODE_IPS 用其长度,否则交 _select_scenario 兜底(nnodes/2)
@@ -2743,6 +2799,10 @@ def resolve_config(
 
     # 查找轨迹 — 模型匹配结果
     resolution_notes["matched_model_yaml"] = str(model_path) if model_path is not None else platform_path_str
+    if hardware_fallback:
+        resolution_notes["requested_hardware_family"] = hardware.hardware_family
+        resolution_notes["resolved_hardware_family"] = resolved_family_dir
+        resolution_notes["hardware_fallback"] = True
     if reasoning_resolution is not None:
         resolution_notes["reasoning.status"] = reasoning_resolution.status
         resolution_notes["reasoning.source"] = reasoning_resolution.source

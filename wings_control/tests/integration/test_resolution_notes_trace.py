@@ -131,10 +131,14 @@ def test_no_match_fallback_success_with_warn_and_flag(config_root_real, tmp_path
         )
 
         layers = {entry.final_layer for entry in resolved.engine_config_traces.values()}
-        # 兜底分支:命中层只能来自 builtin_default / default_model / strategy_device_count / user_cli,绝无 model_scenario
+        # 兜底分支不使用 model_scenario；请求模型名由独立 request_default 层补齐。
         assert "model_scenario" not in layers
         assert layers.issubset(
-            {"builtin_default", "default_model", "strategy_device_count", "user_cli"}
+            {"builtin_default", "default_model", "request_default", "strategy_device_count", "user_cli"}
         )
+        model_trace = resolved.engine_config_traces["model"]
+        assert model_trace.final_layer == "request_default"
+        assert model_trace.source_file == "<request>"
+        assert model_trace.source_path == "request.model"
     finally:
         os.environ.pop("ENGINE_VERSION", None)

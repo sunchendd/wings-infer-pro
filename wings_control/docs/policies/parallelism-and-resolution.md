@@ -23,6 +23,7 @@
 | 场景 | 一句话 | TP 会变？ | DP 会变？ |
 | --- | --- | --- | --- |
 | 单机 | `cnt >= TP` 时改 DP；`cnt < TP` 时尝试收缩 TP | 仅少卡时收缩 | 够卡时 `DP = cnt / TP` |
+| 未知硬件 generic 单机 | 未知模型无可信推荐 TP，全部卡组成一个 TP 组 | `TP = cnt` | `DP = 1`（不显式渲染） |
 | DP 跨 Pod | TP 在 Pod 内不动，DP 按 `cnt` 缩放 | 不变 | `DP = P * (cnt / TP)` |
 | TP 跨 Pod | 所有 Pod 的卡组成一个 TP 组 | `TP = world_size` | 不变 |
 | PD：普通 1P1D | 按 `cnt` 派生单 Pod 并行度 | `TP = cnt` | `DP = 1` |
@@ -39,6 +40,8 @@
 | `cnt < TP` | `TP = cnt`，`DP = 1` | 卡数不足一个 TP 组时收缩。必须通过显存和结构守卫，否则报错。 |
 
 收缩 TP 前要满足三个条件：`cnt * 单卡显存 >= 1.5 * 模型权重`；`cnt` 是正的 2 次幂；模型配置可读取时，attention heads 必须能被 `cnt` 整除。
+
+未知硬件同时使用 `_generic/default_model.yaml` 的 standalone 保底路径是唯一例外：模板 TP=1 仅用于未提供卡数时的占位；提供 `cnt` 后由独立 `strategy_generic_fallback` 层写入 `TP=cnt`，不生成 DP 参数（引擎默认 DP=1）。未提供 `cnt` 时保留模板值并记录 warning。用户 CLI 位于更高优先级，仍可覆盖 TP/DP。该例外不影响具体硬件/模型 recipe，也不影响 multi-node。
 
 例子：
 
@@ -103,7 +106,7 @@ recipe 的 `topology_input_policy` 为 `explicit_allocation` 时：
 
 ## 配置选择和来源规则
 
-普通 recipe 路径依次确定配置根、硬件类型、引擎版本、模型和 topology scenario。模型按 `variant_name` 精确匹配、`name_pattern` 匹配、`default_model.yaml` 的顺序选择；有多个候选时直接失败。具体模型与 `default_model` 互斥，PD 只允许精确模型匹配。
+普通 recipe 路径依次确定配置根、硬件类型、引擎版本、模型和 topology scenario。硬件按精确名称、别名、去显存后缀的顺序定位；均未命中且引擎根目录提供跨所有引擎版本兼容的 `_generic/models/default_model.yaml` 文件时，使用该通用资产尽力生成 standalone 或固定双 Pod multi-node 命令，并禁用 Wings Accel。该路径不校验 engine 与 `hardware.device` 是否匹配，只输出明确 warning；调用方负责二者兼容。PD 和 MindIE 不使用该硬件回退。模型按 `variant_name` 精确匹配、`name_pattern` 匹配、`default_model.yaml` 的顺序选择；有多个候选时直接失败。具体模型与 `default_model` 互斥，PD 只允许精确模型匹配。
 
 显式引擎版本优先匹配精确目录。普通路径找不到时选择 latest，并在 warning 和 audit 中记录请求版本与实际版本；PD 和 SGLang 的特定契约要求精确版本时，不允许回退。
 
@@ -112,11 +115,14 @@ recipe 的 `topology_input_policy` 为 `explicit_allocation` 时：
 ```text
 builtin_default
   -> model/default scenario
-  -> strategy_device_count / strategy_topology_inject
+  -> request_default
+  -> strategy_generic_fallback / strategy_device_count / strategy_topology_inject
   -> strategy_feature / strategy_feature_inject
   -> strategy_accel
   -> user_cli
 ```
+
+`request_default` 仅在 fallback 的 `default_model` 未声明 `model`/`model_path` 时补入本次请求模型名，来源固定记录为 `<request>` / `request.model`，不能伪装成 YAML 来源。`strategy_generic_fallback` 仅用于 generic hardware fallback 的 standalone 且已传 `device_count`：写入 `TP=device_count`、保持 DP=1，不经过普通 `strategy_device_count` 的 DP 扩展；`user_cli` 仍可在更高层覆盖。
 
 合并完成后不得绕开 trace 直接修改最终参数。`supported_params` 校验只告警，不删除参数，也不阻止启动。
 

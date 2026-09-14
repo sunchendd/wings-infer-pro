@@ -210,14 +210,17 @@ def test_store_true_none_not_in_overrides():
     assert "enable_expert_parallel" not in out
 
 
-def test_nonexistent_hardware_friendly_error_not_crash(config_root_real, tmp_path, monkeypatch, capsys):
-    """验证选不存在的硬件 → 友好报错(SystemExit 2)而非 FileNotFoundError 崩溃(回归:tester 上报)。"""
-    hw = tmp_path / "bad_hw.json"
+def test_nonexistent_hardware_uses_generic_fallback(config_root_real, tmp_path, monkeypatch, capsys):
+    """未知硬件存在 vLLM generic 资产时，CLI 正常生成产物并记录 fallback。"""
+    hw = tmp_path / "unknown_hw.json"
     hw.write_text(
         json.dumps({"hardware_family": "1rtx_pro_5000_72G", "device": "nvidia", "count": 8}),
         encoding="utf-8",
     )
+    output_dir = tmp_path / "out"
+    startup_log = tmp_path / "wings_start.log"
     monkeypatch.setenv("ENGINE_VERSION", "v0.18.0")
+    monkeypatch.setenv("WINGS_START_LOG", str(startup_log))
     monkeypatch.setattr(
         "sys.argv",
         [
@@ -226,19 +229,29 @@ def test_nonexistent_hardware_friendly_error_not_crash(config_root_real, tmp_pat
             "vllm",
             "--model-name",
             "Qwen3.5-397B-A17B-NVFP4",
+            "--device-count",
+            "8",
             "--config-root",
             str(config_root_real),
             "--hardware-info",
             str(hw),
             "--output-dir",
-            str(tmp_path / "out"),
+            str(output_dir),
         ],
     )
-    with pytest.raises(SystemExit) as exc:  # parser.error → SystemExit(2),不应是 FileNotFoundError
-        cli.main()
-    assert exc.value.code == 2
-    err = capsys.readouterr().err
-    assert "No configuration assets" in err and "hardware_family" in err
+
+    cli.main()
+
+    assert (output_dir / "start_command.sh").is_file()
+    audit_path = output_dir / "audit.json"
+    assert audit_path.is_file()
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert audit["resolution_notes"]["hardware_fallback"] is True
+    assert audit["resolution_notes"]["resolved_hardware_family"] == "_generic"
+    captured = capsys.readouterr()
+    assert "generic best-effort hardware recipe" in captured.err or "generic best-effort recipe" in startup_log.read_text(
+        encoding="utf-8"
+    )
 
 
 def test_engine_fallback_from_env(monkeypatch):

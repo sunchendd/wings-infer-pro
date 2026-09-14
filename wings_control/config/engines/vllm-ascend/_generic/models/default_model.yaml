@@ -1,0 +1,48 @@
+# 未知 Ascend 硬件的最小保底配置，仅用于尽力拉起，不代表硬件已通过验收。
+hardware:
+  generic: true
+
+engine:
+  name: vllm-ascend
+
+scenarios:
+  standalone:
+    strategies:
+      generic:
+        default_strategy: true
+        engine_config:
+          trust_remote_code: true
+          max_model_len: 4096
+          tensor_parallel_size: 1
+
+  multi_node:
+    strategies:
+      generic:
+        default_strategy: true
+        head:
+          engine_config:
+            trust_remote_code: true
+            max_model_len: 4096
+            tensor_parallel_size: 2
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+          env:
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            TP_SOCKET_IFNAME: $IFACE_NAME
+            HCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:
+          engine_config:
+            trust_remote_code: true
+            max_model_len: 4096
+            tensor_parallel_size: 2
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+          env:
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            TP_SOCKET_IFNAME: $IFACE_NAME
+            HCCL_SOCKET_IFNAME: $IFACE_NAME
