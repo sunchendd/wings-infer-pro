@@ -37,3 +37,40 @@ def extract_source_commands(commands: Iterable[Any], *, context: str) -> List[st
             )
         rendered.append(f"source {shlex.quote(tokens[1])}")
     return rendered
+
+
+def render_source_command_blocks(source_commands: Iterable[str]) -> List[str]:
+    """把已校验的 source 命令渲染为可执行块。
+
+    启动脚本以 ``set -euo pipefail`` 进入，厂商 set_env.sh 可能读取未定义变量
+    (如 ``ZSH_VERSION``) 或在部分镜像缺失。整个 source 段只在开头 ``set +u``、
+    结尾 ``set -u`` 关闭一次 nounset，再对每条 source 做 ``-f`` 守卫：缺失时向
+    stderr 打印 WARN 并跳过，``if`` 分支返回 0，不中断脚本继续执行，也不静默失败。
+
+    Args:
+        source_commands: 已由 ``extract_source_commands`` 校验过的 source 命令列表。
+
+    Returns:
+        可直接写入 bash 脚本的行(不含收尾空行)。
+    """
+    lines: List[str] = []
+    for command in source_commands:
+        try:
+            tokens = shlex.split(command, comments=True, posix=True)
+        except ValueError:
+            tokens = []
+        if len(tokens) != 2 or tokens[0] != "source" or not tokens[1].startswith("/"):
+            # 上游 extract_source_commands 只产出严格 source <绝对路径> 行，
+            # 此分支通常不触发；原样还原其余输入，避免被静默丢弃。
+            lines.append(command)
+            continue
+        path = tokens[1]
+        quoted = shlex.quote(path)
+        lines.append(f"if [ -f {quoted} ]; then")
+        lines.append(f"  {command}")
+        lines.append("else")
+        lines.append(f"  echo {shlex.quote(f'WARN: system_setup source not found, skipping: {path}')} >&2")
+        lines.append("fi")
+    if not lines:
+        return []
+    return ["set +u", *lines, "set -u"]

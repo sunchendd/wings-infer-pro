@@ -10,6 +10,7 @@ from __future__ import annotations
 import shlex
 
 from wings_ctl.core.models import ResolvedConfig
+from wings_ctl.core.system_setup import render_source_command_blocks
 from wings_ctl.engines.extension import EngineLaunchPlan, get_engine_extension
 from wings_ctl.engines.vllm_adapter import build_argv, build_system_setup_source_commands
 
@@ -42,7 +43,7 @@ def format_launch_dry_run_preview(resolved: ResolvedConfig) -> str:
         lines.extend(
             [
                 "# System Setup source commands",
-                *plan.system_setup_source_commands,
+                *render_source_command_blocks(plan.system_setup_source_commands),
             ]
         )
     lines.append(plan.preview or shlex.join(plan.argv))
