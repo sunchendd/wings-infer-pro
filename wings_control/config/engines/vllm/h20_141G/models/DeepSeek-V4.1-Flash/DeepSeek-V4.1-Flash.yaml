@@ -1,0 +1,64 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_deepseek-v4.1-flash-0909_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash"
+    note: 用户提供 vLLM deepseekv41-flash-0909 单机 8 卡启动命令，手工录入。
+
+# 模型基本信息
+model:
+  name: DeepSeek-V4.1-Flash
+  slug: deepseek-v4.1-flash
+  provider: DeepSeek
+  model_id: deepseek-ai/DeepSeek-V4.1-Flash
+  min_engine_version: "deepseekv41-flash-0909"
+  match:
+    - name_pattern: "(?i)deepseek[-.]?v4[-.]?1[-.]?flash"
+  variant_name: DeepSeek-V4.1-Flash
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 1128
+  multi_node: false
+
+# 可选功能
+features:
+  tool_calling:
+    description: Enable DeepSeek V4.1 automatic tool calling.
+    args: [--tokenizer-mode, deepseek_v41, --tool-call-parser, deepseek_v41, --enable-auto-tool-choice]
+  reasoning:
+    description: Enable DeepSeek V4.1 reasoning parsing.
+    args: [--reasoning-parser, deepseek_v41]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_deepseek-v4.1-flash-0909_manual#single_node_tep"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tep:
+        display_name: Tensor + Expert Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: deepseek-ai/DeepSeek-V4.1-Flash
+          host: "0.0.0.0"
+          language_model_only: true
+          tensor_parallel_size: 8
+          enable_expert_parallel: true
+          kv_cache_dtype: fp8_ds_mla
+          block_size: 64
+          enable_prefix_caching: true
+          gpu_memory_utilization: 0.95
+          compilation_config:
+            mode: 1
+            cudagraph_mode: FULL_DECODE_ONLY
+          port: 17000
+        env:
+          VLLM_ENGINE_READY_TIMEOUT_S: 3600
+          VLLM_USE_RUST_FRONTEND: 1
