@@ -1,0 +1,58 @@
+model:
+  name: GLM-4.7
+  variant_name: GLM-4.7-W8A8-floatmtp
+  match:
+  - name_pattern: (?i)^GLM\-4\.7\-W8A8\-floatmtp$
+smart_accel:
+  standalone:
+    source_ref: ascend_glm47#single_node_a2_8card_adapted
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+        - name: mtp
+          cli_params:
+            speculative_config:
+              num_speculative_tokens: 3
+              method: mtp
+              enforce_eager: true
+          envs: {}
+  multi_node:
+    source_ref: ascend_glm47#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dp:
+        default_strategy: true
+        decoding:
+        - name: mtp
+          cli_params:
+            speculative_config:
+              num_speculative_tokens: 3
+              method: mtp
+              enforce_eager: true
+          envs: {}
+  pd_disaggregation:
+    source_ref: ascend_glm47_pd#pd_2p1d_a3_to_a2_1p1d
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        default_strategy: true
+        nodes:
+        - role: decode
+          index: 0
+          decoding:
+          - name: mtp
+            cli_params:
+              speculative_config:
+                num_speculative_tokens: 3
+                method: mtp
+                enforce_eager: true
+            envs: {}

@@ -1,0 +1,6 @@
+model:
+  name: PaddleOCR-VL-1.6
+  variant_name: PaddleOCR-VL-1.6
+  match:
+  - name_pattern: (?i)^(?:PaddlePaddle/)?PaddleOCR-VL-1\.6$
+smart_accel: {}

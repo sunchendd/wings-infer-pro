@@ -1,0 +1,49 @@
+upstream_sources:
+- id: ascend_qwen3-vl-8b-instruct_a2
+  kind: official_doc
+  repo: vllm-ascend
+  file: docs/source/tutorials/models/Qwen-VL-Dense.md
+  url: https://github.com/vllm-project/vllm-ascend/blob/9e1cab90c0a8ec49369eb9aa1e8f387dbe5e4f1d/docs/source/tutorials/models/Qwen-VL-Dense.md
+  note: The official A2/A3 Qwen3-VL-8B-Instruct tuning is applied to the user-requested 4B model. The model ID and TP/DP are adapted to one A2 card; the source does not provide an A2 hardware run for this exact 4B variant.
+model:
+  name: Qwen3-VL-4B-Instruct
+  provider: Qwen
+  model_id: Qwen/Qwen3-VL-4B-Instruct
+  min_engine_version: v0.26.0rc1
+  match:
+  - name_pattern: (?i)^Qwen3\-VL\-4B\-Instruct$
+  variant_name: Qwen3-VL-4B-Instruct
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 512
+  multi_node: false
+scenarios:
+  standalone:
+    source_ref: ascend_qwen3-vl-8b-instruct_a2#single_node
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: Qwen/Qwen3-VL-4B-Instruct
+          host: "0.0.0.0"
+          dtype: bfloat16
+          no_enable_prefix_caching: true
+          data_parallel_size: 1
+          tensor_parallel_size: 1
+          trust_remote_code: true
+          max_num_seqs: 128
+          max_model_len: 32768
+          max_num_batched_tokens: 16384
+          gpu_memory_utilization: 0.91
+          async_scheduling: true
+          compilation_config:
+            cudagraph_mode: FULL_DECODE_ONLY
+            cudagraph_capture_sizes: [1, 2, 4, 8, 16, 32]
+          mm_processor_cache_gb: 0
+        env:
+          HCCL_OP_EXPANSION_MODE: AIV
+          PYTORCH_NPU_ALLOC_CONF: expandable_segments:True

@@ -1,0 +1,37 @@
+upstream_sources:
+- id: vllm_recipe_paddleocr-vl-1.6
+  kind: official_recipe
+  repo: vllm-project/recipes
+  file: models/PaddlePaddle/PaddleOCR-VL-1.6.yaml
+  url: https://github.com/vllm-project/recipes/blob/742a1eaea5599b36cdae2bc9bf0375585e0a6159/models/PaddlePaddle/PaddleOCR-VL-1.6.yaml
+  note: Exact 1.6 vLLM recipe baseline. The vLLM-Ascend PaddleOCR-VL tutorial only documents the 0.9B family on A2 and states PD is unsupported; no CUDA multi-node settings are transferred.
+model:
+  name: PaddleOCR-VL-1.6
+  provider: PaddlePaddle
+  model_id: PaddlePaddle/PaddleOCR-VL-1.6
+  min_engine_version: v0.26.0rc1
+  match:
+  - name_pattern: (?i)^(?:PaddlePaddle/)?PaddleOCR-VL-1\.6$
+  variant_name: PaddleOCR-VL-1.6
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 512
+  multi_node: false
+scenarios:
+  standalone:
+    source_ref: vllm_recipe_paddleocr-vl-1.6#launch_command
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: PaddlePaddle/PaddleOCR-VL-1.6
+          trust_remote_code: true
+          max_num_batched_tokens: 16384
+          no_enable_prefix_caching: true
+          mm_processor_cache_gb: 0
+          host: "0.0.0.0"
+        env: {}

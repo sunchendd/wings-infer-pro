@@ -1,0 +1,6 @@
+model:
+  name: bge-large-zh-v1.5
+  variant_name: bge-large-zh-v1.5
+  match:
+  - name_pattern: (?i)^bge\-large\-zh\-v1\.5$
+smart_accel: {}

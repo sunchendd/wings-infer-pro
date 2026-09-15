@@ -1,0 +1,46 @@
+upstream_sources:
+- id: ascend_qwen3.5-9b
+  kind: official_doc
+  repo: vllm-project/recipes
+  file: models/Qwen/Qwen3.5-9B.yaml
+  url: https://github.com/vllm-project/recipes/blob/main/models/Qwen/Qwen3.5-9B.yaml
+  note: Exact vLLM recipe minimal standalone command; Ascend dedicated example targets 310P, not A2. A2 execution unverified; no 310P-specific flags or unverified acceleration transferred.
+    Target v0.26.0rc1; command validation only, no hardware execution.
+- id: ascend_qwen3.5-dense
+  kind: official_doc
+  repo: vllm-ascend
+  file: docs/source/tutorials/models/Qwen3.5-Dense.md
+  url: https://github.com/vllm-project/vllm-ascend/blob/9e1cab90c0a8ec49369eb9aa1e8f387dbe5e4f1d/docs/source/tutorials/models/Qwen3.5-Dense.md
+  note: Exact Qwen3.5-9B model guide. Its deployment sample targets 310P, but confirms the model's hybrid GDN/full-attention layout and embedded qwen3_5_mtp head with one speculative token. FP16, Mamba cache dtype, NPU-Graph EX, and capture-size tuning in that sample are hardware-specific and are not transferred to A2.
+model:
+  name: Qwen3.5-9B
+  provider: Qwen
+  model_id: Qwen/Qwen3.5-9B
+  min_engine_version: v0.26.0rc1
+  match:
+  - name_pattern: (?i)^Qwen3\.5\-9B$
+  variant_name: Qwen3.5-9B
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 512
+  multi_node: true
+features:
+  reasoning:
+    args: [--reasoning-parser, qwen3]
+  spec_decoding:
+    args: [--speculative-config, "{\"method\":\"qwen3_5_mtp\",\"num_speculative_tokens\":1}"]
+scenarios:
+  standalone:
+    source_ref: ascend_qwen3.5-9b#single_node
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: Qwen/Qwen3.5-9B
+          max_model_len: 262144
+          host: "0.0.0.0"
+        env: {}

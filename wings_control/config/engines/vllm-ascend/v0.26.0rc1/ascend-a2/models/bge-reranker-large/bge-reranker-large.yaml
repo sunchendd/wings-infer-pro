@@ -1,0 +1,40 @@
+upstream_sources:
+- id: ascend_bge-reranker-large
+  kind: manual
+  repo: wings-infer-pro
+  file: wings_control/config/engines/vllm-ascend/v0.21.0rc/ascend-a2/models/bge-reranker-large/bge-reranker-large.yaml
+  url: null
+  note: Existing A2 pooling command, lowest-priority baseline; no model-specific Ascend tutorial found. PD and generation acceleration do not apply. Target v0.26.0rc1; command validation
+    only, no hardware execution.
+model:
+  name: bge-reranker-large
+  provider: BAAI
+  model_id: BAAI/bge-reranker-large
+  min_engine_version: v0.26.0rc1
+  match:
+  - name_pattern: (?i)^bge\-reranker\-large$
+  variant_name: bge-reranker-large
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 512
+  multi_node: false
+scenarios:
+  standalone:
+    source_ref: ascend_bge-reranker-large#single_node
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: BAAI/bge-reranker-large
+          trust_remote_code: true
+          max_model_len: 512
+          host: "0.0.0.0"
+          port: 17000
+          tensor_parallel_size: 1
+          enforce_eager: true
+          runner: pooling
+        env: {}

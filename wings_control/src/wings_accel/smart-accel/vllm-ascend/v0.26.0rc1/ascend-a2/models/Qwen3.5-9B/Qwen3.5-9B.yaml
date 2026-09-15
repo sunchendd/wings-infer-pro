@@ -1,0 +1,21 @@
+model:
+  name: Qwen3.5-9B
+  variant_name: Qwen3.5-9B
+  match:
+  - name_pattern: (?i)^Qwen3\.5\-9B$
+smart_accel:
+  standalone:
+    source_ref: ascend_qwen3.5-9b#single_node
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+        - name: qwen3_5_mtp
+          cli_params:
+            speculative_config:
+              method: qwen3_5_mtp
+              num_speculative_tokens: 1
+          envs: {}

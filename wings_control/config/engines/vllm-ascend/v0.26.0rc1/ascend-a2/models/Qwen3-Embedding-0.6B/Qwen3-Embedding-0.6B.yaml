@@ -1,0 +1,37 @@
+upstream_sources:
+- id: ascend_qwen3-embedding-0.6b
+  kind: official_doc
+  repo: vllm-ascend
+  file: docs/source/tutorials/models/Qwen3-Embedding.md
+  url: https://github.com/vllm-project/vllm-ascend/blob/9e1cab90c0a8ec49369eb9aa1e8f387dbe5e4f1d/docs/source/tutorials/models/Qwen3-Embedding.md
+  note: A2/A3 pooling example. PD and generation acceleration do not apply. Target v0.26.0rc1; command validation only, no hardware execution.
+model:
+  name: Qwen3-Embedding-0.6B
+  provider: Qwen
+  model_id: Qwen/Qwen3-Embedding-0.6B
+  min_engine_version: v0.26.0rc1
+  match:
+  - name_pattern: (?i)^(?:Qwen/)?Qwen3-Embedding-0\.6B$
+  variant_name: Qwen3-Embedding-0.6B
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 512
+  multi_node: false
+scenarios:
+  standalone:
+    source_ref: ascend_qwen3-embedding-0.6b#single_node
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: Qwen/Qwen3-Embedding-0.6B
+          served_model_name: Qwen/Qwen3-Embedding-0.6B
+          runner: pooling
+          port: 8000
+          max_model_len: 1024
+          host: "0.0.0.0"
+        env: {}
