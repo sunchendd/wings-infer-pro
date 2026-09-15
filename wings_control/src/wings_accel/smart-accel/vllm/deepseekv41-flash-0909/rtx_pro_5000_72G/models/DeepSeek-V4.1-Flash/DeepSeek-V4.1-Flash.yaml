@@ -1,0 +1,28 @@
+# SmartAccel sparse configuration derived from the provided vLLM deployment command.
+model:
+  name: DeepSeek-V4.1-Flash
+  variant_name: "DeepSeek-V4.1-Flash"
+  match:
+    - name_pattern: "(?i)deepseek[-.]?v4[.-]?1[-.]?flash"
+smart_accel:
+  standalone:
+    source_ref: deepseek-v4.1-flash_manual#single_node_tp
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        sparse:
+          - name: performance_first
+            cli_params:
+              kv_cache_dtype: fp8
+              hf_overrides:
+                index_topk_freq: 8
+            envs: {}
+          - name: accuracy_first
+            cli_params:
+              kv_cache_dtype: fp8
+              hf_overrides:
+                index_topk_freq: 4
+            envs: {}

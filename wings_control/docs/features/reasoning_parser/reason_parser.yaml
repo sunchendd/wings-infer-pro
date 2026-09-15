@@ -70,6 +70,13 @@ architectures:
       DeepSeek-V4-Pro:            {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
       DeepSeek-V4-Pro-w4a8-mtp:   {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
 
+  - name: DeepseekV41ForCausalLM
+    config:
+      vllm:        {default: deepseek_v41}
+      vllm_ascend: {default: deepseek_v41}
+    models:
+      DeepSeek-V4.1-Flash: {vllm: deepseek_v41, vllm_ascend: deepseek_v41}
+
   - name: DeepseekV32ForCausalLM
     config:
       vllm:        {default: deepseek_v3}
