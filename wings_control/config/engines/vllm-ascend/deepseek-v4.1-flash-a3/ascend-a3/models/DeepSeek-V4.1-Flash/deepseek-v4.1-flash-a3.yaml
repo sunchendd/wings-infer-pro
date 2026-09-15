@@ -14,7 +14,7 @@ model:
   model_id: null  # 本地权重无法可靠映射到公开模型 ID。
   min_engine_version: deepseek-v4.1-flash-a3
   match:
-    - name_pattern: "(?i)deepseek[-.]?v4[.-]?1[-.]?flash"
+    - name_pattern: '(?i)^deepseek-v4\.1-flash-w8a8$'
   variant_name: DeepSeek-V4.1-Flash-w8a8
 
 # 硬件信息
