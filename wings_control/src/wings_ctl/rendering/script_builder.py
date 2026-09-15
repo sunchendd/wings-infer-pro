@@ -22,6 +22,7 @@ from typing import Dict, List, Optional, Tuple
 from wings_ctl.accel.smart_accel import GeneratedFileSpec
 from wings_ctl.common.settings import settings
 from wings_ctl.core.models import EngineProcessPlan, ResolvedConfig, SystemSetup, TracedValue
+from wings_ctl.core.system_setup import render_source_command_blocks
 from wings_ctl.core.topology import Topology
 from wings_ctl.engines.registry import build_launch_plan
 from wings_ctl.engines.vllm_adapter import (
@@ -106,12 +107,16 @@ def _render_system_setup_comments(
 
 
 def _render_system_setup_source_section(source_commands: Optional[List[str]]) -> List[str]:
-    """渲染已校验的 source 环境初始化命令段。"""
+    """渲染已校验的 source 环境初始化命令段（带 nounset 关闭 + ``-f`` 守卫）。
+
+    见 ``render_source_command_blocks``：避免厂商 set_env.sh 因未定义变量
+    （如 ``ZSH_VERSION``）或路径缺失而中断整个启动脚本。
+    """
     if not source_commands:
         return []
     return [
         "# ─── System Setup source commands ───",
-        *source_commands,
+        *render_source_command_blocks(source_commands),
         "",
     ]
 

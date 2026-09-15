@@ -39,6 +39,7 @@ from typing import Any, Dict, List
 from wings_ctl.common.log_config import LOGGER_LAUNCHER, setup_root_logging
 from wings_ctl.core.config_resolver import DEFAULT_ENGINE_PORT
 from wings_ctl.core.models import ClusterPlacement, CustomConfigFile, PipelineRequest, Target, UserInput
+from wings_ctl.core.system_setup import render_source_command_blocks
 from wings_ctl.engines.registry import format_launch_dry_run_preview, format_launch_summary
 from wings_ctl.engines.vllm_adapter import build_argv, build_system_setup_source_commands
 from wings_ctl.pd.input_contract import parse_pd_runtime_input
@@ -475,11 +476,11 @@ def _print_env_dry_run(env_traces: dict[str, Any]) -> None:
 
 
 def _print_system_setup_source_dry_run(engine: str, system_setup: Any) -> None:
-    """打印当前节点或 Pod 会在 engine 前执行的 source 初始化命令。"""
+    """打印当前节点或 Pod 会在 engine 前执行的 source 初始化命令（带守卫块）。"""
     source_commands = build_system_setup_source_commands(engine, system_setup)
     if source_commands:
         print("# System Setup source commands")
-        print("\n".join(source_commands))
+        print("\n".join(render_source_command_blocks(source_commands)))
 
 
 def _print_multi_node_dry_run(engine: str, nodes: List[Any]) -> None:

@@ -17,6 +17,7 @@ from wings_ctl.core.models import (
     TracedValue,
     SourceEvent,
 )
+from wings_ctl.core.system_setup import render_source_command_blocks
 from wings_ctl.core.topology import Topology
 from wings_ctl.engines.vllm_adapter import build_system_setup_source_commands
 from wings_ctl.engines.registry import format_launch_dry_run_preview
@@ -194,6 +195,56 @@ class TestSystemSetupRendering:
 
         with pytest.raises(ValueError, match="source <absolute-path>"):
             build_system_setup_source_commands("vllm-ascend", setup)
+
+    @staticmethod
+    def test_source_command_block_wraps_nounset_and_guards_existence():
+        """source 段整体用一次 set +u/set -u 包裹，每条 source 做 -f 守卫。"""
+        blocks = render_source_command_blocks(["source /path/a/set_env.sh", "source /path/b/set_env.sh"])
+        text = "\n".join(blocks)
+
+        # nounset 只在 source 段开头关闭一次、末尾恢复，避免厂商脚本读取未定义变量(ZSH_VERSION)中断。
+        assert text.count("set +u") == 1
+        assert text.count("set -u") == 1
+        assert (
+            text.index("set +u")
+            < text.index("source /path/a/set_env.sh")
+            < text.index("source /path/b/set_env.sh")
+            < text.index("set -u")
+        )
+        # -f 守卫：存在才 source，缺失打印 WARN 并跳过，不中断脚本。
+        assert text.count("if [ -f ") == 2
+        assert "WARN: system_setup source not found" in text
+        assert ">&2" in text
+
+    @staticmethod
+    def test_source_command_block_renders_in_start_and_repro_scripts(tmp_path):
+        """vllm-ascend 的 source 在最终脚本中被守卫块包裹。"""
+        setup = SystemSetup(
+            commands=["source /usr/local/Ascend/nnal/atb/set_env.sh"],
+            source_file="model.yaml",
+            source_path="scenarios.standalone.system_setup",
+        )
+        resolved = _make_minimal_resolved(system_setup=setup, engine="vllm-ascend")
+        start_path, repro_path = build_scripts(resolved, tmp_path)
+        start_content = start_path.read_text()
+        repro_content = repro_path.read_text()
+        path = "/usr/local/Ascend/nnal/atb/set_env.sh"
+
+        for content in (start_content, repro_content):
+            assert f"source {path}" in content
+            assert f"if [ -f {path} ];" in content
+            assert "set +u" in content
+            assert "set -u" in content
+            assert "WARN: system_setup source not found" in content
+
+    @staticmethod
+    def test_source_command_block_escapes_special_char_path():
+        """缺失路径含 $、双引号时，-f 与 WARN echo 行均安全转义不展开。"""
+        src = "source '/tmp/$(id)/\"b1\"/set_env.sh'"
+        text = "\n".join(render_source_command_blocks([src]))
+        # -f 与 echo 都使用 shlex.quote 后的路径，避免变量/命令替换或引号断裂。
+        assert "if [ -f '/tmp/$(id)/\"b1\"/set_env.sh' ];" in text
+        assert "echo 'WARN: system_setup source not found, skipping: /tmp/$(id)/\"b1\"/set_env.sh' >&2" in text
 
     def test_sysctls_rendered_as_comments(self, tmp_path):
         """sysctls 渲染为注释行。"""
