@@ -1,0 +1,21 @@
+# SmartAccel decoding asset derived from the validated dual-node launch command.
+model:
+  name: DeepSeek-V4.1-Flash
+  variant_name: "DeepSeek-V4.1-Flash-w8a8"
+  match:
+    - name_pattern: '(?i)^deepseek-v4\.1-flash-w8a8$'
+smart_accel:
+  multi_node:
+    source_ref: "vllm_ascend_deepseek_v41_flash_w8a8_manual#multi_node"
+    match: {distributed: true, pd_role: null}
+    strategies:
+      multi_node_dp:
+        default_strategy: true
+        decoding:
+          - name: dspark
+            cli_params:
+              speculative_config:
+                method: dspark
+                num_speculative_tokens: 5
+                enforce_eager: true
+            envs: {}
