@@ -1,0 +1,71 @@
+# 来源追溯
+upstream_sources:
+  - id: deepseek-v4.1-flash_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash"
+    date_updated: 2026-09-14
+    note: 用户提供启动命令，手工录入。引擎版本 deepseekv41-flash-0909。
+
+# 模型基本信息
+model:
+  name: DeepSeek-V4.1-Flash
+  slug: deepseek-v4.1-flash
+  provider: DeepSeek
+  description: DeepSeek V4.1 Flash model configured for language-model-only serving.
+  model_id: deepseek-ai/DeepSeek-V4.1-Flash
+  architecture: moe
+  context_length: 1048576
+  tasks: [text]
+  min_engine_version: "deepseekv41-flash-0909"
+  date_updated: 2026-09-14
+  match:
+    - name_pattern: "(?i)deepseek[-.]?v4[.-]?1[-.]?flash"
+  variant_name: DeepSeek-V4.1-Flash
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 576
+  multi_node: false
+
+# 可选功能列表
+features:
+  tool_calling:
+    description: Enable DeepSeek V4.1 tokenizer and tool-call parsing with automatic tool choice.
+    args: [--tokenizer-mode, deepseek_v41, --tool-call-parser, deepseek_v41, --enable-auto-tool-choice]
+  reasoning:
+    description: Enable reasoning output parsing with the DeepSeek V4.1 parser.
+    args: [--reasoning-parser, deepseek_v41]
+  sparse_index:
+    description: Configure the sparse index top-k refresh frequency.
+    args: [--hf-overrides, "{\"index_topk_freq\":4}"]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "deepseek-v4.1-flash_manual#single_node_tp"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: deepseek-ai/DeepSeek-V4.1-Flash
+          host: "0.0.0.0"
+          language_model_only: true
+          attention_backend: FLASHINFER_MLA_SPARSE_DSV41
+          kv_cache_dtype: fp8
+          block_size: 128
+          no_enable_flashinfer_autotune: true
+          gpu_memory_utilization: 0.95
+          tensor_parallel_size: 8
+          port: 17000
+        env:
+          VLLM_ENGINE_READY_TIMEOUT_S: 3600
+          NCCL_P2P_LEVEL: SYS
+          NCCL_SHM_DISABLE: 1
