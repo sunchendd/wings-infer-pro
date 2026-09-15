@@ -28,6 +28,33 @@ ai_perf/
 3. `aiperf-engine`：等待 `/shared-volume/start_command.sh` 出现，把 `--host` 补丁为
    `0.0.0.0` 后 `exec` 拉起推理引擎。
 
+启动流程时序图：
+
+```mermaid
+sequenceDiagram
+    participant A as accel-init
+    participant V as 共享卷 accel-vol
+    participant C as aiperf-control
+    participant S as 共享卷 /shared-volume
+    participant E as aiperf-engine
+
+    Note over A,V: 三个容器均挂载共享卷 accel-vol
+    A->>V: cp /opt/packages/. → /accel-volume
+    A-->>A: 退出（一次性初始化，restart:no）
+
+    Note over C,V: aiperf-control: WINGS_ACCEL_DIR=/accel-volume
+    C->>V: 读取 accel-vol（wings_start.sh 据此生成加速启动参数）
+    C->>S: 写 hardware_info.json（由 HARDWARE_FAMILY 生成）
+    C->>S: 调用 wings_start.sh 生成 start_command.sh / repro.sh / audit.json
+    Note over C: 只生成，不拉起引擎
+    C-->>C: tail -f 常驻
+
+    S-->>E: 轮询到 start_command.sh 出现
+    E->>S: sed 将 --host 补丁为 0.0.0.0
+    E->>V: 挂载并使用 accel-vol（engine 亦挂载 accel-vol 与模型路径）
+    E->>E: exec bash start_command.sh 拉起推理引擎
+```
+
 ## 快速开始
 
 ```bash
