@@ -1,0 +1,299 @@
+upstream_sources:
+- id: ascend_glm47
+  kind: official_doc
+  repo: vllm-ascend
+  file: docs/source/tutorials/models/GLM4.x.md
+  url: https://github.com/vllm-project/vllm-ascend/blob/9e1cab90c0a8ec49369eb9aa1e8f387dbe5e4f1d/docs/source/tutorials/models/GLM4.x.md
+  note: Section 5.1 documents a single A2 node but its TP=8/DP=2 command requires 16 cards. The user-requested A2 adaptation uses TP=8/DP=1 on one 8-card pod. Section 5.2 permits dual A2 nodes; literal RPC port 13389 and network placeholders are retained. No hardware execution.
+- id: ascend_glm47_pd
+  kind: official_doc
+  repo: vllm-ascend
+  file: docs/source/tutorials/models/GLM4.x.md
+  url: https://github.com/vllm-project/vllm-ascend/blob/9e1cab90c0a8ec49369eb9aa1e8f387dbe5e4f1d/docs/source/tutorials/models/GLM4.x.md
+  note: Section 5.3 gives an exact GLM-4.7 2P1D MooncakeConnectorV1 deployment for A3. This user-requested A2 adaptation changes only topology to one 8-card P pod and one 8-card D pod (P/D DP=1, TP=8); it excludes ASCEND_A3_ENABLE, ASCEND_AGGREGATE_ENABLE, ASCEND_TRANSPORT_PRINT, ACL_OP_INIT_MODE, ASCEND_RT_VISIBLE_DEVICES, and the image-specific Mooncake library path. No A2 hardware run is available.
+model:
+  name: GLM-4.7
+  provider: Eco-Tech
+  model_id: Eco-Tech/GLM-4.7-W8A8-floatmtp
+  min_engine_version: v0.26.0rc1
+  match:
+  - name_pattern: (?i)^GLM\-4\.7\-W8A8\-floatmtp$
+  variant_name: GLM-4.7-W8A8-floatmtp
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 512
+  multi_node: true
+features:
+  spec_decoding:
+    args: [--speculative-config, "{\"num_speculative_tokens\":3,\"method\":\"mtp\",\"enforce_eager\":true}"]
+  reasoning:
+    args: [--reasoning-parser, glm45]
+  tool_calling:
+    args: [--enable-auto-tool-choice, --tool-call-parser, glm47]
+scenarios:
+  standalone:
+    source_ref: ascend_glm47#single_node_a2_8card_adapted
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: Eco-Tech/GLM-4.7-W8A8-floatmtp
+          host: "0.0.0.0"
+          data_parallel_size: 1
+          tensor_parallel_size: 8
+          enable_expert_parallel: true
+          seed: 1024
+          served_model_name: glm
+          max_model_len: 133000
+          max_num_batched_tokens: 8192
+          max_num_seqs: 16
+          quantization: ascend
+          trust_remote_code: true
+          gpu_memory_utilization: 0.9
+          compilation_config:
+            cudagraph_capture_sizes: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
+            cudagraph_mode: FULL_DECODE_ONLY
+          additional_config:
+            enable_shared_expert_dp: true
+            ascend_fusion_config:
+              fusion_ops_gmmswigluquant: false
+            scheduler_config:
+              enable_balance_scheduling: true
+        env:
+          HCCL_BUFFSIZE: '512'
+          OMP_PROC_BIND: 'false'
+          OMP_NUM_THREADS: '1'
+          PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+          HCCL_OP_EXPANSION_MODE: AIV
+          VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE: '1'
+
+  multi_node:
+    source_ref: ascend_glm47#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        display_name: Multi-Node
+        default_strategy: true
+        head:
+          engine_config:
+            model: Eco-Tech/GLM-4.7-W8A8-floatmtp
+            host: "0.0.0.0"
+            port: 8004
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 0
+            data_parallel_address: $local_ip
+            data_parallel_rpc_port: 13389
+            tensor_parallel_size: 8
+            enable_expert_parallel: true
+            seed: 1024
+            max_model_len: 140000
+            max_num_batched_tokens: 8192
+            max_num_seqs: 16
+            quantization: ascend
+            trust_remote_code: true
+            gpu_memory_utilization: 0.9
+            served_model_name: glm47
+            compilation_config:
+              cudagraph_capture_sizes:
+              - 1
+              - 2
+              - 4
+              - 8
+              - 16
+              - 32
+              - 64
+              - 128
+              - 256
+              - 512
+              cudagraph_mode: FULL_DECODE_ONLY
+            additional_config:
+              enable_shared_expert_dp: true
+              ascend_fusion_config:
+                fusion_ops_gmmswigluquant: false
+              scheduler_config:
+                enable_balance_scheduling: true
+          env:
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            HCCL_BUFFSIZE: '512'
+            OMP_PROC_BIND: 'false'
+            OMP_NUM_THREADS: '1'
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+            HCCL_OP_EXPANSION_MODE: AIV
+            VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE: '1'
+        worker:
+          engine_config:
+            model: Eco-Tech/GLM-4.7-W8A8-floatmtp
+            host: "0.0.0.0"
+            port: 8004
+            headless: true
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 1
+            data_parallel_address: $node0_ip
+            data_parallel_rpc_port: 13389
+            tensor_parallel_size: 8
+            enable_expert_parallel: true
+            seed: 1024
+            max_model_len: 140000
+            max_num_batched_tokens: 8192
+            max_num_seqs: 16
+            quantization: ascend
+            trust_remote_code: true
+            gpu_memory_utilization: 0.9
+            served_model_name: glm47
+            compilation_config:
+              cudagraph_capture_sizes:
+              - 1
+              - 2
+              - 4
+              - 8
+              - 16
+              - 32
+              - 64
+              - 128
+              - 256
+              - 512
+              cudagraph_mode: FULL_DECODE_ONLY
+            additional_config:
+              enable_shared_expert_dp: true
+              ascend_fusion_config:
+                fusion_ops_gmmswigluquant: false
+              scheduler_config:
+                enable_balance_scheduling: true
+          env:
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            HCCL_BUFFSIZE: '512'
+            OMP_PROC_BIND: 'false'
+            OMP_NUM_THREADS: '1'
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+            HCCL_OP_EXPANSION_MODE: AIV
+            VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE: '1'
+
+  pd_disaggregation:
+    source_ref: ascend_glm47_pd#pd_2p1d_a3_to_a2_1p1d
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        default_strategy: true
+        nodes:
+        - role: prefill
+          index: 0
+          engine_config:
+            model: Eco-Tech/GLM-4.7-W8A8-floatmtp
+            host: "0.0.0.0"
+            port: 8000
+            data_parallel_size: 1
+            tensor_parallel_size: 8
+            enable_expert_parallel: true
+            seed: 1024
+            served_model_name: glm47
+            max_model_len: 133000
+            max_num_batched_tokens: 8192
+            max_num_seqs: 64
+            trust_remote_code: true
+            no_enable_prefix_caching: true
+            gpu_memory_utilization: 0.9
+            quantization: ascend
+            enforce_eager: true
+            speculative_config:
+              num_speculative_tokens: 1
+              method: mtp
+              enforce_eager: true
+            additional_config:
+              enable_shared_expert_dp: true
+              ascend_fusion_config:
+                fusion_ops_gmmswigluquant: false
+            kv_transfer_config:
+              kv_connector: MooncakeConnectorV1
+              kv_role: kv_producer
+              kv_port: 30000
+              engine_id: 0
+              kv_connector_extra_config:
+                prefill:
+                  dp_size: 1
+                  tp_size: 8
+                decode:
+                  dp_size: 1
+                  tp_size: 8
+          env:
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            HCCL_BUFFSIZE: '256'
+            HCCL_OP_EXPANSION_MODE: AIV
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+            OMP_PROC_BIND: 'false'
+            OMP_NUM_THREADS: '1'
+            VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE: '1'
+        - role: decode
+          index: 0
+          engine_config:
+            model: Eco-Tech/GLM-4.7-W8A8-floatmtp
+            host: "0.0.0.0"
+            port: 8000
+            data_parallel_size: 1
+            tensor_parallel_size: 8
+            enable_expert_parallel: true
+            seed: 1024
+            served_model_name: glm47
+            max_model_len: 133000
+            max_num_batched_tokens: 128
+            max_num_seqs: 4
+            trust_remote_code: true
+            no_enable_prefix_caching: true
+            gpu_memory_utilization: 0.9
+            quantization: ascend
+            speculative_config:
+              num_speculative_tokens: 3
+              method: mtp
+              enforce_eager: true
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+              cudagraph_capture_sizes: [1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 24, 26, 28, 30, 32, 64, 128, 256, 512]
+            additional_config:
+              recompute_scheduler_enable: true
+              enable_shared_expert_dp: true
+              ascend_fusion_config:
+                fusion_ops_gmmswigluquant: false
+            kv_transfer_config:
+              kv_connector: MooncakeConnectorV1
+              kv_role: kv_consumer
+              kv_port: 30100
+              engine_id: 1
+              kv_connector_extra_config:
+                prefill:
+                  dp_size: 1
+                  tp_size: 8
+                decode:
+                  dp_size: 1
+                  tp_size: 8
+          env:
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            HCCL_BUFFSIZE: '512'
+            HCCL_OP_EXPANSION_MODE: AIV
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+            OMP_PROC_BIND: 'false'
+            OMP_NUM_THREADS: '1'
+            VLLM_MOONCAKE_ABORT_REQUEST_TIMEOUT: '480'
+            TASK_QUEUE_ENABLE: '1'
+            VLLM_ASCEND_ENABLE_TOPK_OPTIMIZE: '1'

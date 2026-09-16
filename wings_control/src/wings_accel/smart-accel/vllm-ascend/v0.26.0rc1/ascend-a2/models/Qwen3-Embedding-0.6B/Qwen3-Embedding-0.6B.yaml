@@ -1,0 +1,6 @@
+model:
+  name: Qwen3-Embedding-0.6B
+  variant_name: Qwen3-Embedding-0.6B
+  match:
+  - name_pattern: (?i)^(?:Qwen/)?Qwen3-Embedding-0\.6B$
+smart_accel: {}

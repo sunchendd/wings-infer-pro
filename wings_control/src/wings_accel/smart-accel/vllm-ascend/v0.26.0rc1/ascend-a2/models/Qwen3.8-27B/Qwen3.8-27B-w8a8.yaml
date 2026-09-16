@@ -1,0 +1,22 @@
+model:
+  name: Qwen3.8-27B
+  variant_name: Qwen3.8-27B-w8a8
+  match:
+  - name_pattern: (?i)^Qwen3\.8\-27B\-w8a8$
+smart_accel:
+  standalone:
+    source_ref: ascend_qwen3.8-27b-w8a8#single_node
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+        - name: qwen3_5_mtp
+          cli_params:
+            speculative_config:
+              method: qwen3_5_mtp
+              num_speculative_tokens: 3
+              enforce_eager: true
+          envs: {}

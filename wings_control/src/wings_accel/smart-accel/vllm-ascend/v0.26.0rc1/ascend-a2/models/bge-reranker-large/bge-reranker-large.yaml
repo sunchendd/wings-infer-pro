@@ -1,0 +1,6 @@
+model:
+  name: bge-reranker-large
+  variant_name: bge-reranker-large
+  match:
+  - name_pattern: (?i)^bge\-reranker\-large$
+smart_accel: {}
