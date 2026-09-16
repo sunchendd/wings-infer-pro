@@ -117,6 +117,7 @@ architectures:
       GLM-5.2-w4a8c8: {vllm: glm45, vllm_ascend: glm45}
       GLM-5.2-w8a8: {vllm: glm45, vllm_ascend: glm45}
       GLM-5.2-w8a8c8: {vllm: glm45, vllm_ascend: glm45}
+      GLM-5.3-w8a8c8: {vllm: glm45, vllm_ascend: glm45}
 
   - name: Glm4MoeForCausalLM
     config:
@@ -298,6 +299,7 @@ architectures:
       DeepSeek-V4-Flash-Vision-Exp: {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
       DeepSeek-V4-Flash-Vision-Exp-w8a8-QuaRot: {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
       DeepSeek-V4-Pro-dspark: {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
+      DeepSeek-V4-Pro-0813-w4a8: {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
       DeepSeek-V4-Pro-fp8: {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
       DeepSeek-V4-Pro-nvfp4: {vllm: deepseek_v4, vllm_ascend: deepseek_v4}
       DeepSeek-V4.1-Flash: {vllm: deepseek_v41, vllm_ascend: deepseek_v41}

@@ -1,0 +1,122 @@
+# SmartAccel for the official vLLM-Ascend A3 DSpark PD recipe.
+model:
+  name: DeepSeek-V4-Pro
+  variant_name: "DeepSeek-V4-Pro-0813-w4a8"
+  match:
+    - name_pattern: "(?i)deepseek[-.]?v4[-.]?pro[-.]?0813[-.]?w4a8"
+smart_accel:
+  multi_node:
+    source_ref: vllm_ascend_deepseek-v4-pro-0813-w4a8#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        default_strategy: true
+        decoding:
+          - name: dspark
+            cli_params:
+              speculative_config:
+                num_speculative_tokens: 5
+                method: dspark
+                enforce_eager: true
+            envs: {}
+        sparse:
+          - name: performance_first
+            cli_params:
+              hf_overrides:
+                use_index_cache: true
+                index_topk_freq: 8
+            envs: {}
+          - name: accuracy_first
+            cli_params:
+              hf_overrides:
+                use_index_cache: true
+                index_topk_freq: 4
+            envs: {}
+  pd_disaggregation:
+    source_ref: vllm_ascend_deepseek-v4-pro-0813-w4a8#pd_cluster
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        default_strategy: true
+        nodes:
+          - role: prefill
+            index: 0
+            sparse:
+              - name: performance_first
+                cli_params:
+                  hf_overrides:
+                    use_index_cache: true
+                    index_topk_freq: 8
+                envs: {}
+              - name: accuracy_first
+                cli_params:
+                  hf_overrides:
+                    use_index_cache: true
+                    index_topk_freq: 4
+                envs: {}
+          - role: prefill
+            index: 1
+            sparse:
+              - name: performance_first
+                cli_params:
+                  hf_overrides:
+                    use_index_cache: true
+                    index_topk_freq: 8
+                envs: {}
+              - name: accuracy_first
+                cli_params:
+                  hf_overrides:
+                    use_index_cache: true
+                    index_topk_freq: 4
+                envs: {}
+          - role: decode
+            index: 0
+            decoding:
+              - name: dspark
+                cli_params:
+                  speculative_config:
+                    num_speculative_tokens: 5
+                    method: dspark
+                    enforce_eager: true
+                envs: {}
+            sparse:
+              - name: performance_first
+                cli_params:
+                  hf_overrides:
+                    use_index_cache: true
+                    index_topk_freq: 8
+                envs: {}
+              - name: accuracy_first
+                cli_params:
+                  hf_overrides:
+                    use_index_cache: true
+                    index_topk_freq: 4
+                envs: {}
+          - role: decode
+            index: 1
+            decoding:
+              - name: dspark
+                cli_params:
+                  speculative_config:
+                    num_speculative_tokens: 5
+                    method: dspark
+                    enforce_eager: true
+                envs: {}
+            sparse:
+              - name: performance_first
+                cli_params:
+                  hf_overrides:
+                    use_index_cache: true
+                    index_topk_freq: 8
+                envs: {}
+              - name: accuracy_first
+                cli_params:
+                  hf_overrides:
+                    use_index_cache: true
+                    index_topk_freq: 4
+                envs: {}

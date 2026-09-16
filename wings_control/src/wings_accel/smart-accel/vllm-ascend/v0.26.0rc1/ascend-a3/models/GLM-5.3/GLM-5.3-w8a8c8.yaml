@@ -1,0 +1,61 @@
+# SmartAccel for the official GLM-5.3 A3 recipe and its GLM-5.2 PD reference.
+model:
+  name: GLM-5.3
+  variant_name: "GLM-5.3-w8a8c8"
+  match:
+    - name_pattern: "(?i)^glm[-.]?5[.]3[-.]?w8a8c8$"
+smart_accel:
+  multi_node:
+    source_ref: "vllm_ascend_glm-5.3-w8a8c8#multi_node"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        default_strategy: true
+        decoding:
+          - name: deepseek_mtp
+            cli_params:
+              speculative_config:
+                num_speculative_tokens: 3
+                method: deepseek_mtp
+                enforce_eager: true
+            envs: {}
+  pd_disaggregation:
+    source_ref: "vllm_ascend_glm-5.2-pd-roce#pd_cluster"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        default_strategy: true
+        nodes:
+          # The upstream GLM-5.2 PD recipe starts P-side MTP directly from the
+          # base config. SmartAccel only models decode-side speculative decoding.
+          - role: prefill
+            index: 0
+          - role: prefill
+            index: 1
+          # The upstream PD reference uses five MTP tokens on Decode, which is
+          # a deliberate role-specific override of the co-located value above.
+          - role: decode
+            index: 0
+            decoding:
+              - name: deepseek_mtp
+                cli_params:
+                  speculative_config:
+                    num_speculative_tokens: 5
+                    method: deepseek_mtp
+                    enforce_eager: true
+                envs: {}
+          - role: decode
+            index: 1
+            decoding:
+              - name: deepseek_mtp
+                cli_params:
+                  speculative_config:
+                    num_speculative_tokens: 5
+                    method: deepseek_mtp
+                    enforce_eager: true
+                envs: {}
