@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shlex
 import tempfile
 from pathlib import Path
@@ -1234,8 +1235,10 @@ def build_scripts(
     # 与 PD 路径一致,先校验后落盘:守卫失败时不留下未通过校验的交付件。
     _validate_log_analyzer_present(resolved, start_content)
 
-    start_path.write_text(start_content, encoding="utf-8")
-    start_path.chmod(0o755)
+    start_temp = start_path.with_name(f".{start_path.name}.tmp")
+    start_temp.write_text(start_content, encoding="utf-8")
+    start_temp.chmod(0o755)
+    os.replace(start_temp, start_path)
 
     if launch_plan.repro_trace_lines is not None:
         repro_content = _render_plan_repro_sh(
@@ -1245,7 +1248,9 @@ def build_scripts(
         )
     else:
         repro_content = _render_repro_sh(resolved, launch_plan.system_setup_source_commands)
-    repro_path.write_text(repro_content, encoding="utf-8")
-    repro_path.chmod(0o755)
+    repro_temp = repro_path.with_name(f".{repro_path.name}.tmp")
+    repro_temp.write_text(repro_content, encoding="utf-8")
+    repro_temp.chmod(0o755)
+    os.replace(repro_temp, repro_path)
 
     return start_path, repro_path

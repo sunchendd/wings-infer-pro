@@ -6,6 +6,11 @@ version: "3.8"
 #   accel-init:     加速包镜像 /opt/packages/ → accel-vol
 #   aiperf-control: wings-control(wings-infer-pro) 生成 start_command.sh 到 shared-vol
 #   aiperf-engine:  等 start_command.sh 出现后 exec 拉起 vllm
+#
+# License 挂载已内置本文件(证书目录 / SafeTime 状态 / docker.sock / DMI),
+# 无需叠加任何 override。前提: IMAGE_CONTROL 必须是 -license 后缀 tag 的
+# wings-control 镜像(build/build.sh --enable-license 产出),否则 License
+# 校验直通放行。
 
 services:
   accel-init:
@@ -63,6 +68,14 @@ services:
       - shared-vol:/shared-volume
       - accel-vol:/accel-volume
       - ${MODEL_PATH}:${MODEL_PATH}:ro
+      # License 证书目录:宿主机放且只放一份 *.xml,容器内只读验签
+      - /etc/aiperf/license:/etc/aiperf/license:ro
+      # SafeTime 状态(时钟回拨检测水印):须持久化,重建容器不丢
+      - /var/lib/aiperf/license/adaptivelm:/var/lib/aiperf/license/adaptivelm
+      # 已用卡数自查:只读 sock,枚举 aiperf-engine 容器计数,不可用 env 伪造
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # ESN 防伪:checker 校验 DMI 目录确为真 sysfs 挂载,防 bind-mount 顶替
+      - /sys/class/dmi/id:/host-sys/class/dmi/id:ro
     entrypoint: ["/aiperf-control-entrypoint.sh"]
 
   aiperf-engine:

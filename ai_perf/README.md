@@ -10,14 +10,15 @@
 
 ```
 ai_perf/
-└── example/
-    ├── docker-compose-npu/   # 昇腾 NPU (vllm-ascend) 示例
-    │   ├── docker-compose.yaml
-    │   ├── env.example
-    │   ├── aiperf-control-entrypoint.sh
-    │   └── aiperf-engine-entrypoint.sh
-    └── docker-compose-gpu/   # NVIDIA GPU (vllm) 示例
-        └── (同上，runtime 换为 nvidia)
+├── example/
+│   ├── docker-compose-npu/   # 昇腾 NPU (vllm-ascend) 示例
+│   │   ├── docker-compose.yaml
+│   │   ├── env.example
+│   │   ├── aiperf-control-entrypoint.sh
+│   │   └── aiperf-engine-entrypoint.sh
+│   └── docker-compose-gpu/   # NVIDIA GPU (vllm) 示例
+│       └── (同上，runtime 换为 nvidia)
+└── license/                  # License 宿主机查询工具（随示例包统一分发；License 挂载已内置 example compose）
 ```
 
 启动流程：
@@ -88,9 +89,9 @@ docker-compose --env-file env -f docker-compose.yaml logs -f aiperf-engine  # �
 
 ## 镜像来源
 
-在 wings-infer-pro 仓库执行 `bash build/build.sh <版本号>` 产出
-`Wings_infer_<版本>_<arch>.zip`（含 `Wings_accel_*.tar` 与 `Wings_control_*.tar`），
-解压后：
+在 wings-infer-pro 仓库执行 `bash build/build.sh --enable-license --ai_perf <版本号>`
+产出 `Wings_infer_<版本>_<arch>.zip`（含 `Wings_accel_*.tar` 与 `Wings_control_*.tar`；
+control 镜像为 `-license` 后缀 tag 的门禁镜像），解压后：
 
 ```bash
 docker load -i Wings_accel_<版本>_<arch>.tar    # → IMAGE_ACCEL
@@ -144,6 +145,25 @@ docker load -i Wings_control_<版本>_<arch>.tar  # → IMAGE_CONTROL
 脚本文件。若模型在 wings-control 配置树中无专属 recipe，框架会用
 `default_model.yaml` 兜底并把每个参数的来源写入 `audit.json`（可在
 `/shared-volume` 挂载卷中查看）。
+
+## License
+
+License 校验由 wings-control 完成。将宿主机 esn 号对应的 License 证书放入
+`/etc/aiperf/license/`，由 control 容器只读挂载后于启动时验签一次。
+
+`license/` 目录提供宿主机查询工具（查看证书内容与 ESN），随示例包统一
+分发。License 挂载（证书目录 / SafeTime 状态 / docker.sock / DMI）已内置
+example 的 `docker-compose.yaml`，部署与普通流程同一条命令，无需叠加任何
+override；`IMAGE_CONTROL` 需指向 `-license` 后缀 tag 的 wings-control 镜像
+（由 `build/build.sh --enable-license` 产出）：
+
+```bash
+python3 license/aiperf.py license show
+
+# License 部署与普通部署同一条命令
+cd example/docker-compose-npu
+docker compose --env-file env -f docker-compose.yaml up -d
+```
 
 ## 已验证基线
 

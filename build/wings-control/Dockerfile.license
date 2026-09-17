@@ -1,0 +1,57 @@
+# =============================================================================
+# Wings-Control License 叠加层 Dockerfile(分层构建)
+#
+# 分层方式:本文件 FROM 普通镜像(由 Dockerfile 先行构建)叠加 License 资产,
+# 普通 Dockerfile 保持零 License 逻辑;两者重复归零。
+#
+#   阶段1(脚本完成): docker build -f Dockerfile -t wings-control:<V> .
+#   阶段2(本文件):   docker build -f Dockerfile.license \
+#                       --build-arg BASE_IMG=wings-control:<V> \
+#                       -t wings-control:<V>-license .
+#
+# 叠加内容(相对普通镜像的差异):
+#   - /opt/wings-license/: native checker + 加密产品 Key + libboundscheck
+#   - 覆盖 /opt/wings-control/src/wings_ctl/license.py(普通镜像已删)与
+#     build_info.py(LICENSE_ENABLED=True)
+#   - 创建 /etc/aiperf/license 证书挂载点
+#   - LABEL aiperf.license.enabled=true(独立 -license tag 物理隔离)
+# =============================================================================
+ARG BASE_IMG
+FROM ${BASE_IMG} AS license-builder
+
+# checker 编译工具链只在 builder 阶段存在,不进最终镜像。
+RUN echo "Types: deb" > /etc/apt/sources.list.d/debian.sources && \
+    echo "URIs: https://mirrors.xfusion.com/debian" >> /etc/apt/sources.list.d/debian.sources && \
+    echo "Suites: trixie trixie-updates" >> /etc/apt/sources.list.d/debian.sources && \
+    echo "Components: main" >> /etc/apt/sources.list.d/debian.sources && \
+    echo "Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg" >> /etc/apt/sources.list.d/debian.sources && \
+    apt-get update && apt-get install -y build-essential cmake unzip wget && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY ./wings_control/src/wings_ctl/license.py /staged-license/license.py
+COPY ./wings_control/license_sdk /tmp/license_sdk
+RUN printf '%s\n\n%s\n' '"""Generated immutable build declarations."""' 'LICENSE_ENABLED = True' \
+      > /staged-license/build_info.py && \
+    bash /tmp/license_sdk/build.sh /license-output
+
+FROM ${BASE_IMG}
+
+# 叠加 License 运行时资产。注意:普通镜像已跑 compile_wings.sh(全部 .py → .pyc
+# 并删除明文),本层重新引入的 license.py/build_info.py 必须同样编译并删明文,
+# 保证 License 交付不引入未加密源码层。
+COPY --from=license-builder /license-output /opt/wings-license
+COPY --from=license-builder /staged-license/license.py /opt/wings-control/src/wings_ctl/license.py
+COPY --from=license-builder /staged-license/build_info.py /opt/wings-control/src/wings_ctl/build_info.py
+RUN python -m compileall -b -f /opt/wings-control/src/wings_ctl/license.py \
+                         /opt/wings-control/src/wings_ctl/build_info.py && \
+    rm -f /opt/wings-control/src/wings_ctl/license.py \
+          /opt/wings-control/src/wings_ctl/build_info.py && \
+    mkdir -p /etc/aiperf/license
+
+ARG WINGS_VERSION
+ARG WINGS_CONTROL_BUILD_DATE
+
+LABEL description="Wings Control Service with AIPerf License" \
+      version="${WINGS_VERSION}" \
+      aiperf.license.enabled="true" \
+      WINGS_CONTROL_BUILD_DATE=$WINGS_CONTROL_BUILD_DATE
