@@ -154,13 +154,10 @@ scenarios:
           system_setup:
             commands: ["nic_name=\"xxxx\" # change to the NIC that owns local_ip", "local_ip=\"xx.xx.xx.x\" # use the IP of Node1", "node0_ip=\"xx.xx.xx.x\" # use Node0 local_ip"]
 
-  # GLM-5.3 itself has not been tested upstream in PD mode. The role shapes and
-  # parameters below are the official GLM-5.2 A3 PD reference adapted only to
-  # the GLM-5.3-w8a8c8 model identity. The exact PD path currently rejects
+  # The exact PD path currently rejects
   # ENABLE_SPECULATIVE_DECODE, so the upstream role-specific MTP configuration
   # remains in the base recipe; the matching SmartAccel decode definition is
-  # retained for a future PD SmartAccel implementation. Before launch, assign a
-  # distinct HCCL_LOGIC_SUPERPOD_ID to each of the four physical nodes.
+  # retained for a future PD SmartAccel implementation.
   pd_disaggregation:
     source_ref: "vllm_ascend_glm-5.2-pd-roce#pd_cluster"
     match:
