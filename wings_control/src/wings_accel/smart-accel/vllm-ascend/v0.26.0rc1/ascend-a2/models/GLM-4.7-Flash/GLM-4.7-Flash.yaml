@@ -1,0 +1,21 @@
+model:
+  name: GLM-4.7-Flash
+  variant_name: GLM-4.7-Flash
+  match:
+    - name_pattern: "(?i)^glm[-.]?4[.-]7[-.]?flash$"
+smart_accel:
+  standalone:
+    source_ref: glm_4_7_flash_hf_model_card#vllm
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+          - name: mtp
+            cli_params:
+              speculative_config:
+                method: mtp
+                num_speculative_tokens: 1
+            envs: {}

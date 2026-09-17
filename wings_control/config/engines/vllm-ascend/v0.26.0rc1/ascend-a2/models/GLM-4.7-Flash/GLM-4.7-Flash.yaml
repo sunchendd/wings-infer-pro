@@ -1,0 +1,42 @@
+upstream_sources:
+  - id: glm_4_7_flash_hf_model_card
+    kind: official_model_card
+    repo: zai-org/GLM-4.7-Flash
+    file: README.md
+    url: "https://huggingface.co/zai-org/GLM-4.7-Flash"
+    note: The official vLLM example specifies TP=4, MTP, glm47 tool calling, and glm45 reasoning parsing. Its dotted MTP flags are represented as the equivalent canonical speculative-config JSON feature. No A2 hardware execution was performed.
+model:
+  name: GLM-4.7-Flash
+  provider: zai-org
+  model_id: zai-org/GLM-4.7-Flash
+  min_engine_version: v0.26.0rc1
+  match:
+    - name_pattern: "(?i)^glm[-.]?4[.-]7[-.]?flash$"
+  variant_name: GLM-4.7-Flash
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 512
+  multi_node: false
+features:
+  spec_decoding:
+    args: [--speculative-config, "{\"method\":\"mtp\",\"num_speculative_tokens\":1}"]
+  tool_calling:
+    args: [--tool-call-parser, glm47, --enable-auto-tool-choice]
+  reasoning:
+    args: [--reasoning-parser, glm45]
+scenarios:
+  standalone:
+    source_ref: glm_4_7_flash_hf_model_card#vllm
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: zai-org/GLM-4.7-Flash
+          host: "0.0.0.0"
+          tensor_parallel_size: 2
+          served_model_name: glm-4.7-flash
+        env: {}
