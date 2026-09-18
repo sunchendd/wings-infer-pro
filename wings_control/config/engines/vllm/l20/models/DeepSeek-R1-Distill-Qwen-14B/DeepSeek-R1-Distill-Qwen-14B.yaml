@@ -31,7 +31,7 @@ model:
 hardware_profile:
   gpu_count: 1  # 单节点 GPU 数量
   vram_gb: 48  # 单节点总显存(GB)（1 × 48GB）
-  multi_node: true  # 仅支持单节点
+  multi_node: true
 
 # 部署场景
 scenarios:
