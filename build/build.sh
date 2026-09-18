@@ -131,6 +131,13 @@ function package_ai_perf() {
         exit 1
     fi
 
+    # aiperf 示例交付只有带 License 的一套,宿主机查询工具随包分发,
+    # 要求工具存在避免打出残包;非 License 组合已在 main 前置拦截。
+    if [ ! -f "${ai_perf_dir}/license/aiperf.py" ]; then
+        log_error "缺少 ai_perf/license/aiperf.py"
+        exit 1
+    fi
+
     if [ -f "${WORK_DIR}/output/${zip_name}" ]; then
         rm -f "${WORK_DIR}/output/${zip_name}"
     fi
@@ -191,22 +198,45 @@ function main() {
 
     log_info "create tar file"
 
-    # 解析参数：--ai_perf 可选参数（默认关闭），其余位置参数中第一个作为版本号
+    # 解析参数：wings-control 镜像保留两套,由 --enable-license 选择门禁
+    # 镜像(默认关闭产出无门禁镜像);aiperf 示例交付只有带 License 的一套,
+    # --ai_perf 须与 --enable-license 组合;其余位置参数中第一个作为版本号
     AI_PERF=0
+    LICENSE_ENABLED=false
     WINGS_VERSION="26.0.0"
     if [ "$#" -gt 0 ]; then
+        version_seen=0
         for arg in "$@"; do
             if [ "$arg" = "--ai_perf" ]; then
                 AI_PERF=1
-            elif [ "$WINGS_VERSION" = "26.0.0" ]; then
-                # 由CI构建控制最终的出包版本（取第一个非 --ai_perf 参数）
+            elif [ "$arg" = "--enable-license" ]; then
+                LICENSE_ENABLED=true
+            elif [ "$arg" = "--disable-license" ]; then
+                LICENSE_ENABLED=false
+            elif [[ "$arg" == --* ]]; then
+                log_error "未知参数: $arg"
+                exit 2
+            elif [ "$version_seen" -eq 0 ]; then
                 WINGS_VERSION=$arg
+                version_seen=1
+            else
+                log_error "只能指定一个版本号，额外参数: $arg"
+                exit 2
             fi
         done
     fi
     export WINGS_VERSION=$WINGS_VERSION
+    export LICENSE_ENABLED=$LICENSE_ENABLED
+    # aiperf 交付归一为 License 一套:example 已内置 License 挂载并指向
+    # -license tag,无门禁镜像混入会形成不自洽的交付件,直接前置报错。
+    if [ "$AI_PERF" = "1" ] && [ "$LICENSE_ENABLED" != "true" ]; then
+        log_error "--ai_perf 须与 --enable-license 组合: aiperf 交付只有带 License 的一套"
+        exit 2
+    fi
     echo "[Wings][INFO] version: $WINGS_VERSION"
     echo "[Wings][INFO] ai_perf: $AI_PERF"
+    # License 构建开关不落在构建日志(安全编码规则 1.3:日志不输出敏感配置);
+    # 是否启用的判定在脚本内与镜像 label 中体现。
 
     print_banner
     build_wings_accel

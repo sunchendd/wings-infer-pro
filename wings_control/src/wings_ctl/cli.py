@@ -42,6 +42,7 @@ from wings_ctl.core.models import ClusterPlacement, CustomConfigFile, PipelineRe
 from wings_ctl.core.system_setup import render_source_command_blocks
 from wings_ctl.engines.registry import format_launch_dry_run_preview, format_launch_summary
 from wings_ctl.engines.vllm_adapter import build_argv, build_system_setup_source_commands
+from wings_ctl.license_gate import validate_device_count_early
 from wings_ctl.pd.input_contract import parse_pd_runtime_input
 from wings_ctl.pipeline import resolve_pipeline, resolve_pipeline_custom, run_pipeline, run_pipeline_custom
 from wings_ctl.strategy.pre_template import pre_template_strategy
@@ -91,7 +92,7 @@ def _collect_user_cli_overrides(
     overrides: Dict[str, Any] = {}
     if host is not None:
         overrides["host"] = host
-    if port is not None:
+    if port is not None or os.environ.get("ENGINE_PORT"):
         # --port 有**两个去向**(别当 bug):用户 --port 是 **proxy 对外端口**,不是引擎端口。
         #   ① 这里:engine 的 `port` 覆盖成 **backend 端口**(ENGINE_PORT / 默认 17000),它才进 argv。
         #   ② 另一处:**proxy 对外端口**由 _export_proxy_port() 写入 env PORT(见该函数)。
@@ -685,6 +686,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Print argv to stdout without writing files",
     )
     parser.add_argument(
+        "--license-file",
+        type=Path,
+        default=None,
+        help=(
+            "License file or directory containing exactly one *.xml, "
+            "honored only by License-enabled builds "
+            "(default: /etc/aiperf/license)"
+        ),
+    )
+    parser.add_argument(
         "--gpu-usage-mode",
         type=str,
         default="full",
@@ -734,6 +745,12 @@ def main() -> None:
         os.environ["ENGINE"] = engine
         hardware_info_path = _resolve_hardware_info_path(args.hardware_info)
         device_count = _resolve_device_count(args.device_count)
+        # License 构建(device_count 必填)的前移强校验:必须在任何依赖
+        # device_count 的校验(尤其 resolve_config 的 TP-shrink 前置闸)之前,
+        # 缺失/非正整数以唯一可检索的 code=2016 device_count_unknown 拒绝,
+        # 避免 None 落入 TP-shrink 后误导性的 hardware_family 报错。
+        # 普通构建(Null 门禁)直通,device_count 仍为可选。
+        validate_device_count_early(device_count)
         # 显式副作用:把 --port(对外/代理端口)写入 env PORT,供 proxy 子系统读取(独立成步,不藏在参数收集里)。
         _export_proxy_port(args.port)
 
@@ -840,6 +857,7 @@ def main() -> None:
         placement=placement,
         pd_input=pd_input,
         pd_role_missing_legacy=pd_role_missing_legacy,
+        license_file=args.license_file,
     )
 
 # 自定义传参方式(--config-file)分派:有 → 走独立 custom 支线(跳过 recipe);

@@ -16,6 +16,7 @@ from wings_ctl.core.models import CustomConfigFile, PipelineRequest, ResolvedCon
 from wings_ctl.engines.extension import get_engine_extension
 from wings_ctl.engines.version_resolver import resolve_engine_version
 from wings_ctl.hardware.resolver import resolve_hardware
+from wings_ctl.license_gate import get_license_gate
 from wings_ctl.loaders.config_root import resolve_config_root
 from wings_ctl.rendering.script_builder import build_scripts
 from wings_ctl.validators.engine_param_validator import validate_engine_params
@@ -116,10 +117,16 @@ def run_pipeline_custom(
     复用 ``run_pipeline`` 的三件产物落盘与启动摘要(build_scripts / emit_audit /
     emit_startup_summary 均纯消费 ResolvedConfig,零改动复用)。
     """
-    resolved = resolve_pipeline_custom(request, config_file)
+    publisher = get_license_gate()
+    with publisher.lock(output_dir):
+        publisher.invalidate(output_dir)
+        resolved = resolve_pipeline_custom(request, config_file)
+        publisher.enforce(request, resolved)
+        artifact_dir, _ = publisher.artifact_dir(output_dir)
 
-    start_path, repro_path = build_scripts(resolved, output_dir)
-    audit_path = emit_audit(resolved, output_dir)
+        start_path, repro_path = build_scripts(resolved, artifact_dir)
+        audit_path = emit_audit(resolved, artifact_dir)
+        publisher.publish(output_dir, None, artifact_dir)
     env_log = os.environ.get("WINGS_START_LOG")
     startup_log_target = Path(env_log) if env_log else Path("/var/log/wings/wings_start.log")
     emit_startup_summary(
@@ -149,15 +156,21 @@ def run_pipeline(request: PipelineRequest, output_dir: Path) -> Tuple[ResolvedCo
     Returns:
         (ResolvedConfig, start_command.sh path, repro.sh path, audit.json path)
     """
-    resolved = resolve_pipeline(request)
-    extension = get_engine_extension(resolved.engine)
-    if extension.control_prepare is not None:
-        # Shared inputs must be complete before start_command.sh becomes visible
-        # to the engine container.
-        extension.control_prepare(resolved)
+    publisher = get_license_gate()
+    with publisher.lock(output_dir):
+        publisher.invalidate(output_dir)
+        resolved = resolve_pipeline(request)
+        publisher.enforce(request, resolved)
+        extension = get_engine_extension(resolved.engine)
+        if extension.control_prepare is not None:
+            # Shared inputs must be complete before start_command.sh becomes visible
+            # to the engine container.
+            extension.control_prepare(resolved)
 
-    start_path, repro_path = build_scripts(resolved, output_dir)
-    audit_path = emit_audit(resolved, output_dir)
+        artifact_dir, _ = publisher.artifact_dir(output_dir)
+        start_path, repro_path = build_scripts(resolved, artifact_dir)
+        audit_path = emit_audit(resolved, artifact_dir)
+        publisher.publish(output_dir, None, artifact_dir)
     # WINGS_START_LOG 显式设了就用它(失败 WARN);否则默认 /var/log/wings(失败安静降级)。
     env_log = os.environ.get("WINGS_START_LOG")
     startup_log_target = Path(env_log) if env_log else Path("/var/log/wings/wings_start.log")

@@ -68,6 +68,8 @@ extend-exclude = [
   # wings-accel 模块(独立包 src/wings_accel + tests):整合前不 gate,同 proxy 子系统;收口时清
   "src/wings_accel",
   "tests/wings_accel",
+  "license_sdk/adaptivelm",
+  "license_sdk/libboundscheck",
   "scratch",
 ]
 

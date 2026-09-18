@@ -391,6 +391,7 @@ class PipelineRequest:
     placement: Optional[ClusterPlacement] = None
     pd_input: Optional[PdRuntimeInput] = None
     pd_role_missing_legacy: bool = False
+    license_file: Optional[Path] = None
 
 @dataclass(frozen=True)
 class CustomConfigFile:

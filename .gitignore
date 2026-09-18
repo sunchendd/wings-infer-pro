@@ -15,3 +15,9 @@ scratch/
 .coverage.*
 htmlcov/
 coverage.xml
+
+# license_sdk 第三方源码构建期从内部制品仓库下载,不入库(解压目录与下载缓存均不入库)
+wings_control/license_sdk/adaptivelm/
+wings_control/license_sdk/libboundscheck/
+wings_control/license_sdk/AdaptiveLMV100R005C10_S.tar
+wings_control/license_sdk/libboundscheck-v1.1.16.zip

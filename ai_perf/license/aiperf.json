@@ -1,0 +1,4 @@
+{
+  "license_dir": "/etc/aiperf/license",
+  "board_serial_path": "/sys/class/dmi/id/board_serial"
+}
