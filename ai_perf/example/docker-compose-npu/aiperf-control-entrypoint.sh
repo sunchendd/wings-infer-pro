@@ -38,6 +38,7 @@ CMD=(
     "--output-length" "${OUTPUT_LENGTH:-10000}"
     "--max-num-seqs" "${MAX_NUM_SEQS:-64}"
     "--gpu-memory-utilization" "${GPU_MEMORY_UTILIZATION:-0.9}"
+    "--port" "${CONTROL_PORT:-${PORT}}"
 )
 # DEVICE_COUNT 未设置时不传:License 镜像由 wings-ctl 以 code=2016 拒绝,
 # 不得默认传 1(与 XPU_VISIBLE_DEVICES 不一致时会成为配额低估通道)。
