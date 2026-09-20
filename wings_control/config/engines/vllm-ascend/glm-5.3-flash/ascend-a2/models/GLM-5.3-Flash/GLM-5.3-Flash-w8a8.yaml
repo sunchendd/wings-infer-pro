@@ -1,0 +1,126 @@
+# Source provenance
+upstream_sources:
+  - id: vllm_ascend_glm-5.3-flash_w8a8_manual_910b_dual
+    kind: manual
+    repo: null
+    file: null
+    url: null
+    note: User-provided vLLM Ascend dual-node launch commands for quay.io/ascend/vllm-ascend:glm-5.3-flash, manually recorded.
+
+# Model metadata
+model:
+  name: GLM-5.3-Flash
+  provider: null  # Unconfirmed from the launch commands.
+  model_id: null  # The launch commands use the deployable /models mount.
+  min_engine_version: glm-5.3-flash
+  match:
+    - name_pattern: '(?i)^glm-5\.3-flash-w8a8$'
+  variant_name: GLM-5.3-Flash-w8a8
+
+# Ascend 910B dual-node hardware profile
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 512
+  multi_node: true
+
+# Optional model features extracted from both launch commands
+features:
+  spec_decoding:
+    description: DeepSeek MTP speculative decoding with two speculative tokens.
+    args: [--speculative-config, "{\"num_speculative_tokens\":2,\"method\":\"deepseek_mtp\",\"enforce_eager\":true}"]
+
+# Deployment scenarios
+scenarios:
+  multi_node:
+    source_ref: "vllm_ascend_glm-5.3-flash_w8a8_manual_910b_dual#multi_node"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        display_name: Multi-Node
+        default_strategy: true
+        head:
+          engine_config:
+            model: /models
+            host: "0.0.0.0"
+            port: 17000
+            max_model_len: 1048576
+            no_scheduler_reserve_full_isl: true
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 0
+            data_parallel_address: 7.6.50.32
+            data_parallel_rpc_port: 12321
+            tensor_parallel_size: 8
+            enable_expert_parallel: true
+            seed: 1024
+            served_model_name: glm-5.3-flash-w8a8
+            safetensors_load_strategy: prefetch
+            max_num_seqs: 128
+            max_num_batched_tokens: 8192
+            trust_remote_code: true
+            quantization: ascend
+            limit_mm_per_prompt:
+              image: 1
+              video: 0
+            gpu_memory_utilization: 0.85
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+              cudagraph_capture_sizes: [1, 2, 4, 8, 16, 32, 64, 96, 128, 256, 384]
+            api_server_count: 1
+          env:
+            PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+            HCCL_OP_EXPANSION_MODE: AIV
+            HCCL_BUFFSIZE: 1024
+            VLLM_RPC_TIMEOUT: 3600000
+            VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: 3000
+            HCCL_EXEC_TIMEOUT: 3600
+            HCCL_CONNECT_TIMEOUT: 1200
+            GLOO_SOCKET_IFNAME: bond0
+            TP_SOCKET_IFNAME: bond0
+            HCCL_SOCKET_IFNAME: bond0
+            HCCL_IF_IP: 7.6.50.32
+            VLLM_SERVER_DEV_MODE: 1
+        worker:
+          engine_config:
+            model: /models
+            host: "0.0.0.0"
+            port: 17000
+            headless: true
+            max_model_len: 1048576
+            no_scheduler_reserve_full_isl: true
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 1
+            data_parallel_address: 7.6.50.32
+            data_parallel_rpc_port: 12321
+            tensor_parallel_size: 8
+            enable_expert_parallel: true
+            seed: 1024
+            served_model_name: glm-5.3-flash-w8a8
+            safetensors_load_strategy: prefetch
+            max_num_seqs: 128
+            max_num_batched_tokens: 8192
+            trust_remote_code: true
+            quantization: ascend
+            limit_mm_per_prompt:
+              image: 1
+              video: 0
+            gpu_memory_utilization: 0.85
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+              cudagraph_capture_sizes: [1, 2, 4, 8, 16, 32, 64, 96, 128, 256, 384]
+          env:
+            PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+            HCCL_OP_EXPANSION_MODE: AIV
+            HCCL_BUFFSIZE: 1024
+            VLLM_RPC_TIMEOUT: 3600000
+            VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: 3000
+            HCCL_EXEC_TIMEOUT: 3600
+            HCCL_CONNECT_TIMEOUT: 1200
+            GLOO_SOCKET_IFNAME: bond0
+            TP_SOCKET_IFNAME: bond0
+            HCCL_SOCKET_IFNAME: bond0
+            HCCL_IF_IP: 7.6.50.31
+            VLLM_SERVER_DEV_MODE: 1
