@@ -1,0 +1,80 @@
+# Source provenance
+upstream_sources:
+  - id: vllm_ascend_glm-5.3-flash_w8a8_manual
+    kind: manual
+    repo: null
+    file: null
+    url: null
+    note: User-provided vLLM Ascend standalone launch command for the released nightly image, manually recorded.
+
+# Model metadata
+model:
+  name: GLM-5.3-Flash
+  provider: null  # Unconfirmed from the launch command.
+  model_id: null  # The launch command uses the deployable local model path below.
+  min_engine_version: glm-5.3-flash-nightly-a3
+  match:
+    - name_pattern: '(?i)^glm-5\.3-flash-w8a8$'
+  variant_name: GLM-5.3-Flash-w8a8
+
+# Ascend 910C single-node hardware profile
+hardware_profile:
+  gpu_count: 16
+  vram_gb: 1024
+  multi_node: false
+
+# Optional model features extracted from the launch command
+features:
+  reasoning:
+    description: Parse GLM reasoning content with the glm45 parser.
+    args: [--reasoning-parser, glm45]
+  spec_decoding:
+    description: DeepSeek MTP speculative decoding with three speculative tokens.
+    args: [--speculative-config, "{\"num_speculative_tokens\":3,\"method\":\"deepseek_mtp\",\"enforce_eager\":true}"]
+  kv_offloading:
+    description: Native SimpleOffload with 128 GiB host-memory capacity.
+    args: [--kv-offloading-size, "128", --kv-offloading-backend, native]
+
+# Deployment scenarios
+scenarios:
+  standalone:
+    source_ref: "vllm_ascend_glm-5.3-flash_w8a8_manual#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: /var/ai-model/GLM-5.3-Flash-w8a8
+          host: "0.0.0.0"
+          port: 17000
+          data_parallel_size: 1
+          tensor_parallel_size: 16
+          enable_expert_parallel: true
+          seed: 1024
+          served_model_name: glm-5.3-flash-w8a8
+          safetensors_load_strategy: prefetch
+          max_num_seqs: 32
+          max_num_batched_tokens: 8192
+          trust_remote_code: true
+          quantization: ascend
+          limit_mm_per_prompt:
+            image: 1
+            video: 0
+          gpu_memory_utilization: 0.85
+          enable_prefix_caching: true
+          no_disable_hybrid_kv_cache_manager: true
+          compilation_config:
+            cudagraph_mode: FULL_DECODE_ONLY
+            cudagraph_capture_sizes: [1, 2, 4, 8, 16, 32, 64, 96, 128]
+          api_server_count: 1
+        env:
+          ASCEND_CUSTOM_OPP_PATH: "${ASCEND_CUSTOM_OPP_PATH:-}"
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          HCCL_OP_EXPANSION_MODE: AIV
+          HCCL_BUFFSIZE: 400
+          VLLM_USE_SIMPLE_KV_OFFLOAD: 1
+        system_setup:
+          commands: ['custom_env=/usr/local/Ascend/cann-9.1.0/opp/vendors/custom_transformer/bin/set_env.bash; if [[ ! -f "$custom_env" ]]; then custom_env=/vllm-workspace/vllm-ascend/vllm_ascend/_cann_ops_custom/vendors/custom_transformer/bin/set_env.bash; fi; source "$custom_env"']

@@ -1,0 +1,30 @@
+# SmartAccel asset validated against the released 910C single-node nightly command.
+model:
+  name: GLM-5.3-Flash
+  variant_name: "GLM-5.3-Flash-w8a8"
+  match:
+    - name_pattern: '(?i)^glm-5\.3-flash-w8a8$'
+smart_accel:
+  standalone:
+    source_ref: "nightly_a3_20260918105206#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+        - name: deepseek_mtp
+          cli_params:
+            speculative_config:
+              method: deepseek_mtp
+              num_speculative_tokens: 3
+              enforce_eager: true
+          envs: {}
+        kv_offload:
+        - name: cpu
+          cli_params:
+            kv_offloading_backend: native
+            kv_offloading_size: '{memory_capacity_gb}'
+          envs:
+            VLLM_USE_SIMPLE_KV_OFFLOAD: 1
