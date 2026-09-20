@@ -106,7 +106,7 @@ YAML 不写 `ENABLE_*` 开关。`cpu`、`disk`、`cpu_disk` 分别由内存/磁�
 | --- | --- |
 | vLLM 原生 CPU | `name: cpu`，`kv_offloading_backend: native`，容量用 `{memory_capacity_gb}`。 |
 | LMCache disk/cpu_disk | `LMCacheConnectorV1`；按基线保留所需 `envs`、包和配置文件。若使用 `files` 写 LMCache 配置，`envs` 的 `LMCACHE_CONFIG_FILE` 必须指向它。 |
-| Ascend LMCache | `name: cpu`，`LMCacheAscendConnectorV1Dynamic`；按已验证资产声明包和 LMCache 环境变量。`LMCACHE_MAX_LOCAL_CPU_SIZE` 是每 worker 上限，而 `{memory_capacity_gb}` 是 Pod 总卸载配额，因此应使用 `{= memory_capacity_gb // (tp_size * dp_size)}`。 |
+| Ascend LMCache | `name: cpu`，`LMCacheAscendConnectorV1Dynamic`；按已验证资产声明包和 LMCache 环境变量。`LMCACHE_MAX_LOCAL_CPU_SIZE` 是每 worker 上限，而 `{memory_capacity_gb}` 是 Pod 总卸载配额，因此应使用 `{= memory_capacity_gb // gpu_count}`（每 Pod worker 数恒等于卡数；`tp_size`/`dp_size` 是 recipe 静态模板值，平台改卡数后会失真，勿用于均分）。 |
 | mooncake/memcache | `name: cpu`，`AscendStoreConnector` 和 `backend`；使用 `files` 写配置及 `start_kv_serve.sh`。mooncake 才加 `LD_LIBRARY_PATH`。 |
 | LMCache MP | `name: cpu`，`LMCacheMPConnector`；connector 参数在 `kv_transfer_config`，server 参数在 `start_kv_serve.sh`。 |
 

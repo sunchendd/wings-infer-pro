@@ -37,7 +37,7 @@ smart_accel:
             PYTHONHASHSEED: '0'
             LMCACHE_TRACK_USAGE: 'false'
             LMCACHE_LOCAL_CPU: 'True'
-            LMCACHE_MAX_LOCAL_CPU_SIZE: '{= memory_capacity_gb // (tp_size * dp_size)}'
+            LMCACHE_MAX_LOCAL_CPU_SIZE: '{= memory_capacity_gb // gpu_count}'
             LMCACHE_LOG_LEVEL: INFO
             LMCACHE_USE_LAYERWISE: 'False'
             LMCACHE_NUMA_MODE: auto
@@ -87,7 +87,7 @@ smart_accel:
             PYTHONHASHSEED: '0'
             LMCACHE_TRACK_USAGE: 'false'
             LMCACHE_LOCAL_CPU: 'True'
-            LMCACHE_MAX_LOCAL_CPU_SIZE: '{= memory_capacity_gb // (tp_size * dp_size)}'
+            LMCACHE_MAX_LOCAL_CPU_SIZE: '{= memory_capacity_gb // gpu_count}'
             LMCACHE_LOG_LEVEL: INFO
             LMCACHE_USE_LAYERWISE: 'False'
             LMCACHE_NUMA_MODE: auto

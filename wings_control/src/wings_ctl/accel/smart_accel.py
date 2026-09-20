@@ -457,6 +457,7 @@ def apply_smart_accel(
             pod_available_memory_gb=switches["available_pod_mem_gb"],
             tp_size=tp_size,
             dp_size=dp_size,
+            gpu_count=gpu_count or 1,
         )
         output = mod.resolve_smart_accel_from_config(
             config_root=config_root,
