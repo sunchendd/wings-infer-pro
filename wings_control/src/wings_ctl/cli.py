@@ -57,7 +57,9 @@ def _collect_user_cli_overrides(
     host: str | None,
     port: int | None,
     model_path: str | None,
+    engine_port: int | None = None,
     model_name: str | None = None,
+    served_model_name: str | None = None,
     max_num_seqs: int | None = None,
     max_num_batched_tokens: int | None = None,
     input_length: int | None = None,
@@ -92,7 +94,11 @@ def _collect_user_cli_overrides(
     overrides: Dict[str, Any] = {}
     if host is not None:
         overrides["host"] = host
-    if port is not None or os.environ.get("ENGINE_PORT"):
+    if engine_port is not None:
+        # --engine-port 是 engine backend 端口的显式覆盖,优先级高于 ENGINE_PORT env;
+        # 它与 --port(仅 proxy)无关,直接作为 engine `port` 进入 user_cli 层。
+        overrides["port"] = engine_port
+    elif port is not None or os.environ.get("ENGINE_PORT"):
         # --port 有**两个去向**(别当 bug):用户 --port 是 **proxy 对外端口**,不是引擎端口。
         #   ① 这里:engine 的 `port` 覆盖成 **backend 端口**(ENGINE_PORT / 默认 17000),它才进 argv。
         #   ② 另一处:**proxy 对外端口**由 _export_proxy_port() 写入 env PORT(见该函数)。
@@ -103,6 +109,8 @@ def _collect_user_cli_overrides(
         overrides["model_path"] = model_path
     if model_name is not None:
         overrides["model_name"] = model_name
+    if served_model_name is not None:
+        overrides["served_model_name"] = served_model_name
     if max_num_seqs is not None:
         overrides["max_num_seqs"] = max_num_seqs
     if max_num_batched_tokens is not None:
@@ -169,11 +177,12 @@ def _drop_pd_backend_port_compat(
     overrides: Dict[str, Any],
     dropped: list[Dict[str, Any]],
 ) -> tuple[Dict[str, Any], list[Dict[str, Any]]]:
-    """移除 ``--port`` 为标准推理生成的 engine backend 兼容覆盖。
+    """移除 ``--port``/``--engine-port`` 在 PD 下派生的 user_cli ``port`` 覆盖。
 
-    MaaS 的 ``--port`` 始终属于 proxy，并已由 ``_export_proxy_port`` 写入 ``PORT``。
-    标准推理历史路径还会把它映射成 engine backend；PD backend 则由 exact recipe 规划，
-    必须在进入 resolver 前去掉该派生值并保留 dropped audit。
+    PD backend 端口由 exact recipe 规划,并可通过 ``--engine-port``/``ENGINE_PORT``
+    作为端口基座覆盖(由 resolver 侧 UserInput.engine_port/ambient env 承载),
+    不能再经 user_cli 层二次改写。这里去掉该派生值并保留 dropped audit;
+    ``--port`` 的 proxy 语义已由 ``_export_proxy_port`` 写入 ``PORT``。
     """
     if "port" not in overrides:
         return overrides, dropped
@@ -184,7 +193,10 @@ def _drop_pd_backend_port_compat(
         {
             "key": "port",
             "value": value,
-            "reason": "PD engine backend port is owned by the exact recipe; --port remains proxy PORT",
+            "reason": (
+                "PD engine backend port base comes from --engine-port/ENGINE_PORT and the exact recipe; "
+                "--port remains proxy PORT"
+            ),
         }
     )
     return filtered, dropped_with_pd
@@ -639,7 +651,17 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "External proxy port (sidecar proxy default: 18000). "
             "This does not set the engine port: the engine listens on backend port 17000 by default. "
-            "Use ENGINE_PORT to configure the engine port."
+            "Use --engine-port or ENGINE_PORT to configure the engine port."
+        ),
+    )
+    parser.add_argument(
+        "--engine-port",
+        type=int,
+        default=None,
+        help=(
+            "Engine backend listen port override (fallback: ENGINE_PORT env, else model YAML). "
+            "For PD exact recipes this overrides the backend port base; per-process ports remain base+index. "
+            "The resulting range is validated against DP RPC, KV and proxy ports."
         ),
     )
     parser.add_argument(
@@ -648,6 +670,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Model path override (engine_config.model)",
     )
     parser.add_argument("--model-name", default=None)
+    parser.add_argument("--served-model-name", default=None, help="Engine API model name override")
     parser.add_argument("--max-num-seqs", type=int, default=None)
     parser.add_argument("--max-num-batched-tokens", type=int, default=None)
     parser.add_argument("--input-length", type=int, default=None)
@@ -761,7 +784,9 @@ def main() -> None:
             host=args.host,
             port=args.port,
             model_path=args.model_path,
+            engine_port=args.engine_port,
             model_name=args.model_name,
+            served_model_name=args.served_model_name,
             max_num_seqs=args.max_num_seqs,
             max_num_batched_tokens=args.max_num_batched_tokens,
             input_length=args.input_length,
@@ -852,6 +877,7 @@ def main() -> None:
             cli_overrides=user_cli_overrides,
             cli_dropped=user_cli_dropped,
             feature_switches=feature_switches,
+            engine_port=args.engine_port,
         ),
         device_count=device_count,
         placement=placement,

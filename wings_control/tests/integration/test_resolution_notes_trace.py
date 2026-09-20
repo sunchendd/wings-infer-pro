@@ -53,8 +53,9 @@ def test_resolution_notes_normal(config_root_real, tmp_path):
         os.environ.pop("ENGINE_VERSION", None)
 
 
-def test_resolution_notes_fallback(config_root_real, tmp_path):
+def test_resolution_notes_fallback(config_root_real, tmp_path, monkeypatch):
     """ENGINE_VERSION=99.99.99:version_is_fallback=true,requested=99.99.99,resolved 指向 latest。"""
+    monkeypatch.setattr("wings_ctl.engines.version_resolver._find_latest_version_dir", lambda _: "v0.18.0")
     hardware_info_path = tmp_path / "hardware_info.json"
     hardware_info_path.write_text(
         json.dumps({"hardware_family": "ascend-a3", "device": "ascend", "count": 16}),

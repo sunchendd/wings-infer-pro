@@ -1,0 +1,139 @@
+services:
+  meta:
+    image: ${ENGINE_IMAGE}
+    network_mode: host
+    restart: unless-stopped
+    shm_size: 16g
+    ulimits:
+      memlock: {soft: -1, hard: -1}
+    environment:
+      MMC_META_CONFIG_PATH: /wings-deploy/rendered/meta/mmc-meta.conf
+      TORCH_DEVICE_BACKEND_AUTOLOAD: '0'
+      WINGS_LOG_DIR: /wings-deploy
+    volumes:
+      - .:/wings-deploy:ro
+      - ./logs:/wings-deploy/logs
+    entrypoint: ["bash", "/wings-deploy/memcache/meta/start.sh"]
+
+  memcache:
+    image: ${ENGINE_IMAGE}
+    network_mode: host
+    restart: unless-stopped
+    privileged: true
+    shm_size: 100g
+    ulimits:
+      memlock: {soft: -1, hard: -1}
+    environment:
+      MMC_LOCAL_CONFIG_PATH: /wings-deploy/rendered/local-service/mmc-local.conf
+      WINGS_LOG_DIR: /wings-deploy
+    volumes:
+      - /usr/local/Ascend/driver:/usr/local/Ascend/driver:ro
+      - /usr/local/Ascend/toolbox:/usr/local/Ascend/toolbox:ro
+      - /usr/local/sbin:/usr/local/sbin:ro
+      - /etc/resolv.conf:/etc/resolv.conf:ro
+      - .:/wings-deploy:ro
+      - ./logs:/wings-deploy/logs
+    entrypoint: ["bash", "/wings-deploy/memcache/local-service/start.sh"]
+
+  control:
+    image: ${CONTROL_IMAGE}
+    network_mode: host
+    restart: unless-stopped
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - test -s /shared-volume/start_command.sh && test -s /shared-volume/audit.json
+      interval: 2s
+      timeout: 2s
+      retries: 300
+    environment:
+      WINGS_SKIP_PID_CHECK: 'true'
+      ENGINE: vllm-ascend
+      ENGINE_VERSION: ${ENGINE_VERSION}
+      MODEL_PATH: ${MODEL_PATH}
+      DEVICE_COUNT: '16'
+      PD_ROLE: ${PD_ROLE}
+      PD_INDEX: ${PD_INDEX}
+      PD_PREFILL_DP_SIZE: ${PD_PREFILL_DP_SIZE}
+      PD_PREFILL_TP_SIZE: ${PD_PREFILL_TP_SIZE}
+      PD_DECODE_DP_SIZE: ${PD_DECODE_DP_SIZE}
+      PD_DECODE_TP_SIZE: ${PD_DECODE_TP_SIZE}
+      DP_SIZE_LOCAL: ${DP_SIZE_LOCAL}
+      RANK_IP: ${RANK_IP}
+      MASTER_IP: ${MASTER_IP}
+      NODE_IPS: ${NODE_IPS}
+      # engine backend 端口基座，与 wings_ctl 的 ENGINE_PORT 契约同名透传：
+      # wings_ctl 依此覆盖 recipe 端口，proxy-run.sh 依此路由；
+      # prefill 直用基座，decode 实际端口 = 基座 + local_rank。
+      ENGINE_PORT: ${ENGINE_PORT}
+    volumes:
+    - ./control-entrypoint.sh:/control-entrypoint.sh:ro
+    - .:/wings-deploy:ro
+    - generated:/shared-volume
+    - ${MODEL_PATH}:${MODEL_PATH}:ro
+    entrypoint:
+    - bash
+    - /control-entrypoint.sh
+  engine:
+    image: ${ENGINE_IMAGE}
+    network_mode: host
+    restart: 'no'
+    privileged: true
+    shm_size: 500g
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    devices:
+    - /dev/davinci0:/dev/davinci0
+    - /dev/davinci1:/dev/davinci1
+    - /dev/davinci2:/dev/davinci2
+    - /dev/davinci3:/dev/davinci3
+    - /dev/davinci4:/dev/davinci4
+    - /dev/davinci5:/dev/davinci5
+    - /dev/davinci6:/dev/davinci6
+    - /dev/davinci7:/dev/davinci7
+    - /dev/davinci8:/dev/davinci8
+    - /dev/davinci9:/dev/davinci9
+    - /dev/davinci10:/dev/davinci10
+    - /dev/davinci11:/dev/davinci11
+    - /dev/davinci12:/dev/davinci12
+    - /dev/davinci13:/dev/davinci13
+    - /dev/davinci14:/dev/davinci14
+    - /dev/davinci15:/dev/davinci15
+    - /dev/davinci_manager:/dev/davinci_manager
+    - /dev/devmm_svm:/dev/devmm_svm
+    - /dev/hisi_hdc:/dev/hisi_hdc
+    volumes:
+    - /usr/local/dcmi:/usr/local/dcmi
+    - /usr/local/Ascend/driver/tools/hccn_tool:/usr/local/Ascend/driver/tools/hccn_tool
+    - /usr/local/bin/npu-smi:/usr/local/bin/npu-smi
+    - /usr/local/Ascend/driver/lib64/:/usr/local/Ascend/driver/lib64/
+    - /usr/local/Ascend/driver/version.info:/usr/local/Ascend/driver/version.info
+    - /etc/hccn.conf:/etc/hccn.conf:ro
+    - /mnt/:/mnt/
+    - .:/wings-deploy:ro
+    - generated:/wings-generated:ro
+    - ./engine-entrypoint.sh:/engine-entrypoint.sh:ro
+    entrypoint:
+    - bash
+    - /engine-entrypoint.sh
+  proxy:
+    image: ${ENGINE_IMAGE}
+    network_mode: host
+    restart: unless-stopped
+    shm_size: 4g
+    environment:
+      PROXY_PORT: ${PROXY_PORT}
+      ENGINE_PORT: ${ENGINE_PORT}
+      DECODE_LOCAL_DP: ${DECODE_LOCAL_DP}
+      PREFILL_HOSTS: ${PREFILL_HOSTS}
+      DECODE_HOSTS: ${DECODE_HOSTS}
+    volumes:
+    - .:/wings-deploy:ro
+    - ./proxy-run.sh:/proxy-run.sh:ro
+    entrypoint:
+    - bash
+    - /proxy-run.sh
+volumes:
+  generated: null

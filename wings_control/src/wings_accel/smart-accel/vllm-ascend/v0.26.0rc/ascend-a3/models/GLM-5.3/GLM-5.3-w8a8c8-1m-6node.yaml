@@ -1,0 +1,27 @@
+model:
+  name: GLM-5.3
+  variant_name: GLM-5.3-w8a8c8-1m-6node
+  match:
+  - name_pattern: (?i)^GLM\-5\.3\-w8a8c8\-1m\-6node$
+smart_accel:
+  pd_disaggregation:
+    source_ref: vllm_ascend_glm-5.3_w8a8c8_1m_6node_a3_derived#pd_cluster
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        default_strategy: true
+        nodes:
+        - role: prefill
+          index: 0
+        - role: decode
+          index: 0
+          decoding:
+          - name: mtp
+            cli_params:
+              speculative_config:
+                num_speculative_tokens: 5
+                method: deepseek_mtp
+                enforce_eager: true
+            envs: {}

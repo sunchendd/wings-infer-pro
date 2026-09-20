@@ -88,7 +88,8 @@ Instance 的成员 Pod 数相同，并共用同一个 `PD_PREFILL_DP_SIZE`；所
 
 |变量|必填/条件必填/auto选填|类型|含义|取值说明|
 |---|---|---|---|---|
-|\-\-model\-name|必填|str|模型名称||
+|\-\-model\-name|必填|str|配置匹配使用的模型标识；未单独指定服务名时也作为引擎 API 模型名||
+|\-\-served\-model\-name|选填|str|引擎 API 对外模型名，不参与配置匹配|缺省时使用 `--model-name`|
 |\-\-model\-path|必填|str|模型路径||
 |\-\-port|必填|int|wings proxy 监听端口|标准推理由 MaaS 按既有规则下发；PD 首期固定下发 `18000`。该值不是 engine backend 端口|
 

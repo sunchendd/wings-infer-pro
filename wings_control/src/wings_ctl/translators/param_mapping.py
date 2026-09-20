@@ -75,6 +75,7 @@ MAAS_CONTRACT_ALLOWLIST = frozenset(
         "port",
         "model_path",
         "model_name",
+        "served_model_name",
         "max_num_seqs",
         "max_num_batched_tokens",
         "input_length",

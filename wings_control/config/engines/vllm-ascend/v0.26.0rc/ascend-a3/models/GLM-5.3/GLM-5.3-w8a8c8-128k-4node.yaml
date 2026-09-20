@@ -1,0 +1,386 @@
+upstream_sources:
+- id: vllm_ascend_glm-5.3_w8a8c8_128k_4node_a3_manual
+  kind: manual
+  repo: null
+  file: 20260910_128k-dptp.zip
+  url: null
+  note: 'Ascend A3 four-node 128K parameters: one DP2/TP16 Prefill instance and one DP8/TP4 Decode instance.'
+model:
+  name: GLM-5.3
+  provider: Eco-Tech
+  model_id: Eco-Tech/GLM-5.3-w8a8c8
+  min_engine_version: v0.26.0rc
+  match:
+  - name_pattern: (?i)^GLM\-5\.3\-w8a8c8\-128k\-4node$
+  variant_name: GLM-5.3-w8a8c8-128k-4node
+hardware_profile:
+  gpu_count: 16
+  vram_gb: 1024
+  multi_node: true
+features:
+  tool_calling:
+    description: Enable automatic tool/function calling via the GLM parser.
+    args:
+    - --enable-auto-tool-choice
+    - --tool-call-parser
+    - glm47
+  reasoning:
+    description: Enable reasoning-content parsing.
+    args:
+    - --reasoning-parser
+    - glm45
+  spec_decoding:
+    description: MTP speculative decoding capability used by the verified P/D recipe.
+    args:
+    - --speculative-config
+    - '{"num_speculative_tokens":3,"method":"deepseek_mtp","enforce_eager":true}'
+  sparse_index:
+    description: IndexCache sparse attention capability used by the verified P/D recipe.
+    args:
+    - --hf-overrides
+    - '{"use_index_cache":true,"index_topk_freq":4}'
+scenarios:
+  pd_disaggregation:
+    source_ref: vllm_ascend_glm-5.3_w8a8c8_128k_4node_a3_manual#pd_cluster
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        orientation: production
+        default_strategy: true
+        runtime:
+          prefill:
+            engine_id_policy: from_pd_index
+          decode:
+            engine_id_policy: from_pd_index
+        nodes:
+        - role: prefill
+          index: 0
+          engine_config:
+            model: /weights/GLM-5.3-w8a8c8
+            host: 0.0.0.0
+            port: 17000
+            tensor_parallel_size: 16
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_rpc_port: 7060
+            data_parallel_external_lb: false
+            enable_expert_parallel: true
+            speculative_config:
+              num_speculative_tokens: 1
+              method: deepseek_mtp
+              enforce_eager: true
+            hf_overrides:
+              use_index_cache: true
+              index_topk_freq: 4
+            additional_config:
+              fuse_muls_add: true
+              recompute_scheduler_enable: false
+              multistream_overlap_shared_expert: true
+              enable_dsa_cp: true
+              enable_sparse_sfa_c8: true
+              enable_sparse_li_c8: true
+              c8_enable_reshape_optim: true
+            seed: 1024
+            served_model_name: GLM-5.3-w8a8c8
+            max_model_len: 131072
+            max_num_batched_tokens: 8192
+            max_num_seqs: 64
+            enable_prompt_tokens_details: true
+            enable_prefix_caching: true
+            quantization: ascend
+            gpu_memory_utilization: 0.9
+            enforce_eager: true
+            trust_remote_code: true
+            cpu_distributed_timeout_seconds: 3600
+            distributed_timeout_seconds: 3600
+            kv_transfer_config:
+              kv_connector: MultiConnector
+              kv_role: kv_producer
+              kv_connector_extra_config:
+                connectors:
+                - kv_connector: MooncakeConnectorV1
+                  kv_role: kv_producer
+                  kv_port: 30000
+                  kv_connector_extra_config:
+                    use_ascend_direct: true
+                    prefill:
+                      dp_size: 2
+                      tp_size: 16
+                    decode:
+                      dp_size: 8
+                      tp_size: 4
+                - kv_connector: AscendStoreConnector
+                  kv_role: kv_producer
+                  kv_connector_extra_config:
+                    backend: memcache
+                    lookup_rpc_port: 0
+          env:
+            PYTHONHASHSEED: '0'
+            MMC_LOCAL_CONFIG_PATH: /wings-deploy/rendered/model-client/mmc-local.conf
+            MF_GROUP_JOIN_MAX_TIMEOUT: '1200'
+            VLLM_ASCEND_ENABLE_FUSED_MC2: '1'
+            VLLM_ASCEND_ENABLE_FLASHCOMM1: '1'
+            HCCL_OP_EXPANSION_MODE: AIV
+            HCCL_TRANSFER_TIMEOUT: '600'
+            HCCL_EXEC_TIMEOUT: '3600'
+            HCCL_CONNECT_TIMEOUT: '3600'
+            OMP_PROC_BIND: 'false'
+            OMP_NUM_THREADS: '1'
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+            HCCL_BUFFSIZE: '400'
+            ACL_OP_INIT_MODE: '1'
+            ASCEND_A3_ENABLE: '1'
+            LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:-}:/usr/local/lib
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+        - role: prefill
+          index: 1
+          engine_config:
+            model: /weights/GLM-5.3-w8a8c8
+            host: 0.0.0.0
+            port: 17000
+            tensor_parallel_size: 16
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_rpc_port: 7060
+            data_parallel_external_lb: false
+            enable_expert_parallel: true
+            speculative_config:
+              num_speculative_tokens: 1
+              method: deepseek_mtp
+              enforce_eager: true
+            hf_overrides:
+              use_index_cache: true
+              index_topk_freq: 4
+            additional_config:
+              fuse_muls_add: true
+              recompute_scheduler_enable: false
+              multistream_overlap_shared_expert: true
+              enable_dsa_cp: true
+              enable_sparse_sfa_c8: true
+              enable_sparse_li_c8: true
+              c8_enable_reshape_optim: true
+            seed: 1024
+            served_model_name: GLM-5.3-w8a8c8
+            max_model_len: 131072
+            max_num_batched_tokens: 8192
+            max_num_seqs: 64
+            enable_prompt_tokens_details: true
+            enable_prefix_caching: true
+            quantization: ascend
+            gpu_memory_utilization: 0.9
+            enforce_eager: true
+            trust_remote_code: true
+            cpu_distributed_timeout_seconds: 3600
+            distributed_timeout_seconds: 3600
+            kv_transfer_config:
+              kv_connector: MultiConnector
+              kv_role: kv_producer
+              kv_connector_extra_config:
+                connectors:
+                - kv_connector: MooncakeConnectorV1
+                  kv_role: kv_producer
+                  kv_port: 30000
+                  kv_connector_extra_config:
+                    use_ascend_direct: true
+                    prefill:
+                      dp_size: 2
+                      tp_size: 16
+                    decode:
+                      dp_size: 8
+                      tp_size: 4
+                - kv_connector: AscendStoreConnector
+                  kv_role: kv_producer
+                  kv_connector_extra_config:
+                    backend: memcache
+                    lookup_rpc_port: 0
+          env:
+            PYTHONHASHSEED: '0'
+            MMC_LOCAL_CONFIG_PATH: /wings-deploy/rendered/model-client/mmc-local.conf
+            MF_GROUP_JOIN_MAX_TIMEOUT: '1200'
+            VLLM_ASCEND_ENABLE_FUSED_MC2: '1'
+            VLLM_ASCEND_ENABLE_FLASHCOMM1: '1'
+            HCCL_OP_EXPANSION_MODE: AIV
+            HCCL_TRANSFER_TIMEOUT: '600'
+            HCCL_EXEC_TIMEOUT: '3600'
+            HCCL_CONNECT_TIMEOUT: '3600'
+            OMP_PROC_BIND: 'false'
+            OMP_NUM_THREADS: '1'
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+            HCCL_BUFFSIZE: '400'
+            ACL_OP_INIT_MODE: '1'
+            ASCEND_A3_ENABLE: '1'
+            LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:-}:/usr/local/lib
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+        - role: decode
+          index: 0
+          engine_config:
+            model: /weights/GLM-5.3-w8a8c8
+            host: 0.0.0.0
+            port: 17000
+            tensor_parallel_size: 4
+            data_parallel_size: 8
+            data_parallel_size_local: 4
+            data_parallel_rpc_port: 12321
+            data_parallel_external_lb: false
+            enable_expert_parallel: true
+            seed: 1024
+            served_model_name: GLM-5.3-w8a8c8
+            max_model_len: 131072
+            max_num_batched_tokens: 164
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+            speculative_config:
+              num_speculative_tokens: 3
+              method: deepseek_mtp
+              enforce_eager: true
+            hf_overrides:
+              use_index_cache: true
+              index_topk_freq: 4
+            additional_config:
+              fuse_muls_add: true
+              recompute_scheduler_enable: true
+              multistream_overlap_shared_expert: true
+              enable_sparse_sfa_c8: true
+              enable_sparse_li_c8: true
+            max_num_seqs: 32
+            enable_prompt_tokens_details: true
+            gpu_memory_utilization: 0.92
+            async_scheduling: true
+            quantization: ascend
+            trust_remote_code: true
+            cpu_distributed_timeout_seconds: 3600
+            distributed_timeout_seconds: 3600
+            kv_transfer_config:
+              kv_connector: MultiConnector
+              kv_role: kv_consumer
+              kv_connector_extra_config:
+                connectors:
+                - kv_connector: MooncakeConnectorV1
+                  kv_role: kv_consumer
+                  kv_port: 30200
+                  kv_connector_extra_config:
+                    use_ascend_direct: true
+                    prefill:
+                      dp_size: 2
+                      tp_size: 16
+                    decode:
+                      dp_size: 8
+                      tp_size: 4
+                - kv_connector: AscendStoreConnector
+                  kv_role: kv_consumer
+                  kv_connector_extra_config:
+                    backend: memcache
+                    lookup_rpc_port: 2
+          env:
+            PYTHONHASHSEED: '0'
+            MMC_LOCAL_CONFIG_PATH: /wings-deploy/rendered/model-client/mmc-local.conf
+            MF_GROUP_JOIN_MAX_TIMEOUT: '1200'
+            VLLM_ASCEND_ENABLE_MLAPO: '1'
+            VLLM_ASCEND_ENABLE_FUSED_MC2: '1'
+            HCCL_OP_EXPANSION_MODE: AIV
+            HCCL_TRANSFER_TIMEOUT: '600'
+            HCCL_EXEC_TIMEOUT: '3600'
+            HCCL_CONNECT_TIMEOUT: '3600'
+            OMP_PROC_BIND: 'false'
+            OMP_NUM_THREADS: '1'
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+            HCCL_BUFFSIZE: '256'
+            ACL_OP_INIT_MODE: '1'
+            ASCEND_A3_ENABLE: '1'
+            TASK_QUEUE_ENABLE: '1'
+            LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:-}:/usr/local/lib
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+        - role: decode
+          index: 1
+          engine_config:
+            model: /weights/GLM-5.3-w8a8c8
+            host: 0.0.0.0
+            port: 17000
+            tensor_parallel_size: 4
+            data_parallel_size: 8
+            data_parallel_size_local: 4
+            data_parallel_rpc_port: 12321
+            data_parallel_external_lb: false
+            enable_expert_parallel: true
+            seed: 1024
+            served_model_name: GLM-5.3-w8a8c8
+            max_model_len: 131072
+            max_num_batched_tokens: 164
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+            speculative_config:
+              num_speculative_tokens: 3
+              method: deepseek_mtp
+              enforce_eager: true
+            hf_overrides:
+              use_index_cache: true
+              index_topk_freq: 4
+            additional_config:
+              fuse_muls_add: true
+              recompute_scheduler_enable: true
+              multistream_overlap_shared_expert: true
+              enable_sparse_sfa_c8: true
+              enable_sparse_li_c8: true
+            max_num_seqs: 32
+            enable_prompt_tokens_details: true
+            gpu_memory_utilization: 0.92
+            async_scheduling: true
+            quantization: ascend
+            trust_remote_code: true
+            cpu_distributed_timeout_seconds: 3600
+            distributed_timeout_seconds: 3600
+            kv_transfer_config:
+              kv_connector: MultiConnector
+              kv_role: kv_consumer
+              kv_connector_extra_config:
+                connectors:
+                - kv_connector: MooncakeConnectorV1
+                  kv_role: kv_consumer
+                  kv_port: 30200
+                  kv_connector_extra_config:
+                    use_ascend_direct: true
+                    prefill:
+                      dp_size: 2
+                      tp_size: 16
+                    decode:
+                      dp_size: 8
+                      tp_size: 4
+                - kv_connector: AscendStoreConnector
+                  kv_role: kv_consumer
+                  kv_connector_extra_config:
+                    backend: memcache
+                    lookup_rpc_port: 3
+          env:
+            PYTHONHASHSEED: '0'
+            MMC_LOCAL_CONFIG_PATH: /wings-deploy/rendered/model-client/mmc-local.conf
+            MF_GROUP_JOIN_MAX_TIMEOUT: '1200'
+            VLLM_ASCEND_ENABLE_MLAPO: '1'
+            VLLM_ASCEND_ENABLE_FUSED_MC2: '1'
+            HCCL_OP_EXPANSION_MODE: AIV
+            HCCL_TRANSFER_TIMEOUT: '600'
+            HCCL_EXEC_TIMEOUT: '3600'
+            HCCL_CONNECT_TIMEOUT: '3600'
+            OMP_PROC_BIND: 'false'
+            OMP_NUM_THREADS: '1'
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+            HCCL_BUFFSIZE: '256'
+            ACL_OP_INIT_MODE: '1'
+            ASCEND_A3_ENABLE: '1'
+            TASK_QUEUE_ENABLE: '1'
+            LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:-}:/usr/local/lib
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name

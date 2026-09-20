@@ -16,6 +16,11 @@ ai_perf/
 │   │   ├── env.example
 │   │   ├── aiperf-control-entrypoint.sh
 │   │   └── aiperf-engine-entrypoint.sh
+│   ├── ascend-a3/
+│   │   ├── glm5.3-w8a8c8-128k-4node/   # GLM-5.3 128K four-node
+│   │   ├── glm5.3-w8a8c8-128k-6node/   # GLM-5.3 128K six-node
+│   │   ├── glm5.3-w8a8c8-1m-4node/     # GLM-5.3 1M four-node
+│   │   └── glm5.3-w8a8c8-1m-6node/     # GLM-5.3 1M six-node
 │   └── docker-compose-gpu/   # NVIDIA GPU (vllm) 示例
 │       └── (同上，runtime 换为 nvidia)
 └── license/                  # License 宿主机查询工具（随示例包统一分发；License 挂载已内置 example compose）
