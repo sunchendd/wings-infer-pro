@@ -345,3 +345,25 @@ def test_maas_flags_sole_driver_no_yaml_auto_enable(monkeypatch):
         engine="vllm", engine_version="0.19.0", env={},
     )
     assert "no_auto" not in captured
+
+
+def test_apply_smart_accel_threads_gpu_count_into_flags(monkeypatch):
+    """gpu_count(device_count)必须原样进入 LoadFlags(worker 数与均分的口径)。"""
+    captured = {}
+
+    def _loadflags(**kw):
+        captured.update(kw)
+        return types.SimpleNamespace(**kw)
+
+    mod = _stub_mod()
+    mod.LoadFlags = _loadflags
+    monkeypatch.setattr(smart_accel, "_import_accel", lambda: mod)
+
+    apply_smart_accel(
+        hardware_family="ascend-a3", gpu_count=8, model_path=None,
+        model_name="DeepSeek-V4-Flash-w8a8-mtp", engine="vllm-ascend",
+        engine_version="v0.21.0rc", tp_size=4, dp_size=4,
+        env={"ENABLE_KV_OFFLOAD": "true", "KV_MEM_OFFLOAD_SIZE": "16"},
+    )
+    assert captured["gpu_count"] == 8
+    assert captured["tp_size"] == 4 and captured["dp_size"] == 4

@@ -61,12 +61,13 @@ def _write_yaml(tmp_path, content):
 
 class TestMemoryOffloadSizeMode:
     def test_auto_enables_with_sufficient_pod(self, tmp_path):
-        """256G pod, TP4×DP2=8 workers → engine_self=59, margin=25.6, available=171"""
+        """256G pod, 8 workers → engine_self=59, margin=25.6, available=171"""
         path = _write_yaml(tmp_path, YAML_TEMPLATE)
         flags = LoadFlags(
             kv=True,
             memory_offload_size_mode="auto",
             pod_available_memory_gb=256,
+            gpu_count=8,
             min_offload_threshold_gb=100,
         )
         smart_input = load_smart_accel_from_yaml(path, flags)
@@ -87,18 +88,17 @@ class TestMemoryOffloadSizeMode:
         cfg = smart_input.smart_kv_cache_config
         assert cfg.memory_offload_enabled is False
 
-    def test_auto_dp_doubles_overhead(self, tmp_path):
-        """DP2 → 8 workers, vs DP1 → 4 workers;available 相差 28G(4 worker × 7G)"""
-        yaml_dp1 = YAML_TEMPLATE.replace("data_parallel_size: 2", "data_parallel_size: 1")
-        path_dp1 = _write_yaml(tmp_path / "dp1", yaml_dp1)
-        path_dp2 = _write_yaml(tmp_path / "dp2", YAML_TEMPLATE)
+    def test_auto_worker_count_scales_overhead(self, tmp_path):
+        """worker 数翻倍:4 → 8 workers,available 相差 28G(4 worker × 7G)"""
+        path = _write_yaml(tmp_path, YAML_TEMPLATE)
 
-        flags = LoadFlags(kv=True, memory_offload_size_mode="auto", pod_available_memory_gb=512)
-        inp1 = load_smart_accel_from_yaml(path_dp1, flags)
-        inp2 = load_smart_accel_from_yaml(path_dp2, flags)
-        # DP1: 512 - (3+7*4) - 51.2 = 429.8 → 429; DP2: 512 - (3+7*8) - 51.2 = 401.8 → 401
-        assert getattr(inp1.smart_kv_cache_config, "_memory_capacity_gb") == 429
-        assert getattr(inp2.smart_kv_cache_config, "_memory_capacity_gb") == 401
+        flags4 = LoadFlags(kv=True, memory_offload_size_mode="auto", pod_available_memory_gb=512, gpu_count=4)
+        flags8 = LoadFlags(kv=True, memory_offload_size_mode="auto", pod_available_memory_gb=512, gpu_count=8)
+        inp4 = load_smart_accel_from_yaml(path, flags4)
+        inp8 = load_smart_accel_from_yaml(path, flags8)
+        # 4: 512 - (3+7*4) - 51.2 = 429.8 → 429; 8: 512 - (3+7*8) - 51.2 = 401.8 → 401
+        assert getattr(inp4.smart_kv_cache_config, "_memory_capacity_gb") == 429
+        assert getattr(inp8.smart_kv_cache_config, "_memory_capacity_gb") == 401
 
     def test_manual_uses_fixed_memory_gb(self, tmp_path):
         """manual 模式 → 用 flags.memory_gb 静态值"""

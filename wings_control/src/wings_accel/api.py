@@ -47,11 +47,15 @@ def resolve_smart_accel_from_config(
         model_name: 模型名,用于扫描匹配 smart-accel YAML。
         flags: MaaS/CLI 开关覆盖;缺省使用 LoadFlags() 默认值。
         config_root: 可选外部配置根目录;缺省使用包内 smart-accel。
+        gpu_count: 卡数;load 之前写入 flags(估算在 load 内部)。
 
     Returns:
         SmartAccelOutput: 成功匹配并解析时返回。
         None: 未找到匹配 YAML 时返回,表示 smart accel no-op。
     """
+    if flags is None:
+        flags = LoadFlags()
+    flags.gpu_count = int(gpu_count or 1)
     smart_input = load_smart_accel_from_config(
         config_root,
         engine,

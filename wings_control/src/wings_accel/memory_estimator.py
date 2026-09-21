@@ -53,8 +53,7 @@ class MemoryEstimate:
 
 def estimate_offload_memory(
     container_memory_gb: int,
-    tp_size: int,
-    dp_size: int = 1,
+    worker_count: int,
     *,
     worker_overhead_gb: float = 7.0,
     base_overhead_gb: float = 3.0,
@@ -65,8 +64,7 @@ def estimate_offload_memory(
 
     Args:
         container_memory_gb: 引擎容器总内存(GB),由 MaaS 传递
-        tp_size: 张量并行度,从 scenarios.*.engine_config.tensor_parallel_size 读
-        dp_size: 数据并行度,从 scenarios.*.engine_config.data_parallel_size 读(默认 1)
+        worker_count: 每 Pod worker 进程数
         worker_overhead_gb: 每个 worker 进程 CPU 内存占用(GB),实测最坏值常数,默认 7
             (覆盖 MiniMax TP16 graph ≈ 6.2G/worker + 头);vLLM V1 每个 worker 含
             CUDA context / NCCL buffer / KV transfer pipe
@@ -79,7 +77,6 @@ def estimate_offload_memory(
     Returns:
         MemoryEstimate: 含 available_gb / enabled / disable_reason
     """
-    worker_count = tp_size * dp_size
     engine_self = base_overhead_gb + worker_overhead_gb * worker_count
     margin = container_memory_gb * margin_ratio
     available = container_memory_gb - engine_self - margin
@@ -101,7 +98,7 @@ def estimate_offload_memory(
                 f"(container={container_memory_gb}, engine_self={engine_self:.1f}="
                 f"{base_overhead_gb:g}+{worker_overhead_gb:g}×{worker_count}, "
                 f"margin={margin:.1f}={container_memory_gb}×{margin_ratio:g}, "
-                f"workers={worker_count}=tp{tp_size}×dp{dp_size})"
+                f"workers={worker_count})"
             ),
         )
     return MemoryEstimate(
