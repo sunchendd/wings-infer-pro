@@ -1,7 +1,7 @@
-# AI Perf 示例部署
+# AI Perf 示例部署（NPU）
 
-本目录是 AI Perf 在wings-infer-pro上的 Docker Compose
-示例
+本目录是 AI Perf 在 wings-infer-pro 上的 Ascend NPU（A+K，CPU 为 ARM）
+Docker Compose 示例。
 
 - 以 **tar 镜像包 + docker-compose.yaml + env 文件** 交付；
 - 用户适配新模型**只需修改 env 配置项**（模型名/路径/端口/启动参数），无需改其他文件。
@@ -16,13 +16,11 @@ ai_perf/
 │   │   ├── env.example
 │   │   ├── aiperf-control-entrypoint.sh
 │   │   └── aiperf-engine-entrypoint.sh
-│   ├── ascend-a3/
-│   │   ├── glm5.3-w8a8c8-128k-4node/   # GLM-5.3 128K four-node
-│   │   ├── glm5.3-w8a8c8-128k-6node/   # GLM-5.3 128K six-node
-│   │   ├── glm5.3-w8a8c8-1m-4node/     # GLM-5.3 1M four-node
-│   │   └── glm5.3-w8a8c8-1m-6node/     # GLM-5.3 1M six-node
-│   └── docker-compose-gpu/   # NVIDIA GPU (vllm) 示例
-│       └── (同上，runtime 换为 nvidia)
+│   └── ascend-a3/
+│       ├── glm5.3-w8a8c8-128k-4node/   # GLM-5.3 128K four-node
+│       ├── glm5.3-w8a8c8-128k-6node/   # GLM-5.3 128K six-node
+│       ├── glm5.3-w8a8c8-1m-4node/     # GLM-5.3 1M four-node
+│       └── glm5.3-w8a8c8-1m-6node/     # GLM-5.3 1M six-node
 └── license/                  # License 宿主机查询工具（随示例包统一分发；License 挂载已内置 example compose）
 ```
 
@@ -103,7 +101,7 @@ docker load -i Wings_accel_<版本>_<arch>.tar    # → IMAGE_ACCEL
 docker load -i Wings_control_<版本>_<arch>.tar  # → IMAGE_CONTROL
 ```
 
-引擎镜像 `IMAGE_ENGINE` 从官方仓获取（vllm / vllm-ascend）。
+引擎镜像 `IMAGE_ENGINE` 从官方仓获取（vllm-ascend）。
 
 ## env 配置说明
 
@@ -114,15 +112,15 @@ docker load -i Wings_control_<版本>_<arch>.tar  # → IMAGE_CONTROL
 | 参数 | 说明 |
 |---|---|
 | `MODEL_NAME` / `MODEL_PATH` | 模型名称（用于配置匹配 + served-model-name）与宿主机模型路径（宿主机与容器内路径一致） |
-| `XPU_VISIBLE_DEVICES` | 使用的设备卡号（NPU: 逗号分隔 davinci 逻辑号；GPU: NVIDIA 逻辑号） |
+| `XPU_VISIBLE_DEVICES` | 使用的 NPU 卡号（逗号分隔 davinci 逻辑号） |
 | `ENGINE_PORT` / `CONTROL_PORT` / `HEALTH_PORT` / `MONITOR_PROXY_PORT` | 端口，多服务共存时必改 |
-| `HARDWARE_FAMILY` | 硬件族标识，用于 wings-infer-pro 配置目录定位（如 `ascend-a2` / `h100`），必须与镜像内 `config/engines/<engine>/<version>/` 下的目录名一致 |
+| `HARDWARE_FAMILY` | 硬件族标识，用于 wings-infer-pro 配置目录定位（如 `ascend-a2` / `ascend-a3`），必须与镜像内 `config/engines/<engine>/<version>/` 下的目录名一致 |
 
 ### 引擎与框架参数（按需调整）
 
 | 参数 | 默认 | 说明 |
 |---|---|---|
-| `ENGINE` | `vllm-ascend` / `vllm` | 底层引擎模式 |
+| `ENGINE` | `vllm-ascend` | 底层引擎模式 |
 | `ENGINE_VERSION` | 与镜像 tag 一致 | 选择 wings-infer-pro 配置资产版本树 |
 | `DEVICE_COUNT` | 2 / 1 | 使用卡数 |
 | `QUANTIZATION` | `ascend`（NPU） | 量化方案，W8A8/W4A4 设为 `ascend` |
