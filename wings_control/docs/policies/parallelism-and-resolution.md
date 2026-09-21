@@ -101,6 +101,27 @@ recipe 的 `topology_input_policy` 为 `explicit_allocation` 时：
 - MaaS 一次下发 `PD_INDEX`、P/D 两侧的 TP、DP，以及 `DP_SIZE_LOCAL` 六个字段。
 - 策略层不重新计算并行度，只校验字段、recipe 形状和 placement 是否闭合。
 - 校验通过后，按六字段和当前 Pod 身份生成 rank 范围。
+- `MultiConnector` recipe 可将 Mooncake 的 P/D topology 和 `kv_port` 放在
+   `connectors[]` 中，并为同一 role 的每个 recipe node 配置独立整数
+   `AscendStoreConnector.lookup_rpc_port`；运行时按 `NODE_IPS` 成员下标选择。
+- `data_parallel_external_lb` 与 backend 起始端口直接取当前 role node 的
+   `engine_config`；多进程 backend 端口按 node `port + local_index` 展开。
+- backend 起始端口可被显式覆盖，优先级为 `--engine-port` > 环境变量
+   `ENGINE_PORT` > recipe `engine_config.port`。覆盖只改端口基座，进程仍按
+   `base + local_index` 展开；覆盖区间与 DP RPC、KV listener、proxy 端口重叠时
+   在脚本生成前报错。覆盖生效时 `audit.json` 的 notes 记录
+   `pd.engine_port_base` 与 `pd.engine_port_base_source`；未覆盖且 ambient
+   `ENGINE_PORT` 与单进程 endpoint profile 不一致时仍直接拒绝启动。
+- `--port` 始终是 proxy 对外端口，不参与 backend 端口规划；PD 路径丢弃其在
+   user_cli 层派生的 `port` 覆盖并保留 dropped audit。
+- 新资产显式声明 `runtime.<role>.engine_id_policy` 后，不得再在该 role 的 node
+   `kv_transfer_config` 中重复声明 `engine_id`；runtime 是唯一真相源。未声明 runtime
+   identity 的旧资产继续兼容从 nodes 中推导 `omit` 或 `from_pd_index`。
+- MultiConnector 的 KV port 直接使用对应 role node 中的 Mooncake `kv_port`；
+   `AscendStoreConnector.lookup_rpc_port` 按 global DP rank 生成。
+- `engine_id_policy: from_pd_index` 按 logical Instance 注入 `PD_INDEX`；组成同一
+   Instance 的多个 Pod 或 local DP rank 共用该 `engine_id`，各 rank 继续由
+   `data_parallel_rank` 区分。
 
 普通 PD 不下发这六个字段；大 EP 必须完整下发。大 EP 不收缩 TP。MaaS 在创建前保证 P/D 两侧的 `device_count` 一致。
 

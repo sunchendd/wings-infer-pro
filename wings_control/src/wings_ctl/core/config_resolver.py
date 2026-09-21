@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
+from copy import deepcopy
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 from wings_ctl import __version__ as WINGS_CTL_VERSION
@@ -1672,7 +1673,9 @@ def _select_pd_exact_feature_inject_switches(feature_switches: Dict[str, Any] | 
     Returns:
         仅包含 exact PD 已支持开关的独立字典。
     """
-    return {name: value for name, value in (feature_switches or {}).items() if name in _PD_EXACT_FEATURE_INJECT_SWITCHES}
+    return {
+        name: value for name, value in (feature_switches or {}).items() if name in _PD_EXACT_FEATURE_INJECT_SWITCHES
+    }
 
 
 def _overlay_pd_process_traces(
@@ -1817,6 +1820,32 @@ def _uses_external_pd_launch(runtime: PdRuntimeSpec, role_shape: ParallelShape) 
     return runtime.dp_launch_policy == PD_DP_LAUNCH_EXTERNAL_RANK and _role_uses_external_dp(role_shape)
 
 
+def _resolve_pd_engine_port_base_override(user_input: UserInput) -> tuple[int | None, str]:
+    """解析 PD backend 端口基座覆盖及其来源。
+
+    优先级: ``--engine-port`` 显式传参 > ambient ``ENGINE_PORT`` env > None(保持 recipe)。
+    返回值由 ``_build_pd_process_plan`` 消费:有覆盖时进程端口变为 ``override + local_index``,
+    与 DP RPC/KV/proxy 的冲突改由 listener 冲突校验兕底;无覆盖时保持既有 ambient
+    相等校验语义(未设置 env 时为空操作)。
+
+    Returns:
+        (override, source):override 为 None 表示不覆盖;source 是写入 audit notes 的
+        来源描述("--engine-port"/"ENGINE_PORT env"/"recipe")。
+
+    Raises:
+        ValueError: ambient ``ENGINE_PORT`` 非整数。
+    """
+    if user_input.engine_port is not None:
+        return user_input.engine_port, "--engine-port"
+    ambient = os.getenv("ENGINE_PORT")
+    if ambient is None:
+        return None, "recipe"
+    try:
+        return int(ambient, 10), "ENGINE_PORT env"
+    except ValueError as exc:
+        raise ValueError(f"PD ENGINE_PORT must be an integer; got {ambient!r}") from exc
+
+
 def _validate_pd_ambient_port(expected_ports: List[int]) -> None:
     """拒绝 ambient ENGINE_PORT 改写 exact endpoint profile。"""
     ambient_port = os.getenv("ENGINE_PORT")
@@ -1833,6 +1862,7 @@ def _validate_pd_ambient_port(expected_ports: List[int]) -> None:
 def _build_pd_process_overrides(
     topology: ResolvedPdTopology,
     runtime: PdRuntimeSpec,
+    static_transfer: Dict[str, Any],
     local_index: int,
     port: int,
 ) -> tuple[Dict[str, Any], int]:
@@ -1853,22 +1883,33 @@ def _build_pd_process_overrides(
                 "data_parallel_size_local": 1,
                 "data_parallel_address": topology.placement.master_ip,
                 "data_parallel_rpc_port": runtime.data_parallel_rpc_port,
-                "data_parallel_external_lb": True,
             }
         )
+        if runtime.data_parallel_external_lb:
+            overrides["data_parallel_external_lb"] = True
 
     kv_policy = runtime.connector_profile.kv_port_policy
     assert kv_policy.base is not None
     kv_port = (
         kv_policy.base + topology.instance_index * kv_policy.instance_stride + local_index * kv_policy.process_stride
     )
-    kv_overrides: Dict[str, Any] = {
-        "kv_connector_extra_config": {
-            "prefill": {"dp_size": topology.prefill.dp_size, "tp_size": topology.prefill.tp_size},
-            "decode": {"dp_size": topology.decode.dp_size, "tp_size": topology.decode.tp_size},
-        },
-        "kv_port": kv_port,
-    }
+    connector = runtime.connector_profile
+    if connector.connector_name == "MultiConnector":
+        # MultiConnector 静态字段直接保留 YAML；每个进程只覆盖 AscendStore lookup。
+        transfer = deepcopy(static_transfer)
+        connectors = transfer["kv_connector_extra_config"]["connectors"]
+        for item in connectors:
+            if item.get("kv_connector") == "AscendStoreConnector":
+                item.setdefault("kv_connector_extra_config", {})["lookup_rpc_port"] = rank
+        kv_overrides = transfer
+    else:
+        kv_overrides = {
+            "kv_connector_extra_config": {
+                "prefill": {"dp_size": topology.prefill.dp_size, "tp_size": topology.prefill.tp_size},
+                "decode": {"dp_size": topology.decode.dp_size, "tp_size": topology.decode.tp_size},
+            },
+            "kv_port": kv_port,
+        }
     if runtime.connector_profile.engine_id_policy == PD_ENGINE_ID_FROM_INDEX:
         kv_overrides["engine_id"] = str(topology.instance_index)
     overrides["kv_transfer_config"] = kv_overrides
@@ -1956,6 +1997,8 @@ def _build_pd_process_plan(
     runtime: PdRuntimeSpec,
     device_count: int,
     *,
+    port_base_override: int | None = None,
+    port_base_source: str = "recipe",
     post_merge_notes: Dict[str, str] | None = None,
 ) -> ProcessPlan:
     """从规范 topology 构造当前 Pod 唯一有序进程计划。
@@ -1964,13 +2007,17 @@ def _build_pd_process_plan(
         resolved: 已含 PD topology 和静态 role traces 的解析结果。
         runtime: exact role recipe 的固定 runtime spec。
         device_count: 当前 Pod 显式卡数。
+        port_base_override: backend 端口基座覆盖(--engine-port/ENGINE_PORT env);
+            None 表示保持 recipe 值。覆盖是显式意图,进程端口变为 base+local_index,
+            与 DP RPC/KV/proxy 的冲突由 listener 冲突校验兕底。
+        port_base_source: 端口基座来源描述,覆盖生效时写入审计 notes。
         post_merge_notes: 收集每条进程终态约束的审计说明，由调用方写入 Pod 级 notes。
 
     Returns:
         每进程独立 trace/env/argv/endpoint 与本 Pod listener inventory。
 
     Raises:
-        ValueError: layout/policy 不兼容、ambient port 冲突或 listener 重叠。
+        ValueError: layout/policy 不兼容、端口基座非法、ambient port 冲突或 listener 重叠。
     """
     # topology 已完成 role、Instance 成员、global/local DP closure 和卡数容量校验；
     # 本函数只把这份规范结果展开成当前 Pod 真正要启动的进程，不再推导并行策略。
@@ -1979,11 +2026,25 @@ def _build_pd_process_plan(
     role_shape = topology.prefill if topology.role is PdRole.PREFILL else topology.decode
     uses_external_dp = _uses_external_pd_launch(runtime, role_shape)
 
-    # exact runtime spec 决定“一个 Pod 启几条命令”。每条命令使用独立 backend port，
-    # 因此 ambient ENGINE_PORT 不能再覆盖或模糊这份 endpoint profile。
+    # exact runtime spec 决定“一个 Pod 启几条命令”。每条命令使用独立 backend port。
+    # 有显式覆盖时,覆盖值就是端口基座,ambient 相等校验不再适用(它读的就是同一意图);
+    # 无覆盖时保留既有校验,保证未传参部署的行为不变。
     local_count = _validate_pd_runtime_spec(runtime, topology)
-    expected_ports = [runtime.backend_port_base + index for index in range(local_count)]
-    _validate_pd_ambient_port(expected_ports)
+    if port_base_override is not None:
+        base = port_base_override
+        highest = base + local_count - 1
+        if not 1 <= base or highest > 65535:
+            raise ValueError(
+                f"PD engine port base override {base} (source: {port_base_source}) is invalid "
+                f"for {local_count} process(es); ports must fit 1..65535"
+            )
+        expected_ports = [base + index for index in range(local_count)]
+        if post_merge_notes is not None:
+            post_merge_notes["pd.engine_port_base"] = str(base)
+            post_merge_notes["pd.engine_port_base_source"] = port_base_source
+    else:
+        expected_ports = [runtime.backend_port_base + index for index in range(local_count)]
+        _validate_pd_ambient_port(expected_ports)
 
     listeners: List[ListenerPlan] = []
     processes: List[EngineProcessPlan] = []
@@ -1999,7 +2060,8 @@ def _build_pd_process_plan(
 
         # 静态 role trace 保留 recipe/feature/user 来源；PD-owned rank、端口和 connector
         # identity 作为 strategy_pd_process 追加，形成该进程专属的最终参数真相源。
-        process_overrides, kv_port = _build_pd_process_overrides(topology, runtime, local_index, port)
+        static_transfer = resolved.engine_config_traces["kv_transfer_config"].final_value
+        process_overrides, kv_port = _build_pd_process_overrides(topology, runtime, static_transfer, local_index, port)
         traces = _overlay_pd_process_traces(resolved.engine_config_traces, process_overrides, local_index)
 
         # 一个 local DP rank 独占连续 TP 卡组。例如 TP=4 时，local rank 1 使用 4..7。
@@ -2330,10 +2392,15 @@ def _resolve_pd_config(
     if device_count is None:
         raise ValueError("PD requires an explicit device_count")
     post_merge_notes: Dict[str, str] = {}
+    # engine backend 端口基座覆盖:--engine-port/ENGINE_PORT env > recipe。
+    # 覆盖来源与最终基座写入 post_merge_notes,随 Pod 级 notes 进入 audit.json。
+    port_base_override, port_base_source = _resolve_pd_engine_port_base_override(user_input)
     resolved.process_plan = _build_pd_process_plan(
         resolved,
         role_recipe.runtime,
         device_count,
+        port_base_override=port_base_override,
+        port_base_source=port_base_source,
         post_merge_notes=post_merge_notes,
     )
     notes.update(post_merge_notes)
@@ -2544,15 +2611,13 @@ def resolve_config(
                 "Wings Accel is disabled because generic hardware fallback is active; ignored switches: %s",
                 ",".join(switch_names),
             )
-
     # wings-accel(智能加速)委托:按开关取加速产出(结构化 engine_config / env / scheme)。
     # 在 trace_merge **之前**计算,把 accel.engine_config 作为 strategy_accel 合并层并入引擎参数,
     # 层序为 recipe < accel < user_cli。
     # 复用 _deep_merge 深合并 + 同名去重 + 每参带 trace。模块未接通/关闭/无资产 → 空 AccelResult
     # (层为空 dict,trace_merge 遍历零 key,non-accel 路径零影响)。
     # model 定位以 model_name 为准(accel 内部定位 yaml),model_path 仅兜底,故传 None。
-    # 预读 recipe 的 TP/DP 透传给 accel:smart-accel YAML 常无 scenarios(KV 内存 auto 估算需要 TP/DP,
-    # 否则 worker_count 退化为 1,available 估算偏大)。覆盖所有 scenario 形态(单段/nodes[]/head·worker):
+    # 预读 recipe 的 TP/DP 透传给 accel；standalone 同时应用 device-count 策略。
     # - multi_node 形态按 rank_ip+node_ips+master_ip 选本 Pod node 的 TP/DP(head 与 worker 可不同);
     # - 无运行时 IP 上下文(占位加载)退化取 head;recipe 缺失/字段缺失 → 0(accel 内部兜底 1)。
     recipe_tp, recipe_dp = _peek_recipe_parallelism(

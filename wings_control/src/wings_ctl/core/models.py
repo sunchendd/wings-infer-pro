@@ -118,11 +118,15 @@ class UserInput:
         cli_dropped: cli_overrides 的丢弃互补半(同次 translate_overrides 产出的被丢弃项,
             含 key/value/reason),与 cli_overrides 一起拼成完整 user_cli 审计。
         feature_switches: 已开启的特性开关 dict(如 {"enable_auto_tool_choice": True})。
+        engine_port: ``--engine-port`` 显式 engine backend 监听端口基座覆盖(可选)。
+            standalone 场景由 cli 转成 user_cli 层 ``port`` 覆盖承载;PD 场景由
+            ProcessPlan 以 recipe backend_port_base 覆盖承载(进程仍为 base+local_index)。
     """
 
     cli_overrides: Optional[Dict[str, Any]] = None
     cli_dropped: Optional[List[Dict[str, Any]]] = None
     feature_switches: Optional[Dict[str, Any]] = None
+    engine_port: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -258,6 +262,7 @@ class PdRuntimeSpec:
     backend_port_base: int
     data_parallel_rpc_port: Optional[int]
     connector_profile: ConnectorProfile
+    data_parallel_external_lb: bool = True
 
 
 @dataclass(frozen=True)

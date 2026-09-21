@@ -336,6 +336,12 @@ def test_process_plan_runtime_uuid_omits_engine_id() -> None:
     assert "engine_id" not in process.engine_config_traces["kv_transfer_config"].final_value
 
 
+def test_process_plan_rejects_removed_from_dp_rank_policy() -> None:
+    """验证运行边界不会接受已移除的 from_dp_rank 策略。"""
+    with pytest.raises(ValueError, match="engine_id_policy.*from_dp_rank"):
+        _build_pd_process_plan(_resolved(), _runtime(engine_id_policy="from_dp_rank"), device_count=2)
+
+
 def test_process_plan_listener_span_reserves_base_through_device_count() -> None:
     """验证官方定义的闭区间包含 base 和 base+device_count。"""
     plan = _build_pd_process_plan(_resolved(), _runtime(listener_span="device_count_plus_one"), device_count=16)

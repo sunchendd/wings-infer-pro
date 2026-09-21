@@ -6,11 +6,20 @@ from pathlib import Path
 import pytest
 
 from wings_ctl import cli
+from wings_ctl.cli import (
+    _build_parser,
+    _collect_user_cli_overrides,
+    _drop_pd_backend_port_compat,
+    _export_proxy_port,
+    _resolve_engine,
+    _resolve_hardware_info_path,
+    _resolve_output_dir,
+)
 from wings_ctl.translators.cli_translator import CLITranslator, filter_maas_contract_overrides
 
 
 def test_named_flags_collected_to_user_cli_raw_dict():
-    out = cli._collect_user_cli_overrides(
+    out = _collect_user_cli_overrides(
         host=None,
         port=None,
         model_path="/m",
@@ -42,7 +51,7 @@ def test_sugar_host_port_model_path_collected(monkeypatch):
     G2:`_collect_user_cli_overrides` 现在**只读不写 env**(proxy 端口写 env 见下方 _export_proxy_port 测试)。
     """
     monkeypatch.delenv("ENGINE_PORT", raising=False)
-    out = cli._collect_user_cli_overrides(
+    out = _collect_user_cli_overrides(
         host="0.0.0.0",
         port=18000,  # 用户传的是 proxy 端口
         model_path="/weights",
@@ -50,10 +59,33 @@ def test_sugar_host_port_model_path_collected(monkeypatch):
     assert out == {"host": "0.0.0.0", "port": 17000, "model_path": "/weights"}  # engine 监听 backend 17000
 
 
+def test_engine_port_explicit_override_beats_env(monkeypatch):
+    """--engine-port 是 engine backend 端口的显式覆盖,优先级高于 ENGINE_PORT env。"""
+    monkeypatch.setenv("ENGINE_PORT", "17001")
+    out = _collect_user_cli_overrides(
+        host=None,
+        port=None,
+        model_path=None,
+        engine_port=17500,
+    )
+    assert out["port"] == 17500
+
+
+def test_engine_port_absent_keeps_legacy_env_behavior(monkeypatch):
+    """--engine-port 未传时保持既有语义:--port/ENGINE_PORT env 触发 backend 端口兜底。"""
+    monkeypatch.setenv("ENGINE_PORT", "17001")
+    out = _collect_user_cli_overrides(host=None, port=None, model_path=None)
+    assert out["port"] == 17001
+
+    monkeypatch.delenv("ENGINE_PORT", raising=False)
+    out_no_trigger = _collect_user_cli_overrides(host=None, port=None, model_path=None)
+    assert "port" not in out_no_trigger
+
+
 def test_export_proxy_port_sets_env(monkeypatch):
     """G2:--port(对外/代理端口)由 _export_proxy_port 显式写入 env PORT(供 proxy 读)。"""
     monkeypatch.delenv("PORT", raising=False)
-    cli._export_proxy_port(18000)
+    _export_proxy_port(18000)
     import os
 
     assert os.environ.get("PORT") == "18000"
@@ -62,7 +94,7 @@ def test_export_proxy_port_sets_env(monkeypatch):
 def test_export_proxy_port_none_no_write(monkeypatch):
     """G2:--port 未传(None)→ 不写 env(保持原样)。"""
     monkeypatch.delenv("PORT", raising=False)
-    cli._export_proxy_port(None)
+    _export_proxy_port(None)
     import os
 
     assert os.environ.get("PORT") is None
@@ -70,7 +102,7 @@ def test_export_proxy_port_none_no_write(monkeypatch):
 
 def test_pd_drops_standard_backend_port_compat_but_keeps_audit():
     """PD 的 backend 由 exact recipe 规划，MaaS --port 只保留 proxy 语义。"""
-    overrides, dropped = cli._drop_pd_backend_port_compat(
+    overrides, dropped = _drop_pd_backend_port_compat(
         {"port": 17000, "max_num_seqs": 16},
         [],
     )
@@ -80,7 +112,10 @@ def test_pd_drops_standard_backend_port_compat_but_keeps_audit():
         {
             "key": "port",
             "value": 17000,
-            "reason": "PD engine backend port is owned by the exact recipe; --port remains proxy PORT",
+            "reason": (
+                "PD engine backend port base comes from --engine-port/ENGINE_PORT and the exact recipe; "
+                "--port remains proxy PORT"
+            ),
         }
     ]
 
@@ -90,18 +125,18 @@ def test_pd_port_compat_drop_is_noop_without_generated_port():
     overrides = {"max_num_seqs": 16}
     dropped = [{"key": "input_length", "value": 8, "reason": "unsupported"}]
 
-    assert cli._drop_pd_backend_port_compat(overrides, dropped) == (overrides, dropped)
+    assert _drop_pd_backend_port_compat(overrides, dropped) == (overrides, dropped)
 
 
 def test_model_flag_not_part_of_overrides():
-    out = cli._collect_user_cli_overrides(host=None, port=None, model_path=None)
+    out = _collect_user_cli_overrides(host=None, port=None, model_path=None)
     assert "model_name" not in out
     assert "model" not in out
     assert "model_path" not in out
 
 
 def test_named_flags_translation_to_engine_keys_and_drop():
-    raw = cli._collect_user_cli_overrides(
+    raw = _collect_user_cli_overrides(
         host="0.0.0.0",
         port=18000,
         model_path="/m",
@@ -129,7 +164,7 @@ def test_named_flags_translation_to_engine_keys_and_drop():
 
 def test_max_num_batched_tokens_passthrough_to_engine_native():
     """验证 --max-num-batched-tokens 收集为 user_cli 并同名直通译为 vllm 原生键(覆盖 recipe)。"""
-    raw = cli._collect_user_cli_overrides(
+    raw = _collect_user_cli_overrides(
         host=None,
         port=None,
         model_path=None,
@@ -142,7 +177,7 @@ def test_max_num_batched_tokens_passthrough_to_engine_native():
 
 
 def test_parser_accepts_maas_named_flags():
-    parser = cli._build_parser()
+    parser = _build_parser()
     args = parser.parse_args(
         [
             "--model-name",
@@ -180,7 +215,7 @@ def test_parser_accepts_maas_named_flags():
 
 
 def test_store_true_flags_default_none():
-    parser = cli._build_parser()
+    parser = _build_parser()
     args = parser.parse_args(["--model-name", "kimi-k2.5"])
     assert args.trust_remote_code is None
     assert args.enable_auto_think_choice is None
@@ -191,7 +226,7 @@ def test_store_true_flags_default_none():
 
 
 def test_store_true_none_not_in_overrides():
-    out = cli._collect_user_cli_overrides(
+    out = _collect_user_cli_overrides(
         host=None,
         port=None,
         model_path=None,
@@ -256,46 +291,46 @@ def test_nonexistent_hardware_uses_generic_fallback(config_root_real, tmp_path, 
 
 def test_engine_fallback_from_env(monkeypatch):
     monkeypatch.setenv("ENGINE", "vllm-ascend")
-    assert cli._resolve_engine(None) == "vllm-ascend"
+    assert _resolve_engine(None) == "vllm-ascend"
 
 
 def test_engine_cli_overrides_env(monkeypatch):
     monkeypatch.setenv("ENGINE", "vllm-ascend")
-    assert cli._resolve_engine("vllm") == "vllm"
+    assert _resolve_engine("vllm") == "vllm"
 
 
 def test_engine_default_when_no_cli_no_env(monkeypatch):
     monkeypatch.delenv("ENGINE", raising=False)
-    assert cli._resolve_engine(None) == "vllm"
+    assert _resolve_engine(None) == "vllm"
 
 
 def test_hardware_cli_path_used_when_given():
     """--hardware-info 给定时直接用该路径(CLI 是两条途径之一)。"""
     cli_path = Path("/tmp/hw-cli.json")
-    assert cli._resolve_hardware_info_path(cli_path) == cli_path
+    assert _resolve_hardware_info_path(cli_path) == cli_path
 
 
 def test_hardware_defaults_to_shared_volume_when_cli_absent():
     """--hardware-info 可选:不传则读固定目录(WINGS_HARDWARE_FILE 入口已删,仅 CLI + 固定目录两途径)。"""
-    assert cli._resolve_hardware_info_path(None) == cli.DEFAULT_HARDWARE_INFO_PATH
+    assert _resolve_hardware_info_path(None) == cli.DEFAULT_HARDWARE_INFO_PATH
     assert cli.DEFAULT_HARDWARE_INFO_PATH == Path("/shared-volume/hardware_info.json")
 
 
 def test_output_dir_cli_value_wins(tmp_path):
     """--output-dir 给定时直接用该值(优先级最高)。"""
-    assert cli._resolve_output_dir(tmp_path) == tmp_path
+    assert _resolve_output_dir(tmp_path) == tmp_path
 
 
 def test_output_dir_defaults_to_shared_volume_when_present(tmp_path, monkeypatch):
     """未传 --output-dir 且共享卷存在 → 三件产物落共享卷(engine 从此读 start_command.sh)。"""
     monkeypatch.setattr(cli, "SHARED_VOLUME_DIR", tmp_path)  # 模拟共享卷已挂载(存在)
-    assert cli._resolve_output_dir(None) == tmp_path
+    assert _resolve_output_dir(None) == tmp_path
 
 
 def test_output_dir_falls_back_to_cwd_without_shared_volume(monkeypatch):
     """未传 --output-dir 且无共享卷(本地/CI)→ 回退 cwd,行为不变。"""
     monkeypatch.setattr(cli, "SHARED_VOLUME_DIR", Path("/no/such/shared-volume"))
-    assert cli._resolve_output_dir(None) == Path(".")
+    assert _resolve_output_dir(None) == Path(".")
 
 
 @pytest.mark.parametrize(
@@ -315,12 +350,12 @@ def test_known_non_contract_cli_params_are_collected_but_dropped_before_merge(
     这是当前 parameter lifecycle / MaaS contract 策略(非契约参数优雅降级),不是解析遗漏或 allowlist 漏项。
     """
     # 1. argparse 能解析(程序认识该参数;dest 与 canonical key 同名)
-    parser = cli._build_parser()
+    parser = _build_parser()
     args = parser.parse_args(["--model-name", "X", *argv_tokens])
     assert getattr(args, canonical_key) is not None
 
     # 2. _collect_user_cli_overrides 收成对应 canonical key(进 raw override dict)
-    raw = cli._collect_user_cli_overrides(host=None, port=None, model_path=None, **collect_kwargs)
+    raw = _collect_user_cli_overrides(host=None, port=None, model_path=None, **collect_kwargs)
     assert canonical_key in raw
 
     # 3. filter_maas_contract_overrides 在 merge 前把它 dropped、不在 allowed
@@ -343,7 +378,7 @@ def test_env_feature_gates_do_not_leak_into_user_cli_layer(monkeypatch):
     monkeypatch.setenv("LMCACHE_OFFLOAD", "true")
     monkeypatch.setenv("WINGS_ROUTE_ENABLE", "true")
     monkeypatch.setenv("PD_ROLE", "P")
-    out = cli._collect_user_cli_overrides(
+    out = _collect_user_cli_overrides(
         host="0.0.0.0",
         port=18000,
         model_path="/m",

@@ -21,3 +21,7 @@ wings_control/license_sdk/adaptivelm/
 wings_control/license_sdk/libboundscheck/
 wings_control/license_sdk/AdaptiveLMV100R005C10_S.tar
 wings_control/license_sdk/libboundscheck-v1.1.16.zip
+# ai_perf ascend-a3/glm5.3-w8a8c8 variants 运行时生成产物与日志
+ai_perf/example/ascend-a3/glm5.3-w8a8c8*/generated/
+ai_perf/example/ascend-a3/glm5.3-w8a8c8*/rendered/
+ai_perf/example/ascend-a3/glm5.3-w8a8c8*/logs/

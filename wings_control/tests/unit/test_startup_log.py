@@ -90,6 +90,7 @@ def test_startup_log_contains_fallback_warning_when_version_fallback(
     tmp_path,
     monkeypatch,
 ):
+    monkeypatch.setattr("wings_ctl.engines.version_resolver._find_latest_version_dir", lambda _: "v0.18.0")
     log_path = tmp_path / "logs" / "fallback.log"
     _run_once(
         config_root_real=config_root_real,

@@ -323,3 +323,13 @@ def test_select_pd_recipe_pair_rejects_mixed_engine_id_policy() -> None:
 
     with pytest.raises(ValueError, match="all omitted or all explicit"):
         select_pd_recipe_pair(model, "explicit_allocation")
+
+
+def test_select_pd_recipe_pair_rejects_removed_from_dp_rank_policy() -> None:
+    """验证已移除的 from_dp_rank 不再被 recipe 接受。"""
+    model = _model()
+    strategy = model["scenarios"]["pd_disaggregation"]["strategies"]["pd_cluster"]
+    strategy["runtime"] = {"decode": {"engine_id_policy": "from_dp_rank"}}
+
+    with pytest.raises(ValueError, match="engine_id_policy is invalid"):
+        select_pd_recipe_pair(model, "explicit_allocation")

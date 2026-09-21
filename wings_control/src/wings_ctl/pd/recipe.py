@@ -82,6 +82,8 @@ class _NormalizedNode:
     decode_shape: ParallelShape
     connector_name: str
     rpc_port: int | None
+    backend_port_base: int
+    data_parallel_external_lb: bool
     kv_port: int
     engine_id: int | None
 
@@ -107,6 +109,11 @@ def _positive_int(value: Any, path: str) -> int:
     return value
 
 
+def _is_non_negative_int(value: Any) -> bool:
+    """判断值是否为非布尔类型的非负整数。"""
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
 def _port(value: Any, path: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 65535:
         raise ValueError(
@@ -121,6 +128,58 @@ def _parallel_shape(data: Any, path: str) -> ParallelShape:
         dp_size=_positive_int(shape.get("dp_size"), f"{path}.dp_size"),
         tp_size=_positive_int(shape.get("tp_size"), f"{path}.tp_size"),
     )
+
+
+def _normalize_multi_connector(
+    transfer: Dict[str, Any],
+    transfer_path: str,
+    expected_kv_role: str,
+) -> tuple[Dict[str, Any], int]:
+    """提取 MultiConnector 中的 Mooncake 参数并移除运行时生成的 lookup 端口。"""
+    outer_extra_path = f"{transfer_path}.kv_connector_extra_config"
+    outer_extra = _required_mapping(transfer.get("kv_connector_extra_config"), outer_extra_path)
+    connectors = outer_extra.get("connectors")
+    if not isinstance(connectors, list) or not connectors:
+        raise ValueError(f"PD recipe {outer_extra_path}.connectors must be a non-empty list")
+    mooncake = [
+        (index, item)
+        for index, item in enumerate(connectors)
+        if isinstance(item, dict) and item.get("kv_connector") == "MooncakeConnectorV1"
+    ]
+    if len(mooncake) != 1:
+        raise ValueError(f"PD recipe {outer_extra_path}.connectors must contain exactly one MooncakeConnectorV1")
+    mooncake_index, mooncake_cfg = mooncake[0]
+    mooncake_path = f"{outer_extra_path}.connectors[{mooncake_index}]"
+    if mooncake_cfg.get("kv_role") != expected_kv_role:
+        raise ValueError(
+            f"PD recipe {mooncake_path}.kv_role must be {expected_kv_role!r}; got {mooncake_cfg.get('kv_role')!r}"
+        )
+    kv_port = _port(mooncake_cfg.get("kv_port"), f"{mooncake_path}.kv_port")
+    transport_extra_path = f"{mooncake_path}.kv_connector_extra_config"
+    transport_extra = deepcopy(_required_mapping(mooncake_cfg.get("kv_connector_extra_config"), transport_extra_path))
+
+    normalized_connectors = deepcopy(connectors)
+    for index, store in enumerate(normalized_connectors):
+        if not isinstance(store, dict) or store.get("kv_connector") != "AscendStoreConnector":
+            continue
+        store_path = f"{outer_extra_path}.connectors[{index}]"
+        if store.get("kv_role") != expected_kv_role:
+            raise ValueError(
+                f"PD recipe {store_path}.kv_role must be {expected_kv_role!r}; got {store.get('kv_role')!r}"
+            )
+        store_extra = _required_mapping(
+            store.get("kv_connector_extra_config"), f"{store_path}.kv_connector_extra_config"
+        )
+        raw_lookup = store_extra.pop("lookup_rpc_port", None)
+        if raw_lookup is not None and not _is_non_negative_int(raw_lookup):
+            raise ValueError(
+                f"PD recipe {store_path}.kv_connector_extra_config.lookup_rpc_port must be a non-negative integer"
+            )
+
+    normalized_outer = deepcopy(outer_extra)
+    normalized_outer["connectors"] = normalized_connectors
+    transfer["kv_connector_extra_config"] = normalized_outer
+    return transport_extra, kv_port
 
 
 def _select_strategy(model_data: Dict[str, Any]) -> tuple[str, str, Dict[str, Any]]:
@@ -152,10 +211,19 @@ def _normalize_node(raw: Any, path: str, expected_index: int) -> _NormalizedNode
     role = _ROLE_NAMES[role_name]
     index = node.get("index")
     if index != expected_index:
-        raise ValueError(f"PD recipe {path}.index must increase from 0 within its role; expected {expected_index}, got {index!r}")
+        raise ValueError(
+            f"PD recipe {path}.index must increase from 0 within its role; expected {expected_index}, got {index!r}"
+        )
 
     config_path = f"{path}.engine_config"
     config = deepcopy(_required_mapping(node.get("engine_config"), config_path))
+    raw_backend_port = config.get("port")
+    backend_port_base = (
+        _port(raw_backend_port, f"{config_path}.port") if isinstance(raw_backend_port, int) else DEFAULT_ENGINE_PORT
+    )
+    external_lb = config.get("data_parallel_external_lb", True)
+    if not isinstance(external_lb, bool):
+        raise ValueError(f"PD recipe {config_path}.data_parallel_external_lb must be a boolean")
     rpc_port_raw = config.get("data_parallel_rpc_port")
     rpc_port = _port(rpc_port_raw, f"{config_path}.data_parallel_rpc_port") if rpc_port_raw is not None else None
     transfer_path = f"{config_path}.kv_transfer_config"
@@ -168,7 +236,13 @@ def _normalize_node(raw: Any, path: str, expected_index: int) -> _NormalizedNode
         raise ValueError(
             f"PD recipe {transfer_path}.kv_role must be {expected_kv_role!r}; got {transfer.get('kv_role')!r}"
         )
-    kv_port = _port(transfer.get("kv_port"), f"{transfer_path}.kv_port")
+    extra_path = f"{transfer_path}.kv_connector_extra_config"
+    if connector_name == "MultiConnector":
+        extra, kv_port = _normalize_multi_connector(transfer, transfer_path, expected_kv_role)
+        extra_path += ".connectors[MooncakeConnectorV1].kv_connector_extra_config"
+    else:
+        extra = deepcopy(_required_mapping(transfer.get("kv_connector_extra_config"), extra_path))
+        kv_port = _port(transfer.get("kv_port"), f"{transfer_path}.kv_port")
     engine_id_raw = transfer.get("engine_id")
     if engine_id_raw is None:
         engine_id = None
@@ -178,14 +252,18 @@ def _normalize_node(raw: Any, path: str, expected_index: int) -> _NormalizedNode
         try:
             engine_id = int(engine_id_raw)
         except ValueError as exc:
-            raise ValueError(f"PD recipe {transfer_path}.engine_id must be a non-negative integer; got {engine_id_raw!r}") from exc
+            raise ValueError(
+                f"PD recipe {transfer_path}.engine_id must be a non-negative integer; got {engine_id_raw!r}"
+            ) from exc
         if engine_id < 0:
-            raise ValueError(f"PD recipe {transfer_path}.engine_id must be a non-negative integer; got {engine_id_raw!r}")
+            raise ValueError(
+                f"PD recipe {transfer_path}.engine_id must be a non-negative integer; got {engine_id_raw!r}"
+            )
 
-    extra_path = f"{transfer_path}.kv_connector_extra_config"
-    extra = deepcopy(_required_mapping(transfer.get("kv_connector_extra_config"), extra_path))
-    prefill_shape = _parallel_shape(extra.pop("prefill", None), f"{extra_path}.prefill")
-    decode_shape = _parallel_shape(extra.pop("decode", None), f"{extra_path}.decode")
+    prefill_raw = deepcopy(extra.get("prefill"))
+    decode_raw = deepcopy(extra.get("decode"))
+    prefill_shape = _parallel_shape(prefill_raw, f"{extra_path}.prefill")
+    decode_shape = _parallel_shape(decode_raw, f"{extra_path}.decode")
     configured_tp = config.get("tensor_parallel_size")
     role_shape = prefill_shape if role is PdRole.PREFILL else decode_shape
     if configured_tp not in ("$7", role_shape.tp_size):
@@ -196,12 +274,15 @@ def _normalize_node(raw: Any, path: str, expected_index: int) -> _NormalizedNode
 
     for field in _RUNTIME_OWNED_ENGINE_FIELDS:
         config.pop(field, None)
-    transfer.pop("kv_port", None)
+    if connector_name != "MultiConnector":
+        transfer.pop("kv_port", None)
+        extra.pop("prefill", None)
+        extra.pop("decode", None)
+        if extra:
+            transfer["kv_connector_extra_config"] = extra
+        else:
+            transfer.pop("kv_connector_extra_config", None)
     transfer.pop("engine_id", None)
-    if extra:
-        transfer["kv_connector_extra_config"] = extra
-    else:
-        transfer.pop("kv_connector_extra_config", None)
     config["tensor_parallel_size"] = role_shape.tp_size
     config["kv_transfer_config"] = transfer
 
@@ -227,6 +308,8 @@ def _normalize_node(raw: Any, path: str, expected_index: int) -> _NormalizedNode
         decode_shape=decode_shape,
         connector_name=connector_name.strip(),
         rpc_port=rpc_port,
+        backend_port_base=backend_port_base,
+        data_parallel_external_lb=external_lb,
         kv_port=kv_port,
         engine_id=engine_id,
     )
@@ -294,7 +377,9 @@ def _derive_identity_profile(grouped: Dict[PdRole, list[_NormalizedNode]]) -> _I
         raise ValueError(f"PD recipe kv_port must be unique across logical instances; got {ports}")
     strides = [right - left for left, right in zip(ports, ports[1:])]
     if not strides or strides[0] <= 0 or any(stride != strides[0] for stride in strides):
-        raise ValueError(f"PD recipe kv_port must form a positive arithmetic sequence across logical instances; got {ports}")
+        raise ValueError(
+            f"PD recipe kv_port must form a positive arithmetic sequence across logical instances; got {ports}"
+        )
     return _IdentityProfile(engine_id_policy, ports[0], strides[0])
 
 
@@ -303,7 +388,9 @@ def _validate_role_nodes(nodes: list[_NormalizedNode], role: PdRole) -> _Normali
     first = nodes[0]
     for node in nodes[1:]:
         if node.engine_config != first.engine_config:
-            raise ValueError(f"PD recipe role={role.value} nodes have inconsistent static engine_config: {node.source_prefix}")
+            raise ValueError(
+                f"PD recipe role={role.value} nodes have inconsistent static engine_config: {node.source_prefix}"
+            )
         if node.env != first.env:
             raise ValueError(f"PD recipe role={role.value} nodes have inconsistent env: {node.source_prefix}")
         if node.source_commands != first.source_commands:
@@ -313,7 +400,9 @@ def _validate_role_nodes(nodes: list[_NormalizedNode], role: PdRole) -> _Normali
         if (node.prefill_shape, node.decode_shape) != (first.prefill_shape, first.decode_shape):
             raise ValueError(f"PD recipe role={role.value} nodes have inconsistent P/D shape: {node.source_prefix}")
         if node.connector_name != first.connector_name or node.rpc_port != first.rpc_port:
-            raise ValueError(f"PD recipe role={role.value} nodes have inconsistent connector or DP RPC port: {node.source_prefix}")
+            raise ValueError(
+                f"PD recipe role={role.value} nodes have inconsistent connector or DP RPC port: {node.source_prefix}"
+            )
     return first
 
 
@@ -346,10 +435,26 @@ def select_pd_recipe_pair(
     if shape_policy == PD_TOPOLOGY_EXPLICIT_ALLOCATION:
         missing_rpc_roles = [role.value for role, node in first.items() if node.rpc_port is None]
         if missing_rpc_roles:
-            raise ValueError(f"PD explicit_allocation recipe is missing concrete DP RPC ports: roles={missing_rpc_roles}")
+            raise ValueError(
+                f"PD explicit_allocation recipe is missing concrete DP RPC ports: roles={missing_rpc_roles}"
+            )
     pair: Dict[PdRole, PdRoleRecipe] = {}
+    runtime_profiles = _required_mapping(strategy.get("runtime", {}), f"{prefix}.runtime")
     for role, topology in ((PdRole.PREFILL, Topology.PD_PREFILL), (PdRole.DECODE, Topology.PD_DECODE)):
         node = first[role]
+        role_name = "prefill" if role is PdRole.PREFILL else "decode"
+        role_profile = _required_mapping(runtime_profiles.get(role_name, {}), f"{prefix}.runtime.{role_name}")
+        if "engine_id_policy" in role_profile and any(item.engine_id is not None for item in grouped[role]):
+            raise ValueError(
+                f"PD recipe {prefix}.runtime.{role_name}.engine_id_policy cannot be combined with "
+                f"nodes[{role_name}].engine_config.kv_transfer_config.engine_id"
+            )
+        engine_id_policy = role_profile.get("engine_id_policy", identity.engine_id_policy)
+        if engine_id_policy not in {
+            PD_ENGINE_ID_OMIT,
+            PD_ENGINE_ID_FROM_INDEX,
+        }:
+            raise ValueError(f"PD recipe {prefix}.runtime.{role_name}.engine_id_policy is invalid")
         ordinary_1p1d = shape_policy == PD_TOPOLOGY_DERIVED_1P1D
         runtime = PdRuntimeSpec(
             topology_input_policy=shape_policy,
@@ -361,15 +466,16 @@ def select_pd_recipe_pair(
             process_layout=PD_PROCESS_LAYOUT_SINGLE if ordinary_1p1d else PD_PROCESS_LAYOUT_PER_LOCAL_RANK,
             dp_launch_policy=PD_DP_LAUNCH_NONE if ordinary_1p1d else PD_DP_LAUNCH_EXTERNAL_RANK,
             endpoint_policy=PD_ENDPOINT_PER_PROCESS,
-            backend_port_base=DEFAULT_ENGINE_PORT,
+            backend_port_base=node.backend_port_base,
             data_parallel_rpc_port=None if ordinary_1p1d else node.rpc_port,
+            data_parallel_external_lb=node.data_parallel_external_lb,
             connector_profile=ConnectorProfile(
                 connector_name=node.connector_name,
-                engine_id_policy=identity.engine_id_policy,
+                engine_id_policy=engine_id_policy,
                 kv_port_policy=KvPortPolicy(
                     mode=PD_KV_PORT_FROM_INDEX,
-                    base=identity.kv_base,
-                    instance_stride=identity.kv_stride,
+                    base=node.kv_port if node.connector_name == "MultiConnector" else identity.kv_base,
+                    instance_stride=0 if node.connector_name == "MultiConnector" else identity.kv_stride,
                     process_stride=0,
                     listener_span=PD_KV_LISTENER_DEVICE_COUNT_PLUS_ONE,
                 ),

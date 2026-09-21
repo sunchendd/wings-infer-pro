@@ -11,6 +11,8 @@ import json
 import logging
 from pathlib import Path
 
+import yaml
+
 from wings_ctl.core.models import (
     EngineVersion,
     HardwareContext,
@@ -77,11 +79,14 @@ def _make_resolved_multinode(
     has_version_dir: bool = True,
 ) -> ResolvedConfig:
     """构造一个 multi_node ResolvedConfig(顶层 traces 空、nodes 承载 per-node)。"""
-    rc = _make_resolved(
-        {}, engine=engine, resolved_version=resolved_version, has_version_dir=has_version_dir
-    )
+    rc = _make_resolved({}, engine=engine, resolved_version=resolved_version, has_version_dir=has_version_dir)
     rc.nodes = [
-        ResolvedNode(role=role, index=None, engine_config_traces=traces, env_traces={})
+        ResolvedNode(
+            role=role,
+            index=None,
+            engine_config_traces=traces,
+            env_traces={},
+        )
         for role, traces in node_traces
     ]
     return rc
@@ -294,6 +299,45 @@ def test_validate_version_layer_path_used(tmp_path):
     assert pv.unsupported == []
 
 
+def test_vllm_ascend_v026_uses_nonempty_supported_params(config_root_real):
+    """已解析的 v0.26.0rc 版本必须命中非空清单，避免静默跳过参数校验。"""
+    resolved = _make_resolved(
+        {
+            "model": _tv("m"),
+            "cpu_distributed_timeout_seconds": _tv(3600),
+            "data_parallel_external_lb": _tv(False),
+            "speculative_config": _tv({"method": "deepseek_mtp"}),
+        },
+        engine="vllm-ascend",
+        resolved_version="v0.26.0rc",
+        has_version_dir=True,
+    )
+
+    validate_engine_params(resolved, config_root_real)
+
+    pv = resolved.param_validation
+    assert pv.status == "checked"
+    assert pv.supported_params_file.endswith("engines/vllm-ascend/v0.26.0rc/supported_params.txt")
+    assert pv.unsupported == []
+
+
+def test_vllm_ascend_v026_glm53_recipes_only_use_supported_params(config_root_real):
+    """GLM-5.3 的 v0.26.0rc recipe 不得包含拼错或已废弃的顶层参数。"""
+    version_root = config_root_real / "engines/vllm-ascend/v0.26.0rc"
+    supported = _load_supported_params(version_root / "supported_params.txt")
+    assert supported is not None
+
+    unsupported: list[str] = []
+    for path in sorted(version_root.glob("ascend-a3/models/GLM-5.3/*.yaml")):
+        recipe = yaml.safe_load(path.read_text(encoding="utf-8"))
+        nodes = recipe["scenarios"]["pd_disaggregation"]["strategies"]["pd_cluster"]["nodes"]
+        for node in nodes:
+            traces = {key: _tv(value) for key, value in node["engine_config"].items()}
+            unsupported.extend(f"{path.name}:{item['rendered_as']}" for item in collect_unsupported(traces, supported))
+
+    assert not unsupported, "v0.26.0rc GLM-5.3 recipe contains unsupported parameters:\n" + "\n".join(unsupported)
+
+
 # ─── multi_node 逐 node 校验(第二步)────────────────────────────────────
 
 
@@ -346,9 +390,7 @@ def test_validate_multinode_missing_file_skips(tmp_path):
 # ─── 真配置端到端(run_pipeline → audit.json + startup_log)───────────────
 
 
-def test_pipeline_writes_param_validation_to_audit_and_log(
-    config_root_real, tmp_path, monkeypatch
-):
+def test_pipeline_writes_param_validation_to_audit_and_log(config_root_real, tmp_path, monkeypatch):
     """run_pipeline 真配置:audit.json 有 param_validation 块(status=checked),startup_log 有对应行。"""
     hardware_info_path = tmp_path / "hw.json"
     hardware_info_path.write_text(
@@ -405,9 +447,18 @@ def test_dry_run_also_invokes_validator(config_root, tmp_path, monkeypatch):
     monkeypatch.setattr(
         "sys.argv",
         [
-            "wings-ctl", "--engine", "vllm", "--model-name", "Qwen3.5-0.8B",
-            "--model-path", "/m/Qwen3.5-0.8B", "--config-root", str(config_root),
-            "--hardware-info", str(hw), "--dry-run",
+            "wings-ctl",
+            "--engine",
+            "vllm",
+            "--model-name",
+            "Qwen3.5-0.8B",
+            "--model-path",
+            "/m/Qwen3.5-0.8B",
+            "--config-root",
+            str(config_root),
+            "--hardware-info",
+            str(hw),
+            "--dry-run",
         ],
     )
     cli.main()
