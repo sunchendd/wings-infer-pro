@@ -12,6 +12,7 @@ wings_control 其余测试。
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -50,6 +51,7 @@ def test_passes_when_detection_degrades_to_zero(monkeypatch):
     """Docker daemon 不可达(独立部署/无 sock)时按 0,退化为单次校验。"""
     seen = {}
     monkeypatch.setattr(license_mod, "count_used_devices", lambda: None)
+    monkeypatch.setattr(license_mod, "_spawn_alarm_daemon", lambda: None)
 
     def fake_check(target, used_devices=None, request_devices=None):
         seen.update(used=used_devices, request=request_devices)
@@ -64,6 +66,7 @@ def test_passes_when_detection_degrades_to_zero(monkeypatch):
 
 def test_used_and_request_are_passed_to_checker(monkeypatch):
     monkeypatch.setattr(license_mod, "count_used_devices", lambda: 6)
+    monkeypatch.setattr(license_mod, "_spawn_alarm_daemon", lambda: None)
     seen = {}
 
     def fake_check(target, used_devices=None, request_devices=None):
@@ -108,16 +111,154 @@ def test_missing_device_count_fails_closed_without_checker(monkeypatch):
 
 
 def test_invalid_license_skips_quota(monkeypatch):
-    """验签失败时 checker 不做配额比较,直接抛 expired。"""
+    """验签失败时 checker 不做配额比较,直接抛错(过期除外,见过期告警用例)。"""
     monkeypatch.setattr(license_mod, "count_used_devices", lambda: 99)
     monkeypatch.setattr(
         license_mod,
         "check_license",
-        lambda target, used_devices=None, request_devices=None: _failed("expired"),
+        lambda target, used_devices=None, request_devices=None: _failed("invalid"),
     )
 
-    with pytest.raises(ValueError, match="expired"):
+    with pytest.raises(ValueError, match="invalid"):
         license_mod.LicensePublisher().enforce(_request(device_count=4), _resolved())
+
+
+def test_expired_license_warns_and_starts(monkeypatch, caplog):
+    """正式证书过期不再拦截启动:告警放行(code=2005),并派生告警守护。"""
+    import logging
+
+    def fake_check_license(target, used_devices=None, request_devices=None):
+        return license_mod.LicenseCheckResult(
+            True,
+            license_mod.LicenseRecord(
+                status="expired",
+                authorized_device_count=8,
+                reason="License has expired; renewal is required",
+            ),
+        )
+
+    spawned = []
+    monkeypatch.setattr(license_mod, "count_used_devices", lambda: 2)
+    monkeypatch.setattr(license_mod, "_spawn_alarm_daemon", lambda: spawned.append(1))
+    monkeypatch.setattr(license_mod, "check_license", fake_check_license)
+
+    with caplog.at_level(logging.WARNING, logger="wings-license"):
+        license_mod.LicensePublisher().enforce(_request(device_count=4), _resolved())
+
+    assert spawned == [1]
+    warning = "\n".join(record.message for record in caplog.records)
+    assert "code=2005" in warning
+    assert "status=expired" in warning
+
+
+def test_check_license_maps_expired_exit_10_to_allowed_result(monkeypatch, tmp_path):
+    """checker 过期路径(exit 10 + 结构化 JSON)解析为告警放行结果。
+
+    畸形输出(缺字段/状态不符)仍走 fail-closed,不因过期策略放宽解析。
+    """
+    license_file = tmp_path / "license.xml"
+    license_file.write_text("<xml/>", encoding="utf-8")
+    checker = tmp_path / "checker"
+    checker.write_text("#!/bin/sh\n", encoding="utf-8")
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    (state_dir / license_mod.STATE_FILE_NAME).write_text("state", encoding="utf-8")
+
+    expired_payload = {
+        "status": "expired",
+        "license_id": "LSN-1",
+        "product_name": license_mod.EXPECTED_PRODUCT_NAME,
+        "product_version": license_mod.EXPECTED_PRODUCT_VERSION,
+        "capacity_key": license_mod.DEVICE_CAPACITY_KEY,
+        "valid_from": "2025-01-01",
+        "valid_until": "2026-01-01",
+        "grace_until": "2026-03-02",
+        "authorized_device_count": 8,
+        "reason": "License has expired; renewal is required",
+    }
+
+    def fake_run(argv, **kwargs):
+        assert "--initialize-state" not in argv  # state 已存在,不得重复初始化
+        return SimpleNamespace(returncode=10, stdout=json.dumps(expired_payload), stderr="")
+
+    monkeypatch.setattr(license_mod, "DEFAULT_CHECKER", checker)
+    monkeypatch.setattr(license_mod.subprocess, "run", fake_run)
+
+    result = license_mod.check_license(license_file, state_dir=state_dir)
+
+    assert result.allowed
+    assert result.record.status == "expired"
+    assert result.record.license_id == "LSN-1"
+    assert result.record.grace_until == "2026-03-02"
+
+    malformed = dict(expired_payload, product_name="Other")
+    monkeypatch.setattr(
+        license_mod.subprocess,
+        "run",
+        lambda argv, **k: SimpleNamespace(returncode=10, stdout=json.dumps(malformed), stderr=""),
+    )
+    failed = license_mod.check_license(license_file, state_dir=state_dir)
+    assert not failed.allowed
+    assert failed.record.status == "expired"
+
+
+def test_alarm_pass_logs_expired_and_persists_status(monkeypatch, tmp_path, caplog):
+    """告警守护单轮巡检:过期输出告警日志,并把状态载荷落盘供查询接口读取。"""
+    import logging
+
+    def fake_check_license(target, state_dir=None):
+        return license_mod.LicenseCheckResult(
+            True,
+            license_mod.LicenseRecord(
+                status="expired",
+                license_id="LSN-1",
+                valid_until="2026-01-01",
+                grace_until="2026-03-02",
+                authorized_device_count=8,
+                reason="License has expired; renewal is required",
+            ),
+        )
+
+    status_file = tmp_path / "status.json"
+    monkeypatch.setattr(license_mod, "check_license", fake_check_license)
+
+    with caplog.at_level(logging.WARNING, logger="wings-license"):
+        record = license_mod.run_alarm_pass(tmp_path, license_mod.LICENSE_ALARM_INTERVAL_SECONDS, status_file)
+
+    assert record.status == "expired"
+    assert any("code=2005" in r.message for r in caplog.records)
+
+    payload = json.loads(status_file.read_text(encoding="utf-8"))
+    assert payload["status"] == "expired"
+    assert payload["code"] == 2005
+    assert payload["grace_until"] == "2026-03-02"
+    assert payload["alarm_interval_seconds"] == license_mod.LICENSE_ALARM_INTERVAL_SECONDS
+    assert "renew" in payload["hint"]
+
+
+def test_status_port_env_overrides_default(monkeypatch):
+    """aiperf 环境变量 LICENSE_STATUS_PORT 显式配置优先于默认;留空/未配置/非法回落默认。"""
+    monkeypatch.setenv("LICENSE_STATUS_PORT", "19301")
+    assert license_mod.resolve_status_port() == 19301
+
+    monkeypatch.setenv("LICENSE_STATUS_PORT", "")
+    assert license_mod.resolve_status_port() == 19201
+
+    monkeypatch.delenv("LICENSE_STATUS_PORT", raising=False)
+    assert license_mod.resolve_status_port() == 19201
+
+
+def test_license_status_payload_omits_empty_fields():
+    """状态载荷空值字段不输出,避免客户接口暴露无意义的 null 噪音。"""
+    payload = license_mod.license_status_payload(
+        license_mod.LicenseRecord(status="checker_timeout", reason="timed out"),
+        "2026-09-22T00:00:00Z",
+        28800,
+    )
+
+    assert "license_id" not in payload
+    assert payload["code"] == 2012
+    assert payload["checked_at"] == "2026-09-22T00:00:00Z"
 
 
 def test_invalid_device_count_type_fails_closed(monkeypatch):
@@ -196,7 +337,6 @@ def test_cli_license_build_rejects_missing_device_count_before_pipeline(
     device_count=None 放进解析流水线,由 TP-shrink 相关校验抛出误导性的
     hardware_family 报错;现在参数解析后立即以 code=2016 拒绝。
     """
-    import json
     import logging
 
     from wings_ctl import cli, license_gate

@@ -23,7 +23,7 @@ License 用来向客户授权业务功能和容量。我司按合同签发与客
 
 - 用户在宿主机 `/etc/aiperf/license/` 放置一个 License XML。
 - wings-control 启动时验签一次，通过后才生成引擎启动脚本。
-- License 校验只在启动时执行；已运行的引擎继续运行，不受后续证书变化影响。
+- License 校验在启动门禁执行一次；放行后由告警守护进程每 8 小时复验时间有效性（仅告警，不拦截已运行服务），不受后续证书变化影响。
 - 证书目录挂载由 AIPerf Compose 完成；`license show` 查询工具由 wings-infer-pro 随 `AIPerf_SDK_example.zip` 分发；验签由 wings-control 完成。
 
 `LRA4AIPERF01` 定义为本物理机上 wings-control 拉起实例合计可用的最大卡数：已用卡数 + 本次启动卡数 ≤ 授权卡数，超出即拒绝启动。已用卡数在启动前由 AIPerf control 入口实时统计，统计对象是本机运行中的 `aiperf-engine` 服务容器，统计方式见 §6，只统计 wings-control 拉起的实例。
@@ -38,12 +38,13 @@ License 用来向客户授权业务功能和容量。我司按合同签发与客
 6. 验签工具完成签名、产品、版本、容量键、有效期、设备序列号和时钟校验。
 7. wings-control 校验“已用 + 本次 ≤ 授权卡数”，超出则拒绝启动。
 8. 全部校验通过后写入 `start_command.sh`
+9. 门禁放行后派生过期告警守护进程（仅 License 镜像）：每 8 小时复验一次证书时间有效性，宽限期/过期输出告警日志，并把最近一次校验结果落盘、经 HTTP 状态接口开放给客户（见 §5、§6）。
 
 ## 4. 模块
 
 | 仓库            | 模块                   | 职责                                                         |
 | --------------- | ---------------------- | ------------------------------------------------------------ |
-| wings-infer-pro | `wings_ctl/license.py` | License 门禁实现：证书唯一性检查、调用验签程序、卡数配额校验、删除旧启动脚本（仅 License 镜像携带） |
+| wings-infer-pro | `wings_ctl/license.py` | License 门禁实现：证书唯一性检查、调用验签程序、卡数配额校验、删除旧启动脚本、过期告警守护（8 小时周期巡检 + 状态落盘 + 状态查询接口，仅 License 镜像携带） |
 | wings-infer-pro | `wings_ctl/license_gate.py` | 门禁统一入口（所有镜像常驻）：`LicenseGate` 协议、Null 空实现、按构建声明选择的 fail-closed 工厂；pipeline 仅经 `get_license_gate()` 接触门禁 |
 | wings-infer-pro | `license_sdk/`     | C 侧实现：验签程序 checker、编译脚本、产品 Key 构建期加密，基于 AdaptiveLM 静态库；`README.md` 为 License 资产地图 |
 | wings-infer-pro | `Dockerfile.license`   | License 叠加层（FROM 普通镜像）：打入验签程序、AdaptiveLM 产物和产品 Key，产出独立 tag `wings-control:<版本>-license`，与非 License 版物理隔离 |
@@ -63,6 +64,14 @@ AIPerf 查询接口：
 
 按 `aiperf.json` 配置（默认 `/etc/aiperf/license/`，可用 `--config` 覆盖）读取唯一 XML，同时输出证书路径、原始内容和宿主机 ESN；签名校验由 wings-control 启动流程负责。
 
+License 状态查询接口（客户获取最近一次校验结果）：
+
+```text
+GET http://<控制节点>:19201/license/status
+```
+
+control 容器内告警守护进程监听（host 网络，默认端口 `19201`，可用环境变量 `LICENSE_STATUS_PORT` 覆盖），返回 JSON：`status`、`code`、`checked_at`、`alarm_interval_seconds`、`license_id`、`valid_until`、`grace_until`、`authorized_device_count`、`reason`、`hint`（空值字段不输出）；`/license/status` 之外的路由返回 404。同一份载荷同时写入共享卷 `/shared-volume/license_status.json`（example compose 的 control 容器已挂载 shared-vol 到该路径）。接口只反映最近一次巡检结果，不触发校验。
+
 ## 6. 校验规则
 
 启动时做两组检查：先验证书，再算卡数。任何一项不过都不生成启动脚本。
@@ -70,11 +79,13 @@ AIPerf 查询接口：
 证书检查由验签程序完成：
 
 - 证书唯一：目录 `/etc/aiperf/license/` 里放且只放一份 XML 证书。多于一份时无法确定用哪份，列出文件名后拒绝启动。
-- 核对项全部一致：验签核对签名、产品、版本、容量键、有效期和设备序列号，任何一项不符都拒绝启动，其中有效期已过按宽限期规则处理。
-- 时钟正常：设备时钟被回拨会破坏有效期判断。例如今天把系统时间从 9 月 4 日改回去年 8 月 1 日，证书就会"还没到期"无限续命，SafeTime 机制记录上次运行时间，检测到回拨即拒绝启动。
-- 验签结果为有效或在宽限期内，检查通过。
+- 核对项全部一致：验签核对签名、产品、版本、容量键、有效期和设备序列号，任何一项不符都拒绝启动；有效期超过宽限期后按过期告警策略处理（见下）。
+- 时钟正常：设备时钟被回拨会破坏有效期判断。例如今天把系统时间从 9 月 4 日改回去年 8 月 1 日，证书就会“还没到期”无限续命，SafeTime 机制记录上次运行时间，检测到回拨即拒绝启动。
+- 验签结果为有效、在宽限期内或已过期时检查通过：宽限期与过期都以 warning 告警放行，不拦截启动。
 
-失败原因不进 audit.json（License 不做审计），只以一行结构化日志 `[AIPERF-LICENSE] code=… status=… license_file=… authorized=… used=… requested=… reason=… hint=…` 输出并抛错终止启动，可按 code 直接检索。状态取值包括 `missing`、`multiple_licenses`、`invalid`、`expired`、`checker_unavailable`、`device_count_unknown`、`capacity_exceeded` 等，与代码中 `wings_ctl/license.py` 的返回值一一对应，排查时按字段值对号。每个状态同时对应一个稳定数字错误码（`2001` missing、`2002` multiple_licenses、`2003` invalid、`2004` not_yet_valid、`2005` expired、`2006` clock_rolled_back、`2007` esn_unavailable、`2008` product_mismatch、`2009` node_mismatch、`2010` capacity_key_invalid、`2011` checker_unavailable、`2012` checker_timeout、`2013` checker_error、`2014` runtime_error、`2016` device_count_unknown、`2017` capacity_exceeded）。
+过期告警策略：宽限期结束后，运行中的服务继续运行，重启/重拉也放行，仅在门禁日志输出 `code=2005 status=expired` 告警；过期后不再提供模型升级等人工服务（商务策略）。过期期间的持续感知由告警守护进程承担：每 8 小时复验一次证书并输出告警，同时把最近一次校验结果落盘并经 §5 的状态查询接口开放给客户。守护进程只做时间有效性复验，不传卡数。容量配额校验不受过期影响：已用 + 本次卡数超过授权卡数仍拒绝启动（`code=2017`），过期只是不限制拉起服务。证书不区分 POC 与正式类型（LSN 后缀无法稳定标识类型），统一按截止时间管控，对齐公司全产品线策略。
+
+失败原因不进 audit.json（License 不做审计），只以一行结构化日志 `[AIPERF-LICENSE] code=… status=… license_file=… authorized=… used=… requested=… reason=… hint=…` 输出并抛错终止启动；`expired`（2005）与 `grace` 例外，告警放行不终止启动，可按 code 直接检索。状态取值包括 `missing`、`multiple_licenses`、`invalid`、`expired`、`checker_unavailable`、`device_count_unknown`、`capacity_exceeded` 等，与代码中 `wings_ctl/license.py` 的返回值一一对应，排查时按字段值对号。每个状态同时对应一个稳定数字错误码（`2001` missing、`2002` multiple_licenses、`2003` invalid、`2004` not_yet_valid、`2005` expired、`2006` clock_rolled_back、`2007` esn_unavailable、`2008` product_mismatch、`2009` node_mismatch、`2010` capacity_key_invalid、`2011` checker_unavailable、`2012` checker_timeout、`2013` checker_error、`2014` runtime_error、`2016` device_count_unknown、`2017` capacity_exceeded）。
 
 卡数检查由 wings-control 完成。配额公式：
 
@@ -117,6 +128,7 @@ ESN 即设备序列号，从 `/host-sys/class/dmi/id/board_serial` 读取，去�
 | 5  | 同机第三个实例申请 4 卡      | 检测到已用 5 卡，合计 9 卡超授权，拒绝                      |
 | 6  | `aiperf.py license show`     | 输出证书路径、证书内容、宿主机 ESN                          |
 | 7  | 一次性 `up -d` 整组启动（engine 与 control 同 project 同时起，engine 先持有 4 卡等待授权） | 门禁日志 `used=0 requested=4`（等待中的自家 engine 已剔除），`license.status=valid`，`start_command.sh` 生成、引擎拉起。回归点：宿主机名非 hex（如 `cp0`，host 网络下被容器继承）时自身容器 ID 必须走 cgroup/mountinfo 解析，HOSTNAME 兜底不得命中 |
+| 8  | 证书已过宽限期后启动并重拉 | `code=2005 status=expired` warning 告警放行，引擎拉起；`GET :19201/license/status` 返回 `status=expired`；告警守护每 8 小时输出一次过期告警 |
 ## 9. 威胁模型与防护边界
 
 离线部署下客户持有宿主机 root，任何跑在客户环境内的校验都只能提高绕过成本，不存在绝对防绕过；绝对防护只有硬件信任根（加密狗/TPM）或在线激活。本设计的防护目标是把常见篡改从"改一个明文文件"抬升到"逆向二进制/伪造容器运行时"的量级，并明确剩余风险。

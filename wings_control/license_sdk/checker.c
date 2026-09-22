@@ -721,6 +721,7 @@ int main(int argc, char **argv)
     unsigned int capacity_matches = 0;
     int time_status;
     int result;
+    int license_expired = 0;
 
     for (index = 1; index < (unsigned int)argc;) {
         if (strcmp(argv[index], "--initialize-state") == 0) {
@@ -879,26 +880,29 @@ int main(int argc, char **argv)
         grace_until,
         elapsed_seconds,
         rollback_tolerance_seconds);
-    if (time_status != 0 && time_status != 3) {
+    /* 过期(-3)不在此提前退出:过期按告警放行——不再拦截启动,
+     * 输出 status=expired 的结构化结果并保留退出码 10 供脚本识别。
+     * 过期只放宽时间门禁,下方容量配额校验保持不变。
+     * 不区分 POC 与正式证书:统一按截止时间管控(对齐公司全产品线策略)。 */
+    license_expired = (time_status == -3);
+    if (time_status != 0 && time_status != 3 && !license_expired) {
         if (time_status == 1) {
             fprintf(stderr, "system clock rollback detected\n");
         } else if (time_status == 2) {
             fprintf(stderr, "AdaptiveLM SafeTime state is missing\n");
         } else if (time_status == -2) {
             fprintf(stderr, "License is not yet valid\n");
-        } else if (time_status == -3) {
-            fprintf(stderr, "License is expired\n");
         } else {
             fprintf(stderr, "AdaptiveLM SafeTime failure\n");
         }
         ALM_StClsLicStore(&license_store);
         if (time_status == -2) return 12;
-        if (time_status == -3) return 10;
         return 11;
     }
 
     /* 容量配额在 C 内比较:used/request 由编排层传入,授权数直接取自验签后的
-     * 证书内容,比较结果不依赖任何可被替换的脚本/环境变量。 */
+     * 证书内容,比较结果不依赖任何可被替换的脚本/环境变量。过期告警模式不
+     * 豁免配额:已用+本次超授权仍拒绝启动。 */
     if (used_devices >= 0 &&
         used_devices + request_devices > (long long)capacity->ulValue) {
         printf(
@@ -919,6 +923,11 @@ int main(int argc, char **argv)
         char *escaped_created = json_escape(license_store.stAddtion.acFileCreateTime);
         char *escaped_deadline = json_escape(capacity->stTimeInfo.stValid.acDeadLine);
         char *escaped_grace = json_escape(grace_until);
+        const char *status_text =
+            license_expired ? "expired" : (time_status == 0 ? "valid" : "grace");
+        const char *reason_text = license_expired
+            ? "\"License has expired; renewal is required\""
+            : (time_status == 0 ? "null" : "\"License is within its grace period\"");
         int output_ok = escaped_lsn != NULL && escaped_product != NULL &&
             escaped_version != NULL && escaped_created != NULL &&
             escaped_deadline != NULL && escaped_grace != NULL;
@@ -930,7 +939,7 @@ int main(int argc, char **argv)
                 "\"capacity_key\":\"%s\",\"valid_from\":\"%s\","
                 "\"valid_until\":\"%s\",\"grace_until\":\"%s\","
                 "\"authorized_device_count\":%lu,\"reason\":%s}\n",
-                time_status == 0 ? "valid" : "grace",
+                status_text,
                 escaped_lsn,
                 escaped_product,
                 escaped_version,
@@ -939,7 +948,7 @@ int main(int argc, char **argv)
                 escaped_deadline,
                 escaped_grace,
                 (unsigned long)capacity->ulValue,
-                time_status == 0 ? "null" : "\"License is within its grace period\"");
+                reason_text);
         }
         free(escaped_lsn);
         free(escaped_product);
@@ -952,5 +961,5 @@ int main(int argc, char **argv)
             return 4;
         }
     }
-    return 0;
+    return license_expired ? 10 : 0;
 }

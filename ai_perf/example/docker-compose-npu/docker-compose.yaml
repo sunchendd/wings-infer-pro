@@ -60,6 +60,8 @@ services:
       PORT: "${CONTROL_PORT}"
       HEALTH_PORT: "${HEALTH_PORT}"
       MONITOR_PROXY_PORT: "${MONITOR_PROXY_PORT}"
+      # License 状态查询端口(过期告警守护 GET /license/status),留空走默认 19201
+      LICENSE_STATUS_PORT: "${LICENSE_STATUS_PORT:-}"
       BACKEND_URL: "http://127.0.0.1:${ENGINE_PORT}"
       # 引擎参数(透传给 wings_start.sh CLI)
       GPU_MEMORY_UTILIZATION: "${GPU_MEMORY_UTILIZATION}"
