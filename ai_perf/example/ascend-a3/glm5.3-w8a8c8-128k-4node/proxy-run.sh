@@ -24,6 +24,31 @@ for _ in "${decoder_hosts[@]}"; do
   i=$((i + 1))
 done
 
+# Wait until every backend endpoint accepts connections; engines take minutes to become healthy.
+backend_ready() {
+  local idx host port
+  for idx in "${!prefiller_hosts[@]}"; do
+    host=${prefiller_hosts[idx]}; port=${prefiller_ports[idx]}
+    (: < "/dev/tcp/$host/$port") 2>/dev/null || return 1
+  done
+  for idx in "${!decoder_hosts[@]}"; do
+    host=${decoder_hosts[idx]}; port=${decoder_ports[idx]}
+    (: < "/dev/tcp/$host/$port") 2>/dev/null || return 1
+  done
+}
+PROXY_BACKEND_TIMEOUT=${PROXY_BACKEND_TIMEOUT:-3600}
+deadline=$((SECONDS + PROXY_BACKEND_TIMEOUT))
+waited=0
+until backend_ready; do
+  if (( SECONDS >= deadline )); then
+    echo "[proxy] ERROR: timeout waiting for backends after ${PROXY_BACKEND_TIMEOUT}s" >&2
+    exit 1
+  fi
+  if (( waited % 60 == 0 )); then echo "[proxy] waiting for backends to accept connections ..."; fi
+  sleep 5; waited=$((waited + 5))
+done
+echo "[proxy] all backends ready, starting load balance proxy"
+
 exec python3 /vllm-workspace/vllm-ascend/examples/disaggregated_prefill_v1/load_balance_proxy_server_example.py \
   --port "$PROXY_PORT" \
   --host 0.0.0.0 \

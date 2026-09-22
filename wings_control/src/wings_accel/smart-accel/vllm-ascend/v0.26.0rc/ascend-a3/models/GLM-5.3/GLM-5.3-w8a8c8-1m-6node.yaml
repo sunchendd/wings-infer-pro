@@ -21,7 +21,7 @@ smart_accel:
           - name: mtp
             cli_params:
               speculative_config:
-                num_speculative_tokens: 5
+                num_speculative_tokens: 3
                 method: deepseek_mtp
                 enforce_eager: true
             envs: {}
