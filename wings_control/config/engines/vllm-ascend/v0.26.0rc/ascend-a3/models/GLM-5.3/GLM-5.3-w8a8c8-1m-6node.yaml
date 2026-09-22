@@ -2,7 +2,7 @@ upstream_sources:
 - id: vllm_ascend_glm-5.3_w8a8c8_1m_6node_a3_derived
   kind: manual
   repo: null
-  file: 20260908_1M.zip
+  file: 45-46-47-48-glm5.3-0.26.0.rc1-1M
   url: null
   note: 'Ascend A3 six-node 1M topology derived from the four-node role parameters: two independent DP2/TP16 Prefill instances
     and one DP4/TP8 Decode instance.'
@@ -34,7 +34,7 @@ features:
     description: MTP speculative decoding capability used by the verified P/D recipe.
     args:
     - --speculative-config
-    - '{"num_speculative_tokens":5,"method":"deepseek_mtp","enforce_eager":true}'
+    - '{"num_speculative_tokens":3,"method":"deepseek_mtp","enforce_eager":true}'
 scenarios:
   pd_disaggregation:
     source_ref: vllm_ascend_glm-5.3_w8a8c8_1m_6node_a3_derived#pd_cluster
@@ -73,19 +73,25 @@ scenarios:
               enforce_eager: true
             additional_config:
               fuse_muls_add: true
-              recompute_scheduler_enable: false
               multistream_overlap_shared_expert: true
               enable_dsa_cp: true
-              enable_cpu_binding: false
+              enable_sparse_sfa_c8: true
+              enable_sparse_li_c8: true
+              c8_enable_reshape_optim: true
+              mega_moe_max_tokens: 16384
+              enable_flashcomm1: true
+              enable_fused_mc2: 1
             seed: 1024
             served_model_name: GLM-5.3-w8a8c8
             max_model_len: 1048576
             safetensors_load_strategy: prefetch
-            max_num_batched_tokens: 8192
+            max_num_batched_tokens: 16384
             max_num_seqs: 64
+            enable_prompt_tokens_details: true
             enable_prefix_caching: true
             quantization: ascend
-            gpu_memory_utilization: 0.9
+            gpu_memory_utilization: 0.85
+            api_server_count: 1
             enforce_eager: true
             trust_remote_code: true
             kv_transfer_config:
@@ -113,8 +119,7 @@ scenarios:
             PYTHONHASHSEED: '0'
             MMC_LOCAL_CONFIG_PATH: /wings-deploy/rendered/model-client/mmc-local.conf
             MF_GROUP_JOIN_MAX_TIMEOUT: '1200'
-            VLLM_ASCEND_ENABLE_FUSED_MC2: '1'
-            VLLM_ASCEND_ENABLE_FLASHCOMM1: '1'
+            VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: '30000'
             HCCL_OP_EXPANSION_MODE: AIV
             HCCL_TRANSFER_TIMEOUT: '600'
             HCCL_EXEC_TIMEOUT: '3600'
@@ -151,19 +156,25 @@ scenarios:
               enforce_eager: true
             additional_config:
               fuse_muls_add: true
-              recompute_scheduler_enable: false
               multistream_overlap_shared_expert: true
               enable_dsa_cp: true
-              enable_cpu_binding: false
+              enable_sparse_sfa_c8: true
+              enable_sparse_li_c8: true
+              c8_enable_reshape_optim: true
+              mega_moe_max_tokens: 16384
+              enable_flashcomm1: true
+              enable_fused_mc2: 1
             seed: 1024
             served_model_name: GLM-5.3-w8a8c8
             max_model_len: 1048576
             safetensors_load_strategy: prefetch
-            max_num_batched_tokens: 8192
+            max_num_batched_tokens: 16384
             max_num_seqs: 64
+            enable_prompt_tokens_details: true
             enable_prefix_caching: true
             quantization: ascend
-            gpu_memory_utilization: 0.9
+            gpu_memory_utilization: 0.85
+            api_server_count: 1
             enforce_eager: true
             trust_remote_code: true
             kv_transfer_config:
@@ -191,8 +202,7 @@ scenarios:
             PYTHONHASHSEED: '0'
             MMC_LOCAL_CONFIG_PATH: /wings-deploy/rendered/model-client/mmc-local.conf
             MF_GROUP_JOIN_MAX_TIMEOUT: '1200'
-            VLLM_ASCEND_ENABLE_FUSED_MC2: '1'
-            VLLM_ASCEND_ENABLE_FLASHCOMM1: '1'
+            VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: '30000'
             HCCL_OP_EXPANSION_MODE: AIV
             HCCL_TRANSFER_TIMEOUT: '600'
             HCCL_EXEC_TIMEOUT: '3600'
@@ -231,15 +241,21 @@ scenarios:
             compilation_config:
               cudagraph_mode: FULL_DECODE_ONLY
             speculative_config:
-              num_speculative_tokens: 5
+              num_speculative_tokens: 3
               method: deepseek_mtp
               enforce_eager: true
             additional_config:
               fuse_muls_add: true
+              recompute_scheduler_enable: true
               multistream_overlap_shared_expert: true
-              enable_cpu_binding: false
+              enable_sparse_sfa_c8: true
+              enable_sparse_li_c8: true
+              enable_fused_mc2: 1
+              enable_mlapo: true
             max_num_seqs: 32
-            gpu_memory_utilization: 0.92
+            enable_prompt_tokens_details: true
+            gpu_memory_utilization: 0.9
+            api_server_count: 1
             async_scheduling: true
             quantization: ascend
             trust_remote_code: true
@@ -268,8 +284,7 @@ scenarios:
             PYTHONHASHSEED: '0'
             MMC_LOCAL_CONFIG_PATH: /wings-deploy/rendered/model-client/mmc-local.conf
             MF_GROUP_JOIN_MAX_TIMEOUT: '1200'
-            VLLM_ASCEND_ENABLE_MLAPO: '1'
-            VLLM_ASCEND_ENABLE_FUSED_MC2: '1'
+            VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: '30000'
             HCCL_OP_EXPANSION_MODE: AIV
             HCCL_TRANSFER_TIMEOUT: '600'
             HCCL_EXEC_TIMEOUT: '3600'
@@ -280,7 +295,6 @@ scenarios:
             HCCL_BUFFSIZE: '400'
             ACL_OP_INIT_MODE: '1'
             ASCEND_A3_ENABLE: '1'
-            TASK_QUEUE_ENABLE: '1'
             LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:-}:/usr/local/lib
             HCCL_IF_IP: $local_ip
             GLOO_SOCKET_IFNAME: $nic_name
@@ -309,15 +323,21 @@ scenarios:
             compilation_config:
               cudagraph_mode: FULL_DECODE_ONLY
             speculative_config:
-              num_speculative_tokens: 5
+              num_speculative_tokens: 3
               method: deepseek_mtp
               enforce_eager: true
             additional_config:
               fuse_muls_add: true
+              recompute_scheduler_enable: true
               multistream_overlap_shared_expert: true
-              enable_cpu_binding: false
+              enable_sparse_sfa_c8: true
+              enable_sparse_li_c8: true
+              enable_fused_mc2: 1
+              enable_mlapo: true
             max_num_seqs: 32
-            gpu_memory_utilization: 0.92
+            enable_prompt_tokens_details: true
+            gpu_memory_utilization: 0.9
+            api_server_count: 1
             async_scheduling: true
             quantization: ascend
             trust_remote_code: true
@@ -346,8 +366,7 @@ scenarios:
             PYTHONHASHSEED: '0'
             MMC_LOCAL_CONFIG_PATH: /wings-deploy/rendered/model-client/mmc-local.conf
             MF_GROUP_JOIN_MAX_TIMEOUT: '1200'
-            VLLM_ASCEND_ENABLE_MLAPO: '1'
-            VLLM_ASCEND_ENABLE_FUSED_MC2: '1'
+            VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: '30000'
             HCCL_OP_EXPANSION_MODE: AIV
             HCCL_TRANSFER_TIMEOUT: '600'
             HCCL_EXEC_TIMEOUT: '3600'
@@ -358,7 +377,6 @@ scenarios:
             HCCL_BUFFSIZE: '400'
             ACL_OP_INIT_MODE: '1'
             ASCEND_A3_ENABLE: '1'
-            TASK_QUEUE_ENABLE: '1'
             LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:-}:/usr/local/lib
             HCCL_IF_IP: $local_ip
             GLOO_SOCKET_IFNAME: $nic_name

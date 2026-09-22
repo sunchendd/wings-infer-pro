@@ -69,6 +69,16 @@ services:
       - .:/wings-deploy:ro
       - generated:/shared-volume
       - ${MODEL_PATH}:${MODEL_PATH}:ro
+      # License 证书目录:宿主机放且只放一份 *.xml,容器内只读验签
+      - /etc/aiperf/license:/etc/aiperf/license:ro
+      # SafeTime 状态(时钟回拨检测水印):须持久化,重建容器不丢
+      - /var/lib/aiperf/license/adaptivelm:/var/lib/aiperf/license/adaptivelm
+      # 已用卡数自查:经 sock 枚举本节点 engine 容器计数,不可用 env 伪造。
+      # 注意 :ro 只约束挂载自身,Docker API 调用不受限——持有 sock 即等同宿主机 root;
+      # 接受该风险的前提是 control 容器与管理员同信任域,如需收敛应前置 docker socket proxy。
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # ESN 防伪:checker 校验 DMI 目录确为真 sysfs 挂载,防 bind-mount 顶替
+      - /sys/class/dmi/id:/host-sys/class/dmi/id:ro
     entrypoint: ["bash", "/control-entrypoint.sh"]
 
   engine:
