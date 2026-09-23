@@ -81,6 +81,11 @@ docker compose -f docker-compose.yaml up -d
 | 2017 | 超出授权卡数 | 降低 `DEVICE_COUNT` 或扩容证书 |
 | 2011 | checker 缺失 | `IMAGE_CONTROL` 的 tag/镜像不对,换 `-license` 后缀 tag（正式版本 `fusionregistry:5000/wings-control:26.0.2-license`） |
 
+**日志出现 `code=2005 status=expired`（服务未中断）**：这不是启动失败——证书已过
+宽限期，按告警放行，不拦截启动与重拉，已运行服务的推理不受影响；把续期证书放入
+`/etc/aiperf/license/` 后 `docker-compose down && up -d` 重拉即恢复
+`status=valid`。过期期间仅停止模型升级等人工服务，卡数配额校验（2017）照常生效。
+
 **改了 env 不生效**：compose 变量插值发生在 `up` 时。改完 env 需重新
 `set -a; source env; set +a` 后再 `up -d` 重建容器。
 
@@ -131,6 +136,28 @@ python3 aiperf.py license show --esn-only  # 仅 ESN(脚本友好)
 | `license_info.py` | 查询结果数据结构 |
 | `config.py` | `aiperf.json` 分层加载 |
 | `errors.py` | 错误体系与退出码契约 |
+
+## License 状态查询（状态接口）
+
+门禁放行后，control 容器内的告警守护进程每 8 小时复验一次证书时间有效性，
+把最近一次校验结果落盘共享卷，由 health 服务开放 HTTP 查询（接口只反映
+最近一次巡检结果，不触发校验）：
+
+```bash
+curl http://127.0.0.1:19001/license_status                     # 控制节点 host 网络（HEALTH_PORT）
+docker exec aiperf-engine-<suffix> cat /shared-volume/license_status.json
+```
+
+返回 JSON 包含 `status`、`code`（`valid` 无专属错误码，回落 2000）、
+`checked_at`（UTC ISO-8601 秒级）、`alarm_interval_seconds`（28800）、
+`license_id`、`valid_until`、`grace_until`、`authorized_device_count`；
+空值(null)字段不输出（`hint` 为空串时仍输出，属已知行为）。接口与状态
+文件同源同构，`checked_at` 对应同一轮巡检。
+
+端口定制：License 状态查询不独立占端口，随 `HEALTH_PORT`（默认 19001）
+走；在 env 中设置 `HEALTH_PORT=19002` 并重新拉起，`/license_status` 与
+`/health` 同端口经路径区分路由、互不影响。字段口径与校验规则详见
+`wings_control/docs/features/aiperf-license-design.md` §5、§6。
 
 ## 部署（compose）
 

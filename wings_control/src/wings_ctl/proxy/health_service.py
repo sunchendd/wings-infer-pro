@@ -14,6 +14,7 @@ import json
 import logging
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Dict
 from wings_ctl.common.settings import settings
 
@@ -282,6 +283,28 @@ async def get_startup_accel():
         _logger.error(f"Failed to get acceleration feature info: {e}")
         accel_data = _build_accel_data({})
         return _build_accel_response(accel_data, f"Failed to get acceleration feature info: {str(e)}")
+
+
+# License 状态文件:与 license 模块(wings_ctl/license.py,仅 -license 镜像携带,
+# 普通镜像不可导入)落盘的 LICENSE_STATUS_FILE 同路径,此处对齐维护。
+LICENSE_STATUS_FILE = Path("/shared-volume/license_status.json")
+
+
+@app.get("/license_status")
+async def license_status():
+    """返回最近一次 License 巡检结果。
+
+    读共享卷状态文件原样返回(与落盘载荷同源同构),不触发校验;
+    文件缺失或损坏(普通镜像无守护、或首轮巡检未落盘)返回 503。
+    """
+    try:
+        payload = json.loads(LICENSE_STATUS_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return JSONResponse(
+            status_code=503,
+            content={"code": 503, "msg": f"license status unavailable: {exc}", "data": None},
+        )
+    return JSONResponse(status_code=200, content=payload)
 
 
 def _is_endpoint_allowed(path: str) -> bool:

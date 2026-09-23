@@ -13,12 +13,10 @@ import os
 import re
 import subprocess
 import sys
-import threading
 import time
 from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
@@ -89,8 +87,8 @@ STATUS_HINTS = {
 }
 
 LICENSE_ALARM_INTERVAL_SECONDS = 8 * 3600
-LICENSE_STATUS_PATH = "/license/status"
-# 状态文件放共享卷,客户无需新增挂载即可查看。
+# 状态文件放共享卷,客户无需新增挂载即可查看;HTTP 查询由 health 服务
+# (proxy/health_service.py 的 GET /license_status)读该文件提供。
 LICENSE_STATUS_FILE = Path("/shared-volume/license_status.json")
 
 
@@ -592,8 +590,9 @@ class LicensePublisher:
 
 # ---------------------------------------------------------------------------
 # 过期告警守护:证书过期(宽限期结束)后运行中服务不受影响,由常驻
-# 守护每 8 小时复验一次证书,并把最近一次校验结果同时落盘与经 HTTP 开放给
-# 客户查询。守护进程由 enforce 放行后派生,随 control 容器生命周期存活;
+# 守护每 8 小时复验一次证书,并把最近一次校验结果落盘共享卷状态文件。
+# HTTP 查询不独立占端口,由 health 服务读状态文件提供(路径区分路由)。
+# 守护进程由 enforce 放行后派生,随 control 容器生命周期存活;
 # 仅 License 镜像携带本模块,普通构建天然无此能力。
 # ---------------------------------------------------------------------------
 
@@ -643,79 +642,32 @@ def run_alarm_pass(state_dir: Path, interval_seconds: int, status_file: Path = L
     return record
 
 
-def _make_status_handler(state: Dict[str, Any]) -> type:
-    """构造只读状态查询 Handler:单路由 GET,其余 404;访问日志静默。"""
-
-    class Handler(BaseHTTPRequestHandler):
-        def do_get(self) -> None:
-            if self.path.split("?", 1)[0] != LICENSE_STATUS_PATH or state.get("payload") is None:
-                self.send_error(404)
-                return
-            body = json.dumps(state["payload"], ensure_ascii=False).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def log_message(self, fmt: str, *args: Any) -> None:
-            pass
-
-    # 标准库按 "do_"+大写方法名分发,字符串绑定满足协议且源码保持 snake_case。
-    setattr(Handler, "do_GET", Handler.do_get)
-    return Handler
-
-
-def resolve_status_port() -> int:
-    """状态查询端口:环境变量 LICENSE_STATUS_PORT 优先,未配置/留空/非法回落默认。"""
-    raw = os.environ.get("LICENSE_STATUS_PORT", "").strip()
-    try:
-        return int(raw)
-    except ValueError:
-        if raw:
-            logger.warning(
-                "[AIPERF-LICENSE] invalid LICENSE_STATUS_PORT=%r, using default status port 19201",
-                raw,
-            )
-        return 19201
-
-
 def run_license_alarm(
     interval_seconds: int = LICENSE_ALARM_INTERVAL_SECONDS,
     state_dir: Path = DEFAULT_STATE_DIR,
-    status_port: int | None = None,
     status_file: Path = LICENSE_STATUS_FILE,
 ) -> None:
-    """过期告警守护进程主体:立即巡检一次,之后每 8 小时复验并提供状态查询。
+    """过期告警守护进程主体:立即巡检一次,之后每 8 小时复验并落盘状态文件。
 
-    状态接口绑定失败(通常容器内已有守护进程)时退出,避免重复告警;单轮
-    巡检异常只告警不中断周期。函数不返回,进程由容器生命周期管理。
+    HTTP 查询不在此进程内:由 health 服务读状态文件提供
+    GET /license_status,避免独立占用端口。单轮巡检异常只告警
+    不中断周期。函数不返回,进程由容器生命周期管理。
     """
-    if status_port is None:
-        status_port = resolve_status_port()
-    record: LicenseRecord | None = None
+    # 守护子进程未继承 CLI 的日志初始化:补挂 stderr handler,
+    # 否则 INFO 级启动/巡检日志被 lastResort 丢弃,只剩 WARNING 可见。
+    logging.basicConfig(level=logging.INFO)
     try:
-        record = run_alarm_pass(state_dir, interval_seconds, status_file)
-    except Exception as exc:  # 守护进程边界:首轮失败不阻断状态接口,payload 置空由后续轮次补
+        run_alarm_pass(state_dir, interval_seconds, status_file)
+    except Exception as exc:  # 守护进程边界:首轮失败不阻断周期,由后续轮次补
         logger.warning("[AIPERF-LICENSE] alarm check failed: %s", exc)
-    state: Dict[str, Any] = {"payload": None}
-    if record is not None:
-        state["payload"] = license_status_payload(record, _utc_now_iso(), interval_seconds)
-    try:
-        server = ThreadingHTTPServer(("0.0.0.0", status_port), _make_status_handler(state))
-    except OSError as exc:
-        logger.warning("[AIPERF-LICENSE] status interface unavailable on port %s: %s", status_port, exc)
-        return
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    logger.info("[AIPERF-LICENSE] alarm daemon started (interval=%ss status_port=%s)", interval_seconds, status_port)
+    logger.info("[AIPERF-LICENSE] alarm daemon started (interval=%ss)", interval_seconds)
     while True:
         time.sleep(interval_seconds)
         try:
-            record = run_alarm_pass(state_dir, interval_seconds, status_file)
+            run_alarm_pass(state_dir, interval_seconds, status_file)
         except Exception as exc:  # 守护进程边界:单轮巡检失败不终止周期告警
             logger.warning("[AIPERF-LICENSE] alarm check failed: %s", exc)
             continue
-        state["payload"] = license_status_payload(record, _utc_now_iso(), interval_seconds)
 
 
 # 守护进程启动代码:显式插入 src 根路径,兼容明文源码树与 .pyc-only 交付镜像。

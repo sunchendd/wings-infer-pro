@@ -236,18 +236,6 @@ def test_alarm_pass_logs_expired_and_persists_status(monkeypatch, tmp_path, capl
     assert "renew" in payload["hint"]
 
 
-def test_status_port_env_overrides_default(monkeypatch):
-    """aiperf 环境变量 LICENSE_STATUS_PORT 显式配置优先于默认;留空/未配置/非法回落默认。"""
-    monkeypatch.setenv("LICENSE_STATUS_PORT", "19301")
-    assert license_mod.resolve_status_port() == 19301
-
-    monkeypatch.setenv("LICENSE_STATUS_PORT", "")
-    assert license_mod.resolve_status_port() == 19201
-
-    monkeypatch.delenv("LICENSE_STATUS_PORT", raising=False)
-    assert license_mod.resolve_status_port() == 19201
-
-
 def test_license_status_payload_omits_empty_fields():
     """状态载荷空值字段不输出,避免客户接口暴露无意义的 null 噪音。"""
     payload = license_mod.license_status_payload(
