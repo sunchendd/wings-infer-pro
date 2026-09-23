@@ -67,10 +67,12 @@ AIPerf 查询接口：
 License 状态查询接口（客户获取最近一次校验结果）：
 
 ```text
-GET http://<控制节点>:19201/license/status
+GET http://<控制节点>:19001/license_status
 ```
 
-control 容器内告警守护进程监听（host 网络，默认端口 `19201`，可用环境变量 `LICENSE_STATUS_PORT` 覆盖），返回 JSON：`status`、`code`、`checked_at`、`alarm_interval_seconds`、`license_id`、`valid_until`、`grace_until`、`authorized_device_count`、`reason`、`hint`（空值字段不输出）；`/license/status` 之外的路由返回 404。同一份载荷同时写入共享卷 `/shared-volume/license_status.json`（example compose 的 control 容器已挂载 shared-vol 到该路径）。接口只反映最近一次巡检结果，不触发校验。
+由 health 服务（`proxy/health_service.py`，监听 `HEALTH_PORT`，默认 `19001`）提供该路由：读共享卷状态文件 `/shared-volume/license_status.json` 原样返回，与落盘载荷同源同构，不触发校验，不独立占用端口（License 状态查询随 `HEALTH_PORT` 走，端口定制即改 `HEALTH_PORT`）。返回 JSON：`status`、`code`（`valid` 无专属错误码，回落 `2000`）、`checked_at`（UTC ISO-8601 秒级时间戳）、`alarm_interval_seconds`（固定 `28800`）、`license_id`、`valid_until`、`grace_until`、`authorized_device_count`、`reason`、`hint`。空值(null)字段不输出（如 `valid` 时的 `reason`）；`hint` 在无告警文案时输出空串 `""`（空串不过滤，属已知行为非缺陷）。状态文件由告警守护进程每轮巡检落盘（example compose 的 control 与 engine 容器均挂载 shared-vol 到该路径，宿主机可经任一容器读取）；文件缺失或损坏（普通镜像无守护、首轮巡检未落盘或文件不可读）时路由返回 503。接口只反映最近一次巡检结果，不触发校验。
+
+守护日志：守护进程启动输出 `[AIPERF-LICENSE] alarm daemon started (interval=28800s)`。守护进程不再监听任何端口，也不识别 `LICENSE_STATUS_PORT` 环境变量（已随端口合并移除）。
 
 ## 6. 校验规则
 
@@ -117,7 +119,7 @@ ESN 即设备序列号，从 `/host-sys/class/dmi/id/board_serial` 读取，去�
 
 ## 8. 用例设计
 
-申请测试机器ESN对应的lincense，测试证书授权 6 卡：
+申请测试机器 ESN 对应的 license，测试证书授权 6 卡：
 
 | #  | 场景                         | 结果                                                        |
 | -- | ---------------------------- | ----------------------------------------------------------- |
@@ -126,9 +128,13 @@ ESN 即设备序列号，从 `/host-sys/class/dmi/id/board_serial` 读取，去�
 | 3  | 单次申请 8 卡，超过授权 6 卡 | `capacity_exceeded: requested 8 ... authorized 6`，拒绝启动 |
 | 4  | 同机第二个实例申请 4 卡      | 检测到已用 1 卡，合计 5 卡未超授权，放行                    |
 | 5  | 同机第三个实例申请 4 卡      | 检测到已用 5 卡，合计 9 卡超授权，拒绝                      |
-| 6  | `aiperf.py license show`     | 输出证书路径、证书内容、宿主机 ESN                          |
+| 6  | 证书信息三来源对齐：`aiperf.py license show`、`GET :19001/license_status`（health 端口）、共享卷 `license_status.json` | `license show` 正常输出证书路径、内容与 ESN（ESN 与宿主机 `/sys/class/dmi/id/board_serial` 一致）；状态接口 HTTP 200 返回 `status=valid`、`code=2000`；状态文件与接口载荷同源同构（`checked_at` 对应同一轮巡检）；接口 `license_id` 与证书 LSN（GeneralInfo/LSN）一致、`valid_until` 与证书 validDate 一致、`authorized_device_count` 与证书容量值一致 |
 | 7  | 一次性 `up -d` 整组启动（engine 与 control 同 project 同时起，engine 先持有 4 卡等待授权） | 门禁日志 `used=0 requested=4`（等待中的自家 engine 已剔除），`license.status=valid`，`start_command.sh` 生成、引擎拉起。回归点：宿主机名非 hex（如 `cp0`，host 网络下被容器继承）时自身容器 ID 必须走 cgroup/mountinfo 解析，HOSTNAME 兜底不得命中 |
-| 8  | 证书已过宽限期后启动并重拉 | `code=2005 status=expired` warning 告警放行，引擎拉起；`GET :19201/license/status` 返回 `status=expired`；告警守护每 8 小时输出一次过期告警 |
+| 8  | 证书到期后启动、运行与续期恢复 | 门禁 WARNING `code=2005 status=expired`（含 `license_id`、`authorized` 等字段）告警放行，`start_command.sh` 正常生成、引擎拉起，过期不影响已授权服务的推理；状态接口返回 `status=expired`、`code=2005`，`valid_until`/`grace_until` 如实反映证书时间、`authorized_device_count` 保持证书容量；告警守护每 8 小时输出一次过期告警；换回有效证书重拉后门禁恢复 `code=2000 status=valid`，状态接口 `license_id`/`valid_until` 恢复为该证书值（换续期新证书则更新为新值） |
+| 9  | 状态查询端口跟随 health：`HEALTH_PORT=19002` 重拉（不配置已移除的 `LICENSE_STATUS_PORT`） | 19002 的 `/license_status` 正常返回状态 JSON，同端口 `/health` 正常返回健康状态（路径区分路由、互不影响）；control 日志出现 `alarm daemon started (interval=28800s)`，守护进程不监听独立端口；19201 上无任何监听 |
+
+正式交付用例 `test_aiperf_license.001/002/003` 分别对应场景 6、9、8（证书信息对齐、状态查询随 health 端口迁移、到期连续性与续期恢复）；场景 1-5、7 为容量配额与整组启动回归。
+
 ## 9. 威胁模型与防护边界
 
 离线部署下客户持有宿主机 root，任何跑在客户环境内的校验都只能提高绕过成本，不存在绝对防绕过；绝对防护只有硬件信任根（加密狗/TPM）或在线激活。本设计的防护目标是把常见篡改从"改一个明文文件"抬升到"逆向二进制/伪造容器运行时"的量级，并明确剩余风险。
