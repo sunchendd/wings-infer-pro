@@ -12,8 +12,13 @@ import logging
 import os
 import re
 import subprocess
+import sys
+import threading
+import time
 from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
+from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
@@ -82,6 +87,11 @@ STATUS_HINTS = {
     "device_count_unknown": "provide a positive device_count (--device-count / DEVICE_COUNT)",
     "capacity_exceeded": "reduce requested devices or obtain a larger license",
 }
+
+LICENSE_ALARM_INTERVAL_SECONDS = 8 * 3600
+LICENSE_STATUS_PATH = "/license/status"
+# 状态文件放共享卷,客户无需新增挂载即可查看。
+LICENSE_STATUS_FILE = Path("/shared-volume/license_status.json")
 
 
 class LicenseError(ValueError):
@@ -373,7 +383,8 @@ def _parse_checker_output(payload: Any, license_file: str | None = None) -> Lice
         raise ValueError("checker output has invalid 'authorized_device_count'")
     status = payload["status"]
     return LicenseCheckResult(
-        status in {"valid", "grace"},
+        # 过期(宽限期结束)按告警放行,由告警守护周期提示并开放状态查询。
+        status in {"valid", "grace", "expired"},
         LicenseRecord(
             status=status,
             license_id=payload.get("license_id"),
@@ -438,6 +449,13 @@ def check_license(
         # checker 非零退出时 stdout 可能仍携带结构化数字(如 capacity_exceeded 的
         # authorized/used/requested);能解析就并入记录,让日志可直接回答"该减到几卡"。
         payload = _try_parse_json(completed.stdout)
+        if status == "expired" and payload is not None:
+            # 过期路径(exit 10)携带完整结构化结果;能解析成合法 expired 记录
+            # 就按告警放行,解析失败保持 fail-closed,不放宽畸形输出。
+            try:
+                return _parse_checker_output(payload, license_file=str(path))
+            except ValueError:
+                pass
         return _fail(
             status,
             completed.stderr.strip() or f"checker exited with {completed.returncode}",
@@ -544,11 +562,13 @@ class LicensePublisher:
         if not result.allowed:
             logger.error("[AIPERF-LICENSE] %s", format_license_log(record))
             raise LicenseError(record)
-        if record.status == "grace":
-            # 宽限期=证书已到期、进入倒计时,重启即可能失败;须与正常放行区分级别。
+        if record.status in ("grace", "expired"):
+            # 宽限期=证书已到期、进入倒计时;过期=宽限期已过、仅告警放行
+            # (运行与重拉不受限,模型升级等人工服务按商务策略停止)。
             logger.warning("[AIPERF-LICENSE] %s", format_license_log(record))
         else:
             logger.info("[AIPERF-LICENSE] %s", format_license_log(record))
+        _spawn_alarm_daemon()
 
     @staticmethod
     def invalidate(output_dir: Path) -> None:
@@ -568,3 +588,151 @@ class LicensePublisher:
     @staticmethod
     def publish(output_dir: Path, generation: None, artifact_dir: Path) -> Path:
         return artifact_dir
+
+
+# ---------------------------------------------------------------------------
+# 过期告警守护:证书过期(宽限期结束)后运行中服务不受影响,由常驻
+# 守护每 8 小时复验一次证书,并把最近一次校验结果同时落盘与经 HTTP 开放给
+# 客户查询。守护进程由 enforce 放行后派生,随 control 容器生命周期存活;
+# 仅 License 镜像携带本模块,普通构建天然无此能力。
+# ---------------------------------------------------------------------------
+
+
+def _utc_now_iso() -> str:
+    """状态查询载荷的时间戳(UTC,秒级 ISO-8601)。"""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def license_status_payload(record: LicenseRecord, checked_at: str, interval_seconds: int) -> Dict[str, Any]:
+    """把一次校验记录转成对外状态查询载荷;字段只增不改,空值不输出。"""
+    payload: Dict[str, Any] = {
+        "status": record.status,
+        "code": LICENSE_STATUS_CODES.get(record.status, 2000),
+        "checked_at": checked_at,
+        "alarm_interval_seconds": interval_seconds,
+        "license_id": record.license_id,
+        "valid_until": record.valid_until,
+        "grace_until": record.grace_until,
+        "authorized_device_count": record.authorized_device_count,
+        "reason": record.reason,
+        "hint": STATUS_HINTS.get(record.status, ""),
+    }
+    return {key: value for key, value in payload.items() if value is not None}
+
+
+def run_alarm_pass(state_dir: Path, interval_seconds: int, status_file: Path = LICENSE_STATUS_FILE) -> LicenseRecord:
+    """单轮巡检:复验证书时间有效性,输出告警并刷新状态文件。
+
+    只做时间有效性复验(不传卡数):配额判定属启动门禁职责且不因过期豁免,
+    守护只负责告警与状态暴露,不拦截任何服务。非 valid 状态(含 grace/
+    expired/checker 异常)一律 warning,让告警通道成为过期后唯一的持续
+    感知入口。
+    """
+    result = check_license(None, state_dir=state_dir)
+    record = result.record
+    if record.status != "valid":
+        logger.warning("[AIPERF-LICENSE] %s", format_license_log(record))
+    else:
+        logger.info("[AIPERF-LICENSE] %s", format_license_log(record))
+    payload = license_status_payload(record, _utc_now_iso(), interval_seconds)
+    try:
+        status_file.parent.mkdir(parents=True, exist_ok=True)
+        status_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError as exc:
+        logger.warning("[AIPERF-LICENSE] failed to persist license status file %s: %s", status_file, exc)
+    return record
+
+
+def _make_status_handler(state: Dict[str, Any]) -> type:
+    """构造只读状态查询 Handler:单路由 GET,其余 404;访问日志静默。"""
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_get(self) -> None:
+            if self.path.split("?", 1)[0] != LICENSE_STATUS_PATH or state.get("payload") is None:
+                self.send_error(404)
+                return
+            body = json.dumps(state["payload"], ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, fmt: str, *args: Any) -> None:
+            pass
+
+    # 标准库按 "do_"+大写方法名分发,字符串绑定满足协议且源码保持 snake_case。
+    setattr(Handler, "do_GET", Handler.do_get)
+    return Handler
+
+
+def resolve_status_port() -> int:
+    """状态查询端口:环境变量 LICENSE_STATUS_PORT 优先,未配置/留空/非法回落默认。"""
+    raw = os.environ.get("LICENSE_STATUS_PORT", "").strip()
+    try:
+        return int(raw)
+    except ValueError:
+        if raw:
+            logger.warning(
+                "[AIPERF-LICENSE] invalid LICENSE_STATUS_PORT=%r, using default status port 19201",
+                raw,
+            )
+        return 19201
+
+
+def run_license_alarm(
+    interval_seconds: int = LICENSE_ALARM_INTERVAL_SECONDS,
+    state_dir: Path = DEFAULT_STATE_DIR,
+    status_port: int | None = None,
+    status_file: Path = LICENSE_STATUS_FILE,
+) -> None:
+    """过期告警守护进程主体:立即巡检一次,之后每 8 小时复验并提供状态查询。
+
+    状态接口绑定失败(通常容器内已有守护进程)时退出,避免重复告警;单轮
+    巡检异常只告警不中断周期。函数不返回,进程由容器生命周期管理。
+    """
+    if status_port is None:
+        status_port = resolve_status_port()
+    record: LicenseRecord | None = None
+    try:
+        record = run_alarm_pass(state_dir, interval_seconds, status_file)
+    except Exception as exc:  # 守护进程边界:首轮失败不阻断状态接口,payload 置空由后续轮次补
+        logger.warning("[AIPERF-LICENSE] alarm check failed: %s", exc)
+    state: Dict[str, Any] = {"payload": None}
+    if record is not None:
+        state["payload"] = license_status_payload(record, _utc_now_iso(), interval_seconds)
+    try:
+        server = ThreadingHTTPServer(("0.0.0.0", status_port), _make_status_handler(state))
+    except OSError as exc:
+        logger.warning("[AIPERF-LICENSE] status interface unavailable on port %s: %s", status_port, exc)
+        return
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    logger.info("[AIPERF-LICENSE] alarm daemon started (interval=%ss status_port=%s)", interval_seconds, status_port)
+    while True:
+        time.sleep(interval_seconds)
+        try:
+            record = run_alarm_pass(state_dir, interval_seconds, status_file)
+        except Exception as exc:  # 守护进程边界:单轮巡检失败不终止周期告警
+            logger.warning("[AIPERF-LICENSE] alarm check failed: %s", exc)
+            continue
+        state["payload"] = license_status_payload(record, _utc_now_iso(), interval_seconds)
+
+
+# 守护进程启动代码:显式插入 src 根路径,兼容明文源码树与 .pyc-only 交付镜像。
+_ALARM_DAEMON_ENTRY = (
+    "import sys; sys.path.insert(0, sys.argv[1]); "
+    "from wings_ctl.license import run_license_alarm; run_license_alarm()"
+)
+
+
+def _spawn_alarm_daemon() -> None:
+    """派生过期告警守护进程(8 小时周期 + 状态查询接口),尽力而为。
+
+    start_new_session 使守护脱离门禁进程会话,control 容器内随容器存活;
+    派生失败只降低过期可观测性,不影响启动门禁结论。
+    """
+    src_dir = str(Path(__file__).resolve().parent.parent)
+    try:
+        subprocess.Popen([sys.executable, "-c", _ALARM_DAEMON_ENTRY, src_dir], start_new_session=True)
+    except OSError as exc:
+        logger.warning("[AIPERF-LICENSE] license alarm daemon failed to start: %s", exc)
