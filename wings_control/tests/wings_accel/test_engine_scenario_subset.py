@@ -159,6 +159,63 @@ def test_glm53_multi_node_speculative_decoding():
     }
 
 
+def test_glm53_flash_nightly_multi_node_mtp_and_native_kv_offload():
+    """Nightly A2 dual-node GLM Flash must retain MTP and native CPU KV offload."""
+    from wings_accel import resolve_smart_accel_from_config
+    from wings_accel.yaml_loader import _package_smart_accel_root
+
+    out = resolve_smart_accel_from_config(
+        config_root=_package_smart_accel_root().parent,
+        engine="vllm-ascend",
+        engine_version="glm-5.3-flash-nightly",
+        hardware_family="ascend-a2",
+        model_name="GLM-5.3-Flash-w8a8",
+        gpu_count=8,
+        flags=LoadFlags(
+            topology="multi_node",
+            decoding_enabled=True,
+            kv=True,
+            memory_offload_size_mode="64",
+        ),
+    )
+
+    assert out is not None
+    assert out.smart_decoding_scheme == "deepseek_mtp"
+    assert out.smart_kv_cache_scheme == "cpu"
+    assert out.engine_params.engine_config == {
+        "speculative_config": {
+            "method": "deepseek_mtp",
+            "num_speculative_tokens": 3,
+            "enforce_eager": True,
+        },
+        "kv_offloading_backend": "native",
+        "kv_offloading_size": "64",
+    }
+    assert out.engine_params.env == {"VLLM_USE_SIMPLE_KV_OFFLOAD": "1"}
+
+
+def test_glm53_flash_nightly_a2_declares_tool_calling_and_reasoning():
+    """Nightly A2 GLM Flash must retain its verified tool and reasoning parsers."""
+    path = (
+        ENGINE_ROOT
+        / "vllm-ascend"
+        / "glm-5.3-flash-nightly"
+        / "ascend-a2"
+        / "models"
+        / "GLM-5.3-Flash"
+        / "GLM-5.3-Flash-w8a8.yaml"
+    )
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    features = data["features"]
+
+    assert features["tool_calling"]["args"] == [
+        "--tool-call-parser",
+        "glm47",
+        "--enable-auto-tool-choice",
+    ]
+    assert features["reasoning"]["args"] == ["--reasoning-parser", "glm45"]
+
+
 @pytest.mark.parametrize(
     ("sparse_level", "index_topk_freq"),
     [

@@ -1,0 +1,136 @@
+# Source provenance
+upstream_sources:
+  - id: vllm_ascend_glm-5.3-flash_w8a8_nightly_manual_910b_dual
+    kind: manual
+    repo: null
+    file: null
+    url: null
+    note: User-provided vLLM Ascend 910B dual-node launch commands, manually recorded.
+
+# Model metadata
+model:
+  name: GLM-5.3-Flash
+  provider: null  # Unconfirmed from the launch commands.
+  model_id: null  # The launch commands use the deployable local model path below.
+  min_engine_version: glm-5.3-flash-nightly
+  match:
+    - name_pattern: '(?i)^glm-5\.3-flash-w8a8$'
+  variant_name: GLM-5.3-Flash-w8a8
+
+# Ascend 910B dual-node hardware profile
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 512
+  multi_node: true
+
+# Optional model features extracted from both launch commands
+features:
+  tool_calling:
+    description: Enable GLM automatic tool/function calling through the glm47 parser.
+    args: [--tool-call-parser, glm47, --enable-auto-tool-choice]
+  reasoning:
+    description: Enable GLM reasoning-content parsing through the glm45 parser.
+    args: [--reasoning-parser, glm45]
+  spec_decoding:
+    description: DeepSeek MTP speculative decoding with three speculative tokens.
+    args: [--speculative-config, "{\"num_speculative_tokens\":3,\"method\":\"deepseek_mtp\",\"enforce_eager\":true}"]
+  kv_offloading:
+    description: Native SimpleOffload with 64 GiB host-memory capacity.
+    args: [--kv-offloading-backend, native, --kv-offloading-size, "64"]
+
+# Deployment scenarios
+scenarios:
+  multi_node:
+    source_ref: "vllm_ascend_glm-5.3-flash_w8a8_nightly_manual_910b_dual#multi_node"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        display_name: Multi-Node
+        default_strategy: true
+        head:
+          engine_config:
+            model: /usr/local/serving/models
+            host: "0.0.0.0"
+            port: 18000
+            max_model_len: 524288
+            no_scheduler_reserve_full_isl: true
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_address: 10.254.175.37
+            data_parallel_rpc_port: 12321
+            tensor_parallel_size: 8
+            enable_expert_parallel: true
+            seed: 1024
+            served_model_name: glm-5.3-flash-w8a8
+            safetensors_load_strategy: prefetch
+            max_num_seqs: 128
+            max_num_batched_tokens: 8192
+            trust_remote_code: true
+            quantization: ascend
+            limit_mm_per_prompt:
+              image: 1
+              video: 0
+            gpu_memory_utilization: 0.85
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+              cudagraph_capture_sizes: [1, 2, 4, 8, 16, 32, 64, 96, 128, 256, 384]
+            enable_prefix_caching: true
+            api_server_count: 1
+          env:
+            PYTORCH_NPU_ALLOC_CONF: "expandable_segments:False"
+            HCCL_OP_EXPANSION_MODE: AIV
+            HCCL_BUFFSIZE: 1024
+            HCCL_EXEC_TIMEOUT: 3600
+            HCCL_CONNECT_TIMEOUT: 1200
+            HCCL_SOCKET_IFNAME: eth0
+            HCCL_IF_IP: 10.254.175.37
+            GLOO_SOCKET_IFNAME: eth0
+            TP_SOCKET_IFNAME: eth0
+            VLLM_RPC_TIMEOUT: 3600000
+            VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: 3000
+            VLLM_USE_SIMPLE_KV_OFFLOAD: 1
+        worker:
+          engine_config:
+            model: /usr/local/serving/models
+            host: "0.0.0.0"
+            port: 18000
+            max_model_len: 524288
+            no_scheduler_reserve_full_isl: true
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_address: 10.254.175.37
+            data_parallel_rpc_port: 12321
+            tensor_parallel_size: 8
+            enable_expert_parallel: true
+            seed: 1024
+            served_model_name: glm-5.3-flash-w8a8
+            safetensors_load_strategy: prefetch
+            max_num_seqs: 128
+            max_num_batched_tokens: 8192
+            trust_remote_code: true
+            quantization: ascend
+            limit_mm_per_prompt:
+              image: 1
+              video: 0
+            gpu_memory_utilization: 0.85
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+              cudagraph_capture_sizes: [1, 2, 4, 8, 16, 32, 64, 96, 128, 256, 384]
+            enable_prefix_caching: true
+            data_parallel_start_rank: 1
+            headless: true
+          env:
+            PYTORCH_NPU_ALLOC_CONF: "expandable_segments:False"
+            HCCL_OP_EXPANSION_MODE: AIV
+            HCCL_BUFFSIZE: 1024
+            HCCL_EXEC_TIMEOUT: 3600
+            HCCL_CONNECT_TIMEOUT: 1200
+            HCCL_SOCKET_IFNAME: eth0
+            HCCL_IF_IP: 10.254.84.147
+            GLOO_SOCKET_IFNAME: eth0
+            TP_SOCKET_IFNAME: eth0
+            VLLM_RPC_TIMEOUT: 3600000
+            VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: 3000
+            VLLM_USE_SIMPLE_KV_OFFLOAD: 1
