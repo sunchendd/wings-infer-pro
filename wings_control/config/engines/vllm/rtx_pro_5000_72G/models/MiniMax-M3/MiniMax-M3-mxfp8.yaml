@@ -39,6 +39,9 @@ features:
   reasoning:
     description: Enable MiniMax M3 reasoning parsing.
     args: [--reasoning-parser, minimax_m3]
+  sparse_index:
+    description: Enable cross-layer sparse index caching for MiniMax M3.
+    args: [--hf-overrides, "{\"use_index_cache\":true,\"index_topk_freq\":4}"]
 
 # 部署场景
 scenarios:

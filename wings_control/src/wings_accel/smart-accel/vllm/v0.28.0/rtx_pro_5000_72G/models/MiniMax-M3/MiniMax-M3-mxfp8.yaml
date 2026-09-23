@@ -1,7 +1,61 @@
-# The validated v0.28.0 command has no optional decoding, KV-offload, or sparse scheme.
+# MiniMax-M3 IndexCache strategies for the vLLM v0.28.0 SM120 delivery.
 model:
   name: MiniMax-M3
   variant_name: "MiniMax-M3-mxfp8"
   match:
     - name_pattern: "(?i)minimax[-.]?m3"
-smart_accel: {}
+smart_accel:
+  standalone:
+    source_ref: "minimax_m3_vllm0280_sm120_tp4dp2#single_node_dep"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        sparse:
+          - name: performance_first
+            packages:
+              b12x: v1.3.0
+            cli_params:
+              kv_cache_dtype: fp8
+              hf_overrides:
+                use_index_cache: true
+                index_topk_freq: 8
+            envs: {}
+          - name: accuracy_first
+            packages:
+              b12x: v1.3.0
+            cli_params:
+              kv_cache_dtype: fp8
+              hf_overrides:
+                use_index_cache: true
+                index_topk_freq: 4
+            envs: {}
+  multi_node:
+    source_ref: minimax_m3_mxfp8_manual#multi_node_tp
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_tp:
+        default_strategy: true
+        sparse:
+          - name: performance_first
+            packages:
+              b12x: v1.3.0
+            cli_params:
+              kv_cache_dtype: fp8
+              hf_overrides:
+                use_index_cache: true
+                index_topk_freq: 8
+            envs: {}
+          - name: accuracy_first
+            packages:
+              b12x: v1.3.0
+            cli_params:
+              kv_cache_dtype: fp8
+              hf_overrides:
+                use_index_cache: true
+                index_topk_freq: 4
+            envs: {}
