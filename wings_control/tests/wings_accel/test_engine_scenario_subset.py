@@ -29,6 +29,7 @@ ASSETS = [
     "vllm/deepseekv4-flash-vision/h20_141G/models/DeepSeek-V4-Flash-Vision-Exp/DeepSeek-V4-Flash-Vision-Exp.yaml",
     "vllm/v0.28.0/h20_141G/models/GLM5.3/GLM5.3.yaml",
     "vllm/v0.23.0/rtx_pro_5000_72G/models/DeepSeek-V4-Flash/DeepSeek-V4-Flash-fp8.yaml",
+    "vllm/v0.28.0/rtx_pro_5000_72G/models/MiniMax-M3/MiniMax-M3-mxfp8.yaml",
     "vllm-ascend/v0.21.0rc/ascend-a2/models/DeepSeek-R1-0528/DeepSeek-R1-0528-w8a8-mtp-QuaRot.yaml",
     "vllm-ascend/v0.21.0rc/ascend-a2/models/DeepSeek-V3-0324/DeepSeek-V3-0324-w8a8-mtp-QuaRot.yaml",
     "vllm-ascend/v0.21.0rc/ascend-a3/models/Qwen3.6-35B-A3B/Qwen3.6-35B-A3B-bf16.yaml",
@@ -228,6 +229,48 @@ def test_vllm_glm53_standalone_decoding_and_sparse(sparse_level, index_topk_freq
         },
         "kv_cache_dtype": "fp8",
         "hf_overrides": {
+            "index_topk_freq": index_topk_freq,
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("topology", "gpu_count"),
+    [("standalone", 8), ("multi_node", 16)],
+)
+@pytest.mark.parametrize(
+    ("sparse_level", "index_topk_freq"),
+    [
+        ("performance_first", 8),
+        ("accuracy_first", 4),
+    ],
+)
+def test_minimax_m3_index_cache(topology, gpu_count, sparse_level, index_topk_freq):
+    """MiniMax-M3 IndexCache must render both validated policy levels."""
+    from wings_accel import resolve_smart_accel_from_config
+    from wings_accel.yaml_loader import _package_smart_accel_root
+
+    out = resolve_smart_accel_from_config(
+        config_root=_package_smart_accel_root().parent,
+        engine="vllm",
+        engine_version="0.28.0",
+        hardware_family="rtx_pro_5000_72G",
+        model_name="MiniMax-M3-mxfp8",
+        gpu_count=gpu_count,
+        flags=LoadFlags(
+            topology=topology,
+            sparse=True,
+            sparse_level=sparse_level,
+        ),
+    )
+
+    assert out is not None
+    assert out.smart_kv_sparse_scheme == sparse_level
+    assert out.packages == ["b12x:v1.3.0"]
+    assert out.engine_params.engine_config == {
+        "kv_cache_dtype": "fp8",
+        "hf_overrides": {
+            "use_index_cache": True,
             "index_topk_freq": index_topk_freq,
         },
     }
