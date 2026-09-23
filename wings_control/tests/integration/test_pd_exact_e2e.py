@@ -739,3 +739,57 @@ def test_pd_cli_feature_switches_reuse_model_overlay(
     assert "--tokenizer-mode synthetic" in output
     assert "--reasoning-parser synthetic_reasoning" in output
     assert "--speculative-config" not in output
+
+
+def test_pd_cli_dry_run_prints_process_scoped_environment(
+    pd_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """验证 PD dry-run 将每条命令的设备环境变量展示在对应 argv 前。"""
+    runtime_env = {
+        "ENGINE_VERSION": "v0.23.0",
+        "PD_ROLE": "D",
+        "PD_INDEX": "1",
+        "PD_PREFILL_DP_SIZE": "4",
+        "PD_PREFILL_TP_SIZE": "8",
+        "PD_DECODE_DP_SIZE": "4",
+        "PD_DECODE_TP_SIZE": "8",
+        "DP_SIZE_LOCAL": "2",
+        "RANK_IP": "10.0.0.4",
+        "MASTER_IP": "10.0.0.3",
+        "NODE_IPS": "10.0.0.3,10.0.0.4",
+    }
+    for name, value in runtime_env.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "wings-ctl",
+            "--engine",
+            "vllm-ascend",
+            "--model-name",
+            _VARIANT,
+            "--config-root",
+            str(pd_root),
+            "--hardware-info",
+            str(_write_hardware(pd_root)),
+            "--device-count",
+            "16",
+            "--distributed",
+            "--dry-run",
+        ],
+    )
+
+    cli.main()
+
+    output = capsys.readouterr().out
+    process_0_start = output.index("# process[0]")
+    process_1_start = output.index("# process[1]")
+    process_0 = output[process_0_start:process_1_start]
+    process_1 = output[process_1_start:]
+    first_devices = "export ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7"
+    second_devices = "export ASCEND_RT_VISIBLE_DEVICES=8,9,10,11,12,13,14,15"
+    assert process_0.index(first_devices) < process_0.index("vllm serve")
+    assert second_devices not in process_0
+    assert process_1.index(second_devices) < process_1.index("vllm serve")

@@ -45,6 +45,7 @@ from wings_ctl.engines.vllm_adapter import build_argv, build_system_setup_source
 from wings_ctl.license_gate import validate_device_count_early
 from wings_ctl.pd.input_contract import parse_pd_runtime_input
 from wings_ctl.pipeline import resolve_pipeline, resolve_pipeline_custom, run_pipeline, run_pipeline_custom
+from wings_ctl.rendering.env_renderer import render_env_export
 from wings_ctl.strategy.pre_template import pre_template_strategy
 from wings_ctl.translators.cli_translator import CLITranslator
 from wings_ctl.utils.env_utils import parse_node_ips
@@ -477,52 +478,96 @@ def _parse_runtime_context_from_env() -> tuple[str | None, str | None, list[str]
     return rank_ip, master_ip, node_ips
 
 
+def _render_env_dry_run(env_traces: dict[str, Any]) -> str:
+    """使用正式脚本规则构建 dry-run 环境变量预览。"""
+    lines = [
+        render_env_export(env_key, traced.final_value, allow_unsafe=traced.allow_unsafe)
+        for env_key, traced in env_traces.items()
+        if traced.final_value is not None
+    ]
+    if not lines:
+        return ""
+    return "\n".join(["# Environment Variables", *lines])
+
+
 def _print_env_dry_run(env_traces: dict[str, Any]) -> None:
-    """打印 dry-run 解析后的环境变量。"""
-    if not env_traces:
-        return
-    print("# Environment Variables")
-    for env_key, traced in env_traces.items():
-        value = traced.final_value
-        if value is not None:
-            print(f"export {env_key}={shlex.quote(str(value))}")
+    """打印 dry-run 环境变量预览，供直接调用方保持原有接口。"""
+    preview = _render_env_dry_run(env_traces)
+    if preview:
+        print(preview)
+
+
+def _render_system_setup_source_dry_run(engine: str, system_setup: Any) -> str:
+    """构建当前节点或 Pod 会在 engine 前执行的 source 初始化命令预览。"""
+    source_commands = build_system_setup_source_commands(engine, system_setup)
+    if source_commands:
+        return "\n".join(["# System Setup source commands", *render_source_command_blocks(source_commands)])
+    return ""
 
 
 def _print_system_setup_source_dry_run(engine: str, system_setup: Any) -> None:
-    """打印当前节点或 Pod 会在 engine 前执行的 source 初始化命令（带守卫块）。"""
-    source_commands = build_system_setup_source_commands(engine, system_setup)
-    if source_commands:
-        print("# System Setup source commands")
-        print("\n".join(render_source_command_blocks(source_commands)))
+    """打印当前节点或 Pod 会在 engine 前执行的 source 初始化命令。"""
+    preview = _render_system_setup_source_dry_run(engine, system_setup)
+    if preview:
+        print(preview)
 
 
-def _print_multi_node_dry_run(engine: str, nodes: List[Any]) -> None:
-    """打印 dry-run 下的 multi_node 占位 argv 列表。
+def _render_multi_node_dry_run(engine: str, nodes: List[Any]) -> str:
+    """构建 dry-run 下的 multi_node 占位 argv 列表。
 
     Args:
         engine: 引擎名称。
         nodes: multi_node 占位节点列表。
 
     Returns:
-        None。
+        所有节点都成功渲染后的完整预览；任一节点失败时不返回部分内容。
     """
+    sections: list[str] = []
     for node in nodes:
         node_argv = build_argv(node.engine_config_traces, engine=engine)
-        print(f"# node[{node.role}] (multi_node placeholder; runtime variables are not injected)")
-        _print_env_dry_run(node.env_traces)
-        _print_system_setup_source_dry_run(engine, node.system_setup)
-        print(shlex.join(node_argv))
+        section = [f"# node[{node.role}] (multi_node placeholder; runtime variables are not injected)"]
+        env_preview = _render_env_dry_run(node.env_traces)
+        if env_preview:
+            section.append(env_preview)
+        setup_preview = _render_system_setup_source_dry_run(engine, node.system_setup)
+        if setup_preview:
+            section.append(setup_preview)
+        section.append(shlex.join(node_argv))
+        sections.append("\n".join(section))
+    return "\n".join(sections)
+
+
+def _print_multi_node_dry_run(engine: str, nodes: List[Any]) -> None:
+    """打印 dry-run 下的 multi_node 占位 argv 列表。"""
+    preview = _render_multi_node_dry_run(engine, nodes)
+    if preview:
+        print(preview)
+
+
+def _render_process_plan_dry_run(engine: str, resolved: Any) -> str:
+    """构建 PD 当前 Pod 的 source 初始化命令及各进程预览。"""
+    sections: list[str] = []
+    setup_preview = _render_system_setup_source_dry_run(engine, resolved.system_setup)
+    if setup_preview:
+        sections.append(setup_preview)
+    for process in resolved.process_plan.processes:
+        section = [
+            f"# process[{process.process_index}] rank={process.dp_rank} "
+            f"devices={','.join(str(item) for item in process.visible_devices)}"
+        ]
+        env_preview = _render_env_dry_run(process.env_traces)
+        if env_preview:
+            section.append(env_preview)
+        section.append(shlex.join(process.argv))
+        sections.append("\n".join(section))
+    return "\n".join(sections)
 
 
 def _print_process_plan_dry_run(engine: str, resolved: Any) -> None:
-    """打印 PD 当前 Pod 的 source 初始化命令和每条 engine argv。"""
-    _print_system_setup_source_dry_run(engine, resolved.system_setup)
-    for process in resolved.process_plan.processes:
-        print(
-            f"# process[{process.process_index}] rank={process.dp_rank} "
-            f"devices={','.join(str(item) for item in process.visible_devices)}"
-        )
-        print(shlex.join(process.argv))
+    """打印 PD 当前 Pod 的 source 初始化命令及各进程预览。"""
+    preview = _render_process_plan_dry_run(engine, resolved)
+    if preview:
+        print(preview)
 
 
 def _print_multi_node_summary(engine: str, nodes: List[Any]) -> None:
@@ -576,14 +621,15 @@ def _run_dry_mode(
             _print_process_plan_dry_run(engine, resolved)
             return
 
+        env_preview = _render_env_dry_run(resolved.env_traces)
+        # 普通 argv 与结构化配置引擎统一通过启动计划展示。MindIE 预览包含外部
+        # config 路径和领域覆盖摘要，但不会在 dry-run 阶段执行任何文件副作用。
+        launch_preview = format_launch_dry_run_preview(resolved)
+        print("\n".join(preview for preview in (env_preview, launch_preview) if preview))
+
     except (ValueError, FileNotFoundError, NotImplementedError) as exc:
         parser.error(str(exc))
         return
-
-    _print_env_dry_run(resolved.env_traces)
-    # 普通 argv 与结构化配置引擎统一通过启动计划展示。MindIE 预览包含外部
-    # config 路径和领域覆盖摘要，但不会在 dry-run 阶段执行任何文件副作用。
-    print(format_launch_dry_run_preview(resolved))
 
 
 def _validate_unknown_args(unknown_args: List[str]) -> None:
