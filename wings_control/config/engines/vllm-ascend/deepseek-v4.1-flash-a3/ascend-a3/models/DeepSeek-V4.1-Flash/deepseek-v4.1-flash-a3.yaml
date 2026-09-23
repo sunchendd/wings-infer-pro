@@ -4,14 +4,14 @@ upstream_sources:
     kind: manual
     repo: null
     file: null
-    url: null
-    note: 根据双机 Ascend A3 实际启动命令手工录入；镜像为 quay.io/ascend/vllm-ascend:deepseek-v4.1-flash-a3。
+    url: "https://www.modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-w8a8"
+    note: 用户提供双机 Ascend 910C 实际启动命令，手工录入。
 
 # 模型基本信息
 model:
   name: DeepSeek-V4.1-Flash
-  provider: DeepSeek
-  model_id: null  # 本地权重无法可靠映射到公开模型 ID。
+  provider: Eco-Tech
+  model_id: Eco-Tech/DeepSeek-V4.1-Flash-w8a8
   min_engine_version: deepseek-v4.1-flash-a3
   match:
     - name_pattern: '(?i)^deepseek-v4\.1-flash-w8a8$'
@@ -32,8 +32,8 @@ features:
     description: Enable the DeepSeek V4.1 reasoning parser.
     args: [--reasoning-parser, deepseek_v41]
   spec_decoding:
-    description: Enable the validated DSpark configuration with five speculative tokens.
-    args: [--speculative-config, "{\"method\":\"dspark\",\"num_speculative_tokens\":5,\"enforce_eager\":true}"]
+    description: Enable the validated DSpark configuration with six speculative tokens.
+    args: [--speculative-config, "{\"method\":\"dspark\",\"num_speculative_tokens\":6,\"enforce_eager\":true}"]
 
 # 部署场景
 scenarios:
@@ -72,7 +72,8 @@ scenarios:
             quantization: ascend
             additional_config:
               enable_engram: true
-              engram_storage: int8
+              enable_engram_ple_offload: true
+              engram_storage: int8_cpu
               enable_cpu_binding: true
               enable_mc2_hierarchy_comm: true
               ascend_compilation_config:
@@ -116,7 +117,8 @@ scenarios:
             quantization: ascend
             additional_config:
               enable_engram: true
-              engram_storage: int8
+              enable_engram_ple_offload: true
+              engram_storage: int8_cpu
               enable_cpu_binding: true
               enable_mc2_hierarchy_comm: true
               ascend_compilation_config:
