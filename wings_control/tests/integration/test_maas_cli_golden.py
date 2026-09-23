@@ -461,15 +461,15 @@ def test_device_count_computes_dp(
     assert "--device-count" not in argv8
 
 
-def test_device_count_below_tp_raises_friendly_cli_error(
+def test_device_count_below_tp_without_memory_suffix_warns_and_continues(
     config_root_real: Path,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """cnt<TP 触发收缩,但 hardware_family 无显存后缀 → CLI 友好报错(前置闸,exit 2,无 traceback)。"""
+    """cnt<TP 触发收缩,但 hardware_family 无显存后缀 → 容量判据 warn-skip,仍输出 TP=2(exit 0)。"""
     hardware_info = tmp_path / "hw.json"
-    # ascend-a3 无 _<N>G 后缀 → 拿不到单卡显存 → 收缩前置闸友好报错。
+    # ascend-a3 无 _<N>G 后缀 → 拿不到单卡显存 → 容量判据 warn-skip。
     hardware_info.write_text(
         json.dumps({"hardware_family": "ascend-a3", "device": "ascend", "count": 16}),
         encoding="utf-8",
@@ -483,11 +483,11 @@ def test_device_count_below_tp_raises_friendly_cli_error(
             "--device-count", "2", "--dry-run",
         ],
     )
-    with pytest.raises(SystemExit) as exc:
-        cli.main()
-    assert exc.value.code == 2
-    # cnt<TP → 收缩前置闸;此 fixture hardware_family 无 _<N>G 后缀 → 拿不到显存 → 友好报错。
-    assert "single-device memory is unavailable" in capsys.readouterr().err
+    cli.main()
+    captured = capsys.readouterr()
+    # 前置闸只告警不阻断：TP 仍被收缩到 cnt=2。
+    assert "--tensor-parallel-size 2" in captured.out
+    assert "capacity gate" in captured.err
 
 
 def _shrink_argv(tmp_path, config_root_real, *, gpu_mem, total_size_gb, heads=32, device_count=2):
@@ -525,17 +525,17 @@ def test_device_count_shrink_e2e_success(
     assert "--tensor-parallel-size 2" in out  # TP 被收缩到 cnt=2
 
 
-def test_device_count_shrink_e2e_capacity_raise(
+def test_device_count_shrink_e2e_capacity_warn(
     config_root_real: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """R-H e2e:cnt=2<TP 但权重过大(300G):2×64=128G < 1.5×300=450G → 显存闸友好 raise(exit 2)。"""
+    """R-H e2e:cnt=2<TP 且权重过大(300G) → 容量判据 warn-only,不阻断,argv 仍出 TP=2(exit 0)。"""
     monkeypatch.setenv("ENGINE_VERSION", "v0.18.0")
     monkeypatch.setattr("sys.argv", _shrink_argv(tmp_path, config_root_real, gpu_mem=64, total_size_gb=300))
-    with pytest.raises(SystemExit) as exc:
-        cli.main()
-    assert exc.value.code == 2
-    assert "Insufficient capacity" in capsys.readouterr().err
+    cli.main()
+    captured = capsys.readouterr()
+    assert "--tensor-parallel-size 2" in captured.out
+    assert "Insufficient capacity" in captured.err
 
 
 def test_builtin_default_host_injected_when_template_and_user_absent(

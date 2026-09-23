@@ -79,7 +79,7 @@ class HardwareContext:
     device: str  # "nvidia" | "ascend"
     raw: Dict[str, Any] = field(default_factory=dict)  # 原始 JSON 全量,携带进 audit
     # 单卡显存 GB,取自 hardware_family 的 _<N>G 后缀(单卡物理显存);无后缀则 None。
-    # 唯一消费方 = 单机 TP 收缩显存闸;非收缩路径不读,None 无影响。
+    # 唯一消费方 = 单机 TP 收缩显存判据;非收缩路径不读,None 无影响。
     # 置于 raw 之后:保持 HardwareContext(family, device, raw) 位置构造兼容。
     gpu_mem_gb: Optional[int] = None
 

@@ -1,4 +1,4 @@
-"""weight/reader 单测(显存闸 weight_bytes / 收缩守卫 heads 的读取,docs/53 §7)。
+"""weight/reader 单测(显存判据 weight_bytes / 收缩守卫 heads 的读取,docs/53 §7)。
 
 用临时目录造假 index.json / config.json / *.safetensors,不碰真权重。
 """
@@ -35,7 +35,7 @@ def test_weight_bytes_index_bad_falls_back(tmp_path):
 
 
 def test_weight_bytes_raises_no_source(tmp_path):
-    """既无 index 又无 shards → raise(显存闸缺输入)。"""
+    """既无 index 又无 shards → raise(显存判据缺输入)。"""
     with pytest.raises(ValueError, match="Cannot determine weight size"):
         resolve_weight_bytes(str(tmp_path))
 

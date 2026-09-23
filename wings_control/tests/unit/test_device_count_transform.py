@@ -1,12 +1,14 @@
 """DeviceCountTransform(小策略层)边界单测。
 
 覆盖 device-count 协调的全部分支:不触发 / 整除覆盖 DP / 等模板 no-op /
-cnt<M 收缩 TP(R-H,2 幂)/ cnt<M 非 2 幂 raise / cnt%M≠0 raise /
+cnt<M 收缩 TP(R-H,2 幂)/ cnt<M 非 2 幂 warn / cnt%M≠0 raise /
 cnt≥M 时 TP 永不计算 / 模板缺 TP 时缺省 1。
 对应实现 src/wings_ctl/strategy/post_template.py::device_count_transform。
 """
 
 from __future__ import annotations
+
+import logging
 
 import pytest
 
@@ -70,7 +72,7 @@ def test_equals_template_is_noop() -> None:
 def test_cnt_less_than_m_shrinks_tp() -> None:
     """R-H:cnt<M 且 cnt 为 2 幂(2<4)→ 收缩 TP=2、DP=1,status=tp_shrunk。
 
-    (前置显存闸/heads 守卫在 resolve_config 跑,单测直调 transform 不含闸。)
+    (前置显存预检/heads 守卫在 resolve_config 跑,单测直调 transform 不含预检。)
     """
     override, notes = device_count_transform(_cfg(tp=4), {"device_count": 2})
     assert override == {"tensor_parallel_size": 2, "data_parallel_size": 1}
@@ -78,10 +80,13 @@ def test_cnt_less_than_m_shrinks_tp() -> None:
     assert notes["device_count_tp_eff"] == "2"
 
 
-def test_cnt_less_than_m_non_power_of_two_raises() -> None:
-    """R-H:cnt<M 但非 2 的幂(3<4)→ ValueError(收缩守卫)。"""
-    with pytest.raises(ValueError, match="power of two"):
-        device_count_transform(_cfg(tp=4), {"device_count": 3})
+def test_cnt_less_than_m_non_power_of_two_warns(caplog) -> None:
+    """R-H:cnt<M 但非 2 的幂(3<4)→ 只告警,仍收缩 TP=3、DP=1(不再阻断)。"""
+    with caplog.at_level(logging.WARNING):
+        override, notes = device_count_transform(_cfg(tp=4), {"device_count": 3})
+    assert override == {"tensor_parallel_size": 3, "data_parallel_size": 1}
+    assert notes["device_count_status"] == "tp_shrunk"
+    assert "not a power of two" in caplog.text
 
 
 def test_shrink_collapses_template_dp_to_one() -> None:

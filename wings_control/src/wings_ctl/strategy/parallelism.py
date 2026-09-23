@@ -10,6 +10,11 @@
 
 from __future__ import annotations
 
+import logging
+from typing import Optional
+
+logger = logging.getLogger(__name__)
+
 
 def dp_local_from_device_count(device_count: int, tp: int) -> int:
     """按 device_count 与静态 TP 算每实例 DP-local = ``device_count // TP``(带校验)。
@@ -75,8 +80,8 @@ def resolve_replica_tp_dp(device_count: int, tp: int) -> tuple[int, int]:
     统一处理"够卡调 DP"与"少卡收缩 TP"两支:
     - ``device_count >= tp``:TP 静态不动,``DP = device_count // tp``(须整除)。
     - ``device_count <  tp``:一份模型都占不满 TP 张卡 → **收缩** TP 到 device_count、DP=1
-      (受限例外)。此支要求 device_count 是 2 的幂(挡异形 TP;head 整除与显存闸
-      由调用方在拿到 model_path/最终 gpu_util 后另校)。
+      (受限例外)。此支不再要求 device_count 是 2 的幂:非 2 的幂只记 warning 并继续
+      (是否可跑由 heads 整除守卫和引擎启动结果决定)。
 
     Args:
         device_count: 下发卡数(必传,>0)。
@@ -86,19 +91,21 @@ def resolve_replica_tp_dp(device_count: int, tp: int) -> tuple[int, int]:
         ``(tp_eff, dp)``:生效 TP 与 DP。``tp_eff != tp`` 即发生了收缩。
 
     Raises:
-        ValueError: ``device_count <= 0``;``>=tp`` 但非 tp 整数倍(不向下取整);
-            ``<tp`` 但不是 2 的幂。
+        ValueError: ``device_count <= 0``;``>=tp`` 但非 tp 整数倍(不向下取整)。
     """
     if device_count <= 0:
         raise ValueError(f"device-count={device_count} is invalid; it must be a positive integer")
     if device_count >= tp:
         # 够卡:TP 静态,DP=cnt//tp(复用公共核整除校验)
         return tp, dp_local_from_device_count(device_count, tp)
-    # 少卡:收缩 TP 到 device_count。2 的幂守卫(纯函数,可在此)
+    # 少卡:收缩 TP 到 device_count。非 2 的幂只告警,不再阻断(避免误拒可跑配置)。
     if not _is_power_of_two(device_count):
-        raise ValueError(
-            f"device-count={device_count} < tensor_parallel_size={tp} triggers TP shrink, "
-            f"but {device_count} is not a power of two; adjust device count or use direct_vllm_serve."
+        logger.warning(
+            "device-count=%d < tensor_parallel_size=%d triggers TP shrink, but %d is not a power of two; "
+            "continuing in best-effort mode",
+            device_count,
+            tp,
+            device_count,
         )
     return device_count, 1
 
@@ -108,13 +115,16 @@ def check_capacity(
     gpu_mem_bytes: int,
     weight_bytes: int,
     multiplier: float = 1.5,
-) -> None:
-    """显存可行性硬闸:一份模型的 TP 张卡装不装得下它自己那份。
+) -> Optional[str]:
+    """显存可行性判据:一份模型的 TP 张卡装不装得下它自己那份(只判定,不报错)。
 
     判据 ``tp_eff × gpu_mem ≥ multiplier × weight_bytes``。用 ``tp_eff``(而非总卡数)是因为
     一份模型只摊在它的 TP 张卡上,每卡持 ``weight/TP`` 分片,能否装下取决于这 TP 张卡。
     **不乘 gpu_util**(当前配置链路不下发 util,用裸 gpu_mem;1.5× 已含裕量)。
     ``multiplier`` 默认 1.5 为经验下限(未计入 KV cache 增长)。
+
+    判据偏保守且不含 KV cache 增长,可能拒绝实际可跑的配置,因此本函数只返回原因;
+    由调用方决定记录 warning 还是报错(当前调用方为 warn-only 预检)。
 
     Args:
         tp_eff: 生效 TP(收缩后=device_count;否则=模板 TP)。
@@ -122,15 +132,15 @@ def check_capacity(
         weight_bytes: 模型权重字节数。
         multiplier: 经验系数,默认 1.5。
 
-    Raises:
-        ValueError: 可用显存 ``tp_eff × gpu_mem < multiplier × weight_bytes``(装不下,报错指向逃生)。
+    Returns:
+        ``None`` 表示容量满足;否则返回可定位的不满足原因字符串。
     """
     avail = tp_eff * gpu_mem_bytes
     need = multiplier * weight_bytes
     if avail < need:
-        raise ValueError(
+        return (
             f"Insufficient capacity: effective TP={tp_eff} × gpu_mem={gpu_mem_bytes}B = {avail:.0f}B "
             f"< {multiplier} × weight_bytes={weight_bytes}B = {need:.0f}B; "
-            f"one model replica does not fit on {tp_eff} devices. "
-            "Add devices, use different hardware, or use direct_vllm_serve."
+            f"one model replica does not fit on {tp_eff} devices."
         )
+    return None

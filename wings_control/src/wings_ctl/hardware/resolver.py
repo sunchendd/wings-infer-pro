@@ -26,7 +26,7 @@ def parse_gpu_mem_suffix(hardware_family: str) -> Optional[int]:
     """从 hardware_family 尾部 _<N>G 后缀解析单卡显存 GB。
 
     这是 gpu_mem 的唯一来源:MaaS 把单卡物理显存编码在 hardware_family 后缀里
-    (如 "H100_80G" → 80),供单机 TP 收缩显存闸使用。不带后缀 = 未提供显存。
+    (如 "H100_80G" → 80),供单机 TP 收缩显存判据使用。不带后缀 = 未提供显存。
 
     Args:
         hardware_family: 硬件族下发值(可能带 _<N>G 后缀)。

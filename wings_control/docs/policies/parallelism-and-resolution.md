@@ -37,9 +37,9 @@
 | --- | --- | --- |
 | `cnt >= TP` 且 `cnt % TP == 0` | TP 不变，`DP = cnt / TP` | 卡够一个 TP 组，多余卡用于 DP 副本。计算出的 DP 与模板相同时不改写。 |
 | `cnt >= TP` 但 `cnt % TP != 0` | 报错退出 | 卡数不是 TP 的整数倍，不能向下取整。 |
-| `cnt < TP` | `TP = cnt`，`DP = 1` | 卡数不足一个 TP 组时收缩。必须通过显存和结构守卫，否则报错。 |
+| `cnt < TP` | `TP = cnt`，`DP = 1` | 卡数不足一个 TP 组时收缩。显存判据只告警；attention heads 结构守卫不通过时仍报错。 |
 
-收缩 TP 前要满足三个条件：`cnt * 单卡显存 >= 1.5 * 模型权重`；`cnt` 是正的 2 次幂；模型配置可读取时，attention heads 必须能被 `cnt` 整除。
+收缩 TP 前先做显存判据 `cnt * 单卡显存 >= 1.5 * 模型权重`。该判据偏保守且不计 KV cache 增长，可能拒绝实际可跑的配置，因此**只记录 warning、继续解析**：不满足、单卡显存未知、或权重体积不可读时都在 `resolution_notes` 留 `tp_shrink_capacity` 标记，最终是否可跑由引擎启动结果决定。`cnt` 非 2 的幂同样只告警、不阻断。唯一仍报错的是结构守卫：`config.json` 可读且 attention heads 不能被 `cnt` 整除。
 
 未知硬件同时使用 `_generic/default_model.yaml` 的 standalone 保底路径是唯一例外：模板 TP=1 仅用于未提供卡数时的占位；提供 `cnt` 后由独立 `strategy_generic_fallback` 层写入 `TP=cnt`，不生成 DP 参数（引擎默认 DP=1）。未提供 `cnt` 时保留模板值并记录 warning。用户 CLI 位于更高优先级，仍可覆盖 TP/DP。该例外不影响具体硬件/模型 recipe，也不影响 multi-node。
 
@@ -48,7 +48,7 @@
 - 模板 `TP=1, DP=1`，下发 `cnt=2`：TP 仍为 1，DP 变为 2。
 - 模板 `TP=4, DP=2`，下发 `cnt=8`：TP 仍为 4，DP 为 2。
 - 模板 `TP=4, DP=2`，下发 `cnt=4`：DP 变为 1，覆盖模板中的 2。
-- 模板 `TP=8`，下发 `cnt=4`：显存闸和结构守卫通过后，TP 收缩为 4，DP 为 1，并记录 warning 和 trace。
+- 模板 `TP=8`，下发 `cnt=4`：显存判据告警不阻断、结构守卫通过后，TP 收缩为 4，DP 为 1，并记录 warning 和 trace。
 
 ## 多机
 
@@ -74,7 +74,7 @@ TP 只在单个 Pod 内使用，DP 在多个 Pod 间复制。设 `P = pod_count`
 | `world_size` 是 2 的幂 | `TP = world_size`，DP 保持模板值。 |
 | `world_size` 不是 2 的幂 | 报错。 |
 
-`world_size` 与模板 TP 不一致时，直接将 TP 调整为 `world_size`，DP 不变，并记录 warning。这个调整可能是收缩，也可能是增大；发生收缩时也会经过显存检查。
+`world_size` 与模板 TP 不一致时，直接将 TP 调整为 `world_size`，DP 不变，并记录 warning。这个调整可能是收缩，也可能是增大；发生收缩时会经过显存判据（只告警，不阻断）。
 
 多机统一限制：
 

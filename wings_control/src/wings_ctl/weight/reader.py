@@ -1,4 +1,4 @@
-"""从模型目录读权重体积 + 结构参数(显存闸 weight_bytes / 收缩守卫 num_attention_heads)。
+"""从模型目录读权重体积 + 结构参数(显存判据 weight_bytes / 收缩守卫 num_attention_heads)。
 
 - ``resolve_weight_bytes``:首选 ``model.safetensors.index.json`` 的 ``metadata.total_size``
   (精确、无需遍历),兜底 ``sum(*.safetensors)``;皆无 → raise。
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 def resolve_weight_bytes(model_path: str) -> int:
-    """读模型权重总字节数(显存闸 weight_bytes)。
+    """读模型权重总字节数(显存判据 weight_bytes)。
 
     Args:
         model_path: 模型目录(``--model-path``,生产已挂载可读)。
@@ -29,7 +29,7 @@ def resolve_weight_bytes(model_path: str) -> int:
 
     Raises:
         ValueError: 目录不存在,或既无 ``model.safetensors.index.json`` 也无 ``*.safetensors``
-            (无法判定体积;显存闸缺输入,直接失败)。
+            (无法判定体积)。当前调用方(TP 收缩预检)捕获该异常并 warn-skip。
     """
     root = Path(model_path)
     if not root.is_dir():
