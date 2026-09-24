@@ -1,0 +1,70 @@
+# 来源追溯
+upstream_sources:
+  - id: vllm_ascend_qwen3.8_flash_next_w8a8_mtp_manual
+    kind: manual
+    repo: null
+    file: null
+    url: null
+    note: 用户提供 quay.io/atlas-ci/vllm-atlas-temp:qwen3.8-next 启动命令，手工录入。
+
+# 模型基本信息
+model:
+  name: Qwen3.8-Flash-Next
+  provider: Qwen
+  model_id: null  # 启动命令使用可部署的 /models 挂载，未确认公开量化权重 ID。
+  min_engine_version: qwen3.8-next
+  match:
+    - name_pattern: "(?i)^qwen3[-.]?8[-.]?flash[-.]?next[-.]?w8a8[-.]?mtp$"
+  variant_name: Qwen3.8-Flash-Next-w8a8-mtp
+
+# Ascend 910B3 单节点硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 512
+  multi_node: false
+
+# 启动命令中的可选功能
+features:
+  tool_calling:
+    description: Enable automatic tool/function calling with the Qwen3 XML parser.
+    args: [--enable-auto-tool-choice, --tool-call-parser, qwen3_xml]
+  reasoning:
+    description: Enable the Qwen3 reasoning-content parser.
+    args: [--reasoning-parser, qwen3]
+  spec_decoding:
+    description: Enable Qwen3.5-compatible MTP speculative decoding with three draft tokens.
+    args: [--speculative-config, "{\"method\":\"qwen3_5_mtp\",\"num_speculative_tokens\":3,\"enforce_eager\":true}"]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "vllm_ascend_qwen3.8_flash_next_w8a8_mtp_manual#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: $MODEL_PATH
+          host: "0.0.0.0"
+          port: 17000
+          served_model_name: Qwen3.8-Flash-Next-w8a8-mtp
+          trust_remote_code: true
+          quantization: ascend
+          tensor_parallel_size: 8
+          data_parallel_size: 1
+          enable_expert_parallel: true
+          max_num_seqs: 8
+          max_num_batched_tokens: 4096
+          gpu_memory_utilization: 0.93
+          compilation_config:
+            cudagraph_capture_sizes: [4, 8, 12, 16, 20, 24, 28, 32]
+            cudagraph_mode: FULL_DECODE_ONLY
+          additional_config:
+            enable_cpu_binding: true
+            ascend_compilation_config:
+              fuse_norm_quant: false
+        env:
+          VLLM_ENGINE_READY_TIMEOUT_S: 3600
