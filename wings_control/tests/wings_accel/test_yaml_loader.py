@@ -478,6 +478,7 @@ def test_package_kimi_k3_gpu_asset_reachable_by_custom_version():
     ("engine_version", "model_name", "expected_version_dir"),
     [
         ("0.28.0", "GLM-5.3", "v0.28.0"),
+        ("v0.30.0-x86_64", "DeepSeek-V4.1-Flash", "v0.30.0"),
         ("deepseekv41-flash-0909", "DeepSeek-V4.1-Flash", "deepseekv41-flash-0909"),
         ("glm-5.3-flash", "GLM-5.3-Flash", "vglm-5.3-flash"),
         ("qwen38-flash-next", "Qwen3.8-Flash-Next", "qwen38-flash-next"),
