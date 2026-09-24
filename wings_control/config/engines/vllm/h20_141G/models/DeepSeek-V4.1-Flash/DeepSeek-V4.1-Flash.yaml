@@ -1,11 +1,11 @@
 # 来源追溯
 upstream_sources:
-  - id: vllm_deepseek-v4.1-flash-0909_manual
+  - id: vllm_deepseek-v4.1-flash_v0.30.0_manual
     kind: manual
     repo: null
     file: null
     url: "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash"
-    note: 用户提供 vLLM deepseekv41-flash-0909 单机 8 卡启动命令，手工录入。
+    note: 用户提供 vllm/vllm-openai:v0.30.0-x86_64 单机 8 卡启动命令，手工录入。
 
 # 模型基本信息
 model:
@@ -13,7 +13,7 @@ model:
   slug: deepseek-v4.1-flash
   provider: DeepSeek
   model_id: deepseek-ai/DeepSeek-V4.1-Flash
-  min_engine_version: "deepseekv41-flash-0909"
+  min_engine_version: "v0.30.0"
   match:
     - name_pattern: "(?i)deepseek[-.]?v4[-.]?1[-.]?flash"
   variant_name: DeepSeek-V4.1-Flash
@@ -32,11 +32,14 @@ features:
   reasoning:
     description: Enable DeepSeek V4.1 reasoning parsing.
     args: [--reasoning-parser, deepseek_v41]
+  spec_decoding:
+    description: Enable DSpark speculative decoding with adaptive block rejection sampling.
+    args: [--speculative-config, "{\"method\":\"dspark\",\"num_speculative_tokens\":5,\"draft_sample_method\":\"probabilistic\",\"rejection_sample_method\":\"block\",\"enable_adaptive_verification\":false}"]
 
 # 部署场景
 scenarios:
   standalone:
-    source_ref: "vllm_deepseek-v4.1-flash-0909_manual#single_node_tep"
+    source_ref: "vllm_deepseek-v4.1-flash_v0.30.0_manual#single_node_tep"
     match:
       distributed: false
       pd_role: null
@@ -54,7 +57,8 @@ scenarios:
           kv_cache_dtype: fp8_ds_mla
           block_size: 64
           enable_prefix_caching: true
-          gpu_memory_utilization: 0.95
+          swa_bounded_replay: true
+          gpu_memory_utilization: 0.92
           compilation_config:
             mode: 1
             cudagraph_mode: FULL_DECODE_ONLY

@@ -376,7 +376,7 @@ def test_deepseek_v4_flash_vision_uses_internal_dspark_weights():
         "method": "dspark",
         "num_speculative_tokens": 3,
         "draft_sample_method": "probabilistic",
-        "enable_adaptive_verification": True,
+        "enable_adaptive_verification": False,
     }
 
 
