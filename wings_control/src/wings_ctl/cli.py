@@ -244,29 +244,21 @@ def _derive_max_model_len(input_length: int | None, output_length: int | None) -
     ``max_model_len = input_length + output_length``(prompt 上限 + 生成上限 = 模型总序列长度),不加余量。
     产出作为 user_cli 覆盖层的 ``max_model_len``,**覆盖 recipe 自带值**(用户必填值优先)。
 
+    embedding/rerank 等 pooling 模型没有输出生成侧,MaaS 不下发 output_length:
+    此时缺失侧按 0 处理,``max_model_len = input_length``(与 legacy JSON 路径语义一致)。
+
     Args:
         input_length: 输入序列最大长度(MaaS 必填;None=未传)。
-        output_length: 输出序列最大长度(MaaS 必填;None=未传)。
+        output_length: 输出序列最大长度(生成模型必填;缺失/非正按 0 处理)。
 
     Returns:
-        ``input_length + output_length``;任一缺失或非正 → None(不派生,不覆盖 recipe)。
+        ``input_length + output_length``;input 缺失或非正 → None(不派生,不覆盖 recipe)。
     """
-    if input_length is None or output_length is None:
+    if input_length is None or input_length <= 0:
+        logger.warning("input_length=%s; skip max_model_len derivation", input_length)
         return None
-    if input_length <= 0 or output_length <= 0:
-        logger.warning(
-            "input_length=%s / output_length=%s contains a non-positive value; skipping max_model_len derivation",
-            input_length,
-            output_length,
-        )
-        return None
-    mml = input_length + output_length
-    logger.info(
-        "Derived max_model_len = input_length(%d) + output_length(%d) = %d; overriding recipe value",
-        input_length,
-        output_length,
-        mml,
-    )
+    mml = input_length + max(output_length or 0, 0)
+    logger.info("max_model_len = %d + %s = %d", input_length, output_length, mml)
     return mml
 
 
