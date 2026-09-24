@@ -1,0 +1,30 @@
+# SmartAccel asset derived from the user-provided Ascend 910B dual-node command.
+model:
+  name: GLM-5.3-Flash
+  variant_name: "GLM-5.3-Flash-w8a8"
+  match:
+    - name_pattern: '(?i)^glm-5\.3-flash-w8a8$'
+smart_accel:
+  multi_node:
+    source_ref: "vllm_ascend_glm-5.3-flash_w8a8_nightly_manual_910b_dual#multi_node"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dp:
+        default_strategy: true
+        decoding:
+        - name: deepseek_mtp
+          cli_params:
+            speculative_config:
+              method: deepseek_mtp
+              num_speculative_tokens: 3
+              enforce_eager: true
+          envs: {}
+        kv_offload:
+        - name: cpu
+          cli_params:
+            kv_offloading_backend: native
+            kv_offloading_size: '{memory_capacity_gb}'
+          envs:
+            VLLM_USE_SIMPLE_KV_OFFLOAD: 1
