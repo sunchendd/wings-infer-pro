@@ -187,7 +187,7 @@ Instance 的成员 Pod 数相同，并共用同一个 `PD_PREFILL_DP_SIZE`；所
 |\-\-max\-num\-seqs|auto选填|int|同时处理的最大序列数||
 |\-\-max\-num\-batched\-tokens|auto选填|int|单次 forward 最多处理的 token 总数||
 |\-\-input\-length|必填|int|输入序列的最大长度限制||
-|\-\-output\-length|必填|int|输出序列的最大长度限制||
+|\-\-output\-length|选填|int|输出序列的最大长度限制|embedding/rerank 等无输出生成侧的模型不下发|
 |\-\-trust\-remote\-code|auto选填|bool<br>|是否信任并执行 HuggingFace 仓库中的自定义代码|注：<br>如果不传，wings\-control会告警|
 |\-\-enable\-auto\-think\-choice|auto选填|bool|是否打开思考模式||
 |\-\-enable\-auto\-tool\-choice|auto选填|bool|是否启用自动工具选择||

@@ -8,6 +8,7 @@ import logging
 import pytest
 
 from wings_ctl import cli
+from wings_ctl.cli import _derive_max_model_len
 
 
 # ─── _resolve_model_name(配方标识推导)──────────────────────────────────────
@@ -146,19 +147,25 @@ def test_resolve_engine_env_underscore_canonicalized(monkeypatch):
 
 def test_derive_max_model_len_sum():
     """两者都给 → max_model_len = input + output(无余量)。"""
-    assert cli._derive_max_model_len(4096, 1024) == 5120
+    assert _derive_max_model_len(4096, 1024) == 5120
 
 
-def test_derive_max_model_len_missing_returns_none():
-    """任一缺失 → None(不派生,不覆盖 recipe)。"""
-    assert cli._derive_max_model_len(None, 1024) is None
-    assert cli._derive_max_model_len(4096, None) is None
+def test_derive_max_model_len_missing_input_returns_none():
+    """input 缺失 → None(不派生,不覆盖 recipe)。"""
+    assert _derive_max_model_len(None, 1024) is None
 
 
-def test_derive_max_model_len_nonpositive_returns_none():
-    """含非正值 → None(跳过派生,warn)。"""
-    assert cli._derive_max_model_len(0, 1024) is None
-    assert cli._derive_max_model_len(4096, -1) is None
+def test_derive_max_model_len_missing_output_treated_as_zero():
+    """output 缺失/非正 → 按 0 处理,pooling 语义 max_model_len = input。"""
+    assert _derive_max_model_len(8192, None) == 8192
+    assert _derive_max_model_len(8192, 0) == 8192
+    assert _derive_max_model_len(8192, -1) == 8192
+
+
+def test_derive_max_model_len_nonpositive_input_returns_none():
+    """input 非正 → None(跳过派生,warn)。"""
+    assert _derive_max_model_len(0, 1024) is None
+    assert _derive_max_model_len(-1, None) is None
 
 
 def test_collect_overrides_injects_max_model_len():
