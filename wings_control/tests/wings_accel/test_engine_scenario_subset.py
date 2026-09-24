@@ -380,6 +380,30 @@ def test_deepseek_v4_flash_vision_uses_internal_dspark_weights():
     }
 
 
+def test_deepseek_v41_flash_multi_node_dspark_decoding():
+    """DeepSeek V4.1 Flash multi-node must reproduce the validated DSpark settings."""
+    from wings_accel import resolve_smart_accel_from_config
+    from wings_accel.yaml_loader import _package_smart_accel_root
+
+    out = resolve_smart_accel_from_config(
+        config_root=_package_smart_accel_root().parent,
+        engine="vllm-ascend",
+        engine_version="deepseek-v4.1-flash-a3",
+        hardware_family="ascend-a3",
+        model_name="DeepSeek-V4.1-Flash-w8a8",
+        gpu_count=16,
+        flags=LoadFlags(topology="multi_node", decoding_enabled=True),
+    )
+
+    assert out is not None
+    assert out.smart_decoding_scheme == "dspark"
+    assert out.engine_params.engine_config["speculative_config"] == {
+        "method": "dspark",
+        "num_speculative_tokens": 6,
+        "enforce_eager": True,
+    }
+
+
 def test_kimi_k3_multi_node_kv_per_rank_bytes():
     """Kimi-K3 multi_node KV 卸载的 per-rank 字节数按卡均分(multi_node 实际渲染断言)。
 

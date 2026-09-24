@@ -16,6 +16,6 @@ smart_accel:
             cli_params:
               speculative_config:
                 method: dspark
-                num_speculative_tokens: 5
+                num_speculative_tokens: 6
                 enforce_eager: true
             envs: {}
