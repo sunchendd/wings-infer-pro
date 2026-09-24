@@ -12,6 +12,9 @@
 - available_gb 向下取整且最小展示为 0;enabled 由 min_threshold_gb 判断。
 - disable_reason 保留完整公式变量,供 yaml_loader 日志/audit 定位。
 - 这是 CPU offload 容量估算,不处理 disk/QAT 资源。
+- 本地卸载(offload)与分布式卸载(distributed_offload/Mooncake)共用本估算:
+  mooncake store 与 vLLM 同 pod,引擎自身开销模型同样成立;10% margin 吸收
+  MooncakeStoreConnector 本地缓冲(KV_LOCAL_BUFFER_SIZE,默认 4G)。
 
 公式(单常数,保守):
     worker_count    = tp_size × dp_size                       (vLLM V1 进程模型)

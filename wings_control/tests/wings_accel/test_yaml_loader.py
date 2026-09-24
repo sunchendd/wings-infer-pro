@@ -48,7 +48,25 @@ smart_accel:                   # scenario 嵌套结构(对齐 wings_control scen
               kv_transfer_config:
                 kv_connector: OffloadingConnector
                 kv_role: kv_both
+        distributed_kv_offload:
+          - name: mooncake_standalone_store
+            cli_params:
+              kv_transfer_config:
+                kv_connector: MooncakeStoreConnector
+                kv_role: kv_both
 """
+
+# 仅本地 kv_offload(未声明 distributed_kv_offload)的模板:用于存在性护栏用例。
+YAML_TEMPLATE_LOCAL_ONLY = YAML_TEMPLATE.replace(
+    """        distributed_kv_offload:
+          - name: mooncake_standalone_store
+            cli_params:
+              kv_transfer_config:
+                kv_connector: MooncakeStoreConnector
+                kv_role: kv_both
+""",
+    "",
+)
 
 
 def _write_yaml(tmp_path, content):
@@ -115,6 +133,88 @@ class TestMemoryOffloadSizeMode:
         cfg = smart_input.smart_kv_cache_config
         assert cfg.memory_offload_size_mode == "192"
         assert getattr(cfg, "_memory_capacity_gb") == 192
+
+    def test_distributed_auto_estimates_capacity(self, tmp_path):
+        """分布式 auto 智能推荐:512G pod, 8 卡 → available=401,mode/容量透传 dkv。"""
+        path = _write_yaml(tmp_path, YAML_TEMPLATE)
+        flags = LoadFlags(
+            distributed_kv=True,
+            memory_offload_size_mode="auto",
+            pod_available_memory_gb=512,
+            gpu_count=8,
+        )
+        smart_input = load_smart_accel_from_yaml(path, flags)
+        dkv = smart_input.distributed_kv_cache_config
+        assert dkv.memory_offload_enabled is True
+        assert dkv.memory_offload_size_mode == "auto"
+        assert dkv.memory_capacity_gb == 401
+        # 本地卸载未开 → 本地配置不启用,容量私有属性仍携带估算值(ctx 回退用)
+        assert smart_input.smart_kv_cache_config.memory_offload_enabled is False
+
+    def test_distributed_auto_below_threshold_degrades(self, tmp_path):
+        """分布式 auto 估算不足 → 与本地同分支关闭整个特性(enabled/memory_offload 同置 False)。"""
+        path = _write_yaml(tmp_path, YAML_TEMPLATE)
+        flags = LoadFlags(
+            distributed_kv=True,
+            memory_offload_size_mode="auto",
+            pod_available_memory_gb=100,
+            gpu_count=8,
+            min_offload_threshold_gb=100,
+        )
+        smart_input = load_smart_accel_from_yaml(path, flags)
+        dkv = smart_input.distributed_kv_cache_config
+        assert dkv.enabled is False
+        assert dkv.memory_offload_enabled is False
+        assert dkv.memory_offload_size_mode == "auto"
+        assert dkv.memory_capacity_gb == 0
+
+    def test_distributed_numeric_mode_uses_fixed_gb(self, tmp_path):
+        """分布式数值模式 → 固定 GB 原样透传(不走估算)。"""
+        path = _write_yaml(tmp_path, YAML_TEMPLATE)
+        flags = LoadFlags(
+            distributed_kv=True,
+            memory_offload_size_mode="64",
+            pod_available_memory_gb=512,
+            gpu_count=8,
+        )
+        smart_input = load_smart_accel_from_yaml(path, flags)
+        dkv = smart_input.distributed_kv_cache_config
+        assert dkv.memory_offload_enabled is True
+        assert dkv.memory_offload_size_mode == "64"
+        assert dkv.memory_capacity_gb == 64
+
+    def test_distributed_without_yaml_declaration_degrades(self, tmp_path):
+        """YAML 未声明 distributed_kv_offload → 存在性护栏优雅关闭(与本地 has_memory_method 同构)。"""
+        path = _write_yaml(tmp_path, YAML_TEMPLATE_LOCAL_ONLY)
+        flags = LoadFlags(
+            distributed_kv=True,
+            memory_offload_size_mode="64",
+            pod_available_memory_gb=512,
+            gpu_count=8,
+        )
+        smart_input = load_smart_accel_from_yaml(path, flags)
+        dkv = smart_input.distributed_kv_cache_config
+        assert dkv.enabled is False
+        assert dkv.memory_offload_enabled is False
+        # mode 保留 → 页面回显 0(请求过但未生效),继续推理
+        assert dkv.memory_offload_size_mode == "64"
+        assert dkv.memory_capacity_gb == 0
+
+    def test_distributed_install_xcache_flag_threads_through(self, tmp_path):
+        """install_xcache 缺省 True;False → DistributedKVCacheConfig.install_transfer_engine=False。"""
+        path = _write_yaml(tmp_path, YAML_TEMPLATE)
+        flags = LoadFlags(
+            distributed_kv=True,
+            memory_offload_size_mode="64",
+            pod_available_memory_gb=512,
+            gpu_count=8,
+        )
+        smart_input = load_smart_accel_from_yaml(path, flags)
+        assert smart_input.distributed_kv_cache_config.install_transfer_engine is True
+
+        flags.install_xcache = False
+        smart_input = load_smart_accel_from_yaml(path, flags)
+        assert smart_input.distributed_kv_cache_config.install_transfer_engine is False
 
 
 class TestPdRole:

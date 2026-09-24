@@ -112,8 +112,8 @@ def _import_accel():
     return mod if hasattr(mod, "resolve_smart_accel_from_config") else None
 
 
-def _as_bool(env: dict, key: str) -> bool:
-    """MaaS env dict 里 key 的值解析为布尔;缺失/空/非法 → False。
+def _as_bool(env: dict, key: str, default: bool = False) -> bool:
+    """MaaS env dict 里 key 的值解析为布尔;缺失/空/非法 → default(缺省 False)。
 
     统一走 :func:`env_utils.parse_bool`(真值集合 ``{1,true,yes,y,on}``),
     修复旧实现只认 ``"true"`` 导致 ``ENABLE_XXX=1/yes/on`` 不生效的问题。
@@ -121,12 +121,13 @@ def _as_bool(env: dict, key: str) -> bool:
     Args:
         env: MaaS 下发的环境变量字典。
         key: 待解析的开关键(如 ``ENABLE_SPARSE``)。
+        default: 未下发/空串/非法值时的回退(缺省 False;缺省开启的开关传 True)。
 
     Returns:
-        真值集合命中 → ``True``;缺失/空串/非法 → ``False``。
+        真值集合命中 → ``True``;假值集合命中 → ``False``;其余 → ``default``。
     """
     value = env.get(key)
-    return parse_bool(value if value is None else str(value), default=False)
+    return parse_bool(value if value is not None else str(value), default=default)
 
 
 def _as_int(value: Any) -> int:
@@ -175,7 +176,7 @@ def collect_accel_switches(env: dict) -> dict[str, Any]:
         # KV 稀疏
         "sparse_enabled": _as_bool(env, "ENABLE_SPARSE"),
         "sparse_level": env.get("SPARSE_LEVEL", "performance_first") or "performance_first",
-        # KV 卸载(一级 → 二级 mem/disk → 三级 qat)
+        # KV 卸载(一级 → 二级 mem → 三级 disk)
         # 注:ENABLE_KV_OFFLOAD(本地卸载,offload.py)与 ENABLE_DISTRIBUTED_KV_OFFLOAD
         # (Mooncake 分布式 KV,distributed_offload.py)是并列且互斥的两套方案,不互相派生。
         "kv_offload_enabled": _as_bool(env, "ENABLE_KV_OFFLOAD"),
@@ -192,13 +193,29 @@ def collect_accel_switches(env: dict) -> dict[str, Any]:
         "distributed_kv_protocol": str(env.get("KV_PROTOCOL") or "").strip().lower(),
         "serving_config_id": str(env.get("SERVING_CONFIG_ID") or "").strip(),
         "distributed_kv_local_buffer_size": str(env.get("KV_LOCAL_BUFFER_SIZE") or "").strip(),
+        # xcache(mooncake transfer engine,原名 mooncake_non_cuda)安装开关:缺省 True(注入并安装);
+        # False = 跳过默认包注入,假定引擎镜像已预装。仅影响 install 段,分布式 KV 特性
+        # 本身仍由上面的 ENABLE_DISTRIBUTED_KV_OFFLOAD 控制(两开关独立)。
+        "xcache_install_enabled": _as_bool(env, "ENABLE_XCACHE_INSTALL", default=True),
         "available_pod_mem_gb": _pod_mem_mib_to_gb(env.get("AVAILABLE_POD_MEM_SIZE")),
         # PD_ROLE 透传(env_utils 已校验);decoders/offload 内部按需自取。
         "pd_role": env.get("PD_ROLE") or None,
-        # KV 存储后端(memcache/mooncake)由 yaml 声明、按 connector 内容路由;不再有 KV_STORE_* env。
-        # 注:topology 不再在此从 env 推导(原 _resolve_topology 滥用 PD_ROLE/DISTRIBUTED/NODE_IPS,
-        # 且 PD_ROLE 与上方重复读)。topology 由上层 config_resolver 传入 apply_smart_accel。
     }
+
+
+# 安装类开关:只影响 install 段(包注入),不驱动任何 accel 特性,也不改写 PD-owned 的
+# rank/卡组/connector identity。"是否开启任一加速特性"的判定(*_enabled 且为 True)必须
+# 排除它们,否则缺省 True 的安装开关会让 PD 禁令误报、custom 路径误触发 apply_smart_accel。
+INSTALL_ONLY_ACCEL_SWITCHES = frozenset({"xcache_install_enabled"})
+
+
+def enabled_feature_switch_names(switches: dict[str, Any]) -> list[str]:
+    """值为 True 的特性类 *_enabled 开关名(排除安装类开关),按名排序保证报错信息稳定。"""
+    return sorted(
+        name
+        for name, value in switches.items()
+        if name.endswith("_enabled") and value is True and name not in INSTALL_ONLY_ACCEL_SWITCHES
+    )
 
 
 def active_accel_switch_names(env: dict) -> list[str]:
@@ -294,6 +311,8 @@ def build_smart_input(
             disk_offload_enabled=switches["kv_disk_enabled"],
             disk_capacity_gb=switches["kv_disk_size_gb"],
             disk_path=switches["kv_disk_path"],
+            # .get 兜底:本函数兼容旧调用,switches 可能是手工构造、缺新键的字典
+            install_transfer_engine=switches.get("xcache_install_enabled", True),
         ),
         smart_kv_sparse_config=mod.SmartKVSparseConfig(
             enabled=switches["sparse_enabled"],
@@ -495,6 +514,7 @@ def apply_smart_accel(
             distributed_protocol=switches["distributed_kv_protocol"],
             serving_config_id=switches["serving_config_id"],
             distributed_local_buffer_size=switches["distributed_kv_local_buffer_size"],
+            install_xcache=switches["xcache_install_enabled"],
             gpu_count=gpu_count or 1,
         )
         output = mod.resolve_smart_accel_from_config(

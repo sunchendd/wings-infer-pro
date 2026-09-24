@@ -158,9 +158,12 @@ def test_build_scripts_writes_advanced_features_auto_size(tmp_path, monkeypatch)
     assert data["engine"] == "vllm"
     assert data["features"] == {
         "speculative_decode": True, "sparse_kv": False, "kv_offload": True, "rag_acc": False,
+        # 本地卸载场景:kv_offload(合一口径)true,但显式分布式标志 false
+        "kv_distributed_offload": False,
     }
     assert data["variants"]["speculative_decode"] == "mtp"
     assert data["variants"]["kv_offload"] == "cpu"
+    assert data["variants"]["kv_distributed_offload"] is None
     assert data["others"]["kv_mem_offload_size"] == 401  # auto 估算值(512-59-51.2→401)
 
 
@@ -428,6 +431,32 @@ def test_build_scripts_installs_mooncake_script_assets(tmp_path, monkeypatch):
     assert "$SHARED_VOLUME_PATH/mooncake/start_mooncake_master.sh" in start_text
 
 
+def test_install_mooncake_script_assets_fails_fast_on_pyc_only_assets(
+    tmp_path, monkeypatch
+):
+    """资产源只剩 mooncake_store.pyc(旧镜像未在加密前拷出资产)必须 fail-fast。
+
+    场景:MOONCAKE_ASSETS_PATH 指向的目录只有 .pyc 没有 .py —— 说明镜像用旧
+    Dockerfile 构建,.py 已被加密步骤删除;若此时静默拷贝,.pyc 会进入共享卷,
+    engine 容器执行 start_mooncake_store.sh 时才以 file not found / bad magic
+    number 失败。生成期抛 ValueError,把故障拦在产物阶段。
+    """
+    from wings_ctl.common.settings import settings
+
+    shared = tmp_path / "shared"
+    monkeypatch.setattr(settings, "SHARED_VOLUME_PATH", str(shared))
+    stale = tmp_path / "stale_assets"
+    stale.mkdir()
+    (stale / "mooncake_store.pyc").write_bytes(b"\x00compiled")
+    (stale / "start_mooncake_store.sh").write_text("#!/bin/bash\n", encoding="utf-8")
+    monkeypatch.setenv("MOONCAKE_ASSETS_PATH", str(stale))
+
+    accel = AccelResult(enabled=True, mooncake_script_assets_required=True)
+    with pytest.raises(ValueError, match="mooncake_store.py"):
+        build_scripts(_make_resolved(accel), tmp_path)
+    assert not (shared / "mooncake").exists()
+
+
 def test_write_mooncake_master_env_renders_defaults_and_maas_override(tmp_path, monkeypatch):
     """master.env 由 env.yaml 默认值 + MaaS 同名 env 覆盖渲染;覆盖值必须落到文件。"""
     from wings_ctl.common.settings import settings
@@ -447,6 +476,142 @@ def test_write_mooncake_master_env_renders_defaults_and_maas_override(tmp_path, 
     assert "export MOONCAKE_MASTER_EVICTION_HIGH_WATERMARK_RATIO=0.9" in content
     assert "export MOONCAKE_MASTER_EVICTION_RATIO=0.1" in content
     assert "export MOONCAKE_MASTER_LOG_PATH=/var/log/wings" in content
+
+
+# ── 分布式 auto 智能推荐:解析值注入 client.env(覆盖原始 "auto" 字面量)──
+
+
+def test_write_mooncake_client_env_accel_override_beats_maas_raw(tmp_path, monkeypatch):
+    """accel 解析值(估算)为最高覆盖层:MaaS 原始 auto 字面量不得落进 client.env。"""
+    from wings_ctl.common.settings import settings
+    from wings_ctl.rendering.script_builder import _write_mooncake_client_env
+
+    shared = tmp_path / "shared"
+    monkeypatch.setattr(settings, "SHARED_VOLUME_PATH", str(shared))
+    monkeypatch.setenv("KV_MEM_OFFLOAD_SIZE", "auto")
+    monkeypatch.setenv("KV_PROTOCOL", "rdma")
+
+    _write_mooncake_client_env({"KV_MEM_OFFLOAD_SIZE": "171"})
+
+    content = (shared / "mooncake" / "client.env").read_text(encoding="utf-8")
+    assert "export KV_MEM_OFFLOAD_SIZE=171" in content
+    assert "auto" not in content  # 原始 "auto" 字面量被估算值替换(脚本侧只认纯数值)
+    assert "export KV_PROTOCOL=rdma" in content  # 其余变量仍走 env.yaml + MaaS 链路
+
+
+def test_build_scripts_injects_resolved_size_into_mooncake_env(tmp_path, monkeypatch):
+    """build_scripts 端到端:kv_mem_offload_size_gb=171(auto 估算)→ client/master.env 落 171。"""
+    from wings_ctl.common.settings import settings
+
+    shared = tmp_path / "shared"
+    monkeypatch.setattr(settings, "SHARED_VOLUME_PATH", str(shared))
+    monkeypatch.setattr(settings, "ADVANCED_FEATURES_FILE", str(tmp_path / "advanced_features.json"))
+    monkeypatch.setenv("KV_MEM_OFFLOAD_SIZE", "auto")
+    accel = AccelResult(
+        enabled=True,
+        kv_mem_offload_size_gb=171,
+        mooncake_script_assets_required=True,
+        audit={"smart_distributed_kv_cache_scheme": "mooncake_standalone_store"},
+        pre_serve=['bash "$SHARED_VOLUME_PATH/mooncake/start_mooncake_store.sh" &'],
+    )
+
+    build_scripts(_make_resolved(accel), tmp_path)
+
+    client = (shared / "mooncake" / "client.env").read_text(encoding="utf-8")
+    master = (shared / "mooncake" / "master.env").read_text(encoding="utf-8")
+    assert "export KV_MEM_OFFLOAD_SIZE=171" in client
+    assert "export KV_MEM_OFFLOAD_SIZE=171" in master
+
+
+def test_build_scripts_writes_advanced_features_distributed_size(tmp_path, monkeypatch):
+    """分布式 auto 生效 → kv_offload feature 回显 true + others.kv_mem_offload_size=估算值。"""
+    import json as _json
+    from wings_ctl.common.settings import settings
+
+    target = tmp_path / "advanced_features.json"
+    monkeypatch.setattr(settings, "ADVANCED_FEATURES_FILE", str(target))
+    accel = AccelResult(
+        enabled=True,
+        kv_mem_offload_size_gb=171,
+        audit={"smart_distributed_kv_cache_scheme": "mooncake_standalone_store"},
+    )
+    build_scripts(_make_resolved(accel), tmp_path)
+
+    data = _json.loads(target.read_text(encoding="utf-8"))
+    assert data["features"]["kv_offload"] is True
+    assert data["features"]["kv_distributed_offload"] is True  # MaaS 前端消费的显式分布式标志
+    assert data["variants"]["kv_offload"] == "mooncake_standalone_store"
+    assert data["variants"]["kv_distributed_offload"] == "mooncake_standalone_store"
+    assert data["others"]["kv_mem_offload_size"] == 171
+
+
+# ── master Pod 身份兜底:特性未生效(降级/未开)也绝不回退执行 vllm serve ──
+
+
+def test_master_pod_holds_when_feature_not_effective(tmp_path, monkeypatch):
+    """master Pod + 特性降级(空 accel)→ 渲染挂起分支:ERROR 日志 + while sleep,拦截在 vllm 之前。"""
+    from wings_ctl.common.settings import settings
+
+    monkeypatch.setattr(settings, "ADVANCED_FEATURES_FILE", str(tmp_path / "advanced_features.json"))
+    monkeypatch.setenv("IS_MOONCAKE_MASTER", "true")
+
+    start_path, _ = build_scripts(_make_resolved(), tmp_path)  # 空 AccelResult = 特性降级形态
+
+    text = start_path.read_text(encoding="utf-8")
+    # 挂起分支存在:ERROR 日志说明原因 + 无限等待
+    assert 'if [ "${IS_MOONCAKE_MASTER:-}" = "TRUE" ]' in text
+    assert "distributed KV offload is NOT effective" in text
+    assert "while true; do sleep 3600; done" in text
+    # 分支必须拦截在引擎命令之前(运行时进入分支即挂起,永不到达引擎行);
+    # rindex = 脚本末尾真正的 vllm serve 命令行(分支注释/日志里也含该字样)。
+    assert text.index("while true; do sleep 3600; done") < text.rindex("vllm serve")
+    # 回显(降级形态):kv_distributed_offload(MaaS 前端消费字段)显式 false,
+    # kv_offload 合一口径同为 false;空 AccelResult 下容量为 None(无有效容量)。
+    degraded = json.loads(
+        (tmp_path / "advanced_features.json").read_text(encoding="utf-8")
+    )
+    assert degraded["features"]["kv_distributed_offload"] is False
+    assert degraded["variants"]["kv_distributed_offload"] is None
+    assert degraded["features"]["kv_offload"] is False
+    assert degraded["others"]["kv_mem_offload_size"] is None
+
+
+def test_master_pod_prefers_feature_section_when_active(tmp_path, monkeypatch):
+    """master Pod + 特性生效(accel 产出 master 段)→ 用产出段拉起 mooncake_master,不用挂起兜底。"""
+    from wings_ctl.common.settings import settings
+
+    monkeypatch.setattr(settings, "ADVANCED_FEATURES_FILE", str(tmp_path / "advanced_features.json"))
+    monkeypatch.setenv("IS_MOONCAKE_MASTER", "true")
+    accel = AccelResult(
+        enabled=True,
+        mooncake_script_assets_required=True,
+        mooncake_master_section=[
+            "# ─── Mooncake master branch (IS_MOONCAKE_MASTER) ───",
+            'if [ "${IS_MOONCAKE_MASTER:-}" = "TRUE" ]; then',
+            '    bash "$SHARED_VOLUME_PATH/mooncake/start_mooncake_master.sh" &',
+            '    wait "$!"',
+            '    exit "$?"',
+            "fi",
+        ],
+    )
+
+    start_path, _ = build_scripts(_make_resolved(accel), tmp_path)
+
+    text = start_path.read_text(encoding="utf-8")
+    assert "start_mooncake_master.sh" in text
+    assert "NOT effective" not in text  # 挂起兜底段不出现
+
+
+def test_non_master_pod_renders_no_master_branch(tmp_path, monkeypatch):
+    """普通引擎 Pod(无 IS_MOONCAKE_MASTER)→ 不渲染任何 master 分支(零影响回归)。"""
+    from wings_ctl.common.settings import settings
+
+    monkeypatch.setattr(settings, "ADVANCED_FEATURES_FILE", str(tmp_path / "advanced_features.json"))
+    monkeypatch.delenv("IS_MOONCAKE_MASTER", raising=False)
+
+    start_path, _ = build_scripts(_make_resolved(), tmp_path)
+
+    assert "IS_MOONCAKE_MASTER" not in start_path.read_text(encoding="utf-8")
 
 
 def test_emit_audit_records_accel_generated_files(tmp_path):
@@ -553,16 +718,16 @@ def test_standard_path_guard_failure_writes_no_scripts(monkeypatch, tmp_path):
 def test_validate_accel_packages_preflight(tmp_path, monkeypatch):
     """生成期预检:工件在 → 按目录名精确匹配;缺版本 → ValueError;工件缺 → 跳过。"""
     pkg_root = tmp_path / "accel-volume" / "packages"
-    (pkg_root / "xcache_non_cuda" / "v0.3.12.post1").mkdir(parents=True)
+    (pkg_root / "xcache_cuda" / "v0.3.12.post1").mkdir(parents=True)
     monkeypatch.setenv("ACCEL_VOLUME_PATH", str(tmp_path / "accel-volume"))
 
     # 命中 → 不抛
-    script_builder._validate_accel_packages(["xcache_non_cuda:v0.3.12.post1"])
+    script_builder._validate_accel_packages(["xcache_cuda:v0.3.12.post1"])
 
     # 版本漂移(镜像未含请求版本)→ 生成期 fail-fast,而非 install.py 运行期崩溃
     with pytest.raises(ValueError, match="does not contain package"):
-        script_builder._validate_accel_packages(["xcache_non_cuda:v0.4.0"])
+        script_builder._validate_accel_packages(["xcache_cuda:v0.4.0"])
 
     # 工件目录不存在(测试/CI)→ 告警跳过,不阻断
     monkeypatch.setenv("ACCEL_VOLUME_PATH", str(tmp_path / "absent-volume"))
-    script_builder._validate_accel_packages(["xcache_non_cuda:v0.3.12.post1"])
+    script_builder._validate_accel_packages(["xcache_cuda:v0.3.12.post1"])

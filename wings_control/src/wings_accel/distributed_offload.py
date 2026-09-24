@@ -3,6 +3,12 @@
 本模块与 ``offload.py`` 并列：本地 KV 卸载和 Mooncake standalone-store 都会
 写入 vLLM 的 ``kv_transfer_config``，因此不能共用同一个选择器或同时产出。
 Mooncake master 由部署侧管理；这里仅为每个 engine Pod 交付并启动 real client。
+
+KV_MEM_OFFLOAD_SIZE=auto 智能推荐与本地卸载同源:yaml_loader 复用
+memory_estimator 估算 store 可用内存(mooncake store 与 vLLM 同 pod,引擎自身
+开销模型同样成立);估算值经 wings-control 注入 client.env 的 KV_MEM_OFFLOAD_SIZE
+(覆盖原始 "auto" 字面量,脚本只见数值);估算不足阈值时由 loader 在与本地
+同一分支关闭特性(单 WARN、不阻断部署),本模块按 enabled=False 自然不产出。
 """
 
 import logging
@@ -38,12 +44,12 @@ _YAML_SOURCE = "yaml"
 _SCRIPT_FALLBACK_SOURCE = "script_fallback"
 
 # Mooncake transfer engine 经 install.py 安装的默认包(manifest 键 = wings-accel
-# packages/ 目录名;包名已由 mooncake_non_cuda 更名为 xcache_non_cuda)。特性级
+# packages/ 目录名;包名沿革 mooncake_non_cuda → xcache_non_cuda → xcache_cuda)。特性级
 # 前提依赖:任何模型开启分布式 KV 卸载都须安装,故在代码收口注入而非逐模型 YAML
 # 声明;YAML scheme 显式声明同名包时声明优先(可钉特殊版本)。版本本身不在此
 # 钉死 —— 由 accel-volume 镜像内容决定(见 _resolve_highest_package_version),
 # 升级只需重建 wings-accel 镜像。
-_TRANSFER_ENGINE_PACKAGE = "xcache_non_cuda"
+_TRANSFER_ENGINE_PACKAGE = "xcache_cuda"
 # wings-accel 工件在容器内的挂载路径(install.py / packages/ 所在);与
 # script_builder 生成 install.py 行的 /accel-volume 硬编码保持同源,测试经
 # 同名环境变量指向临时目录。
@@ -114,7 +120,8 @@ def _validate_input(cfg: DistributedKVCacheConfig) -> None:
     """
     if not cfg.memory_offload_enabled or cfg.memory_capacity_gb <= 0:
         raise SmartAccelConfigurationError(
-            "ENABLE_DISTRIBUTED_KV_OFFLOAD requires ENABLE_KV_MEM_OFFLOAD and a positive KV_MEM_OFFLOAD_SIZE"
+            "ENABLE_DISTRIBUTED_KV_OFFLOAD requires ENABLE_KV_MEM_OFFLOAD and a positive "
+            "KV_MEM_OFFLOAD_SIZE (numeric GB or \"auto\" resolved by the estimator)"
         )
     if cfg.disk_offload_enabled and (not cfg.disk_path or cfg.disk_capacity_gb <= 0):
         raise SmartAccelConfigurationError(
@@ -131,12 +138,16 @@ def smart_distributed_kv_offload_expander(
 
     YAML 决定 connector、固定端口、配置文件及启动脚本；运行时环境只提供开关、
     容量、协议和实例 id。脚本由所有节点在 vLLM 前后台启动，master 不在此路径启动。
+
+    KV_MEM_OFFLOAD_SIZE=auto(智能推荐)由 loader 估算后填 memory_capacity_gb;
+    估算不足时 loader 已在与本地同一分支置 enabled=False(单 WARN、不阻断),
+    本函数按未启用自然返回 None,不设专门降级分支。
     """
     if not cfg.enabled:
         return None
     _validate_input(cfg)
-    # ``distributed_kv_offload`` 未在匹配 YAML 中声明并不是配置错误：脚本兜底
-    # 会在本 expander 返回后补齐四个部件。
+    # loader 存在性护栏已把「YAML 未声明」优雅关闭(enabled=False 提前返回);
+    # block 为 None 在此仅是防御分支,不影响脚本兜底对其余三部件的补齐。
     if block is None:
         return None
     if not isinstance(block, list) or len(block) != 1 or not isinstance(block[0], dict):
@@ -188,11 +199,16 @@ def apply_mooncake_script_fallback(
 ) -> Optional[_FeatureOutput]:
     """按部件将未由 YAML 产出的 Mooncake 配置回退到受控脚本。
 
-    新策略:``kv_transfer_config`` 是 smart-accel YAML 的**必填锚点**——未由 YAML
-    声明时抛 ``SmartAccelConfigurationError``(不再脚本兜底)。其余三部件
-    (mooncake.json / start_mooncake_store.sh / env)缺失时逐项回退到受控脚本;
-    已经由 YAML 提供的部件不会被覆盖。返回的命令均由受控包代码合成,不接受
-    YAML 中的任意 shell 内容。
+    新策略:``kv_transfer_config`` 是 smart-accel YAML 的**必填锚点**——scheme 已
+    声明但 cli_params 未带它时抛 ``SmartAccelConfigurationError``(确定性 YAML
+    编写错误,fail-fast)。模型 YAML **完全未声明** ``distributed_kv_offload``
+    的优雅关闭在 loader 存在性护栏完成(置 enabled=False,与本地同构),不会
+    走到本分支。其余三部件(mooncake.json / start_mooncake_store.sh / env)
+    缺失时逐项回退到受控脚本;已经由 YAML 提供的部件不会被覆盖。返回的命令均由
+    受控包代码合成,不接受 YAML 中的任意 shell 内容。
+
+    auto 估算不足降级由 loader 在与本地同一分支置 enabled=False,本函数按未启用
+    原样返回(expander 产出为 None → 不产出任何部件)。
     """
     if not cfg.enabled:
         return yaml_feature
@@ -220,16 +236,28 @@ def apply_mooncake_script_fallback(
     # transfer engine 默认包注入:YAML scheme 未声明同名包时,按 accel-volume 工件
     # 的最高版本注入(install.py 段随之产出,卸载+安装由包内 install.sh 完成)。
     # 声明优先:YAML 已钉版本 → 不注入、不解析(可借此锁定非默认版本)。
+    # ENABLE_XCACHE_INSTALL=false(cfg.install_transfer_engine)→ 跳过注入、不解析
+    # accel-volume,假定引擎镜像已预装 xcache(mooncake 脚本仍会执行,由调用方
+    # 保证预装);YAML 显式声明不受此开关影响(两层逃生门独立)。
     transfer_engine_canonical = canonicalize_name(_TRANSFER_ENGINE_PACKAGE)
-    if all(req.canonical_name != transfer_engine_canonical for req in result.packages):
+    if any(req.canonical_name == transfer_engine_canonical for req in result.packages):
+        component_sources["transfer_engine"] = _YAML_SOURCE
+    elif cfg.install_transfer_engine:
         version = _resolve_highest_package_version(_TRANSFER_ENGINE_PACKAGE)
         result.packages = list(result.packages) + extract_package_requirements(
             {"packages": [f"{_TRANSFER_ENGINE_PACKAGE}:{version}"]}
         )
+        component_sources["transfer_engine"] = "injected"
         logger.info(
             "injected default xcache transfer engine package: %s:%s",
             _TRANSFER_ENGINE_PACKAGE,
             version,
+        )
+    else:
+        component_sources["transfer_engine"] = "disabled"
+        logger.warning(
+            "xcache transfer engine install disabled by ENABLE_XCACHE_INSTALL=false; "
+            "assuming xcache is preinstalled in the engine image"
         )
 
     script_assets_required = (
@@ -267,7 +295,8 @@ def apply_mooncake_script_fallback(
         'echo "Mooncake distributed KV component sources: '
         f'mooncake.json={component_sources["mooncake.json"]}, '
         f'start_mooncake_store.sh={component_sources["start_mooncake_store.sh"]}, '
-        f'env={component_sources["env"]}, transfer_config={component_sources["transfer_config"]}"'
+        f'env={component_sources["env"]}, transfer_config={component_sources["transfer_config"]}, '
+        f'transfer_engine={component_sources["transfer_engine"]}"'
     )
     result.pre_serve = list(dict.fromkeys(result.pre_serve))
     result.mooncake_component_sources = component_sources

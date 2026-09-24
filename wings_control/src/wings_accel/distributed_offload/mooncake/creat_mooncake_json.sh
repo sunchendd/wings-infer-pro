@@ -42,7 +42,6 @@ printf '%s\n' \
     "  \"metadata_server\": \"http://mooncake-service-${SERVING_CONFIG_ID}:10080/metadata\"," \
     "  \"master_server_address\": \"mooncake-service-${SERVING_CONFIG_ID}:50051\"," \
     '  "global_segment_size": 0,' \
-    "  \"local_buffer_size\": \"${KV_MEM_OFFLOAD_SIZE}GB\"," \
     "  \"protocol\": \"${KV_PROTOCOL}\"," \
     '  "device_name": "",' \
     "  \"enable_offload\": ${ENABLE_KV_DISK_OFFLOAD}" \

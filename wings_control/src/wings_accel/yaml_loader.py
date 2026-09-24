@@ -21,6 +21,9 @@ YAML 加载器 — 从模型 YAML 构建 SmartAccelInput。
 - auto: 从 scenarios engine_config 读取 TP/DP,结合 pod_available_memory_gb 估算 CPU 卸载容量。
 - auto 估算低于 min_offload_threshold_gb 时默认关闭 memory_offload;显式开启则保留用户意图。
 - 数值字符串:按 GB 固定配置。
+- 分布式 KV 卸载(distributed_kv)复用同一估算:ENABLE_DISTRIBUTED_KV_OFFLOAD=true 且
+  KV_MEM_OFFLOAD_SIZE=auto 时,memory_capacity_gb 填估算值(供脚本兜底 client.env 注入);
+  估算不足同样关 memory_offload,由 distributed_offload expander 优雅降级。
 """
 
 import logging
@@ -152,6 +155,9 @@ class LoadFlags:
     distributed_protocol: str = ""
     serving_config_id: str = ""
     distributed_local_buffer_size: str = ""
+    # xcache(mooncake transfer engine)安装开关;MaaS `ENABLE_XCACHE_INSTALL`,缺省 True。
+    # False → DistributedKVCacheConfig.install_transfer_engine=False,跳过默认包注入。
+    install_xcache: bool = True
     gpu_count: int = 0
 
 
@@ -409,6 +415,13 @@ def load_smart_accel_from_yaml(
     # MaaS 显式开关为唯一驱动(YAML 块存在不再自动启用);介质另需对应 scheme 模板存在
     enable_kv = flags.kv
     enable_distributed_kv = flags.distributed_kv
+    # 分布式存在性护栏(与本地 has_memory_method 护栏同构):模型 YAML 未声明
+    # distributed_kv_offload(该模型未适配 Mooncake)时优雅关闭整个特性继续推理——
+    # WARN 由 wings_ctl _warn_unmet_accel_switches 统一记录、页面回显 0、master Pod
+    # 由 hold 段兜底;scheme 已声明但缺 kv_transfer_config 锚点仍是确定性配置错误
+    # (fallback fail-fast,不走本护栏)。
+    if enable_distributed_kv and smart_accel.get("distributed_kv_offload") is None:
+        enable_distributed_kv = False
     enable_sparse = flags.sparse
 
     # 后端 scheme 选中但未下 KV_MEM_OFFLOAD_SIZE → 视为 auto(按 pod 内存估算),避免容量静默=0
@@ -447,6 +460,10 @@ def load_smart_accel_from_yaml(
             logger.warning("SmartAccel memory_offload_size_mode=auto: %s", est.disable_reason)
             memory_on = False
             distributed_memory_on = False
+            # 分布式内存容量即特性本体(store 无容量无法启动),与本地 memory_on
+            # 同分支同 WARN 地关掉整个特性——下游按 enabled=False 自然跳过,
+            # 无需专门降级判定(与本地 offload 降级语义完全同构)。
+            enable_distributed_kv = False
 
     smart_input = SmartAccelInput(
         hardware_config=hardware_config,
@@ -476,10 +493,12 @@ def load_smart_accel_from_yaml(
             serving_config_id=flags.serving_config_id,
             local_buffer_size=flags.distributed_local_buffer_size,
             memory_offload_enabled=distributed_memory_on,
+            memory_offload_size_mode=memory_size_mode,
             memory_capacity_gb=memory_capacity_gb if distributed_memory_on else 0,
             disk_offload_enabled=flags.disk and enable_distributed_kv,
             disk_capacity_gb=flags.disk_gb,
             disk_path=flags.disk_path,
+            install_transfer_engine=flags.install_xcache,
         ),
         smart_kv_sparse_config=SmartKVSparseConfig(enabled=enable_sparse, mode=flags.sparse_level),
         smart_accel=smart_accel,

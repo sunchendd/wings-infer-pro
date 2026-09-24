@@ -5,6 +5,7 @@ import pytest
 
 from wings_accel import func_smart_accel
 from wings_accel.schemas import (
+    DistributedKVCacheConfig,
     SmartAccelInput,
     SystemConfig,
     ModelConfig,
@@ -437,3 +438,125 @@ def test_kv_disk_offload_path_offload_absent():
         make_input(offload_enabled=True, kv_cache_config=kv, smart_accel={"decoding": []})
     )  # 无 kv_offload 块 → offload None
     assert out.kv_disk_offload_path is None
+
+
+# ── kv_mem_offload_size_gb 分布式(Mooncake)回退:本地/分布式互斥,同口径回显 ──
+
+
+def _distributed_smart_accel():
+    """带 {memory_capacity_gb} 占位符文件的 distributed_kv_offload 模板块。"""
+    return {
+        "distributed_kv_offload": [
+            {
+                "name": "mooncake_standalone_store",
+                "packages": {"xcache_cuda": "v0.3.10"},
+                "client": {
+                    "rpc_port": 50052,
+                    "master_rpc_port": 50051,
+                    "metadata_port": 10080,
+                    "metadata_path": "/metadata",
+                },
+                "cli_params": {
+                    "kv_transfer_config": {
+                        "kv_connector": "MooncakeStoreConnector",
+                        "kv_role": "kv_both",
+                    }
+                },
+                "files": [
+                    {
+                        "path": "/shared-volume/store_capacity.txt",
+                        "content": "capacity_gb={memory_capacity_gb}\n",
+                    }
+                ],
+            }
+        ]
+    }
+
+
+def test_kv_mem_offload_size_gb_distributed_effective():
+    """分布式-only(auto 生效)→ 回显 memory_capacity_gb(页面推荐值口径)。"""
+    dkv = DistributedKVCacheConfig(
+        enabled=True,
+        memory_offload_enabled=True,
+        memory_offload_size_mode="auto",
+        memory_capacity_gb=171,
+    )
+    out = func_smart_accel(
+        make_input(smart_accel=_distributed_smart_accel(), distributed_kv_cache_config=dkv)
+    )
+    assert out.smart_distributed_kv_cache_scheme == "mooncake_standalone_store"
+    assert out.kv_mem_offload_size_gb == 171
+
+
+def test_kv_mem_offload_size_gb_distributed_auto_degraded():
+    """分布式 auto 估算不足(loader 同分支置 enabled=False)→ 回显 0(请求过但未生效),不产出 scheme。"""
+    dkv = DistributedKVCacheConfig(
+        enabled=False,
+        memory_offload_enabled=False,
+        memory_offload_size_mode="auto",
+        memory_capacity_gb=0,
+    )
+    out = func_smart_accel(
+        make_input(smart_accel=_distributed_smart_accel(), distributed_kv_cache_config=dkv)
+    )
+    assert out.smart_distributed_kv_cache_scheme is None
+    assert out.kv_mem_offload_size_gb == 0
+
+
+def test_distributed_missing_yaml_declaration_continues_with_echo_zero():
+    """YAML 未声明分布式(loader 护栏置 enabled=False)→ 不产出、不报错、回显 0,继续推理。"""
+    dkv = DistributedKVCacheConfig(
+        enabled=False,
+        memory_offload_enabled=False,
+        memory_offload_size_mode="64",
+        memory_capacity_gb=0,
+    )
+    out = func_smart_accel(
+        make_input(smart_accel=make_smart_accel(), distributed_kv_cache_config=dkv)
+    )
+    assert out.smart_distributed_kv_cache_scheme is None
+    assert out.kv_mem_offload_size_gb == 0
+
+
+def test_kv_mem_offload_size_gb_neither_requested():
+    """本地/分布式都未请求 → None(无有效容量)。"""
+    out = func_smart_accel(make_input())
+    assert out.kv_mem_offload_size_gb is None
+
+
+def test_distributed_placeholder_reuses_memory_capacity():
+    """本地 memory offload 关 + 分布式开 → {memory_capacity_gb} 取分布式容量(直接复用)。"""
+    dkv = DistributedKVCacheConfig(
+        enabled=True,
+        memory_offload_enabled=True,
+        memory_offload_size_mode="auto",
+        memory_capacity_gb=171,
+    )
+    out = func_smart_accel(
+        make_input(smart_accel=_distributed_smart_accel(), distributed_kv_cache_config=dkv)
+    )
+    capacity_file = next(f for f in out.generated_files if f.path.endswith("store_capacity.txt"))
+    assert capacity_file.content == "capacity_gb=171\n"
+
+
+def test_local_offload_keeps_placeholder_precedence():
+    """本地 memory offload 开 → 占位符仍取本地容量(分布式配置不抢优先级)。"""
+    kv = SmartKVCacheConfig(
+        enabled=True,
+        memory_offload_enabled=True,
+        memory_offload_size_mode="192",
+    )
+    setattr(kv, "_memory_capacity_gb", 192)
+    dkv = DistributedKVCacheConfig(
+        enabled=True,
+        memory_offload_enabled=True,
+        memory_offload_size_mode="auto",
+        memory_capacity_gb=171,
+    )
+    from wings_accel.core import _build_placeholder_context
+
+    ctx = _build_placeholder_context(
+        make_input(kv_cache_config=kv, distributed_kv_cache_config=dkv)
+    )
+    assert ctx.memory_capacity_gb == 192
+    assert ctx.memory_offload_enabled is True

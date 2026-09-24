@@ -57,7 +57,7 @@ def _accel_volume(tmp_path, monkeypatch, *versions):
     """构造 accel-volume 工件目录(packages/<name>/<version>/)并指向 ACCEL_VOLUME_PATH。"""
     root = tmp_path / "accel-volume"
     for version in versions:
-        (root / "packages" / "xcache_non_cuda" / version).mkdir(parents=True, exist_ok=True)
+        (root / "packages" / "xcache_cuda" / version).mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("ACCEL_VOLUME_PATH", str(root))
     return root
 
@@ -114,6 +114,40 @@ def test_distributed_mooncake_requires_memory_capacity(monkeypatch, tmp_path):
         smart_distributed_kv_offload_expander(cfg, _block(), _ctx())
 
 
+def test_auto_estimate_below_threshold_disables_expander():
+    """auto 估算不足 → loader 在与本地同一分支置 enabled=False → expander 自然不产出。"""
+    cfg = DistributedKVCacheConfig(
+        enabled=False, protocol="rdma", serving_config_id="order-7", local_buffer_size="1GB",
+        memory_offload_size_mode="auto", memory_offload_enabled=False, memory_capacity_gb=0,
+    )
+
+    assert smart_distributed_kv_offload_expander(cfg, _block(), _ctx()) is None
+
+
+def test_auto_estimate_below_threshold_disables_script_fallback():
+    """auto 估算不足 → loader 已置 enabled=False → 脚本兜底同样不产出任何部件。"""
+    cfg = DistributedKVCacheConfig(
+        enabled=False, protocol="rdma", serving_config_id="order-7", local_buffer_size="1GB",
+        memory_offload_size_mode="auto", memory_offload_enabled=False, memory_capacity_gb=0,
+    )
+
+    assert apply_mooncake_script_fallback(cfg, None) is None
+
+
+def test_auto_estimate_effective_still_produces(monkeypatch, tmp_path):
+    """auto 估算生效(memory_capacity_gb>0)→ 与数值模式同样正常产出。"""
+    monkeypatch.setenv("SHARED_VOLUME_PATH", str(tmp_path))
+    cfg = DistributedKVCacheConfig(
+        enabled=True, protocol="rdma", serving_config_id="order-7", local_buffer_size="1GB",
+        memory_offload_size_mode="auto", memory_offload_enabled=True, memory_capacity_gb=171,
+    )
+
+    output = smart_distributed_kv_offload_expander(cfg, _block(), _ctx())
+
+    assert output is not None
+    assert output.scheme == "mooncake_standalone_store"
+
+
 def test_distributed_mooncake_uses_script_fallback_for_missing_yaml_parts(tmp_path, monkeypatch):
     """YAML 有 kv_transfer_config（锚点）时，json/client/env 三部件逐项回退到脚本。"""
     _accel_volume(tmp_path, monkeypatch, "v0.3.12.post1")
@@ -135,6 +169,7 @@ def test_distributed_mooncake_uses_script_fallback_for_missing_yaml_parts(tmp_pa
         "start_mooncake_store.sh": "script_fallback",
         "env": "script_fallback",
         "transfer_config": "yaml",
+        "transfer_engine": "injected",
     }
     assert output.mooncake_script_assets_required is True
     assert output.engine_params.engine_config["kv_transfer_config"] == {
@@ -144,7 +179,7 @@ def test_distributed_mooncake_uses_script_fallback_for_missing_yaml_parts(tmp_pa
     assert 'bash "$SHARED_VOLUME_PATH/mooncake/start_mooncake_store.sh" &' in output.pre_serve
     assert any("Mooncake distributed KV component sources" in line for line in output.pre_serve)
     # 默认注入:YAML 未声明 packages → 按 accel-volume 工件最高版本注入 transfer engine。
-    assert [req.manifest for req in output.packages] == ["xcache_non_cuda:v0.3.12.post1"]
+    assert [req.manifest for req in output.packages] == ["xcache_cuda:v0.3.12.post1"]
 
 
 def test_script_fallback_sources_engine_environment_before_client_start():
@@ -211,12 +246,13 @@ def test_script_fallback_json_writes_vllm_mooncake_config(tmp_path):
 
     subprocess.run(["bash", str(script)], check=True, env=env, capture_output=True, text=True)
 
+    # local_buffer_size 不在 JSON 里:engine 侧缓冲由 client.env 的 KV_LOCAL_BUFFER_SIZE
+    # 传递(不再由 KV_MEM_OFFLOAD_SIZE 派生,容量与缓冲职责分离)。
     assert json.loads((tmp_path / "mooncake" / "mooncake.json").read_text()) == {
         "mode": "standalone-store",
         "metadata_server": "http://mooncake-service-order-7:10080/metadata",
         "master_server_address": "mooncake-service-order-7:50051",
         "global_segment_size": 0,
-        "local_buffer_size": "1GB",
         "protocol": "rdma",
         "device_name": "",
         "enable_offload": True,
@@ -253,7 +289,7 @@ def test_target_asset_routes_mooncake_for_supported_topologies(topology, tmp_pat
     # client 启动行不再位于首位,按精确整行断言。
     assert 'bash "$SHARED_VOLUME_PATH/mooncake/start_mooncake_store.sh" &' in output.pre_serve
     # 全链路(含脚本兜底)同样注入默认 transfer engine 包,流经 install.py 段。
-    assert "xcache_non_cuda:v0.3.12.post1" in output.packages
+    assert "xcache_cuda:v0.3.12.post1" in output.packages
 
 
 def test_script_fallback_synthesizes_mooncake_master_section(tmp_path, monkeypatch):
@@ -326,7 +362,7 @@ def test_fallback_injects_highest_available_version(tmp_path, monkeypatch):
         cfg, smart_distributed_kv_offload_expander(cfg, _partial_block(), _ctx())
     )
 
-    assert [req.manifest for req in output.packages] == ["xcache_non_cuda:v0.3.12.post1"]
+    assert [req.manifest for req in output.packages] == ["xcache_cuda:v0.3.12.post1"]
 
 
 def test_fallback_yaml_declared_version_overrides_default(tmp_path, monkeypatch):
@@ -344,11 +380,11 @@ def test_fallback_yaml_declared_version_overrides_default(tmp_path, monkeypatch)
     output = apply_mooncake_script_fallback(
         cfg,
         smart_distributed_kv_offload_expander(
-            cfg, _partial_block(packages={"xcache_non_cuda": "v0.3.10"}), _ctx()
+            cfg, _partial_block(packages={"xcache_cuda": "v0.3.10"}), _ctx()
         ),
     )
 
-    assert [req.manifest for req in output.packages] == ["xcache_non_cuda:v0.3.10"]
+    assert [req.manifest for req in output.packages] == ["xcache_cuda:v0.3.10"]
 
 
 def test_fallback_requires_accel_volume_when_unpinned(tmp_path, monkeypatch):
@@ -367,3 +403,57 @@ def test_fallback_requires_accel_volume_when_unpinned(tmp_path, monkeypatch):
         apply_mooncake_script_fallback(
             cfg, smart_distributed_kv_offload_expander(cfg, _partial_block(), _ctx())
         )
+
+
+def test_fallback_skips_injection_when_install_disabled(tmp_path, monkeypatch, caplog):
+    """install_transfer_engine=False(ENABLE_XCACHE_INSTALL=false)→ 不注入、不解析 accel-volume。
+
+    与 fail-fast 用例同环境(工件目录缺失)但开关关闭:证明注入路径被整体跳过,
+    且来源审计与启动日志标注 transfer_engine=disabled。
+    """
+    monkeypatch.setenv("ACCEL_VOLUME_PATH", str(tmp_path / "missing-accel-volume"))
+    cfg = DistributedKVCacheConfig(
+        enabled=True,
+        protocol="rdma",
+        serving_config_id="order-7",
+        local_buffer_size="1GB",
+        memory_offload_enabled=True,
+        memory_capacity_gb=32,
+        install_transfer_engine=False,
+    )
+
+    with caplog.at_level("WARNING", logger="wings_accel.distributed_offload"):
+        output = apply_mooncake_script_fallback(
+            cfg, smart_distributed_kv_offload_expander(cfg, _partial_block(), _ctx())
+        )
+
+    assert output is not None
+    assert output.packages == []
+    assert output.mooncake_component_sources["transfer_engine"] == "disabled"
+    echo = next(line for line in output.pre_serve if "component sources" in line)
+    assert "transfer_engine=disabled" in echo
+    assert "preinstalled" in caplog.text
+
+
+def test_fallback_disabled_install_keeps_yaml_declaration(tmp_path, monkeypatch):
+    """开关只管注入路径:YAML 显式声明同名包 → 声明仍优先,包不丢(声明优先不受开关影响)。"""
+    monkeypatch.delenv("ACCEL_VOLUME_PATH", raising=False)
+    cfg = DistributedKVCacheConfig(
+        enabled=True,
+        protocol="rdma",
+        serving_config_id="order-7",
+        local_buffer_size="1GB",
+        memory_offload_enabled=True,
+        memory_capacity_gb=32,
+        install_transfer_engine=False,
+    )
+
+    output = apply_mooncake_script_fallback(
+        cfg,
+        smart_distributed_kv_offload_expander(
+            cfg, _partial_block(packages={"xcache_cuda": "v0.3.10"}), _ctx()
+        ),
+    )
+
+    assert [req.manifest for req in output.packages] == ["xcache_cuda:v0.3.10"]
+    assert output.mooncake_component_sources["transfer_engine"] == "yaml"

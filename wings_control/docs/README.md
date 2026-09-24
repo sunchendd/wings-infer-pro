@@ -13,6 +13,7 @@
 | Wings Accel 输入、返回内容、安装和启动前命令 | [Wings Accel 接口](contracts/wings-accel-interface.md) |
 | 配置匹配、来源追踪、并行度和回退规则 | [TP/DP 并行策略](policies/parallelism-and-resolution.md) |
 | 部署检查、排障、验收和回退 | [运行维护手册](operations/maintenance-handover.md) |
+| Mooncake 资产 `.py` 被镜像加密破坏的排障与修复 | [Mooncake 资产打包问题](operations/mooncake-assets-pyc-packaging-issue.md) |
 | 开发、测试和提交要求 | [开发与提交要求](development/development-and-contribution.md) |
 
 ## 维护规则

@@ -5,6 +5,8 @@ set -o xtrace
 # 日志  对应  /var/log/fusiononecenter/aispace/serving-pod/${POD_NAME}
 LOG_PATH=/var/log/wings
 
+CUR_PATH=$(cd "$(dirname "$0")" || exit; pwd)
+
 function log() {
   exec_hostname=$(cat /etc/hostname)
   # 获取毫秒级时间戳
@@ -15,7 +17,8 @@ function log() {
 
 # 这个是个阻塞性的进程
 function start_server() {
-  mooncake_master --enable_http_metadata_server=true \
+  mooncake_master \
+    --enable_http_metadata_server=true \
     --http_metadata_server_host=0.0.0.0 \
     --http_metadata_server_port=10080 \
     --rpc_thread_num=64 \
@@ -24,6 +27,8 @@ function start_server() {
     --enable-offload=true \
     --log_dir=${LOG_PATH} \
     --logtostderr=false \
+    --eviction_high_watermark_ratio=0.7 \
+    --eviction_ratio=0.2 \
     --promotion_on_hit=true \
     >>${LOG_PATH}/mooncake_master_setup.log 2>&1
 }

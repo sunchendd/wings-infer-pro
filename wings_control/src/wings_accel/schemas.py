@@ -197,6 +197,18 @@ class DistributedKVCacheConfig:
     该配置与 ``SmartKVCacheConfig`` 并列：前者只控制本地 KV 卸载，后者只控制
     每 Pod 一个 Mooncake real client。两者不能同时启用，因为 vLLM 只接受一个
     ``kv_transfer_config``。
+
+    ``enabled=False`` 的三种来源(下游均按未启用自然跳过,与本地降级同构):
+    MaaS 开关未开 / auto 估算不足(loader 同一分支关闭)/ 模型 YAML 未声明
+    ``distributed_kv_offload``(loader 存在性护栏,优雅关闭继续推理)。
+
+    memory_offload_size_mode(与 ``SmartKVCacheConfig`` 同名口径):
+      - "" / false:不显式下发内存容量
+      - "auto"    :智能推荐——复用 memory_estimator 按 pod 内存 + 卡数估算 store
+                    可用内存;估算不足阈值时 loader 在与本地同一分支同时置
+                    enabled/memory_offload 为 False(单 WARN、不阻断),下游按
+                    未启用自然跳过(降级语义与本地卸载完全同构)
+      - 数值字符串:按 GB 固定配置
     """
 
     enabled: bool = False
@@ -204,10 +216,15 @@ class DistributedKVCacheConfig:
     serving_config_id: str = ""
     local_buffer_size: str = ""
     memory_offload_enabled: bool = False
+    memory_offload_size_mode: str = "" # KV 卸载内存大小模式;MaaS `KV_MEM_OFFLOAD_SIZE`("auto" 或数值字符串,GB)
     memory_capacity_gb: int = 0
     disk_offload_enabled: bool = False
     disk_capacity_gb: int = 0
     disk_path: str = ""
+    # xcache(mooncake transfer engine)安装开关;MaaS `ENABLE_XCACHE_INSTALL`(缺省 True)。
+    # False = 跳过默认包注入、不解析 accel-version(假定引擎镜像已预装 xcache);
+    # 仅影响 install 段,YAML scheme 显式声明的同名包不受此开关影响(声明优先)。
+    install_transfer_engine: bool = True
 
 
 @dataclass
@@ -363,7 +380,7 @@ class SmartAccelOutput:
     # 由 api.resolve_smart_accel_from_config 根据实际命中的 source_file 填写。
     pre_serve_trusted: Optional[bool] = None
     generated_files: List[GeneratedFile] = field(default_factory=list) # 已渲染、未写盘的文件计划;交由 wings-control 在非 dry-run 产物阶段写入
-    mooncake_component_sources: Dict[str, str] = field(default_factory=dict) # Mooncake 四部件来源,供审计和运行时日志使用
+    mooncake_component_sources: Dict[str, str] = field(default_factory=dict) # Mooncake 部件来源(四部件 yaml/script_fallback + transfer_engine yaml/injected/disabled),供审计和运行时日志使用
     mooncake_script_assets_required: bool = False # 是否需安装脚本兜底共享卷资产
     # Mooncake master 分支段(early-exit 块的 shell 行);空 → script_builder 不渲染该段。
     mooncake_master_section: List[str] = field(default_factory=list)

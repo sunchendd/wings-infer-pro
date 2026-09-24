@@ -212,7 +212,10 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
         smart_distributed_kv_cache_scheme=distributed_offload.scheme if distributed_offload else None,
         smart_kv_sparse_scheme=sparse.scheme if sparse else None,
         engine_params=engine_params,
-        kv_mem_offload_size_gb=_resolve_kv_mem_offload_size_gb(smart_input.smart_kv_cache_config),
+        kv_mem_offload_size_gb=_resolve_kv_mem_offload_size_gb(
+            smart_input.smart_kv_cache_config,
+            smart_input.distributed_kv_cache_config,
+        ),
         kv_disk_offload_path=_resolve_kv_disk_offload_path(smart_input.smart_kv_cache_config, offload),
         diagnostics=diagnostics,
         packages=packages,
@@ -261,7 +264,7 @@ def _memory_capacity_gb(kv) -> int:
         return 0
 
 
-def _resolve_kv_mem_offload_size_gb(kv) -> Optional[int]:
+def _resolve_kv_mem_offload_size_gb(kv, dkv=None) -> Optional[int]:
     """推导 KV 内存卸载页面回显容量(GB)。
 
     语义对齐老仓库 resolve_effective_kv_mem_offload_size 的页面口径:
@@ -269,12 +272,20 @@ def _resolve_kv_mem_offload_size_gb(kv) -> Optional[int]:
       - 请求过内存卸载(auto/数值)但未生效(auto 估算不足 / YAML 无内存方法)→ 0
         (推荐结果低于生效下限);
       - 内存卸载生效 → 渲染容量(loader 已解析:auto=估算值 / 数值=固定 GB)。
+
+    本地(``kv``)与分布式(``dkv``)互斥:本地一级关时用分布式配置走同一口径
+    (生效 → memory_capacity_gb;auto 降级 → 0;未请求 → None)。
     """
     if not getattr(kv, "enabled", False):
-        return None
+        kv = dkv
+        if kv is None:
+            return None
     if not getattr(kv, "memory_offload_enabled", False):
         mode = str(getattr(kv, "memory_offload_size_mode", "") or "").strip().lower()
         return 0 if mode else None
+    if getattr(kv, "memory_capacity_gb", 0):
+        # 分布式:loader 已把解析容量(auto 估算/数值)写进 memory_capacity_gb
+        return int(kv.memory_capacity_gb)
     capacity = _memory_capacity_gb(kv)
     return capacity if capacity > 0 else 0
 
@@ -293,11 +304,23 @@ def _resolve_kv_disk_offload_path(kv, offload) -> Optional[str]:
 
 
 def _build_placeholder_context(smart_input: SmartAccelInput) -> PlaceholderContext:
-    """从 SmartAccelInput 各子配置派生占位符上下文。"""
+    """从 SmartAccelInput 各子配置派生占位符上下文。
+
+    内存容量字段优先取本地 KV 卸载配置;本地 memory offload 未开而分布式
+    (Mooncake)memory offload 开时取分布式配置——两方案互斥,使分布式 YAML
+    scheme 的 files/envs 可直接复用 ``{memory_capacity_gb}`` 系占位符
+    (容量来源同为 KV_MEM_OFFLOAD_SIZE 的 auto 估算/数值解析)。
+    """
     kv = smart_input.smart_kv_cache_config
+    dkv = smart_input.distributed_kv_cache_config
+    memory_capacity = _memory_capacity_gb(kv)
+    memory_on = bool(kv.memory_offload_enabled)
+    if not memory_on and getattr(dkv, "memory_offload_enabled", False):
+        memory_capacity = int(getattr(dkv, "memory_capacity_gb", 0) or 0)
+        memory_on = True
     return PlaceholderContext(
-        memory_capacity_gb=_memory_capacity_gb(kv),
-        memory_offload_enabled=kv.memory_offload_enabled,
+        memory_capacity_gb=memory_capacity,
+        memory_offload_enabled=memory_on,
         disk_capacity_gb=kv.disk_capacity_gb,
         disk_offload_enabled=kv.disk_offload_enabled,
         disk_path=kv.disk_path,

@@ -64,8 +64,27 @@ vLLM 的 Mooncake standalone-store 仅支持 recipe `standalone` 与 DP-across-P
 `MooncakeStoreConnector` 和 `127.0.0.1:50052` 访问它。该路径由
 `ENABLE_DISTRIBUTED_KV_OFFLOAD` 单独控制，不能与本地 `ENABLE_KV_OFFLOAD` 同时开启。
 
+xcache transfer engine 包（`xcache_cuda`，沿革 `mooncake_non_cuda` → `xcache_non_cuda`）默认由代码按
+accel-volume 工件最高版本注入 install 段；`ENABLE_XCACHE_INSTALL=false`（缺省 true）可跳过
+注入——此时不解析 accel-volume，假定引擎镜像已预装 xcache，mooncake 脚本照常执行（预装
+缺失会在运行期失败，由调用方保证）。SmartAccel YAML scheme 的 `packages:` 显式声明同名包时
+声明优先，不受该开关影响。
+
 启用时必须提供 `SERVING_CONFIG_ID`、`KV_PROTOCOL`、`KV_LOCAL_BUFFER_SIZE`，以及正的
-`KV_MEM_OFFLOAD_SIZE` 和 `ENABLE_KV_MEM_OFFLOAD=true`。服务地址固定派生为
+`KV_MEM_OFFLOAD_SIZE` 和 `ENABLE_KV_MEM_OFFLOAD=true`。`KV_MEM_OFFLOAD_SIZE` 接受数值
+GB 或 `"auto"`：`auto` 复用本地卸载的智能推荐估算器（mooncake store 与 vLLM 同 Pod，
+同一"容器内存 − 引擎自身 − 余量"模型），Wings Control 把解析后的数值注入
+`client.env`/`master.env` 的 `KV_MEM_OFFLOAD_SIZE`（覆盖原始 `auto` 字面量，脚本只见
+数值）；估算低于启用阈值（默认 20GB）时由 loader 在与本地卸载**同一分支**优雅降级——
+关闭分布式卸载、单条告警，不阻断部署，
+页面回显容量为 0。页面回显字段（`advanced_features.json`，经 `/v1/startup/accel` 透出）：
+`features.kv_distributed_offload`（与 MaaS 前端约定的消费字段，true=分布式生效；
+false=降级/未开启/仅本地卸载）、`variants.kv_distributed_offload`（实际 scheme 名，仅诊断用）、
+`others.kv_mem_offload_size`（推荐容量 GB；0=请求过但未生效，null=未请求）。
+Mooncake master 专属 Pod（`IS_MOONCAKE_MASTER=true`）的身份判定独立于
+特性产出：特性生效时只拉起 `mooncake_master` 并等待（不执行 vllm serve）；特性未生效
+（auto 估算不足降级、开关未开）时同样**不回退执行 vllm serve**，而是打 ERROR 日志后挂起
+等待，Pod 保持 Running——master Pod 在任何情况下都不承担推理职责。服务地址固定派生为
 `mooncake-service-${SERVING_CONFIG_ID}:50051`，metadata URL 为
 `http://mooncake-service-${SERVING_CONFIG_ID}:8080/metadata`。可选磁盘层继续使用
 `ENABLE_KV_DISK_OFFLOAD`、`KV_DISK_OFFLOAD_PATH` 和 `KV_DISK_OFFLOAD_SIZE`。镜像必须预装与
@@ -73,10 +92,18 @@ vLLM connector 兼容的固定 Mooncake 版本及 `mooncake_client` 二进制。
 
 Mooncake 的 `mooncake.json`、`start_mooncake_client.sh`、vLLM 环境变量和
 `kv_transfer_config` 四个部件中，`kv_transfer_config` **必须**由匹配 SmartAccel YAML
-提供——YAML 未声明时启动直接失败（不再脚本兜底）。其余三个部件缺失时逐项使用脚本兜底：
-Wings Control 在正式产物阶段将包内 `src/wings_accel/distributed_offload/mooncake/` 复制到
-`${SHARED_VOLUME_PATH}/mooncake/`。Mooncake client 所需环境变量集中定义在
-`src/wings_accel/distributed_offload/mooncake/env.yaml`（带默认值）；Wings Control 解析期
+提供——两种缺失情形处置不同：模型 YAML **完全未声明** `distributed_kv_offload`
+（该模型未适配 Mooncake）时由 loader 存在性护栏**优雅关闭**特性（WARN
+`SmartAccel disabled requested feature(s) ENABLE_DISTRIBUTED_KV_OFFLOAD`、页面回显
+容量 0、继续推理，master Pod 由 hold 段兜底，与本地 offload 请求但无 scheme 的处置
+一致）；scheme **已声明但未带** `kv_transfer_config` 锚点是确定性 YAML 编写错误，
+启动直接失败（不再脚本兜底）。其余三个部件缺失时逐项使用脚本兜底：
+Wings Control 在正式产物阶段将镜像内 `/opt/mooncake_assets/`（构建期在代码加密前由
+Dockerfile 拷出的未加密副本，见
+[运维：Mooncake 资产打包问题](../operations/mooncake-assets-pyc-packaging-issue.md)）复制到
+`${SHARED_VOLUME_PATH}/mooncake/`；本地/测试用 `MOONCAKE_ASSETS_PATH` 覆盖源目录。
+Mooncake client 所需环境变量集中定义在
+资产目录的 `env.yaml`（带默认值）；Wings Control 解析期
 加载该文件作默认值层，再由 MaaS 下发的同名 env 覆盖，渲染成 `export XXX=xxx` 形式写入同目录
 `client.env`。engine Pod 在 wings-control 进程外执行，所以环境变量必须经 client.env
 显式传递。`start_command.sh` 在 vLLM 前先
@@ -84,7 +111,9 @@ Wings Control 在正式产物阶段将包内 `src/wings_accel/distributed_offloa
 `creat_mooncake_json.sh` 和 `start_mooncake_client.sh`。`engine_mooncake.env` 已由
 env.yaml + client.env 取代并删除。脚本兜底使用 metadata `:10080`；其 Kubernetes master
 必须与此端口保持一致。启动日志和 `audit.json` 的 `mooncake_component_sources` 会记录
-四项实际来源。不开启 `ENABLE_DISTRIBUTED_KV_OFFLOAD` 时两条路线都不产生任何文件、环境或
+四项实际来源（另含 `transfer_engine`：`yaml`/`injected`/`disabled`，标记 xcache 包来自
+YAML 声明、代码注入还是被 `ENABLE_XCACHE_INSTALL=false` 关闭）。不开启
+`ENABLE_DISTRIBUTED_KV_OFFLOAD` 时两条路线都不产生任何文件、环境或
 启动前命令。
 
 ## 当前边界和错误

@@ -18,6 +18,7 @@ from wings_ctl.accel.smart_accel import (
     build_smart_input,
     collect_accel_switches,
     collect_output,
+    enabled_feature_switch_names,
 )
 
 
@@ -88,6 +89,31 @@ def test_collect_switches_no_kv_store_envs():
     s = collect_accel_switches({"KV_STORE_BACKEND": "mooncake", "KV_WORLD_SIZE": "32"})
     for k in ("kv_store_backend", "kv_store_deploy_mode", "kv_store_master_addr", "kv_world_size"):
         assert k not in s
+
+
+def test_collect_switches_xcache_install_defaults_true():
+    """ENABLE_XCACHE_INSTALL 缺省 True(默认注入安装);显式 false/0 才关闭。"""
+    assert collect_accel_switches({})["xcache_install_enabled"] is True
+    assert collect_accel_switches({"ENABLE_XCACHE_INSTALL": "true"})["xcache_install_enabled"] is True
+    assert collect_accel_switches({"ENABLE_XCACHE_INSTALL": "false"})["xcache_install_enabled"] is False
+    assert collect_accel_switches({"ENABLE_XCACHE_INSTALL": "0"})["xcache_install_enabled"] is False
+    # 非法值回退 default(=True),不静默关闭
+    assert collect_accel_switches({"ENABLE_XCACHE_INSTALL": "junk"})["xcache_install_enabled"] is True
+
+
+def test_enabled_feature_switch_names_excludes_install_only():
+    """安装类开关(缺省 True 的 xcache_install_enabled)不算"开启加速特性";
+    PD 禁令与 custom 路径 accel_enabled 判定共用本函数,不能被它误触发。"""
+    # 空 env:xcache_install_enabled 缺省 True,但不算特性开关
+    assert enabled_feature_switch_names(collect_accel_switches({})) == []
+    # 显式打开安装开关同样不算;显式关掉它也不影响特性判定
+    assert enabled_feature_switch_names(collect_accel_switches({"ENABLE_XCACHE_INSTALL": "true"})) == []
+    assert enabled_feature_switch_names(collect_accel_switches({"ENABLE_XCACHE_INSTALL": "false"})) == []
+    # 真特性开关仍被识别,且按名排序保证报错信息稳定
+    names = enabled_feature_switch_names(
+        collect_accel_switches({"ENABLE_SPARSE": "true", "ENABLE_SPECULATIVE_DECODE": "true"})
+    )
+    assert names == ["sparse_enabled", "speculative_enabled"]
 
 
 def test_collect_switches_speculative_path_passthrough():
@@ -384,3 +410,31 @@ def test_apply_smart_accel_threads_gpu_count_into_flags(monkeypatch):
     )
     assert captured["gpu_count"] == 8
     assert captured["tp_size"] == 4 and captured["dp_size"] == 4
+
+
+def test_apply_smart_accel_threads_xcache_install_flag(monkeypatch):
+    """ENABLE_XCACHE_INSTALL 必须进入 LoadFlags.install_xcache;缺省(未下发)为 True。"""
+    captured = {}
+
+    def _loadflags(**kw):
+        captured.update(kw)
+        return types.SimpleNamespace(**kw)
+
+    mod = _stub_mod()
+    mod.LoadFlags = _loadflags
+    monkeypatch.setattr(smart_accel, "_import_accel", lambda: mod)
+
+    apply_smart_accel(
+        hardware_family="h200", gpu_count=8, model_path=None,
+        model_name="M", engine="vllm", engine_version="0.19.0",
+        env={"ENABLE_XCACHE_INSTALL": "false"},
+    )
+    assert captured["install_xcache"] is False
+
+    captured.clear()
+    apply_smart_accel(
+        hardware_family="h200", gpu_count=8, model_path=None,
+        model_name="M", engine="vllm", engine_version="0.19.0",
+        env={},
+    )
+    assert captured["install_xcache"] is True

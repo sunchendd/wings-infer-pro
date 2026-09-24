@@ -196,6 +196,7 @@ smart_accel:                    # scenario 嵌套结构(对齐 wings_control sce
 | KV 卸载 | `ENABLE_KV_OFFLOAD` | `ENABLE_KV_MEM_OFFLOAD` / `KV_MEM_OFFLOAD_SIZE` / `ENABLE_KV_DISK_OFFLOAD` / `KV_DISK_OFFLOAD_PATH` / `KV_DISK_OFFLOAD_SIZE` / `ENABLE_KV_QAT` / `KV_QAT_*` |
 | KV 稀疏 | `ENABLE_SPARSE` | `SPARSE_LEVEL`(accuracy_first/performance_first) |
 | **KV 存储后端**(ascend) | `ENABLE_KV_OFFLOAD` + `ENABLE_KV_MEM_OFFLOAD` | 工具由 yaml 声明、按 `kv_connector` 内容路由(AscendStoreConnector=mooncake/memcache);**不再有 `KV_STORE_BACKEND`/`KV_STORE_DEPLOY_MODE`/`KV_STORE_MASTER_ADDR`/`KV_WORLD_SIZE` env**(MaaS 不下发)。master pod 内起 daemon。 |
+| **分布式 KV 卸载**(Mooncake standalone-store) | `ENABLE_DISTRIBUTED_KV_OFFLOAD`(与 `ENABLE_KV_OFFLOAD` 互斥) | `ENABLE_KV_MEM_OFFLOAD` / `KV_MEM_OFFLOAD_SIZE`("auto" 智能推荐或数值 GB)/ `ENABLE_KV_DISK_OFFLOAD` / `KV_DISK_OFFLOAD_PATH` / `KV_DISK_OFFLOAD_SIZE`;`KV_MEM_OFFLOAD_SIZE=auto` 复用 memory_estimator 估算(mooncake store 与 vLLM 同 pod),解析值由 wings-control 注入 client.env;估算不足阈值时由 loader 与本地同一分支优雅降级关闭(单 WARN、enabled=False 自然跳过);模型 YAML 未声明 distributed_kv_offload 时 loader 存在性护栏同样优雅关闭(WARN+回显 0,继续推理;与本地 has_memory_method 护栏同构),scheme 已声明但缺 kv_transfer_config 锚点仍 fail-fast。另 `ENABLE_XCACHE_INSTALL`(缺省 true)控制 xcache transfer engine 包(`xcache_cuda`,沿革 mooncake_non_cuda → xcache_non_cuda)是否注入 install 段:false=不注入不解析 accel-volume,假定引擎镜像已预装;scheme `packages:` 显式声明同名包时不走注入(声明优先,不受此开关影响)。 |
 
 > yaml 的块「存在」不等于「启用」——是否产出由上面这些 env 开关决定(`smart_accel.py:215`:块存在不再自动启用任何特性)。**scenario 路由**会先把 yaml 路由到对应子块,再判 env 开关:子块缺该特性键 → 直接不产出(不查 env)。
 
@@ -478,7 +479,7 @@ smart_accel:
 
 | 占位符 | 渲染为 | MaaS 来源(经 `LoadFlags` → `PlaceholderContext`) | 启用条件 | 公式 / 换算 | 出处 |
 |---|---|---|---|---|---|
-| `{memory_capacity_gb}` | CPU 卸载容量(GB,int) | `KV_MEM_OFFLOAD_SIZE`("auto" 估算 / 数值 GB) | `ENABLE_KV_MEM_OFFLOAD` | — | `render.py:83` |
+| `{memory_capacity_gb}` | CPU 卸载容量(GB,int) | `KV_MEM_OFFLOAD_SIZE`("auto" 估算 / 数值 GB) | `ENABLE_KV_MEM_OFFLOAD`(本地卸载或分布式 Mooncake 二选一) | — | `render.py:83` |
 | `{disk_capacity_gb}` | 磁盘容量(GB,int) | `KV_DISK_OFFLOAD_SIZE`(int GB) | `ENABLE_KV_DISK_OFFLOAD` | — | `render.py:85` |
 | `{disk_path}` | 磁盘路径(str) | `KV_DISK_OFFLOAD_PATH` | 同上 | — | `render.py:87` |
 | `{mem_gb_to_bytes}` | CPU 卸载容量(**字节**) | 同 `{memory_capacity_gb}` | `ENABLE_KV_MEM_OFFLOAD` | `GiB→字节`:`int(cap)*1024**3`(见 §6.3) | `render.py:94` |
