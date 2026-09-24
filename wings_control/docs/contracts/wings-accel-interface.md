@@ -57,6 +57,36 @@ pre-serve 是原样写入启动脚本的 shell 命令。当前只信任随包分
 
 PD 是 Prefill/Decode 分离部署。PD 的 `ProcessPlan` 和 multi-node placeholder 不走上述通用写入流程，不要假定它们会执行相同的 Accel 动作。
 
+## Mooncake standalone-store
+
+vLLM 的 Mooncake standalone-store 仅支持 recipe `standalone` 与 DP-across-Pod `multi_node`。Kubernetes 负责启动
+`mooncake_master`；每个 engine Pod 在 vLLM 前启动本机 `mooncake_client`，vLLM 通过
+`MooncakeStoreConnector` 和 `127.0.0.1:50052` 访问它。该路径由
+`ENABLE_DISTRIBUTED_KV_OFFLOAD` 单独控制，不能与本地 `ENABLE_KV_OFFLOAD` 同时开启。
+
+启用时必须提供 `SERVING_CONFIG_ID`、`KV_PROTOCOL`、`KV_LOCAL_BUFFER_SIZE`，以及正的
+`KV_MEM_OFFLOAD_SIZE` 和 `ENABLE_KV_MEM_OFFLOAD=true`。服务地址固定派生为
+`mooncake-service-${SERVING_CONFIG_ID}:50051`，metadata URL 为
+`http://mooncake-service-${SERVING_CONFIG_ID}:8080/metadata`。可选磁盘层继续使用
+`ENABLE_KV_DISK_OFFLOAD`、`KV_DISK_OFFLOAD_PATH` 和 `KV_DISK_OFFLOAD_SIZE`。镜像必须预装与
+vLLM connector 兼容的固定 Mooncake 版本及 `mooncake_client` 二进制。
+
+Mooncake 的 `mooncake.json`、`start_mooncake_client.sh`、vLLM 环境变量和
+`kv_transfer_config` 四个部件中，`kv_transfer_config` **必须**由匹配 SmartAccel YAML
+提供——YAML 未声明时启动直接失败（不再脚本兜底）。其余三个部件缺失时逐项使用脚本兜底：
+Wings Control 在正式产物阶段将包内 `src/wings_accel/distributed_offload/mooncake/` 复制到
+`${SHARED_VOLUME_PATH}/mooncake/`。Mooncake client 所需环境变量集中定义在
+`src/wings_accel/distributed_offload/mooncake/env.yaml`（带默认值）；Wings Control 解析期
+加载该文件作默认值层，再由 MaaS 下发的同名 env 覆盖，渲染成 `export XXX=xxx` 形式写入同目录
+`client.env`。engine Pod 在 wings-control 进程外执行，所以环境变量必须经 client.env
+显式传递。`start_command.sh` 在 vLLM 前先
+`source "${SHARED_VOLUME_PATH}/mooncake/client.env"`，再执行同目录的
+`creat_mooncake_json.sh` 和 `start_mooncake_client.sh`。`engine_mooncake.env` 已由
+env.yaml + client.env 取代并删除。脚本兜底使用 metadata `:10080`；其 Kubernetes master
+必须与此端口保持一致。启动日志和 `audit.json` 的 `mooncake_component_sources` 会记录
+四项实际来源。不开启 `ENABLE_DISTRIBUTED_KV_OFFLOAD` 时两条路线都不产生任何文件、环境或
+启动前命令。
+
 ## 当前边界和错误
 
 使用模型 recipe 的 PD 路径发现 Accel 已启用时会直接报错。`--config-file` 的 PD 路径目前会静默忽略这些开关，这是待修复的缺口。SGLang 首期不支持 Accel，收到相关开关后会告警并忽略。

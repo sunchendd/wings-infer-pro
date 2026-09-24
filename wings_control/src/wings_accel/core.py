@@ -29,6 +29,10 @@ from typing import Optional
 from wings_accel.conflict import resolve_conflicts
 from wings_accel.custom import smart_custom_features_expander
 from wings_accel.decoders import _normalize_optional_path, smart_decoding_expander
+from wings_accel.distributed_offload import (
+    apply_mooncake_script_fallback,
+    smart_distributed_kv_offload_expander,
+)
 from wings_accel.offload import smart_kv_offload_expander
 from wings_accel.render import PlaceholderContext, merge_engine_params
 from wings_accel.schemas import (
@@ -38,6 +42,7 @@ from wings_accel.schemas import (
     SmartAccelInput,
     SmartAccelOutput,
     SmartAccelPackageConflictError,
+    SmartAccelConfigurationError,
 )
 from wings_accel.sparse import smart_sparse_expander
 from wings_accel.validators import collect_smart_accel_warnings
@@ -134,6 +139,19 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
         ctx,
         engine_name=smart_input.engine_config.name,
     )
+    distributed_offload = smart_distributed_kv_offload_expander(
+        smart_input.distributed_kv_cache_config,
+        smart_accel.get("distributed_kv_offload"),
+        ctx,
+    )
+    distributed_offload = apply_mooncake_script_fallback(
+        smart_input.distributed_kv_cache_config,
+        distributed_offload,
+    )
+    if offload and distributed_offload:
+        raise SmartAccelConfigurationError(
+            "ENABLE_KV_OFFLOAD and ENABLE_DISTRIBUTED_KV_OFFLOAD cannot both produce kv_transfer_config"
+        )
 
     # Step 5: conflict resolution extension point(currently no-op)
     decoding, sparse, offload, _ = resolve_conflicts(
@@ -146,7 +164,7 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
 
     # custom_features:仅当 decoding/kv_cache/sparse 至少一项产出时才启用
     custom = None
-    if decoding or sparse or offload:
+    if decoding or sparse or offload or distributed_offload:
         custom = smart_custom_features_expander(smart_accel.get("custom_features"), ctx)
 
     # Step 6: assemble output
@@ -156,9 +174,13 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
     pre_serve_master: list = []
     pre_serve_client: list = []
     generated_files: list[GeneratedFile] = []
+    mooncake_component_sources: dict[str, str] = {}
+    mooncake_script_assets_required = False
+    mooncake_master_section: list[str] = []
     for feature_name, feature in (
         ("decoding", decoding),
         ("kv_offload", offload),
+        ("distributed_kv_offload", distributed_offload),
         ("sparse", sparse),
         ("custom_features", custom),
     ):
@@ -169,6 +191,10 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
             pre_serve_master.extend(feature.pre_serve_master)
             pre_serve_client.extend(feature.pre_serve_client)
             generated_files.extend(feature.generated_files)
+            if feature_name == "distributed_kv_offload":
+                mooncake_component_sources = dict(feature.mooncake_component_sources)
+                mooncake_script_assets_required = feature.mooncake_script_assets_required
+                mooncake_master_section = list(feature.mooncake_master_section)
     _ensure_unique_generated_file_paths(generated_files)
     # 去重保序:同一依赖/命令被多个特性声明时只取一次
     packages = _merge_package_requirements(package_requirements)
@@ -177,12 +203,13 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
     pre_serve_client = list(dict.fromkeys(pre_serve_client))
 
     diagnostics = _collect_diagnostics(
-        {"decoding": decoding, "kv_cache": offload, "sparse": sparse},
+        {"decoding": decoding, "kv_cache": offload, "distributed_kv_cache": distributed_offload, "sparse": sparse},
     )
 
     return SmartAccelOutput(
         smart_decoding_scheme=decoding.scheme if decoding else None,
         smart_kv_cache_scheme=offload.scheme if offload else None,
+        smart_distributed_kv_cache_scheme=distributed_offload.scheme if distributed_offload else None,
         smart_kv_sparse_scheme=sparse.scheme if sparse else None,
         engine_params=engine_params,
         kv_mem_offload_size_gb=_resolve_kv_mem_offload_size_gb(smart_input.smart_kv_cache_config),
@@ -193,6 +220,9 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
         pre_serve_master=pre_serve_master,
         pre_serve_client=pre_serve_client,
         generated_files=generated_files,
+        mooncake_component_sources=mooncake_component_sources,
+        mooncake_script_assets_required=mooncake_script_assets_required,
+        mooncake_master_section=mooncake_master_section,
     )
 
 
@@ -265,8 +295,6 @@ def _resolve_kv_disk_offload_path(kv, offload) -> Optional[str]:
 def _build_placeholder_context(smart_input: SmartAccelInput) -> PlaceholderContext:
     """从 SmartAccelInput 各子配置派生占位符上下文。"""
     kv = smart_input.smart_kv_cache_config
-    # 端口与协议由 YAML 资产明文声明(不再代码写死);IP 经 {rank_ip}/{master_ip} → ${VAR}
-    # 由运行时 envsubst 展开。KV 工具选择由 yaml 声明 + offload 按 connector 内容路由。
     return PlaceholderContext(
         memory_capacity_gb=_memory_capacity_gb(kv),
         memory_offload_enabled=kv.memory_offload_enabled,

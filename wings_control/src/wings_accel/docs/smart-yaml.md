@@ -18,6 +18,8 @@
 4. **scenario 拆块**(2026-08-06 新增,详见 §1):smart_accel 按场景拆块(standalone / multi_node / pd_disaggregation.{prefill,decode}),
    每个 scenario 块独立声明 decoding / kv_offload / sparse;PD 场景按 role 拆:prefill 不支持投机推理/不支持卸载,
    decode 支持投机推理/不支持卸载,sparse 两边都支持。**缺键即该场景不产出**(无需 disabled 标记)。
+   Mooncake standalone-store 使用独立的 `distributed_kv_offload` 块，仅允许 standalone/multi_node；它与
+   本地 `kv_offload` 互斥，并由 `ENABLE_DISTRIBUTED_KV_OFFLOAD` 驱动。
 
 ### 投机(speculative decoding · 详见 §3、§7)
 

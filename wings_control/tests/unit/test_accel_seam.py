@@ -380,6 +380,75 @@ def test_build_scripts_empty_generated_files_is_noop(tmp_path, monkeypatch):
     assert not shared.exists() or not any(shared.iterdir())
 
 
+def test_build_scripts_installs_mooncake_script_assets(tmp_path, monkeypatch):
+    """脚本兜底被选中时，受控 mooncake 目录应完整复制到共享卷。"""
+    from wings_ctl.common.settings import settings
+
+    shared = tmp_path / "shared"
+    monkeypatch.setattr(settings, "SHARED_VOLUME_PATH", str(shared))
+    accel = AccelResult(
+        enabled=True,
+        mooncake_script_assets_required=True,
+        pre_serve=[
+            'source "$SHARED_VOLUME_PATH/mooncake/client.env"',
+            'bash "$SHARED_VOLUME_PATH/mooncake/creat_mooncake_json.sh"',
+            'bash "$SHARED_VOLUME_PATH/mooncake/start_mooncake_store.sh" &',
+        ],
+        mooncake_master_section=[
+            "# ─── Mooncake master branch (IS_MOONCAKE_MASTER) ───",
+            'if [ "${IS_MOONCAKE_MASTER:-}" = "TRUE" ] || [ "${IS_MOONCAKE_MASTER:-}" = "true" ] || \\',
+            '   [ "${IS_MOONCAKE_MASTER:-}" = "1" ] || [ "${IS_MOONCAKE_MASTER:-}" = "True" ]; then',
+            '    source "$SHARED_VOLUME_PATH/mooncake/master.env"',
+            '    mkdir -p /var/log/wings',
+            '    bash "$SHARED_VOLUME_PATH/mooncake/start_mooncake_master.sh" &',
+            "    MASTER_PID=$!",
+            '    _wings_log INFO "mooncake master started, PID=$MASTER_PID"',
+            '    wait "$MASTER_PID"',
+            '    exit "$?"',
+            "fi",
+            "",
+        ],
+    )
+
+    start_path, _ = build_scripts(_make_resolved(accel), tmp_path)
+
+    target = shared / "mooncake"
+    assert (target / "creat_mooncake_json.sh").is_file()
+    assert (target / "client.env").is_file()
+    assert (target / "env.yaml").is_file()
+    assert (target / "start_mooncake_store.sh").is_file()
+    assert (target / "start_mooncake_master.sh").is_file()
+    assert (target / "mooncake_store.py").is_file()
+    assert (target / "master.env").is_file()
+    start_text = start_path.read_text(encoding="utf-8")
+    assert "$SHARED_VOLUME_PATH/mooncake/creat_mooncake_json.sh" in start_text
+    assert 'source "$SHARED_VOLUME_PATH/mooncake/client.env"' in start_text
+    assert "$SHARED_VOLUME_PATH/mooncake/start_mooncake_store.sh" in start_text
+    assert "IS_MOONCAKE_MASTER" in start_text
+    assert "$SHARED_VOLUME_PATH/mooncake/start_mooncake_master.sh" in start_text
+
+
+def test_write_mooncake_master_env_renders_defaults_and_maas_override(tmp_path, monkeypatch):
+    """master.env 由 env.yaml 默认值 + MaaS 同名 env 覆盖渲染;覆盖值必须落到文件。"""
+    from wings_ctl.common.settings import settings
+    from wings_ctl.rendering.script_builder import _write_mooncake_master_env
+
+    shared = tmp_path / "shared"
+    monkeypatch.setattr(settings, "SHARED_VOLUME_PATH", str(shared))
+    monkeypatch.setenv("MOONCAKE_MASTER_PORT", "50099")
+    monkeypatch.setenv("MOONCAKE_MASTER_DEFAULT_KV_LEASE_TTL", "22000")
+
+    _write_mooncake_master_env()
+
+    content = (shared / "mooncake" / "master.env").read_text(encoding="utf-8")
+    assert "export MOONCAKE_MASTER_PORT=50099" in content
+    assert "export MOONCAKE_MASTER_DEFAULT_KV_LEASE_TTL=22000" in content
+    # 未被 MaaS 覆盖的变量保留 env.yaml 默认值
+    assert "export MOONCAKE_MASTER_EVICTION_HIGH_WATERMARK_RATIO=0.9" in content
+    assert "export MOONCAKE_MASTER_EVICTION_RATIO=0.1" in content
+    assert "export MOONCAKE_MASTER_LOG_PATH=/var/log/wings" in content
+
+
 def test_emit_audit_records_accel_generated_files(tmp_path):
     """audit.json 记录 accel 文件计划元数据 + sha256 摘要,不落原始 content。"""
     accel = AccelResult(
@@ -477,3 +546,23 @@ def test_standard_path_guard_failure_writes_no_scripts(monkeypatch, tmp_path):
 
     assert not (tmp_path / "start_command.sh").exists()
     assert not (tmp_path / "repro.sh").exists()
+
+
+# ── install.py 包预检:镜像与代码版本漂移在生成期暴露 ───────────────────────
+
+def test_validate_accel_packages_preflight(tmp_path, monkeypatch):
+    """生成期预检:工件在 → 按目录名精确匹配;缺版本 → ValueError;工件缺 → 跳过。"""
+    pkg_root = tmp_path / "accel-volume" / "packages"
+    (pkg_root / "xcache_non_cuda" / "v0.3.12.post1").mkdir(parents=True)
+    monkeypatch.setenv("ACCEL_VOLUME_PATH", str(tmp_path / "accel-volume"))
+
+    # 命中 → 不抛
+    script_builder._validate_accel_packages(["xcache_non_cuda:v0.3.12.post1"])
+
+    # 版本漂移(镜像未含请求版本)→ 生成期 fail-fast,而非 install.py 运行期崩溃
+    with pytest.raises(ValueError, match="does not contain package"):
+        script_builder._validate_accel_packages(["xcache_non_cuda:v0.4.0"])
+
+    # 工件目录不存在(测试/CI)→ 告警跳过,不阻断
+    monkeypatch.setenv("ACCEL_VOLUME_PATH", str(tmp_path / "absent-volume"))
+    script_builder._validate_accel_packages(["xcache_non_cuda:v0.3.12.post1"])

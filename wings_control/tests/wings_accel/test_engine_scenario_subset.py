@@ -25,6 +25,7 @@ ENGINE_ROOT = REPO_ROOT / "config" / "engines"
 
 # 本批次资产(相对 smart-accel 根)
 ASSETS = [
+    "vllm/v0.23.0/l20/models/DeepSeek-R1-Distill-Qwen-1.5B/DeepSeek-R1-Distill-Qwen-1.5B.yaml",
     "vllm/kimi-k3/h20_141G/models/Kimi-K3/Kimi-K3.yaml",
     "vllm/deepseekv4-flash-vision/h20_141G/models/DeepSeek-V4-Flash-Vision-Exp/DeepSeek-V4-Flash-Vision-Exp.yaml",
     "vllm/v0.28.0/h20_141G/models/GLM5.3/GLM5.3.yaml",

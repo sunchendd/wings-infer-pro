@@ -45,6 +45,7 @@ def _make_stub_module():
     for name in (
         "SystemConfig", "ModelConfig", "EngineConfig", "DeploymentMode",
         "SmartDecodingConfig", "SmartKVCacheConfig", "SmartKVSparseConfig", "SmartAccelInput",
+        "DistributedKVCacheConfig",
     ):
         setattr(mod, name, lambda **kw: types.SimpleNamespace(**kw))
 
@@ -149,7 +150,7 @@ def test_apply_warns_when_enabled_feature_produces_no_scheme(monkeypatch, caplog
 
 
 def test_apply_warning_names_memory_subswitch(monkeypatch, caplog) -> None:
-    """仅由容量参数打开内存卸载时，告警应指向实际子开关。"""
+    """一级开关开但特性无 scheme 命中时，告警应指向实际子开关。"""
     monkeypatch.setattr(smart_accel, "_import_accel", _make_stub_module)
     with caplog.at_level("WARNING", logger="wings_ctl.accel.smart_accel"):
         apply_smart_accel(
@@ -159,16 +160,17 @@ def test_apply_warning_names_memory_subswitch(monkeypatch, caplog) -> None:
             model_name="M",
             engine="vllm",
             engine_version="0.19.0",
-            env={"KV_MEM_OFFLOAD_SIZE": "64"},
+            env={"ENABLE_KV_OFFLOAD": "true", "KV_MEM_OFFLOAD_SIZE": "64"},
         )
     assert "ENABLE_KV_MEM_OFFLOAD/KV_MEM_OFFLOAD_SIZE" in caplog.text
 
 
 def test_disk_offload_switch_alone_is_active() -> None:
-    """仅开启磁盘卸载也必须打开 KV 一级解析，不能在调用 SmartAccel 前被跳过。"""
+    """ENABLE_KV_OFFLOAD 与 ENABLE_DISTRIBUTED_KV_OFFLOAD 并列且互斥(两套卸载方案,不互相派生);
+    磁盘卸载是 ENABLE_KV_OFFLOAD 方案内的二级开关,须显式开一级才生效。"""
     switches = collect_accel_switches({"ENABLE_KV_DISK_OFFLOAD": "true"})
-    assert switches["kv_offload_enabled"] is True
     assert switches["kv_disk_enabled"] is True
+    assert switches["kv_mem_enabled"] is False
 
 
 def test_apply_with_stub_module_appends_spec(monkeypatch) -> None:
@@ -231,7 +233,9 @@ def test_build_input_maps_auto_kv_mem_offload_size() -> None:
     si = build_smart_input(
         mod, hardware_family="h200", gpu_count=4, model_path="/m", model_name="M",
         engine="vllm", engine_version="0.19.0",
-        switches=collect_accel_switches({"ENABLE_KV_MEM_OFFLOAD": "true", "KV_MEM_OFFLOAD_SIZE": "auto"}),
+        switches=collect_accel_switches(
+            {"ENABLE_KV_OFFLOAD": "true", "ENABLE_KV_MEM_OFFLOAD": "true", "KV_MEM_OFFLOAD_SIZE": "auto"}
+        ),
     )
     assert si.smart_kv_cache_config.enabled is True
     assert si.smart_kv_cache_config.memory_offload_enabled is True

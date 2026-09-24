@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import shlex
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -150,6 +151,36 @@ def _render_accel_install_preamble(engine: str, engine_version: str, packages: L
         f"python3 /accel-volume/install.py --config {shlex.quote(config_json)}",
         "",
     ]
+
+
+def _validate_accel_packages(packages: List[str]) -> None:
+    """生成期预检:请求的每个 accel 包必须存在于 wings-accel 工件中。
+
+    install.py 按 manifest 键**精确匹配**(键 = packages/<name>/<version> 目录名),
+    缺包会在运行期 exit 1 → start_command.sh set -e → 容器 CrashLoopBackOff。
+    本函数把该失败提前到脚本生成期:镜像与代码版本漂移时,启动瞬间报可操作的
+    错误而非反复崩溃。与 wings_accel.distributed_offload 共用 ACCEL_VOLUME_PATH
+    环境变量约定;目录不存在(测试/CI 无工件)时仅告警跳过,不阻断。
+
+    Raises:
+        ValueError: 工件存在但请求的 name:version 目录缺失。
+    """
+    volume = Path(os.environ.get("ACCEL_VOLUME_PATH", "/accel-volume"))
+    packages_root = volume / "packages"
+    if not packages_root.is_dir():
+        logger.warning(
+            "wings-accel artifact packages directory not found (%s); skip install preflight",
+            packages_root,
+        )
+        return
+    for item in packages:
+        name, _, version = item.partition(":")
+        if not (packages_root / name / version).is_dir():
+            raise ValueError(
+                f"wings-accel artifact does not contain package {item!r} "
+                f"(expected directory {packages_root / name / version}); rebuild the "
+                f"wings-accel image or pin an available version in the smart-accel YAML"
+            )
 
 
 def _write_advanced_features_json(resolved: ResolvedConfig) -> None:
@@ -288,6 +319,183 @@ def _write_accel_generated_files(generated_files: List[GeneratedFileSpec]) -> No
                     tmp_path.unlink()
                 except OSError:
                     logger.debug("failed to clean temporary accel generated file %s", tmp_path)
+
+
+def _install_mooncake_script_assets() -> None:
+    """原子复制随包的 Mooncake 脚本兜底资产到共享卷。
+
+    脚本兜底只能使用仓库内受控的常规文件；拒绝符号链接和超出目标目录的路径，
+    避免共享卷复制成为任意文件写入入口。调用方只会在分布式 KV 开关已生效且
+    至少一个部件选择脚本兜底时调用本函数。复制完成后渲染 client.env
+    （env.yaml 默认值 + MaaS env 覆盖 → export 行）供 pre-serve 段 source。
+    """
+    source_dir = Path(__file__).resolve().parents[2] / "wings_accel" / "distributed_offload" / "mooncake"
+    if not source_dir.is_dir():
+        raise ValueError(f"Mooncake fallback asset directory is missing: {source_dir}")
+    shared_root = Path(settings.SHARED_VOLUME_PATH).resolve()
+    target_dir = shared_root / "mooncake"
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise ValueError(f"failed to create Mooncake fallback asset directory {target_dir}: {exc}") from exc
+
+    for source in sorted(source_dir.rglob("*")):
+        if source.is_symlink():
+            raise ValueError(f"Mooncake fallback asset must not be a symlink: {source}")
+        if source.is_dir():
+            continue
+        if not source.is_file():
+            raise ValueError(f"Mooncake fallback asset is not a regular file: {source}")
+        relative = source.relative_to(source_dir)
+        target = target_dir / relative
+        try:
+            resolved_target = target.resolve(strict=False)
+        except OSError as exc:
+            raise ValueError(f"Mooncake fallback asset target is unresolvable: {target}") from exc
+        if not resolved_target.is_relative_to(target_dir.resolve()):
+            raise ValueError(f"Mooncake fallback asset escapes target directory: {relative}")
+        tmp_path: Path | None = None
+        try:
+            resolved_target.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                "wb",
+                dir=resolved_target.parent,
+                prefix=f".{resolved_target.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as tmp:
+                tmp_path = Path(tmp.name)
+            shutil.copyfile(source, tmp_path)
+            tmp_path.chmod(source.stat().st_mode & 0o777)
+            tmp_path.replace(resolved_target)
+            tmp_path = None
+        except OSError as exc:
+            raise ValueError(f"failed to install Mooncake fallback asset {relative}: {exc}") from exc
+        finally:
+            if tmp_path is not None and tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    logger.debug("failed to clean temporary Mooncake fallback asset %s", tmp_path)
+    logger.info("installed Mooncake script fallback assets in %s", target_dir)
+
+
+def _render_mooncake_client_env() -> List[str]:
+    """渲染 Mooncake client.env（env.yaml 默认值 + MaaS env 覆盖 → export 行）。
+
+    env.yaml 是 Mooncake client 环境变量的唯一集中定义（带默认值）；MaaS 下发的
+    同名变量**原样透传**（不派生中间名）：ENABLE_KV_OFFLOAD /
+    ENABLE_DISTRIBUTED_KV_OFFLOAD / ENABLE_KV_DISK_OFFLOAD / ENABLE_KV_MEM_OFFLOAD /
+    KV_DISK_OFFLOAD_PATH / KV_DISK_OFFLOAD_SIZE / KV_MEM_OFFLOAD_SIZE /
+    KV_PROTOCOL / SERVING_CONFIG_ID 共 9 个。engine Pod 不在 wings-control
+    进程内, 所以最终值必须渲染成 export 行落到 client.env,由 engine 侧
+    source 加载。
+
+    Returns:
+        ``export KEY=value`` 行列表（经 render_env_export 安全转义）。
+
+    Raises:
+        ValueError: env.yaml 缺失或结构非法（fail-fast,不让 client 带空环境启动）。
+    """
+    env_yaml_path = (
+        Path(__file__).resolve().parents[2] / "wings_accel" / "distributed_offload" / "mooncake" / "env.yaml"
+    )
+    try:
+        import yaml
+
+        raw = yaml.safe_load(env_yaml_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise ValueError(f"Mooncake env defaults missing: {env_yaml_path}") from exc
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Mooncake env defaults is not valid YAML: {env_yaml_path}: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ValueError(f"Mooncake env defaults must be a mapping: {env_yaml_path}")
+
+    defaults = {str(k): v for k, v in raw.items()}
+
+    # MaaS 同名下发的变量原样覆盖默认值（strip 空白,空值不覆盖）。
+    for name in defaults:
+        value = os.environ.get(name)
+        if value is not None and value.strip():
+            defaults[name] = value.strip()
+
+    return [
+        render_env_export(key, value, allow_unsafe=False)
+        for key, value in sorted(defaults.items())
+    ]
+
+
+def _write_mooncake_client_env() -> None:
+    """把渲染好的 client.env 原子写入共享卷（export 行,engine 侧 source 用）。
+
+    先于 pre-serve 段执行,保证 creat_mooncake_json.sh / start_mooncake_client.sh
+    读到最终环境变量。写入失败 fail-fast(与脚本兜底资产安装同口径)。
+    """
+    shared_root = Path(settings.SHARED_VOLUME_PATH).resolve()
+    target_dir = shared_root / "mooncake"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    lines = _render_mooncake_client_env()
+    content = "\n".join([f"# Mooncake client environment (rendered from env.yaml + MaaS env)", *lines, ""])
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=target_dir,
+            prefix=".client.env.",
+            suffix=".tmp",
+            delete=False,
+        ) as tmp:
+            tmp_path = Path(tmp.name)
+            tmp.write(content)
+        tmp_path.replace(target_dir / "client.env")
+        tmp_path = None
+        logger.info("wrote Mooncake client.env in %s", target_dir)
+    except OSError as exc:
+        raise ValueError(f"failed to write Mooncake client.env in {target_dir}: {exc}") from exc
+    finally:
+        if tmp_path is not None and tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                logger.debug("failed to clean temporary Mooncake client.env")
+
+
+def _write_mooncake_master_env() -> None:
+    """把渲染好的 master.env 原子写入共享卷(export 行,engine 侧 source 用)。
+
+    与 client.env 同链路:env.yaml 默认值 + MaaS env 覆盖 → export 行。master 分支段
+    (IS_MOONCAKE_MASTER)在 pre-serve 之前 source 本文件,保证 start_mooncake_master.sh
+    读到最终值。写入失败 fail-fast(与 client.env 同口径)。
+    """
+    shared_root = Path(settings.SHARED_VOLUME_PATH).resolve()
+    target_dir = shared_root / "mooncake"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    lines = _render_mooncake_client_env()
+    content = "\n".join(["# Mooncake master environment (rendered from env.yaml + MaaS env)", *lines, ""])
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=target_dir,
+            prefix=".master.env.",
+            suffix=".tmp",
+            delete=False,
+        ) as tmp:
+            tmp_path = Path(tmp.name)
+            tmp.write(content)
+        tmp_path.replace(target_dir / "master.env")
+        tmp_path = None
+        logger.info("wrote Mooncake master.env in %s", target_dir)
+    except OSError as exc:
+        raise ValueError(f"failed to write Mooncake master.env in {target_dir}: {exc}") from exc
+    finally:
+        if tmp_path is not None and tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                logger.debug("failed to clean temporary Mooncake master.env")
 
 
 def _render_kv_disk_cleanup_section(kv_disk_offload_path: Optional[str]) -> List[str]:
@@ -583,6 +791,7 @@ def _render_start_command_sh(
     analyzer_preamble: Optional[str] = None,
     engine_pre_start: Optional[List[str]] = None,
     system_setup_source_commands: Optional[List[str]] = None,
+    mooncake_master_section: Optional[List[str]] = None,
 ) -> str:
     """生成 start_command.sh 内容。简洁执行脚本。
 
@@ -607,10 +816,15 @@ def _render_start_command_sh(
             它位于通用 env/accel 准备之后、唯一引擎生命周期之前，不解释内容。
         system_setup_source_commands: 已校验的 source 环境初始化命令；紧邻 engine
             argv 前执行。
+        mooncake_master_section: Mooncake master 分支段(early-exit 块的 shell 行);
+            仅 distributed KV 启用时非空,在 install 段之后、pre-serve 之前插入。
+            None/空 → 不渲染(非 mooncake 路径零影响)。
     """
     lines = [
         "#!/usr/bin/env bash",
         "set -euo pipefail",
+        "set -o errexit",
+        "set -o xtrace",
         "",
         # shell 日志辅助函数: 输出符合 log-format 规范的日志行(所有脚本通用)。
         # 格式: 时间 [LEVEL] WINGS-CONTROL [组件#函数:行号] 消息
@@ -655,7 +869,14 @@ def _render_start_command_sh(
 
     # wings-accel runtime patch 安装段(仅 accel 真启用时)
     if accel_enabled:
+        _validate_accel_packages(packages)
         lines.extend(_render_accel_install_preamble(engine, engine_version, packages))
+
+    # Mooncake master 分支段(early-exit 块,IS_MOONCAKE_MASTER 判定):
+    # master Pod 只拉起 mooncake_master、不执行 vllm serve / mooncake_client;
+    # 该判别独立于下方 RANK_IP==MASTER_IP(vllm 推理侧 master/client)。空 → 零影响。
+    if mooncake_master_section:
+        lines.extend(mooncake_master_section)
 
     # KV 存储后端(memcache/mooncake)pre-serve 段:vllm serve 前生成配置 / 起 daemon。
     # 非 KV 后端路径 → 两段皆空 → _render_accel_pre_serve_section 返回 [](零影响)。
@@ -752,6 +973,10 @@ def _render_repro_sh(
                     render_env_export(env_key, traced.final_value, allow_unsafe=traced.allow_unsafe)
                 )
         lines.append("")
+
+    # Mooncake master 分支段(与 start_command.sh 同款;repro 复现须含 master 判定)。
+    if getattr(resolved.accel, "mooncake_master_section", None):
+        lines.extend(resolved.accel.mooncake_master_section)
 
     # KV 存储后端 pre-serve 段(memcache/mooncake);与 start_command.sh 同款渲染。
     pre_serve_lines = _render_accel_pre_serve_section(
@@ -1207,6 +1432,10 @@ def build_scripts(
     # wings-accel 文件计划(disk/cpu_disk 的 lmcache_config.yaml、KV 后端 start_kv_serve.sh 等)
     # 解析期不落盘,此处(仅正式运行,非 dry-run)校验并原子写入共享卷。
     _write_accel_generated_files(resolved.accel.generated_files)
+    if resolved.accel.mooncake_script_assets_required:
+        _install_mooncake_script_assets()
+        _write_mooncake_client_env()
+        _write_mooncake_master_env()
 
     # registry 是 CLI、正式渲染和摘要共用的唯一 adapter 分发点。公共层只消费
     # 启动计划，不判断 MindIE，也不读取其 engine_state。
@@ -1229,6 +1458,7 @@ def build_scripts(
         analyzer_preamble=analyzer_preamble,
         engine_pre_start=launch_plan.pre_start_lines,
         system_setup_source_commands=launch_plan.system_setup_source_commands,
+        mooncake_master_section=getattr(resolved.accel, "mooncake_master_section", None),
     )
     # 部署进度功能守卫:standalone / multi_node 真实部署须含 log_analyzer 片段。
     # worker 与占位按 §5.2 口径跳过;任何真实部署路径漏接都会在此 fail-fast。

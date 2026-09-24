@@ -67,6 +67,22 @@ def test_collect_switches_kv_mem_size_numeric():
     assert collect_accel_switches({"KV_MEM_OFFLOAD_SIZE": "64"})["kv_mem_size_gb"] == 64
 
 
+def test_collect_switches_keeps_distributed_kv_separate_from_local_offload():
+    switches = collect_accel_switches({
+        "ENABLE_DISTRIBUTED_KV_OFFLOAD": "true",
+        "ENABLE_KV_MEM_OFFLOAD": "true",
+        "KV_MEM_OFFLOAD_SIZE": "64",
+        "KV_PROTOCOL": "RDMA",
+        "SERVING_CONFIG_ID": "order-7",
+        "KV_LOCAL_BUFFER_SIZE": "1GB",
+    })
+    assert switches["distributed_kv_enabled"] is True
+    assert switches["distributed_kv_protocol"] == "rdma"
+    assert switches["serving_config_id"] == "order-7"
+    assert switches["distributed_kv_local_buffer_size"] == "1GB"
+    assert switches["kv_offload_enabled"] is False
+
+
 def test_collect_switches_no_kv_store_envs():
     """KV_STORE_BACKEND/DEPLOY_MODE/MASTER_ADDR/WORLD_SIZE 已退役:不在 switches 里。"""
     s = collect_accel_switches({"KV_STORE_BACKEND": "mooncake", "KV_WORLD_SIZE": "32"})
@@ -86,7 +102,8 @@ def _stub_mod():
     """duck-typed 假 wings-accel 模块:dataclass 用 SimpleNamespace,func 回显 spec。"""
     mod = types.SimpleNamespace()
     for name in ("HardwareConfig", "ModelConfig", "EngineConfig", "DeploymentMode",
-                 "SmartDecodingConfig", "SmartKVCacheConfig", "SmartKVSparseConfig", "SmartAccelInput"):
+                 "SmartDecodingConfig", "SmartKVCacheConfig", "DistributedKVCacheConfig",
+                 "SmartKVSparseConfig", "SmartAccelInput"):
         setattr(mod, name, lambda **kw: types.SimpleNamespace(**kw))
 
     def _resolve_smart_accel_from_config(**kwargs):

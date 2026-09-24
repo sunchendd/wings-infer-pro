@@ -191,6 +191,26 @@ class SmartKVCacheConfig:
 
 
 @dataclass
+class DistributedKVCacheConfig:
+    """Mooncake standalone-store 分布式 KV 缓存的外部输入。
+
+    该配置与 ``SmartKVCacheConfig`` 并列：前者只控制本地 KV 卸载，后者只控制
+    每 Pod 一个 Mooncake real client。两者不能同时启用，因为 vLLM 只接受一个
+    ``kv_transfer_config``。
+    """
+
+    enabled: bool = False
+    protocol: str = ""
+    serving_config_id: str = ""
+    local_buffer_size: str = ""
+    memory_offload_enabled: bool = False
+    memory_capacity_gb: int = 0
+    disk_offload_enabled: bool = False
+    disk_capacity_gb: int = 0
+    disk_path: str = ""
+
+
+@dataclass
 class SmartKVSparseConfig:
     """KV cache 稀疏化配置 — 按策略裁剪/跳过 KV 以省显存。
 
@@ -270,6 +290,7 @@ class SmartAccelInput:
     smart_decoding_config: SmartDecodingConfig # 投机解码配置(开关 + 草稿路径)
     smart_kv_cache_config: SmartKVCacheConfig # KV 卸载 + QAT 配置(开关 + 容量模式)
     smart_kv_sparse_config: SmartKVSparseConfig # KV 稀疏化配置(开关 + 模式)
+    distributed_kv_cache_config: DistributedKVCacheConfig = field(default_factory=DistributedKVCacheConfig)
     # smart_accel 模板块(decoding/kv_offload/sparse/custom_features),来自 model.yaml
     smart_accel: Dict[str, Any] = field(default_factory=dict)
     # smart-accel 根目录(_resolve_smart_accel_root 结果);files 条目 src 解析基准。非 MaaS 参数,
@@ -298,6 +319,11 @@ class _FeatureOutput:
     pre_serve_master: List[str] = field(default_factory=list) # 仅 master 节点执行的框架合成命令
     pre_serve_client: List[str] = field(default_factory=list) # 仅 client(非 master)节点执行的框架合成命令
     generated_files: List[GeneratedFile] = field(default_factory=list) # 已渲染、未写盘的文件计划;由 wings-control 在产物阶段消费
+    # True 时 script_builder 将随包的脚本兜底资产复制到共享卷。
+    mooncake_script_assets_required: bool = False
+    # Mooncake master 分支段(early-exit 块的 shell 行)。仅 distributed_offload
+    # 使用;由受控包代码合成,非 YAML 任意 shell。空 → script_builder 不渲染该段。
+    mooncake_master_section: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -317,6 +343,7 @@ class SmartAccelOutput:
     smart_decoding_scheme: Optional[str] = None # 投机解码选中方案,如 mtp/eagle3/suffix;未产出 → None
     smart_kv_sparse_scheme: Optional[str] = None # KV 稀疏化选中方案,如 indexcache;未产出 → None
     smart_kv_cache_scheme: Optional[str] = None # KV 卸载选中方案,如 cpu/disk/cpu_disk;未产出 → None
+    smart_distributed_kv_cache_scheme: Optional[str] = None # Mooncake standalone-store;未产出 → None
     engine_params: EngineParams = field(default_factory=EngineParams) # 合并后的 env + engine_config;产出侧,无 MaaS 来源
     # KV 内存卸载最终容量(GB,页面回显口径):auto 估算值或数值模式解析值;生效 → int,
     # auto 请求但估算不足被关 → 0(推荐值低于下限),未请求内存卸载(一级关/仅disk) → None。
@@ -336,3 +363,7 @@ class SmartAccelOutput:
     # 由 api.resolve_smart_accel_from_config 根据实际命中的 source_file 填写。
     pre_serve_trusted: Optional[bool] = None
     generated_files: List[GeneratedFile] = field(default_factory=list) # 已渲染、未写盘的文件计划;交由 wings-control 在非 dry-run 产物阶段写入
+    mooncake_component_sources: Dict[str, str] = field(default_factory=dict) # Mooncake 四部件来源,供审计和运行时日志使用
+    mooncake_script_assets_required: bool = False # 是否需安装脚本兜底共享卷资产
+    # Mooncake master 分支段(early-exit 块的 shell 行);空 → script_builder 不渲染该段。
+    mooncake_master_section: List[str] = field(default_factory=list)
