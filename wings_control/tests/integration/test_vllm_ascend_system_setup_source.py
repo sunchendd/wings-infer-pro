@@ -124,3 +124,73 @@ def test_glm53_flash_dry_run_keeps_manual_feature_args_without_source(
     assert "--tool-call-parser glm47 --enable-auto-tool-choice" in output
     assert "--reasoning-parser glm45" in output
     assert '--speculative-config \'{"num_speculative_tokens":3,"method":"deepseek_mtp",' in output
+
+
+_QWEN38_EXPECTED_OUTPUT = (
+    "export VLLM_ENGINE_READY_TIMEOUT_S=3600",
+    "--served-model-name Qwen3.8-Flash-Next-w8a8-mtp",
+    "--tool-call-parser qwen3_xml",
+    "--enable-auto-tool-choice",
+    "--reasoning-parser qwen3",
+    (
+        "--speculative-config "
+        '\'{"method":"qwen3_5_mtp","num_speculative_tokens":3,'
+        '"enforce_eager":true}\''
+    ),
+    (
+        "--compilation-config "
+        '\'{"cudagraph_capture_sizes":[4,8,12,16,20,24,28,32],'
+        '"cudagraph_mode":"FULL_DECODE_ONLY"}\''
+    ),
+    (
+        "--additional-config "
+        '\'{"enable_cpu_binding":true,'
+        '"ascend_compilation_config":{"fuse_norm_quant":false}}\''
+    ),
+)
+
+
+def _run_qwen38_flash_next_dry_run(config_root_real, hardware_file, monkeypatch):
+    """配置 Qwen3.8 Flash Next 测试环境并执行 dry-run。"""
+    monkeypatch.setenv("ENGINE_VERSION", "qwen3.8-next")
+    monkeypatch.setenv("PD_ROLE", "none")
+    monkeypatch.setenv("ENABLE_SPECULATIVE_DECODE", "true")
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "wings-ctl",
+            "--config-root",
+            str(config_root_real),
+            "--hardware-info",
+            str(hardware_file),
+            "--engine",
+            "vllm-ascend",
+            "--model-name",
+            "Qwen3.8-Flash-Next-w8a8-mtp",
+            "--model-path",
+            "/models",
+            "--device-count",
+            "8",
+            "--trust-remote-code",
+            "--enable-auto-tool-choice",
+            "--enable-auto-think-choice",
+            "--dry-run",
+        ],
+    )
+    cli.main()
+
+
+def test_qwen38_flash_next_910b3_dry_run_keeps_manual_command(
+    config_root_real, tmp_path, monkeypatch, capsys
+):
+    """Qwen3.8 Flash Next 的 910B3 手工 recipe 保留环境变量、嵌套配置和 feature 参数。"""
+    hardware_file = tmp_path / "hardware_info.json"
+    hardware_file.write_text(
+        json.dumps({"hardware_family": "Ascend910B_64G", "device": "ascend", "count": 8}),
+        encoding="utf-8",
+    )
+    _run_qwen38_flash_next_dry_run(config_root_real, hardware_file, monkeypatch)
+
+    output = capsys.readouterr().out
+    for expected in _QWEN38_EXPECTED_OUTPUT:
+        assert expected in output
