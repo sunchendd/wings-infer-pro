@@ -163,6 +163,8 @@ Wings Control 的 `engine_config` 参数名映射以**第一个点号**为边界
 
 所有 SGLang 场景（`standalone`、`multi_node`、`pd_disaggregation`）的每个 `engine_config` 必须写入 `host: "0.0.0.0"`。无论原始启动命令是否提供 `--host`，也无论其值为何，均不得省略该字段或沿用原始值。其它引擎仅对 `standalone` 场景执行该规范化；multi-node 和 PD 仍按原始命令及对应 reference 保留节点地址。
 
+任何引擎、任何场景的 `engine_config.host` 都禁止回环地址（`127.0.0.1`、`localhost`、`::1`）。原始命令绑回环通常来自裸机压测脚本；容器化部署中引擎只绑回环时，pod 日志显示启动成功，但平台探活和外部流量不可达，界面会一直停留在“部署中”，因此绑回环的原始命令必须改写为 `host: "0.0.0.0"`（multi-node/PD 也可用真实节点 IP 或部署占位符，如 `${NODE_IPS[0]}`、`$HEAD_IP`）。该禁令只针对 `engine_config.host`：`env` 层的回环值是 pod 内进程间通信，合法且必须按原值保留，不得顺带改写，例如 `HCCL_IF_IP: "127.0.0.1"`（单机 HCCL）、`GLOO/TP/HCCL_SOCKET_IFNAME: lo`、`SGLANG_ZBAL_BOOTSTRAP_URL`/`ZBCCL_BOOTSTRAP_URL: tcp://127.0.0.1:...`。
+
 ### 可选功能
 
 工具调用、reasoning、spec decoding、KV offloading、Mooncake/MemCache/LMCache 和 sparse index 等可独立开关功能放在 `features`，不重复留在 `engine_config`。除下述 `--chat-template` 例外外，`features.*.args` 保留原始 CLI flag，JSON 使用双引号字符串并转义内部双引号。
