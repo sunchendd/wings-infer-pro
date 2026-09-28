@@ -84,6 +84,13 @@ ARG WINGS_CONTROL_BUILD_DATE
 ENV WINGS_VERSION=${WINGS_VERSION} \
     WINGS_CONTROL_BUILD_DATE=${WINGS_CONTROL_BUILD_DATE}
 
+# 拷贝 Mooncake 脚本兜底资产(必须在下方 compile_wings.sh 加密 .py → .pyc 之前,
+# 与上方 log_analyzer 同模式):mooncake_store.py 会在 engine 容器(不同 Python
+# 版本)以 `python3 xxx.py` 方式执行,本容器(Python 3.10)编译的 .pyc 跨容器
+# 会 bad magic number,必须以 .py 形态随镜像交付;运行时由 wings-control 的
+# _install_mooncake_script_assets 拷到 /shared-volume/mooncake。
+COPY ./wings_control/src/wings_accel/distributed_offload/mooncake /opt/mooncake_assets
+
 # wings代码加密
 COPY ./compile_wings.sh /opt/
 RUN bash /opt/compile_wings.sh && \

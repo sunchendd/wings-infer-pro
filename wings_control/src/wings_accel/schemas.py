@@ -191,6 +191,43 @@ class SmartKVCacheConfig:
 
 
 @dataclass
+class DistributedKVCacheConfig:
+    """Mooncake standalone-store 分布式 KV 缓存的外部输入。
+
+    该配置与 ``SmartKVCacheConfig`` 并列：前者只控制本地 KV 卸载，后者只控制
+    每 Pod 一个 Mooncake real client。两者不能同时启用，因为 vLLM 只接受一个
+    ``kv_transfer_config``。
+
+    ``enabled=False`` 的三种来源(下游均按未启用自然跳过,与本地降级同构):
+    MaaS 开关未开 / auto 估算不足(loader 同一分支关闭)/ 模型 YAML 未声明
+    ``distributed_kv_offload``(loader 存在性护栏,优雅关闭继续推理)。
+
+    memory_offload_size_mode(与 ``SmartKVCacheConfig`` 同名口径):
+      - "" / false:不显式下发内存容量
+      - "auto"    :智能推荐——复用 memory_estimator 按 pod 内存 + 卡数估算 store
+                    可用内存;估算不足阈值时 loader 在与本地同一分支同时置
+                    enabled/memory_offload 为 False(单 WARN、不阻断),下游按
+                    未启用自然跳过(降级语义与本地卸载完全同构)
+      - 数值字符串:按 GB 固定配置
+    """
+
+    enabled: bool = False
+    protocol: str = ""
+    serving_config_id: str = ""
+    local_buffer_size: str = ""
+    memory_offload_enabled: bool = False
+    memory_offload_size_mode: str = "" # KV 卸载内存大小模式;MaaS `KV_MEM_OFFLOAD_SIZE`("auto" 或数值字符串,GB)
+    memory_capacity_gb: int = 0
+    disk_offload_enabled: bool = False
+    disk_capacity_gb: int = 0
+    disk_path: str = ""
+    # xcache(mooncake transfer engine)安装开关;MaaS `ENABLE_XCACHE_INSTALL`(缺省 True)。
+    # False = 跳过默认包注入、不解析 accel-version(假定引擎镜像已预装 xcache);
+    # 仅影响 install 段,YAML scheme 显式声明的同名包不受此开关影响(声明优先)。
+    install_transfer_engine: bool = True
+
+
+@dataclass
 class SmartKVSparseConfig:
     """KV cache 稀疏化配置 — 按策略裁剪/跳过 KV 以省显存。
 
@@ -270,6 +307,7 @@ class SmartAccelInput:
     smart_decoding_config: SmartDecodingConfig # 投机解码配置(开关 + 草稿路径)
     smart_kv_cache_config: SmartKVCacheConfig # KV 卸载 + QAT 配置(开关 + 容量模式)
     smart_kv_sparse_config: SmartKVSparseConfig # KV 稀疏化配置(开关 + 模式)
+    distributed_kv_cache_config: DistributedKVCacheConfig = field(default_factory=DistributedKVCacheConfig)
     # smart_accel 模板块(decoding/kv_offload/sparse/custom_features),来自 model.yaml
     smart_accel: Dict[str, Any] = field(default_factory=dict)
     # smart-accel 根目录(_resolve_smart_accel_root 结果);files 条目 src 解析基准。非 MaaS 参数,
@@ -298,6 +336,16 @@ class _FeatureOutput:
     pre_serve_master: List[str] = field(default_factory=list) # 仅 master 节点执行的框架合成命令
     pre_serve_client: List[str] = field(default_factory=list) # 仅 client(非 master)节点执行的框架合成命令
     generated_files: List[GeneratedFile] = field(default_factory=list) # 已渲染、未写盘的文件计划;由 wings-control 在产物阶段消费
+    # True 时 script_builder 将随包的脚本兜底资产复制到共享卷。
+    mooncake_script_assets_required: bool = False
+    # Mooncake master 分支段(early-exit 块的 shell 行)。仅 distributed_offload
+    # 使用;由受控包代码合成,非 YAML 任意 shell。空 → script_builder 不渲染该段。
+    mooncake_master_section: List[str] = field(default_factory=list)
+    # 传输引擎包("name:version",保留声明/目录名原样)。mooncake_master 二进制随该包
+    # 交付(install.py 以包内版本覆盖镜像预装旧版),master Pod 不跑引擎但拉起 master
+    # 须装它;script_builder 的 master 交付支线据此单独渲染只含该包的 install 段。
+    # None = 未声明且未注入(ENABLE_XCACHE_INSTALL=false / 特性未启用),镜像预装兜底。
+    mooncake_transfer_engine_package: Optional[str] = None
 
 
 @dataclass
@@ -317,6 +365,7 @@ class SmartAccelOutput:
     smart_decoding_scheme: Optional[str] = None # 投机解码选中方案,如 mtp/eagle3/suffix;未产出 → None
     smart_kv_sparse_scheme: Optional[str] = None # KV 稀疏化选中方案,如 indexcache;未产出 → None
     smart_kv_cache_scheme: Optional[str] = None # KV 卸载选中方案,如 cpu/disk/cpu_disk;未产出 → None
+    smart_distributed_kv_cache_scheme: Optional[str] = None # Mooncake standalone-store;未产出 → None
     engine_params: EngineParams = field(default_factory=EngineParams) # 合并后的 env + engine_config;产出侧,无 MaaS 来源
     # KV 内存卸载最终容量(GB,页面回显口径):auto 估算值或数值模式解析值;生效 → int,
     # auto 请求但估算不足被关 → 0(推荐值低于下限),未请求内存卸载(一级关/仅disk) → None。
@@ -336,3 +385,12 @@ class SmartAccelOutput:
     # 由 api.resolve_smart_accel_from_config 根据实际命中的 source_file 填写。
     pre_serve_trusted: Optional[bool] = None
     generated_files: List[GeneratedFile] = field(default_factory=list) # 已渲染、未写盘的文件计划;交由 wings-control 在非 dry-run 产物阶段写入
+    mooncake_component_sources: Dict[str, str] = field(default_factory=dict) # Mooncake 部件来源(四部件 yaml/script_fallback + transfer_engine yaml/injected/disabled),供审计和运行时日志使用
+    mooncake_script_assets_required: bool = False # 是否需安装脚本兜底共享卷资产
+    # Mooncake master 分支段(early-exit 块的 shell 行);空 → script_builder 不渲染该段。
+    mooncake_master_section: List[str] = field(default_factory=list)
+    # 传输引擎包("name:version"):distributed_offload 决策的注入/声明结果,供 wings-control
+    # 的 master Pod 交付支线渲染只含该包的 install 段(mooncake_master 二进制来源;
+    # engine Pod 的 install 段继续用全量 packages,不受此字段影响)。
+    # None = 未声明且未注入(ENABLE_XCACHE_INSTALL=false / 特性未启用),镜像预装兜底。
+    mooncake_transfer_engine_package: Optional[str] = None

@@ -88,6 +88,16 @@ class AccelResult:
     # 非空 pre-serve 命令的来源:True=包内资产,False=外部资产,None=来源未知。
     pre_serve_trusted: bool | None = None
     generated_files: list[GeneratedFileSpec] = field(default_factory=list)
+    # Mooncake 的四部件来源及脚本兜底资产安装标志，由 wings_accel 透传。
+    mooncake_component_sources: dict[str, str] = field(default_factory=dict)
+    mooncake_script_assets_required: bool = False
+    # Mooncake master 分支段(early-exit 块的 shell 行);由 wings_accel 透传,
+    # script_builder 在 install 段之后、pre-serve 之前渲染。空 → 不渲染。
+    mooncake_master_section: list[str] = field(default_factory=list)
+    # Mooncake 传输引擎包("name:version");由 wings_accel 透传。master Pod 交付支线
+    # 据此渲染只含该包的 install 段——mooncake_master 二进制随该包交付,镜像预装的
+    # 可能是旧版(缺新版 flag 会被 gflags 拒启)。None = 未注入/未声明,镜像预装兜底。
+    mooncake_transfer_engine_package: str | None = None
 
 
 def _import_accel():
@@ -106,8 +116,8 @@ def _import_accel():
     return mod if hasattr(mod, "resolve_smart_accel_from_config") else None
 
 
-def _as_bool(env: dict, key: str) -> bool:
-    """MaaS env dict 里 key 的值解析为布尔;缺失/空/非法 → False。
+def _as_bool(env: dict, key: str, default: bool = False) -> bool:
+    """MaaS env dict 里 key 的值解析为布尔;缺失/空/非法 → default(缺省 False)。
 
     统一走 :func:`env_utils.parse_bool`(真值集合 ``{1,true,yes,y,on}``),
     修复旧实现只认 ``"true"`` 导致 ``ENABLE_XXX=1/yes/on`` 不生效的问题。
@@ -115,12 +125,13 @@ def _as_bool(env: dict, key: str) -> bool:
     Args:
         env: MaaS 下发的环境变量字典。
         key: 待解析的开关键(如 ``ENABLE_SPARSE``)。
+        default: 未下发/空串/非法值时的回退(缺省 False;缺省开启的开关传 True)。
 
     Returns:
-        真值集合命中 → ``True``;缺失/空串/非法 → ``False``。
+        真值集合命中 → ``True``;假值集合命中 → ``False``;其余 → ``default``。
     """
     value = env.get(key)
-    return parse_bool(value if value is None else str(value), default=False)
+    return parse_bool(value if value is not None else str(value), default=default)
 
 
 def _as_int(value: Any) -> int:
@@ -169,8 +180,10 @@ def collect_accel_switches(env: dict) -> dict[str, Any]:
         # KV 稀疏
         "sparse_enabled": _as_bool(env, "ENABLE_SPARSE"),
         "sparse_level": env.get("SPARSE_LEVEL", "performance_first") or "performance_first",
-        # KV 卸载(一级 → 二级 mem/disk → 三级 qat)
-        "kv_offload_enabled": _as_bool(env, "ENABLE_KV_OFFLOAD") or mem_enabled or disk_enabled,
+        # KV 卸载(一级 → 二级 mem → 三级 disk)
+        # 注:ENABLE_KV_OFFLOAD(本地卸载,offload.py)与 ENABLE_DISTRIBUTED_KV_OFFLOAD
+        # (Mooncake 分布式 KV,distributed_offload.py)是并列且互斥的两套方案,不互相派生。
+        "kv_offload_enabled": _as_bool(env, "ENABLE_KV_OFFLOAD"),
         "kv_mem_enabled": mem_enabled,
         "kv_mem_size_mode": memory_size_mode,
         "kv_mem_size_gb": 0 if memory_size_mode in ("", "auto") else _as_int(memory_size_mode),
@@ -180,13 +193,33 @@ def collect_accel_switches(env: dict) -> dict[str, Any]:
         "kv_qat_enabled": _as_bool(env, "ENABLE_KV_QAT"),
         "kv_qat_compress_level": _as_int(env.get("KV_QAT_COMPRESS_LEVEL")),
         "kv_qat_instance_num": _as_int(env.get("KV_QAT_INSTANCE_NUM")),
+        "distributed_kv_enabled": _as_bool(env, "ENABLE_DISTRIBUTED_KV_OFFLOAD"),
+        "distributed_kv_protocol": str(env.get("KV_PROTOCOL") or "").strip().lower(),
+        "serving_config_id": str(env.get("SERVING_CONFIG_ID") or "").strip(),
+        "distributed_kv_local_buffer_size": str(env.get("KV_LOCAL_BUFFER_SIZE") or "").strip(),
+        # xcache(mooncake transfer engine,原名 mooncake_non_cuda)安装开关:缺省 True(注入并安装);
+        # False = 跳过默认包注入,假定引擎镜像已预装。仅影响 install 段,分布式 KV 特性
+        # 本身仍由上面的 ENABLE_DISTRIBUTED_KV_OFFLOAD 控制(两开关独立)。
+        "xcache_install_enabled": _as_bool(env, "ENABLE_XCACHE_INSTALL", default=True),
         "available_pod_mem_gb": _pod_mem_mib_to_gb(env.get("AVAILABLE_POD_MEM_SIZE")),
         # PD_ROLE 透传(env_utils 已校验);decoders/offload 内部按需自取。
         "pd_role": env.get("PD_ROLE") or None,
-        # KV 存储后端(memcache/mooncake)由 yaml 声明、按 connector 内容路由;不再有 KV_STORE_* env。
-        # 注:topology 不再在此从 env 推导(原 _resolve_topology 滥用 PD_ROLE/DISTRIBUTED/NODE_IPS,
-        # 且 PD_ROLE 与上方重复读)。topology 由上层 config_resolver 传入 apply_smart_accel。
     }
+
+
+# 安装类开关:只影响 install 段(包注入),不驱动任何 accel 特性,也不改写 PD-owned 的
+# rank/卡组/connector identity。"是否开启任一加速特性"的判定(*_enabled 且为 True)必须
+# 排除它们,否则缺省 True 的安装开关会让 PD 禁令误报、custom 路径误触发 apply_smart_accel。
+INSTALL_ONLY_ACCEL_SWITCHES = frozenset({"xcache_install_enabled"})
+
+
+def enabled_feature_switch_names(switches: dict[str, Any]) -> list[str]:
+    """值为 True 的特性类 *_enabled 开关名(排除安装类开关),按名排序保证报错信息稳定。"""
+    return sorted(
+        name
+        for name, value in switches.items()
+        if name.endswith("_enabled") and value is True and name not in INSTALL_ONLY_ACCEL_SWITCHES
+    )
 
 
 def active_accel_switch_names(env: dict) -> list[str]:
@@ -199,6 +232,8 @@ def active_accel_switch_names(env: dict) -> list[str]:
         names.append("ENABLE_SPARSE")
     if _as_bool(env, "ENABLE_KV_OFFLOAD"):
         names.append("ENABLE_KV_OFFLOAD")
+    if switches["distributed_kv_enabled"]:
+        names.append("ENABLE_DISTRIBUTED_KV_OFFLOAD")
     if switches["kv_mem_enabled"]:
         names.append("ENABLE_KV_MEM_OFFLOAD")
     if switches["kv_disk_enabled"]:
@@ -222,6 +257,8 @@ def _warn_unmet_accel_switches(switches: dict[str, Any], result: AccelResult, re
             unmet.append("ENABLE_KV_DISK_OFFLOAD")
         if not switches["kv_mem_enabled"] and not switches["kv_disk_enabled"]:
             unmet.append("ENABLE_KV_OFFLOAD")
+    if switches["distributed_kv_enabled"] and "smart_distributed_kv_cache_scheme" not in result.audit:
+        unmet.append("ENABLE_DISTRIBUTED_KV_OFFLOAD")
     if unmet:
         logger.warning(
             "SmartAccel disabled requested feature(s) %s: %s",
@@ -267,6 +304,19 @@ def build_smart_input(
             qat_enabled=switches["kv_qat_enabled"],
             qat_device_count=switches["kv_qat_instance_num"],
             qat_compression_level=switches["kv_qat_compress_level"],
+        ),
+        distributed_kv_cache_config=mod.DistributedKVCacheConfig(
+            enabled=switches["distributed_kv_enabled"],
+            protocol=switches["distributed_kv_protocol"],
+            serving_config_id=switches["serving_config_id"],
+            local_buffer_size=switches["distributed_kv_local_buffer_size"],
+            memory_offload_enabled=switches["kv_mem_enabled"],
+            memory_capacity_gb=switches["kv_mem_size_gb"],
+            disk_offload_enabled=switches["kv_disk_enabled"],
+            disk_capacity_gb=switches["kv_disk_size_gb"],
+            disk_path=switches["kv_disk_path"],
+            # .get 兜底:本函数兼容旧调用,switches 可能是手工构造、缺新键的字典
+            install_transfer_engine=switches.get("xcache_install_enabled", True),
         ),
         smart_kv_sparse_config=mod.SmartKVSparseConfig(
             enabled=switches["sparse_enabled"],
@@ -335,11 +385,15 @@ def collect_output(output) -> AccelResult:
             "smart_decoding_scheme": getattr(output, "smart_decoding_scheme", None),
             "smart_kv_sparse_scheme": getattr(output, "smart_kv_sparse_scheme", None),
             "smart_kv_cache_scheme": getattr(output, "smart_kv_cache_scheme", None),
+            "smart_distributed_kv_cache_scheme": getattr(output, "smart_distributed_kv_cache_scheme", None),
         }
         audit = {key: value for key, value in scheme_fields.items() if value is not None}
         diagnostics = dict(getattr(output, "diagnostics", {}) or {})
         if diagnostics:
             audit["diagnostics"] = diagnostics
+        mooncake_component_sources = dict(getattr(output, "mooncake_component_sources", {}) or {})
+        if mooncake_component_sources:
+            audit["mooncake_component_sources"] = mooncake_component_sources
         return AccelResult(
             engine_config=engine_config,
             env=env,
@@ -359,6 +413,11 @@ def collect_output(output) -> AccelResult:
             # 待写文件计划;getattr 兜底旧/stub 输出无该字段 → []。逐项用 getattr 归一,避免硬依赖
             # wings_accel.GeneratedFile 的具体结构(两侧可独立演进)。
             generated_files=generated_files,
+            mooncake_component_sources=mooncake_component_sources,
+            mooncake_script_assets_required=bool(getattr(output, "mooncake_script_assets_required", False)),
+            mooncake_master_section=list(getattr(output, "mooncake_master_section", []) or []),
+            # 传输引擎包(manifest 键原样);getattr 兜底旧/stub 输出无该字段 → None
+            mooncake_transfer_engine_package=getattr(output, "mooncake_transfer_engine_package", None),
             # 任一运行时产出均表示 accel 已生效。文件计划、依赖和 pre-serve 不能因
             # engine_config/env 为空而漏掉安装或启动准备阶段。
             enabled=bool(
@@ -457,6 +516,11 @@ def apply_smart_accel(
             pod_available_memory_gb=switches["available_pod_mem_gb"],
             tp_size=tp_size,
             dp_size=dp_size,
+            distributed_kv=switches["distributed_kv_enabled"],
+            distributed_protocol=switches["distributed_kv_protocol"],
+            serving_config_id=switches["serving_config_id"],
+            distributed_local_buffer_size=switches["distributed_kv_local_buffer_size"],
+            install_xcache=switches["xcache_install_enabled"],
             gpu_count=gpu_count or 1,
         )
         output = mod.resolve_smart_accel_from_config(
@@ -496,4 +560,12 @@ def apply_smart_accel(
         len(result.env),
         list(result.audit),
     )
+    if result.mooncake_component_sources:
+        logger.info(
+            "Mooncake distributed KV component sources: mooncake.json=%s, start_mooncake_client.sh=%s, env=%s, transfer_config=%s",
+            result.mooncake_component_sources.get("mooncake.json"),
+            result.mooncake_component_sources.get("start_mooncake_client.sh"),
+            result.mooncake_component_sources.get("env"),
+            result.mooncake_component_sources.get("transfer_config"),
+        )
     return result

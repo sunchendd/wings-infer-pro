@@ -48,7 +48,7 @@ from wings_ctl.pipeline import resolve_pipeline, resolve_pipeline_custom, run_pi
 from wings_ctl.rendering.env_renderer import render_env_export
 from wings_ctl.strategy.pre_template import pre_template_strategy
 from wings_ctl.translators.cli_translator import CLITranslator
-from wings_ctl.utils.env_utils import parse_node_ips
+from wings_ctl.utils.env_utils import is_mooncake_master_pod, parse_node_ips
 
 
 logger = logging.getLogger(LOGGER_LAUNCHER)
@@ -874,6 +874,9 @@ def main() -> None:
 
     # 先规范化运行时上下文和 PD 原子输入，再由大策略层推导 topology；两步都不读 YAML。
     rank_ip, master_ip, node_ips = _parse_runtime_context_from_env()
+    # Mooncake master 专属 Pod 身份(部署层事实,与推理集群上下文无关):pre_template
+    # 据此豁免标准多机的 MASTER_IP 强校验,交付层(script_builder)据此走 master 支线。
+    mooncake_master_pod = is_mooncake_master_pod()
     placement = None
     if rank_ip or node_ips or master_ip:
         placement = ClusterPlacement(rank_ip=rank_ip, node_ips=node_ips, master_ip=master_ip)
@@ -889,6 +892,7 @@ def main() -> None:
             distributed=args.distributed,
             pd_role=pd_input.role if pd_input else None,
             master_ip=master_ip,
+            is_mooncake_master=mooncake_master_pod,
         )
     except ValueError as exc:
         parser.error(str(exc))

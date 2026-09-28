@@ -1,6 +1,9 @@
-# SmartAccel 加速配置(decoding=dspark / kv_offload=cpu / sparse=indexcache)
+# SmartAccel 加速配置(decoding=dspark / kv_offload=cpu / sparse=indexcache / distributed_kv_offload=mooncake)
 # 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
 # 按 engine YAML features 生成:decoding=dspark / kv_offload=cpu(native) / sparse=indexcache。
+# distributed_kv_offload(Mooncake standalone-store)参考 v0.23.0/l20 DeepSeek-R1-Distill-Qwen-1.5B 实现:
+# 仅 standalone/multi_node 声明(PD 不支持),与本地 kv_offload 互斥(ENABLE_DISTRIBUTED_KV_OFFLOAD 驱动),
+# mooncake.json/start_mooncake_store.sh/env 三部件走受控脚本兜底,YAML 只声明 kv_transfer_config 锚点。
 model:
   name: DeepSeek-V4-Flash
   variant_name: "DeepSeek-V4-Flash-0731"
@@ -28,6 +31,20 @@ smart_accel:
           cli_params:
             kv_offloading_backend: native
             kv_offloading_size: '{memory_capacity_gb}'
+          envs: {}
+        distributed_kv_offload:
+        - name: mooncake_standalone_store
+          client:
+            rpc_port: 50052
+            master_rpc_port: 50051
+            metadata_port: 10080
+            metadata_path: /metadata
+            device_names: ""
+          cli_params:
+            kv_transfer_config:
+              kv_connector: MooncakeStoreConnector
+              kv_role: kv_both
+              kv_load_failure_policy: recompute
           envs: {}
         sparse:
         - name: performance_first
@@ -65,6 +82,20 @@ smart_accel:
           cli_params:
             kv_offloading_backend: native
             kv_offloading_size: '{memory_capacity_gb}'
+          envs: {}
+        distributed_kv_offload:
+        - name: mooncake_standalone_store
+          client:
+            rpc_port: 50052
+            master_rpc_port: 50051
+            metadata_port: 10080
+            metadata_path: /metadata
+            device_names: ""
+          cli_params:
+            kv_transfer_config:
+              kv_connector: MooncakeStoreConnector
+              kv_role: kv_both
+              kv_load_failure_policy: recompute
           envs: {}
         sparse:
         - name: performance_first

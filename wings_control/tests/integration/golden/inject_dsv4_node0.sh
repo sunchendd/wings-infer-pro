@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+set -o errexit
+set -o xtrace
 
 _wings_log() {
     local level="$1"; shift

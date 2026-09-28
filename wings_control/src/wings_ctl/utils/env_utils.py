@@ -196,6 +196,26 @@ def parse_node_ips(raw: Optional[str]) -> Optional[list]:
     return ips or None
 
 
+# Mooncake master 专属 Pod 身份判定的真值集合(单一判定点)。shell 侧判定见
+# start_command.sh 内嵌的 IS_MOONCAKE_MASTER 分支(字面 TRUE/true/1/True),本
+# 集合经 strip+lower 归一后覆盖同一口径,两侧漂移以本常量为准。
+_MOONCAKE_MASTER_TRUE = frozenset({"1", "true"})
+
+
+def is_mooncake_master_pod() -> bool:
+    """判断当前是否运行在 Mooncake master 专属 Pod 上。
+
+    ``IS_MOONCAKE_MASTER`` 由 MaaS 在创建 master 专属 Pod 时注入(所有容器可见,
+    含 wings-control 容器)。该身份是**部署层事实**,与推理集群上下文
+    (RANK_IP/NODE_IPS/MASTER_IP)无关——master Pod 不属于推理集群,不承担推理
+    职责;CLI 入口(pre_template)与交付层(script_builder)均以本函数判定。
+
+    Returns:
+        值归一后 ∈ {1,true} → True;未设置/空/其余 → False。
+    """
+    return str(os.environ.get("IS_MOONCAKE_MASTER", "") or "").strip().lower() in _MOONCAKE_MASTER_TRUE
+
+
 def get_server_port():
     """获取推理服务监听端口。
 

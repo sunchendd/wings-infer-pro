@@ -108,3 +108,40 @@ def test_cli_and_get_node_ips_consistent_when_unset(monkeypatch):
     monkeypatch.setenv("MASTER_IP", "10.0.0.1")
     _, _, cli_node_ips = _parse_runtime_context_from_env()
     assert (cli_node_ips or []) == _normalize_get_node_ips(get_node_ips()) == []
+
+
+# ── IS_MOONCAKE_MASTER 身份判定(单一判定点 env_utils.is_mooncake_master_pod)──
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("true", True),
+        ("TRUE", True),          # shell 判定字面量之一
+        ("True", True),          # shell 判定字面量之一
+        ("1", True),
+        (" true ", True),        # strip 首尾空白
+        ("false", False),
+        ("0", False),
+        ("", False),
+        (None, False),           # 未设置
+        ("yes", False),          # 故意比通用 parse_bool 窄:与脚本侧字面量集合一致
+    ],
+)
+def test_is_mooncake_master_pod_truth_set(monkeypatch, raw, expected):
+    """验证:真值集合与 start_command.sh 内 shell 判定(TRUE/true/1/True)归一后同口径。"""
+    if raw is None:
+        monkeypatch.delenv("IS_MOONCAKE_MASTER", raising=False)
+    else:
+        monkeypatch.setenv("IS_MOONCAKE_MASTER", raw)
+    from wings_ctl.utils.env_utils import is_mooncake_master_pod
+
+    assert is_mooncake_master_pod() is expected
+
+
+def test_is_mooncake_master_pod_unset(monkeypatch):
+    """验证:未设置 → False(master 判定缺省不命中)。"""
+    monkeypatch.delenv("IS_MOONCAKE_MASTER", raising=False)
+    from wings_ctl.utils.env_utils import is_mooncake_master_pod
+
+    assert is_mooncake_master_pod() is False

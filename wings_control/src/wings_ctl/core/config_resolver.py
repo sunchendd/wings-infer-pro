@@ -27,6 +27,7 @@ from wings_ctl.accel.smart_accel import (
     active_accel_switch_names,
     apply_smart_accel,
     collect_accel_switches,
+    enabled_feature_switch_names,
 )
 from wings_ctl.core.constants import DEFAULT_ENGINE_PORT
 from wings_ctl.core.models import (
@@ -2180,10 +2181,9 @@ def _resolve_pd_config(
 
     # 首期 PD 的 rank、卡组和 connector identity 由 ProcessPlan 独占。禁止 accel 再次
     # 改写这些字段，也禁止 user_cli 绕过 trace ownership 覆盖 PD-owned 参数。
+    # 安装类开关(xcache_install_enabled)只影响 install 段、不开特性，不在本禁令范围。
     accel_switches = collect_accel_switches(os.environ)
-    enabled_accel = sorted(
-        name for name, value in accel_switches.items() if name.endswith("_enabled") and value is True
-    )
+    enabled_accel = enabled_feature_switch_names(accel_switches)
     if enabled_accel:
         raise ValueError(f"PD does not support wings-accel switches: {enabled_accel}")
 
@@ -3990,7 +3990,7 @@ def resolve_custom_config(
     accel = AccelResult()
     accel_switches = collect_accel_switches(os.environ)
     drop_accel, accel_notes = _resolve_accel_policy(engine, os.environ)
-    accel_enabled = not drop_accel and any(v is True for k, v in accel_switches.items() if k.endswith("_enabled"))
+    accel_enabled = not drop_accel and bool(enabled_feature_switch_names(accel_switches))
     if accel_enabled:
         # custom 模式没有 engine recipe 可供 _peek_recipe_parallelism 读取；直接使用
         # config-file 规范化后的并行度。legacy adapter 已在上方补齐缺省 TP，DP

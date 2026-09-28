@@ -33,6 +33,7 @@ __all__ = [
     "EngineConfig",
     "SmartDecodingConfig",
     "SmartKVCacheConfig",
+    "DistributedKVCacheConfig",
     "SmartKVSparseConfig",
     "DeploymentMode",
 ]
@@ -67,6 +68,7 @@ from wings_accel.schemas import (
     EngineConfig,
     SmartDecodingConfig,
     SmartKVCacheConfig,
+    DistributedKVCacheConfig,
     SmartKVSparseConfig,
     DeploymentMode,
 )

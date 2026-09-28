@@ -29,6 +29,10 @@ from typing import Optional
 from wings_accel.conflict import resolve_conflicts
 from wings_accel.custom import smart_custom_features_expander
 from wings_accel.decoders import _normalize_optional_path, smart_decoding_expander
+from wings_accel.distributed_offload import (
+    apply_mooncake_script_fallback,
+    smart_distributed_kv_offload_expander,
+)
 from wings_accel.offload import smart_kv_offload_expander
 from wings_accel.render import PlaceholderContext, merge_engine_params
 from wings_accel.schemas import (
@@ -38,6 +42,7 @@ from wings_accel.schemas import (
     SmartAccelInput,
     SmartAccelOutput,
     SmartAccelPackageConflictError,
+    SmartAccelConfigurationError,
 )
 from wings_accel.sparse import smart_sparse_expander
 from wings_accel.validators import collect_smart_accel_warnings
@@ -134,6 +139,19 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
         ctx,
         engine_name=smart_input.engine_config.name,
     )
+    distributed_offload = smart_distributed_kv_offload_expander(
+        smart_input.distributed_kv_cache_config,
+        smart_accel.get("distributed_kv_offload"),
+        ctx,
+    )
+    distributed_offload = apply_mooncake_script_fallback(
+        smart_input.distributed_kv_cache_config,
+        distributed_offload,
+    )
+    if offload and distributed_offload:
+        raise SmartAccelConfigurationError(
+            "ENABLE_KV_OFFLOAD and ENABLE_DISTRIBUTED_KV_OFFLOAD cannot both produce kv_transfer_config"
+        )
 
     # Step 5: conflict resolution extension point(currently no-op)
     decoding, sparse, offload, _ = resolve_conflicts(
@@ -146,7 +164,7 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
 
     # custom_features:仅当 decoding/kv_cache/sparse 至少一项产出时才启用
     custom = None
-    if decoding or sparse or offload:
+    if decoding or sparse or offload or distributed_offload:
         custom = smart_custom_features_expander(smart_accel.get("custom_features"), ctx)
 
     # Step 6: assemble output
@@ -156,9 +174,14 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
     pre_serve_master: list = []
     pre_serve_client: list = []
     generated_files: list[GeneratedFile] = []
+    mooncake_component_sources: dict[str, str] = {}
+    mooncake_script_assets_required = False
+    mooncake_master_section: list[str] = []
+    mooncake_transfer_engine_package: str | None = None
     for feature_name, feature in (
         ("decoding", decoding),
         ("kv_offload", offload),
+        ("distributed_kv_offload", distributed_offload),
         ("sparse", sparse),
         ("custom_features", custom),
     ):
@@ -169,6 +192,11 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
             pre_serve_master.extend(feature.pre_serve_master)
             pre_serve_client.extend(feature.pre_serve_client)
             generated_files.extend(feature.generated_files)
+            if feature_name == "distributed_kv_offload":
+                mooncake_component_sources = dict(feature.mooncake_component_sources)
+                mooncake_script_assets_required = feature.mooncake_script_assets_required
+                mooncake_master_section = list(feature.mooncake_master_section)
+                mooncake_transfer_engine_package = feature.mooncake_transfer_engine_package
     _ensure_unique_generated_file_paths(generated_files)
     # 去重保序:同一依赖/命令被多个特性声明时只取一次
     packages = _merge_package_requirements(package_requirements)
@@ -177,15 +205,19 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
     pre_serve_client = list(dict.fromkeys(pre_serve_client))
 
     diagnostics = _collect_diagnostics(
-        {"decoding": decoding, "kv_cache": offload, "sparse": sparse},
+        {"decoding": decoding, "kv_cache": offload, "distributed_kv_cache": distributed_offload, "sparse": sparse},
     )
 
     return SmartAccelOutput(
         smart_decoding_scheme=decoding.scheme if decoding else None,
         smart_kv_cache_scheme=offload.scheme if offload else None,
+        smart_distributed_kv_cache_scheme=distributed_offload.scheme if distributed_offload else None,
         smart_kv_sparse_scheme=sparse.scheme if sparse else None,
         engine_params=engine_params,
-        kv_mem_offload_size_gb=_resolve_kv_mem_offload_size_gb(smart_input.smart_kv_cache_config),
+        kv_mem_offload_size_gb=_resolve_kv_mem_offload_size_gb(
+            smart_input.smart_kv_cache_config,
+            smart_input.distributed_kv_cache_config,
+        ),
         kv_disk_offload_path=_resolve_kv_disk_offload_path(smart_input.smart_kv_cache_config, offload),
         diagnostics=diagnostics,
         packages=packages,
@@ -193,6 +225,10 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
         pre_serve_master=pre_serve_master,
         pre_serve_client=pre_serve_client,
         generated_files=generated_files,
+        mooncake_component_sources=mooncake_component_sources,
+        mooncake_script_assets_required=mooncake_script_assets_required,
+        mooncake_master_section=mooncake_master_section,
+        mooncake_transfer_engine_package=mooncake_transfer_engine_package,
     )
 
 
@@ -231,7 +267,7 @@ def _memory_capacity_gb(kv) -> int:
         return 0
 
 
-def _resolve_kv_mem_offload_size_gb(kv) -> Optional[int]:
+def _resolve_kv_mem_offload_size_gb(kv, dkv=None) -> Optional[int]:
     """推导 KV 内存卸载页面回显容量(GB)。
 
     语义对齐老仓库 resolve_effective_kv_mem_offload_size 的页面口径:
@@ -239,12 +275,20 @@ def _resolve_kv_mem_offload_size_gb(kv) -> Optional[int]:
       - 请求过内存卸载(auto/数值)但未生效(auto 估算不足 / YAML 无内存方法)→ 0
         (推荐结果低于生效下限);
       - 内存卸载生效 → 渲染容量(loader 已解析:auto=估算值 / 数值=固定 GB)。
+
+    本地(``kv``)与分布式(``dkv``)互斥:本地一级关时用分布式配置走同一口径
+    (生效 → memory_capacity_gb;auto 降级 → 0;未请求 → None)。
     """
     if not getattr(kv, "enabled", False):
-        return None
+        kv = dkv
+        if kv is None:
+            return None
     if not getattr(kv, "memory_offload_enabled", False):
         mode = str(getattr(kv, "memory_offload_size_mode", "") or "").strip().lower()
         return 0 if mode else None
+    if getattr(kv, "memory_capacity_gb", 0):
+        # 分布式:loader 已把解析容量(auto 估算/数值)写进 memory_capacity_gb
+        return int(kv.memory_capacity_gb)
     capacity = _memory_capacity_gb(kv)
     return capacity if capacity > 0 else 0
 
@@ -263,13 +307,23 @@ def _resolve_kv_disk_offload_path(kv, offload) -> Optional[str]:
 
 
 def _build_placeholder_context(smart_input: SmartAccelInput) -> PlaceholderContext:
-    """从 SmartAccelInput 各子配置派生占位符上下文。"""
+    """从 SmartAccelInput 各子配置派生占位符上下文。
+
+    内存容量字段优先取本地 KV 卸载配置;本地 memory offload 未开而分布式
+    (Mooncake)memory offload 开时取分布式配置——两方案互斥,使分布式 YAML
+    scheme 的 files/envs 可直接复用 ``{memory_capacity_gb}`` 系占位符
+    (容量来源同为 KV_MEM_OFFLOAD_SIZE 的 auto 估算/数值解析)。
+    """
     kv = smart_input.smart_kv_cache_config
-    # 端口与协议由 YAML 资产明文声明(不再代码写死);IP 经 {rank_ip}/{master_ip} → ${VAR}
-    # 由运行时 envsubst 展开。KV 工具选择由 yaml 声明 + offload 按 connector 内容路由。
+    dkv = smart_input.distributed_kv_cache_config
+    memory_capacity = _memory_capacity_gb(kv)
+    memory_on = bool(kv.memory_offload_enabled)
+    if not memory_on and getattr(dkv, "memory_offload_enabled", False):
+        memory_capacity = int(getattr(dkv, "memory_capacity_gb", 0) or 0)
+        memory_on = True
     return PlaceholderContext(
-        memory_capacity_gb=_memory_capacity_gb(kv),
-        memory_offload_enabled=kv.memory_offload_enabled,
+        memory_capacity_gb=memory_capacity,
+        memory_offload_enabled=memory_on,
         disk_capacity_gb=kv.disk_capacity_gb,
         disk_offload_enabled=kv.disk_offload_enabled,
         disk_path=kv.disk_path,

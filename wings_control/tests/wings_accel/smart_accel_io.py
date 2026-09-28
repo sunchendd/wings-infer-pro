@@ -72,6 +72,7 @@ from wings_accel.schemas import (
     SmartAccelInput,
     SmartAccelOutput,
     SmartDecodingConfig,
+    DistributedKVCacheConfig,
     SmartKVCacheConfig,
     SmartKVSparseConfig,
 )
@@ -105,8 +106,9 @@ _SCHEME_GETTER = {
     "decoding": lambda o: o.smart_decoding_scheme,
     "sparse": lambda o: o.smart_kv_sparse_scheme,
     "offload": lambda o: o.smart_kv_cache_scheme,
+    "distributed": lambda o: o.smart_distributed_kv_cache_scheme,
 }
-_DIAG_KEY = {"decoding": "decoding", "sparse": "sparse", "offload": "kv_cache"}
+_DIAG_KEY = {"decoding": "decoding", "sparse": "sparse", "offload": "kv_cache", "distributed": "distributed_kv_cache"}
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -267,6 +269,7 @@ def _disable_all_features(inp: SmartAccelInput) -> None:
     """把三个特性 intent 全部置为关闭(隔离测试的起点,再按需开一个)。"""
     inp.smart_decoding_config = SmartDecodingConfig(enabled=False)
     inp.smart_kv_cache_config = SmartKVCacheConfig(enabled=False)
+    inp.distributed_kv_cache_config = DistributedKVCacheConfig(enabled=False)
     inp.smart_kv_sparse_config = SmartKVSparseConfig(enabled=False)
 
 
@@ -437,10 +440,34 @@ def _test_offload(base: SmartAccelInput) -> List[VariantResult]:
     return results
 
 
+def _test_distributed(base: SmartAccelInput) -> List[VariantResult]:
+    """Mooncake standalone-store: 单独启用每个声明的 distributed scheme。"""
+    results: List[VariantResult] = []
+    for scheme in _as_scheme_list((base.smart_accel or {}).get("distributed_kv_offload")):
+        inp = deepcopy(base)
+        inp.smart_accel["distributed_kv_offload"] = [scheme]
+        inp.smart_accel["decoding"] = []
+        inp.smart_accel["sparse"] = []
+        inp.smart_accel["kv_offload"] = []
+        inp.smart_accel["custom_features"] = []
+        _disable_all_features(inp)
+        inp.distributed_kv_cache_config = DistributedKVCacheConfig(
+            enabled=True,
+            protocol="rdma",
+            serving_config_id="matrix-test",
+            local_buffer_size="1GB",
+            memory_offload_enabled=True,
+            memory_capacity_gb=_MEM_CAPACITY_GB,
+        )
+        results.append(_run_one("distributed", str(scheme.get("name") or "?"), inp, expect=str(scheme.get("name") or "")))
+    return results
+
+
 _FEATURE_TESTERS = {
     "decoding": _test_decoding,
     "sparse": _test_sparse,
     "offload": _test_offload,
+    "distributed": _test_distributed,
 }
 
 
@@ -569,7 +596,7 @@ def _run_scan(args, dirs: List[str]) -> int:
         )
         return 2
 
-    features = args.feature or ["decoding", "sparse", "offload"]
+    features = args.feature or ["decoding", "sparse", "offload", "distributed"]
     if args.limit:
         files = files[: args.limit]
 
@@ -726,7 +753,7 @@ def _coverage(files: List[Path], features: List[str]) -> Dict[str, Dict[str, Lis
     return cov
 
 
-_FEAT_TITLE = {"decoding": "投机 decoding", "sparse": "稀疏 sparse", "offload": "卸载 offload"}
+_FEAT_TITLE = {"decoding": "投机 decoding", "sparse": "稀疏 sparse", "offload": "卸载 offload", "distributed": "分布式 Mooncake"}
 
 
 def _print_coverage(
@@ -781,7 +808,7 @@ def _run_coverage(args, dirs: List[str]) -> int:
             file=sys.stderr,
         )
         return 2
-    features = args.feature or ["decoding", "sparse", "offload"]
+    features = args.feature or ["decoding", "sparse", "offload", "distributed"]
     cov = _coverage(files, features)
     if args.json:
         print(json.dumps(_coverage_to_json(cov, features, len(files), dirs), indent=2, ensure_ascii=False))
@@ -892,7 +919,7 @@ def _save_samples(args, dirs: List[str]) -> int:
             file=sys.stderr,
         )
         return 2
-    features = args.feature or ["decoding", "sparse", "offload"]
+    features = args.feature or ["decoding", "sparse", "offload", "distributed"]
     cov = _coverage(files, features)
 
     # offload file plans use a temporary path root and are validated in memory
@@ -971,7 +998,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="每种变体取一条代表路径,把完整输出按特性写成 markdown(DIR 目录)",
     )
     parser.add_argument(
-        "--feature", nargs="+", choices=["decoding", "sparse", "offload"], help="只测指定特性(默认全部)"
+        "--feature", nargs="+", choices=["decoding", "sparse", "offload", "distributed"], help="只测指定特性(默认全部)"
     )
     parser.add_argument("--filter", default=None, help="路径子串过滤(不区分大小写)")
     parser.add_argument("--limit", type=int, default=0, help="最多扫描 N 个模型(0=不限)")
@@ -1017,7 +1044,7 @@ def main() -> int:
         ypath = Path(args.yaml_path)
         if not ypath.is_file():
             raise SystemExit(f"YAML 不存在: {ypath}")
-        features = args.feature or ["decoding", "sparse", "offload"]
+        features = args.feature or ["decoding", "sparse", "offload", "distributed"]
         # offload file plans use a temporary path root; displayed commands are normalized to /shared-volume
         tmpdir = tempfile.mkdtemp(prefix="smart_accel_io_")
         os.environ["SHARED_VOLUME_PATH"] = tmpdir
