@@ -63,8 +63,10 @@ def test_pre_template_non_master_pod_keeps_master_ip_gate() -> None:
 
 
 def test_pre_template_pd_role_outranks_mooncake_master() -> None:
-    """pd_role 优先级高于 master Pod 判定(PD_ROLE 与 IS_MOONCAKE_MASTER 互斥,
-    真实部署不会同时出现;此断言固定优先级顺序,防止未来调整时语义漂移)。"""
+    """pd_role 优先级高于 master Pod 判定(PD_ROLE 与 IS_MOONCAKE_MASTER 互斥)。
+
+    真实部署不会同时出现;此断言固定优先级顺序,防止未来调整时语义漂移。
+    """
     assert pre_template_strategy(
         "vllm", pd_role=PdRole.PREFILL, distributed=True, is_mooncake_master=True
     ) == ("vllm", Topology.PD_PREFILL)

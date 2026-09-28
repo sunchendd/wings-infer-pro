@@ -253,6 +253,7 @@
 --ssl-keyfile
 --stream-interval
 --structured-outputs-config
+--swa-bounded-replay
 --tensor-parallel-size
 --tokenizer
 --tokenizer-mode

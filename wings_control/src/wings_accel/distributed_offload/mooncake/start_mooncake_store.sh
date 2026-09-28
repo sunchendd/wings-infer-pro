@@ -91,23 +91,12 @@ function set_env() {
     export MOONCAKE_OFFLOAD_SLICE_MIN_THRESHOLD=$((100 * 1024 * 1024))
   fi
 
-  # ssd数据持久化配置（可选）
-  #export MOONCAKE_OFFLOAD_METADATA_PERSISTENCE=1
-  # 元数据空间大小，单位MB，默认10G
-  #export MOONCAKE_OFFLOAD_META_REGION_SIZE_MB=1000
-  # KV数据空间大小。 单位MB，默认MOONCAKE_OFFLOAD_TOTAL_SIZE_LIMIT_BYTES - MOONCAKE_OFFLOAD_META_REGION_SIZE_MB
-  #export MOONCAKE_OFFLOAD_TOTAL_SIZE_LIMIT_BYTES=1153433600000
-  # 可选。 日志文件最多保存多少条日志，就要压缩成快照文件，默认 10万
-  #export MOONCAKE_OFFLOAD_DATA_REGION_SIZE_MB=1000000
-
-  # 启动mooncake_store
+  # 启动存储服务前,先取本机对外地址
   export RANK_IP=$(hostname -i | awk '{for(i=1;i<=NF;i++) if($i!="127.0.0.1") print $i; exit}')
-
-  # offload路径固定为 /tmp/kvcacheoffload，无需拼接路径
+  # 卸载目录与存储端口固定,无需拼接
   export MC_STORE_HTTP_PORT=9300
   export MOONCAKE_OFFLOAD_FILE_STORAGE_PATH="${OFFLOAD_CLEANUP_DIR}"
-
-  # global-segment-size 单位转换为 MB (mooncake_store.py 期望单位为 MB，如 25GB -> 25600MB)
+  # 将内存容量换算为兆字节单位
   export GLOBAL_SEGMENT_SIZE_MB=$((KV_MEM_OFFLOAD_SIZE * 1024))
   # 设置服务名称
   export SERVICE_NAME="mooncake-service-${SERVING_CONFIG_ID}"

@@ -584,9 +584,10 @@ def test_master_pod_holds_when_feature_not_effective(tmp_path, monkeypatch):
 
 
 def test_master_pod_prefers_feature_section_when_active(tmp_path, monkeypatch):
-    """master Pod + 特性生效(accel 产出 master 段)→ 专属交付支线:install 段(仅传输
-    引擎包,mooncake_master 二进制来源)先于产出段,资产/env 文件照常落盘,不注入
-    log_analyzer / 引擎命令。"""
+    """master Pod + 特性生效(accel 产出 master 段)→ 专属交付支线。
+
+    install 段(仅传输引擎包,mooncake_master 二进制来源)先于产出段,资产/env 文件照常落盘,不注入 log_analyzer / 引擎命令。
+    """
     from wings_ctl.common.settings import settings
 
     shared = tmp_path / "shared"
@@ -632,8 +633,10 @@ def test_master_pod_prefers_feature_section_when_active(tmp_path, monkeypatch):
 
 
 def test_master_pod_skips_install_when_transfer_engine_not_injected(tmp_path, monkeypatch):
-    """master Pod + 特性生效但传输引擎包未注入(ENABLE_XCACHE_INSTALL=false)→ 不渲染
-    install 段:由镜像预装的 mooncake_master 兜底,与 engine Pod 同开关语义。"""
+    """master Pod + 特性生效但传输引擎包未注入(ENABLE_XCACHE_INSTALL=false)→ 不渲染 install 段。
+
+    由镜像预装的 mooncake_master 兜底,与 engine Pod 同开关语义。
+    """
     from wings_ctl.common.settings import settings
 
     monkeypatch.setattr(settings, "ADVANCED_FEATURES_FILE", str(tmp_path / "advanced_features.json"))
@@ -656,8 +659,7 @@ def test_master_pod_skips_install_when_transfer_engine_not_injected(tmp_path, mo
 
 
 def test_mooncake_master_pod_delivery_precedes_placeholder_view(tmp_path, monkeypatch):
-    """master Pod 的 resolve 形态是 multi_node 占位视图(nodes 非空,无运行时上下文):
-    交付支线必须先于占位检查,否则得到 exit 3 的占位脚本,资产与 master 分支都不会产出。"""
+    """master Pod 的 resolve 形态是 multi_node 占位视图(nodes 非空,无运行时上下文):交付支线必须先于占位检查,否则得到 exit 3 的占位脚本,资产与 master 分支都不会产出。"""
     from wings_ctl.common.settings import settings
 
     monkeypatch.setattr(settings, "ADVANCED_FEATURES_FILE", str(tmp_path / "advanced_features.json"))

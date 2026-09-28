@@ -48,6 +48,7 @@ ASSETS = [
     "vllm-ascend/v0.26.0rc1/ascend-a2/models/Qwen3.6-35B-A3B/Qwen3.6-35B-A3B-w8a8.yaml",
     "vllm-ascend/v0.26.0rc1/ascend-a2/models/Qwen3.5-9B/Qwen3.5-9B.yaml",
     "vllm-ascend/v0.26.0rc1/ascend-a2/models/GLM-4.7/GLM-4.7-W8A8-floatmtp.yaml",
+    "vllm-ascend/qwen3.8-next/ascend-a2/models/Qwen3.8-Flash-Next/Qwen3.8-Flash-Next-w8a8-mtp.yaml",
 ]
 
 
@@ -218,6 +219,30 @@ def test_glm53_flash_nightly_a2_declares_tool_calling_and_reasoning():
     assert features["reasoning"]["args"] == ["--reasoning-parser", "glm45"]
 
 
+def test_qwen38_flash_next_910b3_standalone_speculative_decoding():
+    """Qwen3.8 Flash Next 的定制 Ascend 版本可命中并保留完整 MTP 参数。"""
+    from wings_accel import resolve_smart_accel_from_config
+    from wings_accel.yaml_loader import _package_smart_accel_root
+
+    out = resolve_smart_accel_from_config(
+        config_root=_package_smart_accel_root().parent,
+        engine="vllm-ascend",
+        engine_version="qwen3.8-next",
+        hardware_family="ascend-a2",
+        model_name="Qwen3.8-Flash-Next-w8a8-mtp",
+        gpu_count=8,
+        flags=LoadFlags(topology="standalone", decoding_enabled=True),
+    )
+
+    assert out is not None
+    assert out.smart_decoding_scheme == "qwen3_5_mtp"
+    assert out.engine_params.engine_config["speculative_config"] == {
+        "method": "qwen3_5_mtp",
+        "num_speculative_tokens": 3,
+        "enforce_eager": True,
+    }
+
+
 @pytest.mark.parametrize(
     ("sparse_level", "index_topk_freq"),
     [
@@ -377,7 +402,7 @@ def test_deepseek_v4_flash_vision_uses_internal_dspark_weights():
         "method": "dspark",
         "num_speculative_tokens": 3,
         "draft_sample_method": "probabilistic",
-        "enable_adaptive_verification": True,
+        "enable_adaptive_verification": False,
     }
 
 

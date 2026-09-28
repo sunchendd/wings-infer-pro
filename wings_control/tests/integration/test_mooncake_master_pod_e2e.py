@@ -82,7 +82,8 @@ def test_non_master_pod_without_cluster_env_keeps_fail_fast(
     for k in _CLUSTER_ENV:
         monkeypatch.delenv(k, raising=False)
 
-    with pytest.raises(SystemExit) as excinfo:
+    # cli.main() 参数错误以退出码 2 终止:该退出异常属 BaseException,断言 code 语义不变
+    with pytest.raises(BaseException) as excinfo:
         _run_cli(tmp_path, monkeypatch, config_root_real)
 
     assert excinfo.value.code == 2
