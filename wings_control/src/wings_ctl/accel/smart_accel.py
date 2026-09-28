@@ -94,6 +94,10 @@ class AccelResult:
     # Mooncake master 分支段(early-exit 块的 shell 行);由 wings_accel 透传,
     # script_builder 在 install 段之后、pre-serve 之前渲染。空 → 不渲染。
     mooncake_master_section: list[str] = field(default_factory=list)
+    # Mooncake 传输引擎包("name:version");由 wings_accel 透传。master Pod 交付支线
+    # 据此渲染只含该包的 install 段——mooncake_master 二进制随该包交付,镜像预装的
+    # 可能是旧版(缺新版 flag 会被 gflags 拒启)。None = 未注入/未声明,镜像预装兜底。
+    mooncake_transfer_engine_package: str | None = None
 
 
 def _import_accel():
@@ -412,6 +416,8 @@ def collect_output(output) -> AccelResult:
             mooncake_component_sources=mooncake_component_sources,
             mooncake_script_assets_required=bool(getattr(output, "mooncake_script_assets_required", False)),
             mooncake_master_section=list(getattr(output, "mooncake_master_section", []) or []),
+            # 传输引擎包(manifest 键原样);getattr 兜底旧/stub 输出无该字段 → None
+            mooncake_transfer_engine_package=getattr(output, "mooncake_transfer_engine_package", None),
             # 任一运行时产出均表示 accel 已生效。文件计划、依赖和 pre-serve 不能因
             # engine_config/env 为空而漏掉安装或启动准备阶段。
             enabled=bool(

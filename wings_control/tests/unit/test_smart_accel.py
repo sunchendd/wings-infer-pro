@@ -218,6 +218,25 @@ def test_collect_output_generated_files_absent_defaults_empty():
     assert r.generated_files == []
 
 
+def test_collect_output_maps_mooncake_transfer_engine_package():
+    """验证 output.mooncake_transfer_engine_package → AccelResult 原样透传(manifest 键)。
+
+    master Pod 交付支线据此渲染只含该包的 install 段(mooncake_master 二进制来源);
+    旧/stub 输出无该字段 → None(getattr 兜底,不崩)。
+    """
+    out = types.SimpleNamespace(
+        engine_params=types.SimpleNamespace(engine_config={"x": "1"}, env={"E": "1"}),
+        mooncake_transfer_engine_package="xcache_cuda:v0.3.12.post1",
+    )
+    r = collect_output(out)
+    assert r.mooncake_transfer_engine_package == "xcache_cuda:v0.3.12.post1"
+
+    legacy = types.SimpleNamespace(
+        engine_params=types.SimpleNamespace(engine_config={"x": "1"}, env={"E": "1"}),
+    )
+    assert collect_output(legacy).mooncake_transfer_engine_package is None
+
+
 def test_collect_output_plan_only_marks_accel_enabled():
     """文件计划、依赖和 pre-serve 本身也是有效 accel 运行时产出。"""
     out = types.SimpleNamespace(

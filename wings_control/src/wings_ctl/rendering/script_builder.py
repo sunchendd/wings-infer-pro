@@ -21,7 +21,7 @@ import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from wings_ctl.accel.smart_accel import GeneratedFileSpec
+from wings_ctl.accel.smart_accel import AccelResult, GeneratedFileSpec
 from wings_ctl.common.settings import settings
 from wings_ctl.core.models import EngineProcessPlan, ResolvedConfig, SystemSetup, TracedValue
 from wings_ctl.core.system_setup import render_source_command_blocks
@@ -36,6 +36,7 @@ from wings_ctl.engines.vllm_adapter import (
     resolve_model_traced,
 )
 from wings_ctl.rendering.env_renderer import render_env_export
+from wings_ctl.utils.env_utils import is_mooncake_master_pod
 
 logger = logging.getLogger(__name__)
 
@@ -648,14 +649,12 @@ def _render_accel_pre_serve_section(
 def _is_mooncake_master_pod() -> bool:
     """判断当前 wings-control 是否运行在 Mooncake master 专属 Pod 上。
 
-    ``IS_MOONCAKE_MASTER`` 由 MaaS 在创建 master 专属 Pod 时注入(所有容器可见,
-    含 wings-control 容器),真值集合与脚本内 shell 判定保持一致(TRUE/true/1/True)。
+    委托 :func:`wings_ctl.utils.env_utils.is_mooncake_master_pod`(单一判定点,
+    与 CLI 入口共用);真值集合与脚本内 shell 判定保持一致(TRUE/true/1/True)。
     该身份是**部署层事实**,与分布式 KV 卸载特性是否产出无关——据此决定 master
     分支段的存在性,防止特性降级时 master Pod 落到 vllm serve 路径。
     """
-    return str(os.environ.get("IS_MOONCAKE_MASTER", "") or "").strip().lower() in {
-        "true", "1",
-    }
+    return is_mooncake_master_pod()
 
 
 def _render_mooncake_master_hold_section() -> List[str]:
@@ -685,6 +684,128 @@ def _render_mooncake_master_hold_section() -> List[str]:
         "fi",
         "",
     ]
+
+
+def _mooncake_kv_mem_env_overrides(accel: AccelResult) -> Optional[Dict[str, str]]:
+    """KV_MEM_OFFLOAD_SIZE=auto 智能推荐的解析值覆盖(client.env / master.env 共用)。
+
+    accel 已把估算值解析进 ``kv_mem_offload_size_gb``,以其覆盖 env 文件的原始
+    "auto" 字面量(脚本只见数值)。本地/分布式互斥,mooncake 资产只在分布式产出
+    时装载,不会误伤本地场景。主管线与 master 交付支线共用本助手,保证两处口径一致。
+    """
+    resolved_size = accel.kv_mem_offload_size_gb
+    if resolved_size and resolved_size > 0:
+        return {"KV_MEM_OFFLOAD_SIZE": str(resolved_size)}
+    return None
+
+
+def _deliver_mooncake_master_pod(
+    resolved: ResolvedConfig,
+    start_path: Path,
+    repro_path: Path,
+) -> Tuple[Path, Path]:
+    """Mooncake master 专属 Pod 的交付支线(不渲染引擎生命周期)。
+
+    master Pod 与 engine Pod 走同一 CLI → resolve → accel 决策链(pre_template 对
+    master Pod 推导与 engine Pod 相同的 MULTI_NODE 拓扑值,scheme 匹配/auto 降级
+    判定同源),本支线只接管**交付层**:
+
+    - advanced_features.json / accel 文件计划 / mooncake 资产与 env 文件照常落盘
+      (health 回显与 engine Pod 同源同值);
+    - start_command.sh 含 install 段(**仅传输引擎包**)+ master 分支段(特性生效,
+      拉起 mooncake_master 并等待)或挂起兜底段(特性未生效,ERROR + hold)。
+      mooncake_master 二进制随 xcache 传输引擎包交付,install.py 以包内新版覆盖镜像
+      预装的旧版(旧版缺新版 flag 会被 gflags 拒启,master Pod 秒退 CrashLoop);
+      master Pod 不跑引擎,不装引擎依赖包。传输引擎包未注入(ENABLE_XCACHE_INSTALL=false)
+      时不渲染 install 段,由镜像预装兜底——与 engine Pod 同开关语义。**不注入**
+      log_analyzer / vllm argv——master Pod 在任何情况下都不承担推理职责
+      (契约见 docs/contracts/wings-accel-interface.md);
+    - 防御尾:运行期 IS_MOONCAKE_MASTER 未命中时 ERROR + exit 1,绝不静默成功。
+
+    本支线位于 multi_node 占位检查**之前**:master Pod 无运行时上下文,resolve 产出
+    resolved.nodes 占位视图,若落进占位支线会得到 exit 3 的不可执行脚本,资产与
+    master 分支都不会产出。log_analyzer 守卫不适用(无引擎可监控,与 worker/占位
+    同类豁免)。
+
+    Args:
+        resolved: 解析结果(master Pod 上通常为 multi_node 占位视图,accel 已合并)。
+        start_path: start_command.sh 落盘路径。
+        repro_path: repro.sh 落盘路径。
+
+    Returns:
+        ``(start_path, repro_path)`` 元组。
+    """
+    # advanced_features.json(使能状态单一真相源)与 accel 文件计划照常落盘。
+    _write_advanced_features_json(resolved)
+    _write_accel_generated_files(resolved.accel.generated_files)
+    if resolved.accel.mooncake_script_assets_required:
+        _install_mooncake_script_assets()
+        env_overrides = _mooncake_kv_mem_env_overrides(resolved.accel)
+        _write_mooncake_client_env(env_overrides)
+        _write_mooncake_master_env(env_overrides)
+
+    # 特性生效 → 产出段;未生效(auto 降级/开关未开)→ 挂起兜底段(与主管线
+    # build_scripts 的二选一同构,复用同一段源)。
+    section = resolved.accel.mooncake_master_section or _render_mooncake_master_hold_section()
+
+    # install 段(仅传输引擎包,段序与 engine Pod 一致:install 在 master 分支段之前)。
+    # mooncake_master 二进制随该包交付,镜像预装的可能是旧版——不装则 start 脚本传的
+    # 新版 flag 会被旧二进制 gflags 拒启。未注入(ENABLE_XCACHE_INSTALL=false)→ 不渲染。
+    transfer_package = getattr(resolved.accel, "mooncake_transfer_engine_package", None)
+    install_lines: List[str] = []
+    if transfer_package:
+        _validate_accel_packages([transfer_package])
+        install_lines = _render_accel_install_preamble(
+            resolved.engine,
+            # 与主管线同口径:优先 requested,回退 resolved(_render 内统一补 v 前缀)。
+            resolved.engine_version.requested or resolved.engine_version.resolved,
+            [transfer_package],
+        )
+
+    lines = [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        "set -o errexit",
+        "set -o xtrace",
+        "",
+        *_wings_log_fn_lines(),
+        "",
+        *install_lines,
+        *section,
+        "# master 交付支线防御尾:IS_MOONCAKE_MASTER 未命中时绝不静默成功,",
+        "# 也不回退执行任何引擎命令。",
+        '_wings_log ERROR "mooncake master delivery reached end without IS_MOONCAKE_MASTER match"',
+        "exit 1",
+        "",
+    ]
+
+    start_temp = start_path.with_name(f".{start_path.name}.tmp")
+    start_temp.write_text("\n".join(lines), encoding="utf-8")
+    start_temp.chmod(0o755)
+    os.replace(start_temp, start_path)
+
+    # master 交付本身就是完整可复现脚本(无占位符),repro 附来源头注释。
+    repro_lines = [
+        "# ─── Reproducibility Script (mooncake master pod delivery) ───",
+        f"# Generated from: {', '.join(resolved.source_files)}",
+        f"# Hardware: {resolved.hardware.hardware_family}",
+        f"# Engine: {resolved.engine} v{resolved.engine_version.resolved}",
+        f"# Topology: {resolved.topology.value}",
+        "",
+        *lines,
+    ]
+    repro_temp = repro_path.with_name(f".{repro_path.name}.tmp")
+    repro_temp.write_text("\n".join(repro_lines), encoding="utf-8")
+    repro_temp.chmod(0o755)
+    os.replace(repro_temp, repro_path)
+
+    logger.info(
+        "mooncake master pod delivery: feature_section=%s, assets=%s, transfer_package=%s",
+        bool(resolved.accel.mooncake_master_section),
+        resolved.accel.mooncake_script_assets_required,
+        transfer_package,
+    )
+    return start_path, repro_path
 
 
 def _build_analyzer_config(resolved: ResolvedConfig) -> dict:
@@ -898,6 +1019,25 @@ def _build_analyzer_preamble_from_plan(resolved: ResolvedConfig) -> Optional[str
     return _render_analyzer_preamble_template(config_escaped)
 
 
+def _wings_log_fn_lines() -> List[str]:
+    """shell 日志辅助函数段(所有交付脚本通用,主渲染与 master 交付支线复用)。
+
+    输出符合 log-format 规范的日志行: 时间 [LEVEL] WINGS-CONTROL [组件#函数:行号] 消息。
+    无条件定义,使无 analyzer_preamble 的路径(worker 节点 / master Pod)也能使用。
+    """
+    return [
+        # shell 日志辅助函数: 输出符合 log-format 规范的日志行(所有脚本通用)。
+        # 格式: 时间 [LEVEL] WINGS-CONTROL [组件#函数:行号] 消息
+        "_wings_log() {",
+        '    local level="$1"; shift',
+        '    local msg="$*"',
+        "    local ts",
+        '    ts=$(date "+%Y-%m-%d %H:%M:%S.%3N")',
+        '    echo "$ts [$level] WINGS-CONTROL [wings-launcher#start_command:0] $msg"',
+        "}",
+    ]
+
+
 def _render_start_command_sh(
     argv: List[str],
     env_traces: Dict[str, TracedValue],
@@ -949,16 +1089,7 @@ def _render_start_command_sh(
         "set -o errexit",
         "set -o xtrace",
         "",
-        # shell 日志辅助函数: 输出符合 log-format 规范的日志行(所有脚本通用)。
-        # 格式: 时间 [LEVEL] WINGS-CONTROL [组件#函数:行号] 消息
-        # 无条件定义,使 worker 节点(无 analyzer_preamble)也能使用 _wings_log。
-        "_wings_log() {",
-        '    local level="$1"; shift',
-        '    local msg="$*"',
-        "    local ts",
-        '    ts=$(date "+%Y-%m-%d %H:%M:%S.%3N")',
-        '    echo "$ts [$level] WINGS-CONTROL [wings-launcher#start_command:0] $msg"',
-        "}",
+        *_wings_log_fn_lines(),
         "",
     ]
 
@@ -1464,7 +1595,9 @@ def _validate_log_analyzer_present(resolved: ResolvedConfig, script_text: str) -
     - multi_node 占位脚本(``resolved.nodes`` 非空):不可执行,非真实部署;
     - multi_node worker 节点(``multi_node_index > 0``):仅 master 运行分析器;
     - 跨 pod PD 的 worker Pod(``pd_topology.member_index > 0``):与 multi_node
-      worker 语义一致,仅 member 0(head)运行分析器。
+      worker 语义一致,仅 member 0(head)运行分析器;
+    - Mooncake master 专属 Pod 交付支线(``_deliver_mooncake_master_pod``):
+      无引擎可监控,该支线不调用本守卫。
 
     校验用固定哨兵(启动命令 / ``--progress-file`` / ``cleanup_analyzer`` trap),
     不依赖任何可变路径,避免误报。PD 的 fail_together 虽以 ``terminate_children``
@@ -1538,6 +1671,13 @@ def build_scripts(
         repro_path.chmod(0o755)
         return start_path, repro_path
 
+    # Mooncake master 专属 Pod 交付支线:先于 multi_node 占位检查。master Pod 无
+    # 运行时上下文,resolve 产出 resolved.nodes 占位视图,若落进占位支线会得到
+    # exit 3 的不可执行脚本,资产与 master 分支都不会产出。交付细节见
+    # _deliver_mooncake_master_pod。
+    if _is_mooncake_master_pod():
+        return _deliver_mooncake_master_pod(resolved, start_path, repro_path)
+
     if resolved.nodes:
         # multi_node 占位:两件产物同为占位脚本,显式阻断误执行。
         # 占位脚本不 exec,也不追加 accel 产出。
@@ -1557,15 +1697,9 @@ def build_scripts(
     _write_accel_generated_files(resolved.accel.generated_files)
     if resolved.accel.mooncake_script_assets_required:
         _install_mooncake_script_assets()
-        # KV_MEM_OFFLOAD_SIZE=auto 智能推荐:accel 已把估算值解析进
-        # kv_mem_offload_size_gb,以其覆盖 client.env/master.env 的原始值
-        # (本地/分布式互斥,mooncake 资产只在分布式产出时装载,不会误伤本地场景)。
-        resolved_size = resolved.accel.kv_mem_offload_size_gb
-        env_overrides = (
-            {"KV_MEM_OFFLOAD_SIZE": str(resolved_size)}
-            if resolved_size and resolved_size > 0
-            else None
-        )
+        # KV_MEM_OFFLOAD_SIZE=auto 智能推荐:覆盖逻辑与 master 交付支线共用
+        # _mooncake_kv_mem_env_overrides(单一口径,语义见该函数 docstring)。
+        env_overrides = _mooncake_kv_mem_env_overrides(resolved.accel)
         _write_mooncake_client_env(env_overrides)
         _write_mooncake_master_env(env_overrides)
 
@@ -1574,12 +1708,10 @@ def build_scripts(
     launch_plan = build_launch_plan(resolved)
     argv = launch_plan.argv
     analyzer_preamble = _build_analyzer_preamble(resolved)
-    # master 分支段由 Pod 身份驱动(部署层事实):特性产出段优先(现行逻辑);
-    # master Pod 上特性未产出(auto 降级/开关未开)→ 渲染挂起兜底段,确保
-    # master Pod 任何情况下都不会回退执行 vllm serve。
+    # master 分支段随特性产出嵌入所有 Pod 的脚本(运行期由 IS_MOONCAKE_MASTER 判定,
+    # engine Pod 上恒为 no-op)。master Pod 自身已在上方专属交付支线接管(含特性
+    # 降级时的挂起兜底),不会走到本路径——此处的身份判别兜底因此不再需要。
     mooncake_master_section = getattr(resolved.accel, "mooncake_master_section", None)
-    if _is_mooncake_master_pod() and not mooncake_master_section:
-        mooncake_master_section = _render_mooncake_master_hold_section()
     start_content = _render_start_command_sh(
         argv,
         resolved.env_traces,

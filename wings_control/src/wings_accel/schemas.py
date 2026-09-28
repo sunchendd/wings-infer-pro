@@ -341,6 +341,11 @@ class _FeatureOutput:
     # Mooncake master 分支段(early-exit 块的 shell 行)。仅 distributed_offload
     # 使用;由受控包代码合成,非 YAML 任意 shell。空 → script_builder 不渲染该段。
     mooncake_master_section: List[str] = field(default_factory=list)
+    # 传输引擎包("name:version",保留声明/目录名原样)。mooncake_master 二进制随该包
+    # 交付(install.py 以包内版本覆盖镜像预装旧版),master Pod 不跑引擎但拉起 master
+    # 须装它;script_builder 的 master 交付支线据此单独渲染只含该包的 install 段。
+    # None = 未声明且未注入(ENABLE_XCACHE_INSTALL=false / 特性未启用),镜像预装兜底。
+    mooncake_transfer_engine_package: Optional[str] = None
 
 
 @dataclass
@@ -384,3 +389,8 @@ class SmartAccelOutput:
     mooncake_script_assets_required: bool = False # 是否需安装脚本兜底共享卷资产
     # Mooncake master 分支段(early-exit 块的 shell 行);空 → script_builder 不渲染该段。
     mooncake_master_section: List[str] = field(default_factory=list)
+    # 传输引擎包("name:version"):distributed_offload 决策的注入/声明结果,供 wings-control
+    # 的 master Pod 交付支线渲染只含该包的 install 段(mooncake_master 二进制来源;
+    # engine Pod 的 install 段继续用全量 packages,不受此字段影响)。
+    # None = 未声明且未注入(ENABLE_XCACHE_INSTALL=false / 特性未启用),镜像预装兜底。
+    mooncake_transfer_engine_package: Optional[str] = None

@@ -35,6 +35,41 @@ def test_pre_template_distributed_missing_master_ip_raises_valueerror() -> None:
         pre_template_strategy("vllm", distributed=True, master_ip=None)
 
 
+@pytest.mark.parametrize("master_ip", [None, ""])
+@pytest.mark.parametrize("distributed", [True, False])
+def test_pre_template_mooncake_master_pod_exempts_master_ip(
+    master_ip: str | None, distributed: bool
+) -> None:
+    """Mooncake master 专属 Pod:豁免标准多机的 MASTER_IP 强校验,仍推导 MULTI_NODE。
+
+    master Pod 不属于推理集群(无 RANK_IP/NODE_IPS/MASTER_IP),但须与 engine Pod
+    同拓扑值驱动 smart-accel 匹配/降级判定(决策一致性由构造保证)。
+    distributed 两种取值都归 MULTI_NODE(身份是部署层事实,优先于标准分布式语义)。
+    """
+    assert pre_template_strategy(
+        "vllm",
+        distributed=distributed,
+        master_ip=master_ip,
+        is_mooncake_master=True,
+    ) == ("vllm", Topology.MULTI_NODE)
+
+
+def test_pre_template_non_master_pod_keeps_master_ip_gate() -> None:
+    """非 master Pod(缺省 is_mooncake_master=False)守既有 fail-fast,不因新参数放宽。"""
+    with pytest.raises(ValueError, match="MASTER_IP"):
+        pre_template_strategy(
+            "vllm", distributed=True, master_ip=None, is_mooncake_master=False
+        )
+
+
+def test_pre_template_pd_role_outranks_mooncake_master() -> None:
+    """pd_role 优先级高于 master Pod 判定(PD_ROLE 与 IS_MOONCAKE_MASTER 互斥,
+    真实部署不会同时出现;此断言固定优先级顺序,防止未来调整时语义漂移)。"""
+    assert pre_template_strategy(
+        "vllm", pd_role=PdRole.PREFILL, distributed=True, is_mooncake_master=True
+    ) == ("vllm", Topology.PD_PREFILL)
+
+
 @pytest.mark.parametrize(
     ("role", "expected"),
     [

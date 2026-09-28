@@ -84,11 +84,25 @@ false=降级/未开启/仅本地卸载）、`variants.kv_distributed_offload`（
 Mooncake master 专属 Pod（`IS_MOONCAKE_MASTER=true`）的身份判定独立于
 特性产出：特性生效时只拉起 `mooncake_master` 并等待（不执行 vllm serve）；特性未生效
 （auto 估算不足降级、开关未开）时同样**不回退执行 vllm serve**，而是打 ERROR 日志后挂起
-等待，Pod 保持 Running——master Pod 在任何情况下都不承担推理职责。服务地址固定派生为
+等待，Pod 保持 Running——master Pod 在任何情况下都不承担推理职责。master Pod 的 CLI
+入口契约：MaaS 以与 engine Pod 相同的参数调用 `wings_start.sh`（含 `--distributed`），
+唯一差异是注入 `IS_MOONCAKE_MASTER` 且**不下发**推理集群三件套（`RANK_IP` / `NODE_IPS` /
+`MASTER_IP`）——wings-control 的 topology 推导对 master Pod 豁免标准多机的 `MASTER_IP`
+强校验（仍按与 engine Pod 相同的 `multi_node` 拓扑值驱动 smart-accel 匹配与降级判定），
+交付层走专属支线：`start_command.sh` 含 install 段（**仅传输引擎包**——`mooncake_master`
+二进制随该包交付，install.py 以包内版本覆盖镜像预装的旧版；旧版缺新版 flag 会被 gflags
+拒启导致 master Pod CrashLoop）+ master 分支段（或挂起兜底段）与防御尾，不注入
+log_analyzer 和引擎命令；`advanced_features.json` / mooncake 资产 / env 文件 /
+audit 照常落盘（与 engine Pod 同源同值）。传输引擎包未注入（`ENABLE_XCACHE_INSTALL=false`）
+时 master 交付不渲染 install 段，此时镜像必须预装**新版** `mooncake_master`（能识别
+start 脚本的全部 flag）。master Pod 须复用同一 Pod 模板（挂载
+accel-volume 与 shared-volume，供 resolve 期读取包工件、交付期 install.py 安装与产物落盘）；
+若不挂 accel-volume，对该 Pod 下发 `ENABLE_XCACHE_INSTALL=false` 跳过包注入。服务地址固定派生为
 `mooncake-service-${SERVING_CONFIG_ID}:50051`，metadata URL 为
 `http://mooncake-service-${SERVING_CONFIG_ID}:8080/metadata`。可选磁盘层继续使用
-`ENABLE_KV_DISK_OFFLOAD`、`KV_DISK_OFFLOAD_PATH` 和 `KV_DISK_OFFLOAD_SIZE`。镜像必须预装与
-vLLM connector 兼容的固定 Mooncake 版本及 `mooncake_client` 二进制。
+`ENABLE_KV_DISK_OFFLOAD`、`KV_DISK_OFFLOAD_PATH` 和 `KV_DISK_OFFLOAD_SIZE`。engine 镜像必须预装与
+vLLM connector 兼容的固定 Mooncake 版本及 `mooncake_client` 二进制；`mooncake_master`
+二进制以传输引擎包安装的版本为准（见上，`ENABLE_XCACHE_INSTALL=false` 时才依赖镜像预装）。
 
 Mooncake 的 `mooncake.json`、`start_mooncake_client.sh`、vLLM 环境变量和
 `kv_transfer_config` 四个部件中，`kv_transfer_config` **必须**由匹配 SmartAccel YAML

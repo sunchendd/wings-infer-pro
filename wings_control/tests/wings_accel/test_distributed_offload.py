@@ -180,6 +180,9 @@ def test_distributed_mooncake_uses_script_fallback_for_missing_yaml_parts(tmp_pa
     assert any("Mooncake distributed KV component sources" in line for line in output.pre_serve)
     # 默认注入:YAML 未声明 packages → 按 accel-volume 工件最高版本注入 transfer engine。
     assert [req.manifest for req in output.packages] == ["xcache_cuda:v0.3.12.post1"]
+    # 注入的传输引擎包单独透传:master Pod 交付支线据此渲染只含该包的 install 段
+    # (mooncake_master 二进制来源,见 docs/contracts/wings-accel-interface.md)。
+    assert output.mooncake_transfer_engine_package == "xcache_cuda:v0.3.12.post1"
 
 
 def test_script_fallback_sources_engine_environment_before_client_start():
@@ -289,6 +292,46 @@ def test_target_asset_routes_mooncake_for_supported_topologies(topology, tmp_pat
     # client 启动行不再位于首位,按精确整行断言。
     assert 'bash "$SHARED_VOLUME_PATH/mooncake/start_mooncake_store.sh" &' in output.pre_serve
     # 全链路(含脚本兜底)同样注入默认 transfer engine 包,流经 install.py 段。
+    assert "xcache_cuda:v0.3.12.post1" in output.packages
+
+
+@pytest.mark.parametrize("topology", ["standalone", "multi_node"])
+def test_v4_flash_0731_h20_routes_mooncake_for_supported_topologies(topology, tmp_path, monkeypatch):
+    """DeepSeek-V4-Flash-0731(v0.26.0/h20_141G)distributed_kv_offload 适配资产的路由守护。
+
+    参考 1.5B 资产的同等断言:variant 精确命中 0731 文件(variant_name 优先于
+    fp8 家族 name_pattern),standalone/multi_node 两拓扑均产出 Mooncake standalone-store
+    (kv_transfer_config 锚点 + 受控脚本兜底 + 默认 transfer engine 包注入)。
+    PD 拓扑不声明 distributed_kv_offload,不在本测试参数化内(缺键即不产出)。
+    """
+    from wings_accel import resolve_smart_accel_from_config
+    from wings_accel.yaml_loader import LoadFlags, _package_smart_accel_root
+
+    _accel_volume(tmp_path, monkeypatch, "v0.3.12.post1")
+    output = resolve_smart_accel_from_config(
+        config_root=_package_smart_accel_root().parent,
+        engine="vllm",
+        engine_version="v0.26.0",
+        hardware_family="h20_141G",
+        model_name="DeepSeek-V4-Flash-0731",
+        gpu_count=8,
+        flags=LoadFlags(
+            topology=topology,
+            distributed_kv=True,
+            distributed_protocol="rdma",
+            serving_config_id="order-7",
+            distributed_local_buffer_size="1GB",
+            memory_offload_size_mode="32",
+        ),
+    )
+
+    assert output is not None
+    assert output.smart_distributed_kv_cache_scheme == "mooncake_standalone_store"
+    kt = output.engine_params.engine_config["kv_transfer_config"]
+    assert kt["kv_connector"] == "MooncakeStoreConnector"
+    assert kt["kv_role"] == "kv_both"
+    assert kt["kv_load_failure_policy"] == "recompute"
+    assert 'bash "$SHARED_VOLUME_PATH/mooncake/start_mooncake_store.sh" &' in output.pre_serve
     assert "xcache_cuda:v0.3.12.post1" in output.packages
 
 
@@ -430,6 +473,8 @@ def test_fallback_skips_injection_when_install_disabled(tmp_path, monkeypatch, c
     assert output is not None
     assert output.packages == []
     assert output.mooncake_component_sources["transfer_engine"] == "disabled"
+    # 开关关闭 → 未注入:不透传传输引擎包(master 交付不渲染 install 段,镜像预装兜底)。
+    assert output.mooncake_transfer_engine_package is None
     echo = next(line for line in output.pre_serve if "component sources" in line)
     assert "transfer_engine=disabled" in echo
     assert "preinstalled" in caplog.text
@@ -457,3 +502,5 @@ def test_fallback_disabled_install_keeps_yaml_declaration(tmp_path, monkeypatch)
 
     assert [req.manifest for req in output.packages] == ["xcache_cuda:v0.3.10"]
     assert output.mooncake_component_sources["transfer_engine"] == "yaml"
+    # YAML 声明优先:透传声明的原始 name:version(manifest 键,原样交付)。
+    assert output.mooncake_transfer_engine_package == "xcache_cuda:v0.3.10"

@@ -549,7 +549,7 @@ def test_build_scripts_writes_advanced_features_distributed_size(tmp_path, monke
 
 
 def test_master_pod_holds_when_feature_not_effective(tmp_path, monkeypatch):
-    """master Pod + 特性降级(空 accel)→ 渲染挂起分支:ERROR 日志 + while sleep,拦截在 vllm 之前。"""
+    """master Pod + 特性降级(空 accel)→ 专属交付支线:挂起分支,全文无任何引擎命令。"""
     from wings_ctl.common.settings import settings
 
     monkeypatch.setattr(settings, "ADVANCED_FEATURES_FILE", str(tmp_path / "advanced_features.json"))
@@ -562,9 +562,16 @@ def test_master_pod_holds_when_feature_not_effective(tmp_path, monkeypatch):
     assert 'if [ "${IS_MOONCAKE_MASTER:-}" = "TRUE" ]' in text
     assert "distributed KV offload is NOT effective" in text
     assert "while true; do sleep 3600; done" in text
-    # 分支必须拦截在引擎命令之前(运行时进入分支即挂起,永不到达引擎行);
-    # rindex = 脚本末尾真正的 vllm serve 命令行(分支注释/日志里也含该字样)。
-    assert text.index("while true; do sleep 3600; done") < text.rindex("vllm serve")
+    # 专属交付支线比旧"分支拦截在引擎命令之前"更强:脚本全文不存在任何引擎命令行
+    # (master Pod 在任何情况下都不承担推理职责,连 vllm argv 都不渲染;hold 段日志
+    # 文本里的 "vllm serve" 字样不是命令)。
+    engine_lines = [ln for ln in text.splitlines() if ln.lstrip().startswith("vllm serve")]
+    assert not engine_lines
+    # 交付支线不注入 install.py / log_analyzer
+    assert "install.py" not in text
+    assert "log_analyzer" not in text
+    # 防御尾:IS_MOONCAKE_MASTER 未命中时显式失败,不静默成功
+    assert "reached end without IS_MOONCAKE_MASTER match" in text
     # 回显(降级形态):kv_distributed_offload(MaaS 前端消费字段)显式 false,
     # kv_offload 合一口径同为 false;空 AccelResult 下容量为 None(无有效容量)。
     degraded = json.loads(
@@ -577,14 +584,20 @@ def test_master_pod_holds_when_feature_not_effective(tmp_path, monkeypatch):
 
 
 def test_master_pod_prefers_feature_section_when_active(tmp_path, monkeypatch):
-    """master Pod + 特性生效(accel 产出 master 段)→ 用产出段拉起 mooncake_master,不用挂起兜底。"""
+    """master Pod + 特性生效(accel 产出 master 段)→ 专属交付支线:install 段(仅传输
+    引擎包,mooncake_master 二进制来源)先于产出段,资产/env 文件照常落盘,不注入
+    log_analyzer / 引擎命令。"""
     from wings_ctl.common.settings import settings
 
+    shared = tmp_path / "shared"
+    monkeypatch.setattr(settings, "SHARED_VOLUME_PATH", str(shared))
     monkeypatch.setattr(settings, "ADVANCED_FEATURES_FILE", str(tmp_path / "advanced_features.json"))
     monkeypatch.setenv("IS_MOONCAKE_MASTER", "true")
     accel = AccelResult(
         enabled=True,
         mooncake_script_assets_required=True,
+        kv_mem_offload_size_gb=64,
+        mooncake_transfer_engine_package="xcache_cuda:v0.3.12.post1",
         mooncake_master_section=[
             "# ─── Mooncake master branch (IS_MOONCAKE_MASTER) ───",
             'if [ "${IS_MOONCAKE_MASTER:-}" = "TRUE" ]; then',
@@ -595,11 +608,86 @@ def test_master_pod_prefers_feature_section_when_active(tmp_path, monkeypatch):
         ],
     )
 
-    start_path, _ = build_scripts(_make_resolved(accel), tmp_path)
+    start_path, repro_path = build_scripts(_make_resolved(accel), tmp_path)
 
     text = start_path.read_text(encoding="utf-8")
     assert "start_mooncake_master.sh" in text
     assert "NOT effective" not in text  # 挂起兜底段不出现
+    # install 段只含传输引擎包(不装引擎依赖包),且先于 master 分支段(与 engine Pod 段序一致)
+    assert 'install.py --config' in text
+    assert '"packages": ["xcache_cuda:v0.3.12.post1"]' in text
+    assert text.index("install.py --config") < text.index("start_mooncake_master.sh")
+    # 交付支线不注入分析器 / 引擎命令
+    assert "log_analyzer" not in text
+    engine_lines = [ln for ln in text.splitlines() if ln.lstrip().startswith("vllm serve")]
+    assert not engine_lines
+    # mooncake 资产 + env 文件照常落盘;KV_MEM_OFFLOAD_SIZE 解析值覆盖原始 auto 字面量
+    assert (shared / "mooncake" / "start_mooncake_master.sh").is_file()
+    assert (shared / "mooncake" / "master.env").is_file()
+    assert "export KV_MEM_OFFLOAD_SIZE=64" in (shared / "mooncake" / "master.env").read_text(encoding="utf-8")
+    # repro 同构(附来源头注释)
+    repro_text = repro_path.read_text(encoding="utf-8")
+    assert "start_mooncake_master.sh" in repro_text
+    assert "Reproducibility Script (mooncake master pod delivery)" in repro_text
+
+
+def test_master_pod_skips_install_when_transfer_engine_not_injected(tmp_path, monkeypatch):
+    """master Pod + 特性生效但传输引擎包未注入(ENABLE_XCACHE_INSTALL=false)→ 不渲染
+    install 段:由镜像预装的 mooncake_master 兜底,与 engine Pod 同开关语义。"""
+    from wings_ctl.common.settings import settings
+
+    monkeypatch.setattr(settings, "ADVANCED_FEATURES_FILE", str(tmp_path / "advanced_features.json"))
+    monkeypatch.setenv("IS_MOONCAKE_MASTER", "true")
+    accel = AccelResult(
+        enabled=True,
+        mooncake_script_assets_required=True,
+        mooncake_master_section=[
+            'if [ "${IS_MOONCAKE_MASTER:-}" = "TRUE" ]; then',
+            '    bash "$SHARED_VOLUME_PATH/mooncake/start_mooncake_master.sh" &',
+            "fi",
+        ],
+    )
+
+    start_path, _ = build_scripts(_make_resolved(accel), tmp_path)
+
+    text = start_path.read_text(encoding="utf-8")
+    assert "start_mooncake_master.sh" in text
+    assert "install.py" not in text
+
+
+def test_mooncake_master_pod_delivery_precedes_placeholder_view(tmp_path, monkeypatch):
+    """master Pod 的 resolve 形态是 multi_node 占位视图(nodes 非空,无运行时上下文):
+    交付支线必须先于占位检查,否则得到 exit 3 的占位脚本,资产与 master 分支都不会产出。"""
+    from wings_ctl.common.settings import settings
+
+    monkeypatch.setattr(settings, "ADVANCED_FEATURES_FILE", str(tmp_path / "advanced_features.json"))
+    monkeypatch.setenv("IS_MOONCAKE_MASTER", "true")
+    accel = AccelResult(
+        enabled=True,
+        mooncake_script_assets_required=True,
+        mooncake_master_section=[
+            'if [ "${IS_MOONCAKE_MASTER:-}" = "TRUE" ]; then',
+            '    bash "$SHARED_VOLUME_PATH/mooncake/start_mooncake_master.sh" &',
+            "fi",
+        ],
+    )
+    resolved = _make_resolved(accel)
+    # 模拟 master Pod 上 resolve 的真实产物:nodes 非空(占位视图)。
+    resolved.nodes = [
+        type("ResolvedNodeStub", (), {
+            "role": "head", "index": 0,
+            "engine_config_traces": {}, "env_traces": {},
+            "system_setup": None, "source_prefix": "nodes[0]",
+        })(),
+    ]
+
+    start_path, _ = build_scripts(resolved, tmp_path)
+
+    text = start_path.read_text(encoding="utf-8")
+    # 不是占位脚本;是 master 交付脚本
+    assert "MULTI-NODE — RUNTIME INJECTION PENDING" not in text
+    assert "start_mooncake_master.sh" in text
+    assert "exit 3" not in text
 
 
 def test_non_master_pod_renders_no_master_branch(tmp_path, monkeypatch):

@@ -177,6 +177,7 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
     mooncake_component_sources: dict[str, str] = {}
     mooncake_script_assets_required = False
     mooncake_master_section: list[str] = []
+    mooncake_transfer_engine_package: str | None = None
     for feature_name, feature in (
         ("decoding", decoding),
         ("kv_offload", offload),
@@ -195,6 +196,7 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
                 mooncake_component_sources = dict(feature.mooncake_component_sources)
                 mooncake_script_assets_required = feature.mooncake_script_assets_required
                 mooncake_master_section = list(feature.mooncake_master_section)
+                mooncake_transfer_engine_package = feature.mooncake_transfer_engine_package
     _ensure_unique_generated_file_paths(generated_files)
     # 去重保序:同一依赖/命令被多个特性声明时只取一次
     packages = _merge_package_requirements(package_requirements)
@@ -226,6 +228,7 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
         mooncake_component_sources=mooncake_component_sources,
         mooncake_script_assets_required=mooncake_script_assets_required,
         mooncake_master_section=mooncake_master_section,
+        mooncake_transfer_engine_package=mooncake_transfer_engine_package,
     )
 
 

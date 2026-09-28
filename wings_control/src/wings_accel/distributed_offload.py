@@ -240,13 +240,20 @@ def apply_mooncake_script_fallback(
     # accel-volume,假定引擎镜像已预装 xcache(mooncake 脚本仍会执行,由调用方
     # 保证预装);YAML 显式声明不受此开关影响(两层逃生门独立)。
     transfer_engine_canonical = canonicalize_name(_TRANSFER_ENGINE_PACKAGE)
-    if any(req.canonical_name == transfer_engine_canonical for req in result.packages):
+    declared = next(
+        (req for req in result.packages if req.canonical_name == transfer_engine_canonical),
+        None,
+    )
+    if declared is not None:
         component_sources["transfer_engine"] = _YAML_SOURCE
+        result.mooncake_transfer_engine_package = declared.manifest
     elif cfg.install_transfer_engine:
         version = _resolve_highest_package_version(_TRANSFER_ENGINE_PACKAGE)
+        package_spec = f"{_TRANSFER_ENGINE_PACKAGE}:{version}"
         result.packages = list(result.packages) + extract_package_requirements(
-            {"packages": [f"{_TRANSFER_ENGINE_PACKAGE}:{version}"]}
+            {"packages": [package_spec]}
         )
+        result.mooncake_transfer_engine_package = package_spec
         component_sources["transfer_engine"] = "injected"
         logger.info(
             "injected default xcache transfer engine package: %s:%s",
