@@ -60,6 +60,17 @@ def test_render_param_tokens_uses_key_to_flag():
     ) == ["--kernel-config.enable_flashinfer_autotune=False"]
 
 
+def test_render_param_tokens_expands_cudagraph_capture_sizes():
+    """vLLM nargs 参数必须展开为多个 argv token，不能序列化成 JSON。"""
+    assert render_param_tokens("cudagraph_capture_sizes", [1, 2, 4, 8]) == [
+        "--cudagraph-capture-sizes",
+        "1",
+        "2",
+        "4",
+        "8",
+    ]
+
+
 def test_key_to_flag_cc_single_dash():
     """验证:vLLM 的 ``cc.*``(pass 配置)顶层前缀用**单横线** ``-cc.``,而非通用 ``--``。"""
     assert key_to_flag("cc.pass_config.fuse_allreduce_rms") == "-cc.pass_config.fuse_allreduce_rms"

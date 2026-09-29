@@ -20,6 +20,8 @@
 
 `--dry-run` 只打印解析后的环境变量、启动前 `source` 初始化命令和引擎命令/进程预览，不生成上述文件、`wings_start.log`、`advanced_features.json` 或 Accel 文件。不过 CLI 初始化时仍可能写入 `wings_control.log`。
 
+`engine_config` 中普通字典和列表值会序列化为紧凑 JSON 参数。vLLM 的 `cudagraph_capture_sizes` 是多值 argv 参数例外：YAML 使用整数列表，渲染为 `--cudagraph-capture-sizes 1 2 ...`，不会合并成单个 JSON 字符串。
+
 对于 `vllm-ascend`，recipe 的 `system_setup.commands` 中严格形如 `source <absolute-path>` 的命令会经过安全解析后写入 `start_command.sh` 和 `repro.sh`，并在当前 Pod 的 `vllm serve` 命令前执行一次，例如 Ascend toolkit 与 ATB 的 `set_env.sh`。整个 source 段在开头 `set +u`、结尾 `set -u` 关闭一次 nounset，避免厂商 set_env.sh 读取未定义变量（如 `ZSH_VERSION`）时中断启动脚本；每条 source 都带 `if [ -f <路径> ]` 守卫，文件缺失时向 stderr 打印 `WARN: system_setup source not found, skipping: ...` 并跳过该条。这意味着缺少某个 source 文件不会直接 fail-fast 中断，而是告警后继续启动引擎。PD 的多个 engine 进程继承同一 shell 环境，因此不会为每条命令重复 source。multi_node 尚未注入运行时上下文时，产物和 dry-run 仅以注释展示各节点 source 命令，不执行它们。其他 `commands`、全部 `sysctls` 和 `sysfs_writes` 仍仅作为注释保留，不会由启动脚本执行。dry-run 预览中的 source 段同样以守卫形式展示，与实际脚本一致。
 
 ## 日志

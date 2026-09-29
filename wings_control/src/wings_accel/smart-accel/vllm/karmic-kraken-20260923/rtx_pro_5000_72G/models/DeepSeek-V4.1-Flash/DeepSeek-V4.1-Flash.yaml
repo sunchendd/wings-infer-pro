@@ -1,0 +1,29 @@
+# SmartAccel decoding configuration derived from the provided vLLM deployment command.
+# No additional 0day override is applied beyond the supplied DSpark parameters.
+model:
+  name: DeepSeek-V4.1-Flash
+  variant_name: "DeepSeek-V4.1-Flash"
+  match:
+    - name_pattern: "(?i)deepseek[-.]?v4[.-]?1[-.]?flash"
+smart_accel:
+  standalone:
+    source_ref: deepseek-v4.1-flash_manual#single_node_tp
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+          - name: dspark
+            cli_params:
+              speculative_config:
+                method: dspark
+                attention_backend: B12X
+                draft_sample_method: greedy
+                rejection_sample_method: standard
+                num_speculative_tokens: 7
+                draft_tensor_parallel_size: 8
+                enable_adaptive_verification: true
+                adaptive_verification_cost_scale: 1.0
+            envs: {}
