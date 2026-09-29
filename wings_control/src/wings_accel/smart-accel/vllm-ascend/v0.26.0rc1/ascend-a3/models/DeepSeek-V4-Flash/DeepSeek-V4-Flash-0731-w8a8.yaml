@@ -1,0 +1,47 @@
+# SmartAccel for the official DeepSeek-V4-Flash 0731-w8a8 A3 recipes. The
+# standalone plan mirrors the engine single-node base config (seven
+# speculative tokens); the PD decode plan mirrors the PD decode node base
+# config (five speculative tokens), matching the role-specific recipe values.
+model:
+  name: DeepSeek-V4-Flash
+  variant_name: "DeepSeek-V4-Flash-0731-w8a8"
+  match:
+    - name_pattern: "(?i)^deepseek[-.]?v4[-.]?flash[-.]?0731[-.]?w8a8$"
+smart_accel:
+  standalone:
+    source_ref: "vllm_ascend_deepseek-v4-flash-0731-w8a8#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+          - name: dspark
+            cli_params:
+              speculative_config:
+                method: dspark
+                num_speculative_tokens: 7
+                enforce_eager: true
+            envs: {}
+  pd_disaggregation:
+    source_ref: "vllm_ascend_deepseek-v4-flash-0731-w8a8#pd_cluster"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        default_strategy: true
+        nodes:
+          - role: prefill
+            index: 0
+          - role: decode
+            index: 0
+            decoding:
+              - name: dspark
+                cli_params:
+                  speculative_config:
+                    num_speculative_tokens: 5
+                    method: dspark
+                    enforce_eager: true
+                envs: {}
