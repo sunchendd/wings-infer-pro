@@ -39,4 +39,47 @@ scenarios:
           runner: pooling
           host: "0.0.0.0"
           port: 8888
+          enforce_eager: true
         env: {}
+
+  multi_node:
+    source_ref: "vllm_ascend_qwen3-embedding-0.6b_manual#multi_node_dp_across"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dp:
+        display_name: "Multi-Node Data Parallel (DP-ACROSS)"
+        orientation: throughput
+        default_strategy: true
+        head:
+          engine_config:
+            model: Qwen/Qwen3-Embedding-0.6B
+            runner: pooling
+            host: "0.0.0.0"
+            port: 8888
+            enforce_eager: true
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 0
+            data_parallel_address: "$HEAD_IP"
+            data_parallel_rpc_port: 13389
+          env:
+            GLOO_SOCKET_IFNAME: "$IFACE_NAME"
+            NCCL_SOCKET_IFNAME: "$IFACE_NAME"
+        worker:
+          engine_config:
+            model: Qwen/Qwen3-Embedding-0.6B
+            runner: pooling
+            host: "0.0.0.0"
+            port: 8888
+            enforce_eager: true
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 1
+            data_parallel_address: "$HEAD_IP"
+            data_parallel_rpc_port: 13389
+            headless: true
+          env:
+            GLOO_SOCKET_IFNAME: "$IFACE_NAME"
+            NCCL_SOCKET_IFNAME: "$IFACE_NAME"
