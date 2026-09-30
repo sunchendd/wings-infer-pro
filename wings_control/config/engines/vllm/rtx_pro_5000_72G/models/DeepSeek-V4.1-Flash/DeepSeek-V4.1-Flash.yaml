@@ -5,8 +5,8 @@ upstream_sources:
     repo: null
     file: null
     url: "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash"
-    date_updated: 2026-09-14
-    note: 用户提供启动命令，手工录入。引擎版本 deepseekv41-flash-0909。
+    date_updated: 2026-09-30
+    note: 用户提供 vLLM karmic-kraken-20260923 单机 8 卡启动命令，手工录入。
 
 # 模型基本信息
 model:
@@ -18,8 +18,8 @@ model:
   architecture: moe
   context_length: 1048576
   tasks: [text]
-  min_engine_version: "deepseekv41-flash-0909"
-  date_updated: 2026-09-14
+  min_engine_version: "karmic-kraken-20260923"
+  date_updated: 2026-09-30
   match:
     - name_pattern: "(?i)deepseek[-.]?v4[.-]?1[-.]?flash"
   variant_name: DeepSeek-V4.1-Flash
@@ -34,13 +34,13 @@ hardware_profile:
 features:
   tool_calling:
     description: Enable DeepSeek V4.1 tokenizer and tool-call parsing with automatic tool choice.
-    args: [--tokenizer-mode, deepseek_v41, --tool-call-parser, deepseek_v41, --enable-auto-tool-choice]
+    args: [--tokenizer-mode, deepseek_v41, --enable-auto-tool-choice, --tool-call-parser, deepseek_v41]
   reasoning:
     description: Enable reasoning output parsing with the DeepSeek V4.1 parser.
     args: [--reasoning-parser, deepseek_v41]
-  sparse_index:
-    description: Configure the sparse index top-k refresh frequency.
-    args: [--hf-overrides, "{\"index_topk_freq\":4}"]
+  spec_decoding:
+    description: Enable the provided DSpark speculative decoding configuration.
+    args: [--speculative-config, "{\"method\":\"dspark\",\"attention_backend\":\"B12X\",\"draft_sample_method\":\"greedy\",\"rejection_sample_method\":\"standard\",\"num_speculative_tokens\":7,\"draft_tensor_parallel_size\":8,\"enable_adaptive_verification\":true,\"adaptive_verification_cost_scale\":1.0}"]
 
 # 部署场景
 scenarios:
@@ -56,16 +56,60 @@ scenarios:
         default_strategy: true
         engine_config:
           model: deepseek-ai/DeepSeek-V4.1-Flash
-          host: "0.0.0.0"
-          language_model_only: true
-          attention_backend: FLASHINFER_MLA_SPARSE_DSV41
-          kv_cache_dtype: fp8
-          block_size: 128
-          no_enable_flashinfer_autotune: true
-          gpu_memory_utilization: 0.95
           tensor_parallel_size: 8
-          port: 17000
+          kv_cache_dtype: fp8
+          language_model_only: true
+          block_size: 256
+          swa_block_size: 128
+          max_model_len: 133120
+          max_num_seqs: 128
+          max_num_batched_tokens: 4096
+          gpu_memory_utilization: 0.97
+          load_format: instanttensor
+          safetensors_load_strategy: lazy
+          engram_config:
+            cpu_offload: false
+            table_memory: ram
+            disk_resident_scales: false
+            projection_tp: false
+          attention_backend: B12X
+          moe_backend: b12x
+          linear_backend: b12x
+          compilation_config:
+            cudagraph_mode: FULL_AND_PIECEWISE
+          cudagraph_capture_sizes: [1, 2, 4, 8, 16, 32, 64, 128]
+          max_cudagraph_capture_size: 128
+          async_scheduling: true
+          prefill_compute_share: 0.4
+          no_scheduler_reserve_full_isl: true
+          enable_prefix_caching: true
+          enable_chunked_prefill: true
+          default_chat_template_kwargs:
+            thinking: true
+            reasoning_effort: high
+          generation_config: vllm
+          override_generation_config:
+            temperature: 1.0
+            top_p: 0.95
+          host: "0.0.0.0"
+          port: 17002
         env:
+          INSTANTTENSOR_BACKEND: BUFFERED
+          PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
           VLLM_ENGINE_READY_TIMEOUT_S: 3600
+          VLLM_USE_BREAKABLE_CUDAGRAPH: 0
+          VLLM_USE_AOT_COMPILE: 1
+          VLLM_USE_MEGA_AOT_ARTIFACT: 1
+          VLLM_USE_STANDALONE_COMPILE: 1
+          B12X_AUTOTUNE: 0
+          CUTE_DSL_ARCH: sm_120a
+          VLLM_ENABLE_PCIE_ALLREDUCE: 1
+          VLLM_PCIE_ALLREDUCE_BACKEND: b12x
+          VLLM_PCIE_DMA_MIN_BYTES: 6MB
+          VLLM_PCIE_ONESHOT_ALLREDUCE_MAX_SIZE: 96KB
+          VLLM_PCIE_ONESHOT_FUSED_ADD_RMS_NORM_MAX_SIZE: 96KB
+          VLLM_PCIE_TWOSHOT_ALLREDUCE_MAX_SIZE: "off"
+          CUDA_DEVICE_MAX_CONNECTIONS: 32
+          VLLM_MULTI_STREAM_GEMM_TOKEN_THRESHOLD: 1024
           NCCL_P2P_LEVEL: SYS
           NCCL_SHM_DISABLE: 1

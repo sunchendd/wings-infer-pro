@@ -8,7 +8,7 @@
 - 顶层 key 下划线转连字符 (max_model_len → --max-model-len);点号后的嵌套路径原样保留
 - 顶层 bool=true → 无值 flag (--trust-remote-code);bool=false / None → 不输出
 - 点号嵌套配置始终渲为 --flag=value(包括 bool 的 True / False)
-- dict/list → 紧凑 JSON 字符串(不 quote,由调用方在渲染 shell 时统一 quote)
+- dict/list 默认渲染为紧凑 JSON；封闭的 nargs 参数例外
 - 其余标量值原样 str()
 """
 
@@ -20,6 +20,11 @@ from wings_ctl.core.models import SystemSetup, TracedValue
 from wings_ctl.core.system_setup import extract_source_commands
 from wings_ctl.engines.param_names import key_to_flag
 from wings_ctl.rendering.serializer import serialize_nested_value
+
+
+# vLLM 中少数 nargs 参数需要把 YAML 列表展开为多个 argv token。
+# 保持封闭白名单，避免改变普通 dict/list 参数的既有 JSON 渲染语义。
+_MULTI_TOKEN_LIST_PARAMS = frozenset({"cudagraph_capture_sizes"})
 
 
 class EngineCmd(NamedTuple):
@@ -131,7 +136,8 @@ def render_param_tokens(key: str, value: Any) -> Optional[List[str]]:
     - None → None (跳过)
     - 顶层 bool=True → ["--flag"];顶层 bool=False → None (跳过)
     - 点号嵌套配置 → ["--flag=value"](包括 bool;如 False → --kernel-config.xxx=False)
-    - 顶层 dict/list → ["--flag", compact_json]
+    - ``cudagraph_capture_sizes`` 列表 -> ["--flag", "1", "2", ...]
+    - 其他顶层 dict/list -> ["--flag", compact_json]
     - 顶层标量 → ["--flag", str(value)]
 
     Args:
@@ -155,6 +161,9 @@ def render_param_tokens(key: str, value: Any) -> Optional[List[str]]:
 
     if isinstance(value, bool):
         return [flag] if value else None
+
+    if key in _MULTI_TOKEN_LIST_PARAMS and isinstance(value, list):
+        return [flag, *(str(item) for item in value)]
 
     if isinstance(value, (dict, list)):
         return [flag, serialize_nested_value(value)]
