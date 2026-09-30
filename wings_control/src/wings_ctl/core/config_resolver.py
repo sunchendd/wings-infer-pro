@@ -1078,8 +1078,8 @@ def _resolve_multi_node(
         rank_ip: 当前 Pod IP；与 ``node_ips`` 同时存在时进入运行时注入路径。
         node_ips: 有序集群成员 IP；用于选择当前 Pod 对应的 node recipe。
         master_ip: 集群 master IP；用于 head 判定和 DP 协调地址注入。
-        hardware: TP 跨机收缩显存闸使用的硬件上下文；其它路径可为 ``None``。
-        weights_path: TP 跨机收缩显存闸读取模型权重信息的路径。
+        hardware: TP 跨机收缩显存判据使用的硬件上下文；其它路径可为 ``None``。
+        weights_path: TP 跨机收缩显存判据读取模型权重信息的路径。
         strategy_env_layer: 特性注入层（SmartQoS/EnableTrace/Metrics）产出的环境变量覆盖层，
             由调用方在 resolve_config 中统一计算后传入。
         strategy_feature_inject_overrides: 特性注入层产出的引擎参数覆盖层，
@@ -1167,15 +1167,15 @@ def _resolve_multi_node(
                         f"layer={layer_name} cannot override data_parallel_address"
                     )
         if device_count is not None and detect_layout(spec.engine_config) == LAYOUT_TP_ACROSS:
-            if hardware is None:
-                raise ValueError("TP-across shrink requires hardware context for capacity validation")
-            _preflight_shrink_gate(
+            gate_notes = _preflight_shrink_gate(
                 spec.engine_config,
                 pod_count * device_count,
                 hardware,
                 weights_path,
                 engine,
             )
+        else:
+            gate_notes = None
         dp_override, dp_notes = coordinate_parallelism(
             spec.engine_config,
             engine=engine,
@@ -1240,6 +1240,8 @@ def _resolve_multi_node(
         if rendezvous_override:
             notes["multi_node_rendezvous_address"] = str(next(iter(rendezvous_override.values())))
         notes.update(dp_notes)
+        if gate_notes:
+            notes.update(gate_notes)
         logger.info("multi_node injection completed: role=%s index=%d pod_count=%d", sel.role, sel.index, pod_count)
         return ec_traces, env_traces, system_setup, None, notes
 
@@ -1296,57 +1298,86 @@ def _resolve_multi_node(
 def _preflight_shrink_gate(
     scenario_engine_config: Dict[str, Any],
     device_count: int | None,
-    hardware: HardwareContext,
+    hardware: HardwareContext | None,
     weights_path: Any,
     engine: str = "vllm",
-) -> None:
-    """TP 收缩的前置校验:仅当 ``cnt < 模板 TP`` 时触发。
+) -> Optional[Dict[str, str]]:
+    """TP 收缩的前置校验:仅当 ``cnt < 模板 TP`` 时触发(warn-only)。
 
-    在并行策略实际收缩 TP 之前运行，防止把装不下的模型缩小 TP 后直接启动:
-    通过**显存硬闸**(``cnt × gpu_mem ≥ 1.5 × weight_bytes``,裸 gpu_mem 无 util)
-    和 **heads 守卫**(``num_attention_heads % cnt == 0``,config 读不到则 warn-skip)。
-    ``cnt ≥ TP``(不收缩)直接返回，不读取 gpu_mem/权重；``cnt`` 可以是单机卡数，
+    在并行策略实际收缩 TP 之前运行,避免把装不下的模型缩小 TP 后直接启动:
+    显存容量判据(``cnt × gpu_mem ≥ 1.5 × weight_bytes``,裸 gpu_mem 无 util)不满足时
+    **只记 warning 并继续**,不再阻断解析——该判据偏保守且不含 KV cache 增长,
+    会误拒实际可跑的配置;真正的取舍交给引擎启动结果。单卡显存/权重路径不可得时同样
+    warn-skip,不把“无法评估”当成判负。``heads 整除``仍保持报错(结构类失败,机理不同)。
+    ``cnt ≥ TP``(不收缩)直接返回,不读取 gpu_mem/权重;``cnt`` 可以是单机卡数,
     也可以是 TP 跨 Pod 场景的全局 ``world_size``。
 
     Args:
         scenario_engine_config: 选定模板 engine_config(读 ``tensor_parallel_size``)。
-        device_count: 实际参与 TP 的卡数；单机为本机卡数，多机 TP-across 为全局卡数
-            (``pod_count × 每 Pod 卡数``)，None 表示不触发。
-        hardware: 硬件上下文(读 ``gpu_mem_gb``,来自 hardware_family 的 _<N>G 后缀)。
+        device_count: 实际参与 TP 的卡数;单机为本机卡数,多机 TP-across 为全局卡数
+            (``pod_count × 每 Pod 卡数``),None 表示不触发。
+        hardware: 硬件上下文(读 ``gpu_mem_gb``,来自 hardware_family 的 _<N>G 后缀);None 或
+            无后缀时容量判据跳过。
         weights_path: 模型权重目录(``--model-path``;读 weight_bytes / num_attention_heads)。
 
+    Returns:
+        触发收缩时的预检 note(写入 ``strategy_notes``);无需记录时返回 None。
+
     Raises:
-        ValueError: 无显存后缀 / 无权重路径 / 权重不可读 / 容量不足 / heads 不整除。
+        ValueError: ``num_attention_heads % cnt != 0``(结构守卫,可读时才校验)。
     """
     if device_count is None:
-        return
+        return None
     tp, _, _ = read_parallelism_values(scenario_engine_config, engine=engine)
     if device_count >= tp:
-        return  # 不收缩时不触发前置闸
+        return None  # 不收缩时不触发前置闸
     # 单卡显存唯一来自 hardware_family 的 _<N>G 后缀(resolve_hardware 已解析进 gpu_mem_gb)。
-    gpu_mem_gb = hardware.gpu_mem_gb
+    gpu_mem_gb = hardware.gpu_mem_gb if hardware is not None else None
     if gpu_mem_gb is None:
-        raise ValueError(
-            "TP shrink (device-count<TP) requires a capacity gate, but hardware_family has no _<N>G memory suffix; "
-            "single-device memory is unavailable. Include memory in hardware_family, for example h20_96G."
+        logger.warning(
+            "TP shrink (device-count<TP) cannot evaluate the capacity gate: hardware_family has no _<N>G "
+            "memory suffix or hardware context is missing; skipping the check (best-effort). "
+            "Include memory in hardware_family, for example h20_96G, to enable it."
         )
+        # 权重不可读时 heads 守卫也无从校验,直接返回 note。
+        return {"tp_shrink_capacity": "skipped_no_memory_suffix"}
     if not weights_path:
-        raise ValueError("TP shrink requires --model-path to read model weight size for the capacity gate")
+        logger.warning(
+            "TP shrink (device-count<TP) skipped the capacity gate: --model-path is absent, "
+            "model weight size is unavailable (best-effort)"
+        )
+        return {"tp_shrink_capacity": "skipped_no_model_path"}
     gpu_mem_bytes = int(gpu_mem_gb) * 2**30
-    weight_bytes = resolve_weight_bytes(str(weights_path))
-    check_capacity(device_count, gpu_mem_bytes, weight_bytes)  # tp_eff=cnt(收缩后)
+    try:
+        weight_bytes = resolve_weight_bytes(str(weights_path))
+    except ValueError as exc:
+        logger.warning(
+            "TP shrink (device-count<TP) skipped the capacity gate: %s; continuing in best-effort mode", exc
+        )
+        return {"tp_shrink_capacity": "skipped_weight_unreadable"}
+    reason = check_capacity(device_count, gpu_mem_bytes, weight_bytes)  # tp_eff=cnt(收缩后)
+    notes: Dict[str, str] = {}
+    if reason is not None:
+        logger.warning(
+            "%s Continuing in best-effort mode; the engine may fail with OOM at startup.", reason
+        )
+        notes["tp_shrink_capacity"] = "insufficient"
+        notes["tp_shrink_capacity_detail"] = reason
     heads = read_num_attention_heads(str(weights_path))
     if heads is not None and heads % device_count != 0:
         raise ValueError(
             f"num_attention_heads={heads} is not divisible by device-count={device_count}; "
             f"TP cannot shrink to {device_count}. Adjust device count or use direct_vllm_serve."
         )
-    logger.info(
-        "TP shrink preflight gate passed: count=%d gpu_mem=%dG weight_bytes=%d",
-        device_count,
-        int(gpu_mem_gb),
-        weight_bytes,
-    )
+    if not notes:
+        logger.info(
+            "TP shrink preflight gate passed: count=%d gpu_mem=%dG weight_bytes=%d",
+            device_count,
+            int(gpu_mem_gb),
+            weight_bytes,
+        )
+        return None
+    return notes
 
 
 def _build_user_cli_audit_entries(
@@ -1585,12 +1616,17 @@ def _resolve_platform_fallback(
     else:
         # 只有实际采用公共 TP/DP transform 的 argv 引擎才执行权重/显存预检。
         # MindIE 的 device_count 表示本地设备规模，由其 extension 自己校验和计算。
+        gate_notes = None
         if requires_parallelism_preflight(engine):
-            _preflight_shrink_gate(scenario_engine_config, device_count, hardware, weights_path, engine)
+            gate_notes = _preflight_shrink_gate(
+                scenario_engine_config, device_count, hardware, weights_path, engine
+            )
         strategy_overrides, strategy_notes = post_template_strategy(
             scenario_engine_config,
             {"device_count": device_count, "topology": topology, "engine": engine},
         )
+        if gate_notes:
+            strategy_notes.update(gate_notes)
     # 按统一优先级合并平台默认值、策略覆盖、特性注入、智能加速和用户参数，
     # 并为每个最终参数保留来源链。
     engine_config_traces = _merge_engine_config_traces(
@@ -2728,12 +2764,17 @@ def resolve_config(
             )
         else:
             scenario_engine_config = scenario["engine_config"]
+            gate_notes = None
             if requires_parallelism_preflight(engine):
-                _preflight_shrink_gate(scenario_engine_config, device_count, hardware, weights_path, engine)
+                gate_notes = _preflight_shrink_gate(
+                    scenario_engine_config, device_count, hardware, weights_path, engine
+                )
             strategy_overrides, strategy_notes = post_template_strategy(
                 scenario_engine_config,
                 {"device_count": device_count, "topology": topology, "engine": engine},
             )
+            if gate_notes:
+                strategy_notes.update(gate_notes)
             scenario_env = scenario["env"]
             scenario_engine_config_source_prefix = scenario["engine_config_source_prefix"]
             scenario_env_source_prefix = scenario["env_source_prefix"]

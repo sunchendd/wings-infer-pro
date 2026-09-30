@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from wings_ctl.strategy.parallelism import (
@@ -82,10 +84,11 @@ def test_replica_ge_tp_raises_not_divisible():
         resolve_replica_tp_dp(12, 8)
 
 
-def test_replica_shrink_raises_non_power_of_two():
-    """收缩但 cnt 非 2 的幂:cnt=6,TP=8 → raise(收缩守卫)。"""
-    with pytest.raises(ValueError, match="power of two"):
-        resolve_replica_tp_dp(6, 8)
+def test_replica_shrink_non_power_of_two_warns(caplog):
+    """收缩且 cnt 非 2 的幂:cnt=6,TP=8 → 只告警,仍返回 (6, 1)(不再阻断)。"""
+    with caplog.at_level(logging.WARNING):
+        assert resolve_replica_tp_dp(6, 8) == (6, 1)
+    assert "not a power of two" in caplog.text
 
 
 def test_replica_raises_non_positive():
@@ -101,23 +104,22 @@ def test_replica_raises_non_positive_tp(bad_tp):
         resolve_replica_tp_dp(4, bad_tp)
 
 
-# ── check_capacity(显存硬闸)──
+# ── check_capacity(显存判据,warn-only 内核只返回原因)──
 
 
 def test_capacity_pass():
-    """够装:TP=4×80G=320G ≥ 1.5×200G=300G → 不 raise(裸 gpu_mem,无 util)。"""
-    check_capacity(4, 80 * 2**30, 200 * 2**30)
+    """够装:TP=4×80G=320G ≥ 1.5×200G=300G → 返回 None(裸 gpu_mem,无 util)。"""
+    assert check_capacity(4, 80 * 2**30, 200 * 2**30) is None
 
 
-def test_capacity_raises_insufficient():
-    """装不下:TP=4×80G=320G < 1.5×280G=420G → raise。"""
-    with pytest.raises(ValueError, match="Insufficient capacity"):
-        check_capacity(4, 80 * 2**30, 280 * 2**30)
+def test_capacity_reports_insufficient():
+    """装不下:TP=4×80G=320G < 1.5×280G=420G → 返回原因字符串,不抛出。"""
+    reason = check_capacity(4, 80 * 2**30, 280 * 2**30)
+    assert reason is not None and "Insufficient capacity" in reason
 
 
 def test_capacity_tp_eff_matters():
     """按 TP_有效(非总卡数):同权重 TP=4 装不下、TP=8 装得下。"""
     weight = 200 * 2**30
-    with pytest.raises(ValueError):
-        check_capacity(4, 60 * 2**30, weight)   # 4×60=240 < 300
-    check_capacity(8, 60 * 2**30, weight)        # 8×60=480 ≥ 300
+    assert check_capacity(4, 60 * 2**30, weight) is not None   # 4×60=240 < 300
+    assert check_capacity(8, 60 * 2**30, weight) is None       # 8×60=480 ≥ 300
