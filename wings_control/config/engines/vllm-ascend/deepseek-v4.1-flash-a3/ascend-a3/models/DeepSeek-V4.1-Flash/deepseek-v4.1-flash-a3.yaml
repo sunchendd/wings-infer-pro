@@ -6,6 +6,12 @@ upstream_sources:
     file: null
     url: "https://www.modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-w8a8"
     note: 用户提供双机 Ascend 910C 实际启动命令，手工录入。
+  - id: vllm_ascend_deepseek_v41_flash_a3_official
+    kind: official_doc
+    repo: vllm-ascend
+    file: docs/source/tutorials/models/DeepSeek-V4.1-Flash.md
+    url: "https://docs.vllm.ai/projects/ascend/en/latest/tutorials/models/DeepSeek-V4.1-Flash.html"
+    note: Official A3 single-node colocated deployment command (DP4/TP4, Engram host offload via --engram-config cpu_offload/dp_shared_memory). Engine version deepseek-v4.1-flash-a3 is a user-confirmed special/custom release and was not semver validated. The tutorial requires a main/vLLM v0.30+ based build of the tag; earlier tag builds (vllm 0.27.1, fork e43cf1e9f) had no --engram-config CLI and consumed additional_config enable_engram/engram_storage instead, as still kept in the multi_node scenario below.
 
 # 模型基本信息
 model:
@@ -37,6 +43,55 @@ features:
 
 # 部署场景
 scenarios:
+  standalone:
+    source_ref: "vllm_ascend_deepseek_v41_flash_a3_official#single_node_colocated"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone Colocated
+        default_strategy: true
+        engine_config:
+          model: $MODEL_PATH
+          host: "0.0.0.0"
+          port: 8900
+          max_model_len: 150000
+          max_num_batched_tokens: 8192
+          served_model_name: dsv41
+          gpu_memory_utilization: 0.9
+          max_num_seqs: 32
+          data_parallel_size: 4
+          tensor_parallel_size: 4
+          enable_expert_parallel: true
+          safetensors_load_strategy: lazy
+          model_loader_extra_config:
+            enable_multithread_load: true
+            num_threads: 128
+          quantization: ascend
+          block_size: 128
+          compilation_config:
+            cudagraph_mode: FULL_DECODE_ONLY
+          async_scheduling: true
+          engram_config:
+            cpu_offload: true
+            dp_shared_memory: true
+          additional_config:
+            ascend_compilation_config:
+              enable_npugraph_ex: true
+              enable_static_kernel: false
+            enable_cpu_binding: true
+            enable_fused_mc2: 1
+            enable_dsa_cp: true
+            enable_flashcomm1: true
+            enable_shared_expert_dp: true
+        env:
+          VLLM_USE_V2_MODEL_RUNNER: 0
+          VLLM_ENGINE_READY_TIMEOUT_S: 36000
+          HCCL_BUFFSIZE: 1024
+          HCCL_OP_EXPANSION_MODE: AIV
+          LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+
   multi_node:
     source_ref: "vllm_ascend_deepseek_v41_flash_w8a8_manual#multi_node"
     match:
