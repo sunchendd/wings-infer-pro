@@ -5,14 +5,18 @@
 - MiniMax-M2.7(decoding=suffix;无 kv_offload/sparse)
 - Qwen3.5-397B-A17B(decoding + kv_offload)
 
-跑"全开" LoadFlags 看真实 scheme + engine_config + env(`pytest -s` 可见打印);
+跑"全开" LoadFlags 看真实 scheme + engine_config + env(`pytest -o log_cli_level=info` 可见日志);
 并验证"全关(裸 LoadFlags())"三模型全空 no-op(守 LoadFlags 默认全 False,MaaS 选择即开启)。
 """
+
+import logging
 
 import pytest
 
 from wings_accel.api import resolve_smart_accel_from_config
 from wings_accel.yaml_loader import LoadFlags
+
+logger = logging.getLogger(__name__)
 
 # 三模型均自带 smart-accel 资产(vllm / v0.23.0 / rtx_pro_5000_48G)
 MODELS = ["DeepSeek-V4-Flash", "MiniMax-M2.7", "Qwen3.5-397B-A17B"]
@@ -50,13 +54,13 @@ def test_all_on_real_output(model):
     assert out is not None
     ec = out.engine_params.engine_config
     env = out.engine_params.env
-    print(f"\n══ {model} (all-on) ══")
-    print(
+    logger.info(f"\n══ {model} (all-on) ══")
+    logger.info(
         f"  schemes : dec={out.smart_decoding_scheme!r} "
         f"kv_cache={out.smart_kv_cache_scheme!r} sparse={out.smart_kv_sparse_scheme!r}"
     )
-    print(f"  engine_config: {ec}")
-    print(f"  env          : {env}")
+    logger.info(f"  engine_config: {ec}")
+    logger.info(f"  env          : {env}")
 
     if model == "DeepSeek-V4-Flash":
         # decoding + sparse(kv_offload 已移除:v0.22.0 不支持)

@@ -46,8 +46,8 @@ def _resolve_ascend(config_root_real: Path):
 class TestRealFormatE2E:
     """真实工具产物格式端到端测试。"""
 
-    def test_f_no_extra_blocks_cause_error(
-        self, config_root_real
+    @staticmethod
+    def test_f_no_extra_blocks_cause_error(config_root_real
     ):
         """(f) yaml 内 hardware_profile / features / tuning_overrides 等块不报错。"""
         resolved = _resolve_ascend(config_root_real)
@@ -55,8 +55,8 @@ class TestRealFormatE2E:
         # 确认 extra blocks 不影响核心解析(命中 model 时不叠 default_model)
         assert "model" in resolved.engine_config_traces
 
-    def test_g_ambiguous_match_raises_value_error(
-        self, config_root_real, tmp_path
+    @staticmethod
+    def test_g_ambiguous_match_raises_value_error(config_root_real, tmp_path
     ):
         """(g) 同一 models_dir 下两个 yaml 都匹配 model_name 时 raise ValueError。"""
         models_dir = (
@@ -88,7 +88,8 @@ scenarios:
                 model_name="DeepSeek-V4-Flash",
             )
 
-    def test_h_no_match_returns_none_tuple(self, config_root_real):
+    @staticmethod
+    def test_h_no_match_returns_none_tuple(config_root_real):
         """(h) 无匹配 model_name 时返回 (None, None, "")。"""
         data, path, pattern = _load_model_config(
             config_root=config_root_real,

@@ -33,7 +33,11 @@ def has_strictly_paired_document_tags(content):
 
 
 def _extract_query_from_prefix_postfix(prefix, postfix):
-    match = re.search(r"(Question:|Question\uFF1A|\u95EE\u9898\uFF1A|\u95EE\u9898:)(.*)", prefix + postfix, re.IGNORECASE | re.DOTALL)
+    match = re.search(
+        r"(Question:|Question\uFF1A|\u95EE\u9898\uFF1A|\u95EE\u9898:)(.*)",
+        prefix + postfix,
+        re.IGNORECASE | re.DOTALL,
+    )
     if match:
         return match.group(2).strip()
     return postfix.strip()

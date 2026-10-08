@@ -29,7 +29,7 @@ def _pair(
     prefill = ParallelShape(prefill_dp or default_dp, prefill_tp)
     decode = ParallelShape(decode_dp or default_dp, decode_tp)
     nodes = []
-    for role, tp, members, port in (
+    for role, _tp, members, port in (
         ("prefill", prefill_tp, prefill_members, 36000),
         ("decode", decode_tp, decode_members, 36100),
     ):

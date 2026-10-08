@@ -358,7 +358,6 @@ def test_g_accel_ignored_no_error(config_root, hardware_info_path):
 
 def test_h_engine_id_derived_from_pd_index(config_root, hardware_info_path):
     """engine_id 恒由 PD_INDEX(pd_index)派生,并注入每进程 kv_transfer_config。"""
-    # PD_INDEX=7
     explicit = ExplicitPdTopology(
         pd_index=7,
         prefill=ParallelShape(dp_size=2, tp_size=2),

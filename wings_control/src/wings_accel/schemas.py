@@ -64,7 +64,8 @@ class ModelConfig:
 
     model_path: str # 主模型权重路径(HF repo id / 本地);MaaS 来源 `--model-path`
     model_name: Optional[str] = None # 模型名称;yaml 定位键之一;MaaS 来源 `--model`/`-m`(name_pattern 匹配)
-    model_arch: Optional[str] = None # 模型架构族(llama / glm / eagle3 ...);来源 model.yaml `architecture`(decoders 据此选草稿方法)
+    # 模型架构族(llama / glm / eagle3 ...);来源 model.yaml `architecture`(decoders 据此选草稿方法)
+    model_arch: Optional[str] = None
 
 
 @dataclass
@@ -142,7 +143,8 @@ class SmartDecodingConfig:
     """
 
     enabled: bool = False # 投机推理开关;MaaS 必填 `ENABLE_SPECULATIVE_DECODE`(bool true/false;缺省按 False)
-    model_path: str = "" # 草稿模型路径(本地挂载的模型目录或 none);MaaS 条件必填 `SPECULATIVE_DECODE_MODEL_PATH`(spec=true 时目录或 none)
+    # 草稿模型路径(本地挂载的模型目录或 none);MaaS 条件必填 `SPECULATIVE_DECODE_MODEL_PATH`(spec=true 时目录或 none)
+    model_path: str = ""
 
 
 @dataclass
@@ -256,7 +258,9 @@ class DeploymentMode:
     """
 
     pd_role: Optional[str] = None # PD 角色;MaaS 必填 `PD_ROLE`(enum:P/D/none;none 表示非 PD 分离)
-    topology: Optional[str] = None # 部署拓扑(standalone/multi_node/pd_prefill/pd_decode);对齐 wings-control Topology 枚举值。yaml_loader 据此把 smart_accel 路由到对应 scenario 子块(见 smart-yaml.md §1)
+    # 部署拓扑(standalone/multi_node/pd_prefill/pd_decode);对齐 wings-control Topology 枚举值。
+    # yaml_loader 据此把 smart_accel 路由到对应 scenario 子块(见 smart-yaml.md §1)
+    topology: Optional[str] = None
 
 
 def scheme_supports_deploy_mode(scheme: Dict[str, Any], topology: Optional[str]) -> bool:
@@ -335,7 +339,8 @@ class _FeatureOutput:
     pre_serve: List[str] = field(default_factory=list) # 所有节点在引擎启动前执行的框架合成命令
     pre_serve_master: List[str] = field(default_factory=list) # 仅 master 节点执行的框架合成命令
     pre_serve_client: List[str] = field(default_factory=list) # 仅 client(非 master)节点执行的框架合成命令
-    generated_files: List[GeneratedFile] = field(default_factory=list) # 已渲染、未写盘的文件计划;由 wings-control 在产物阶段消费
+    # 已渲染、未写盘的文件计划;由 wings-control 在产物阶段消费
+    generated_files: List[GeneratedFile] = field(default_factory=list)
     # True 时 script_builder 将随包的脚本兜底资产复制到共享卷。
     mooncake_script_assets_required: bool = False
     # Mooncake master 分支段(early-exit 块的 shell 行)。仅 distributed_offload
@@ -377,15 +382,21 @@ class SmartAccelOutput:
     # 服务重启后 LMCache 落盘的旧 KV 数据会残留并超出 MaaS 规划容量,须启动前清空。
     kv_disk_offload_path: Optional[str] = None
     diagnostics: Dict[str, Dict[str, Any]] = field(default_factory=dict) # 降级诊断;只写 degraded 特性,原样落 audit
-    packages: List[str] = field(default_factory=list) # 各选中 scheme 声明的 pip 依赖汇总(name:version);供 install 段 --config
-    pre_serve: List[str] = field(default_factory=list) # 聚合:所有节点 pre-serve 命令(去重保序);script_builder 在 vllm serve 前渲染
-    pre_serve_master: List[str] = field(default_factory=list) # 聚合:仅 master 的 daemon 启动命令(去重保序);包 RANK_IP==MASTER_IP 条件
-    pre_serve_client: List[str] = field(default_factory=list) # 聚合:仅 client(非 master)pre-serve 命令(去重保序);包 RANK_IP!=MASTER_IP 条件
+    # 各选中 scheme 声明的 pip 依赖汇总(name:version);供 install 段 --config
+    packages: List[str] = field(default_factory=list)
+    # 聚合:所有节点 pre-serve 命令(去重保序);script_builder 在 vllm serve 前渲染
+    pre_serve: List[str] = field(default_factory=list)
+    # 聚合:仅 master 的 daemon 启动命令(去重保序);包 RANK_IP==MASTER_IP 条件
+    pre_serve_master: List[str] = field(default_factory=list)
+    # 聚合:仅 client(非 master)pre-serve 命令(去重保序);包 RANK_IP!=MASTER_IP 条件
+    pre_serve_client: List[str] = field(default_factory=list)
     # 非空 pre_serve 三桶的来源:True=包内资产,False=外部资产,None=无命令或来源未知。
     # 由 api.resolve_smart_accel_from_config 根据实际命中的 source_file 填写。
     pre_serve_trusted: Optional[bool] = None
-    generated_files: List[GeneratedFile] = field(default_factory=list) # 已渲染、未写盘的文件计划;交由 wings-control 在非 dry-run 产物阶段写入
-    mooncake_component_sources: Dict[str, str] = field(default_factory=dict) # Mooncake 部件来源(四部件 yaml/script_fallback + transfer_engine yaml/injected/disabled),供审计和运行时日志使用
+    # 已渲染、未写盘的文件计划;交由 wings-control 在非 dry-run 产物阶段写入
+    generated_files: List[GeneratedFile] = field(default_factory=list)
+    # Mooncake 部件来源(四部件 yaml/script_fallback + transfer_engine yaml/injected/disabled),供审计和运行时日志使用
+    mooncake_component_sources: Dict[str, str] = field(default_factory=dict)
     mooncake_script_assets_required: bool = False # 是否需安装脚本兜底共享卷资产
     # Mooncake master 分支段(early-exit 块的 shell 行);空 → script_builder 不渲染该段。
     mooncake_master_section: List[str] = field(default_factory=list)

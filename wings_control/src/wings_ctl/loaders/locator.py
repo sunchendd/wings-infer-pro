@@ -136,7 +136,11 @@ def resolve_family_dir(
     aliased = _ALIAS.get(card.casefold())
     if aliased:
         if aliased.casefold() in candidates:
-            logger.info("resolve_family_dir: '%s' resolved by alias to %s", hardware_family, candidates[aliased.casefold()])
+            logger.info(
+                "resolve_family_dir: '%s' resolved by alias to %s",
+                hardware_family,
+                candidates[aliased.casefold()],
+            )
             return candidates[aliased.casefold()]
         # 别名命中但目标目录不存在 = _ALIAS 配错(填表时目录名写错);不静默,记 warn 再回落剥后缀。
         logger.warning(
@@ -364,7 +368,8 @@ def load_model_config(
     if len(exact_matches) > 1:
         paths = ", ".join(str(p) for _, p, _ in exact_matches)
         raise ValueError(
-            f"variant_name conflict: multiple files declare variant_name='{model_name}': {paths}. Ensure variant_name is unique in the directory."
+            f"variant_name conflict: multiple files declare variant_name='{model_name}': {paths}. "
+            "Ensure variant_name is unique in the directory."
         )
 
     # ── ② name_pattern 模糊匹配回退 ──

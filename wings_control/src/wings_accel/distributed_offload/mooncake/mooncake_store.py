@@ -1,9 +1,10 @@
 import argparse
-import time
 import logging
-from mooncake.store import MooncakeDistributedStore
-import signal
 import os
+import signal
+import time
+
+from mooncake.store import MooncakeDistributedStore
 
 
 # Disable memcpy optimization
@@ -46,14 +47,17 @@ class MooncakeInstance:
             retcode = self.store.setup(local_hostname, metadata_server, global_segment_size,
                                   local_buffer_size, protocol, device_name, master_server_address)
         else:
-            retcode = self.store.setup(local_hostname, metadata_server, global_segment_size,
-                                  local_buffer_size, protocol, device_name, master_server_address, None, True, self.args.offload_dir)
+            retcode = self.store.setup(
+                local_hostname, metadata_server, global_segment_size,
+                local_buffer_size, protocol, device_name, master_server_address,
+                None, True, self.args.offload_dir,
+            )
 
         if retcode:
-            logger.error(f"Store setup failed with return code {retcode}")
-            exit(1)
+            raise RuntimeError(f"Store setup failed with return code {retcode}")
 
         time.sleep(1)
+
 
 def parse_arguments():
     """Parse command-line arguments for the stress test."""
@@ -66,7 +70,8 @@ def parse_arguments():
     parser.add_argument("--protocol", type=str, default="rdma", help="Communication protocol to use")
     parser.add_argument("--device-name", type=str, default="erdma_0", help="Network device name for RDMA")
     parser.add_argument("--local-hostname", type=str, default="localhost", help="Local hostname")
-    parser.add_argument("--metadata-server", type=str, default="http://127.0.0.1:8080/metadata", help="Metadata server address")
+    parser.add_argument("--metadata-server", type=str,
+                        default="http://127.0.0.1:8080/metadata", help="Metadata server address")
     parser.add_argument("--master-server", type=str, default="localhost:50051", help="Master server address")
 
     # Memory and storage settings
@@ -77,6 +82,7 @@ def parse_arguments():
     parser.add_argument("--offload-dir", type=str, default="", help="offload directory")
 
     return parser.parse_args()
+
 
 def main():
     """Main entry point for the stress test."""
@@ -97,7 +103,7 @@ def main():
         logger.error(f"Test failed with error: {e}")
         raise
 
-    print(f" Mooncake Store Daemon is running，PID: {os.getpid()}")
+    logger.info(" Mooncake Store Daemon is running，PID: %s", os.getpid())
     # 阻塞等待信号（Ctrl+C / kill 命令可终止）
     signal.pause()
 

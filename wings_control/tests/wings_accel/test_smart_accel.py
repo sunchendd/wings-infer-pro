@@ -42,12 +42,16 @@ class _SmartOutput:
 def _make_stub_module():
     """构造一个 duck-typed 假 wings-accel 模块:dataclass 用 kwargs 存成 SimpleNamespace。"""
     mod = types.SimpleNamespace()
+
+    def _stub_class(**kw):
+        return types.SimpleNamespace(**kw)
+
     for name in (
         "SystemConfig", "ModelConfig", "EngineConfig", "DeploymentMode",
         "SmartDecodingConfig", "SmartKVCacheConfig", "SmartKVSparseConfig", "SmartAccelInput",
         "DistributedKVCacheConfig",
     ):
-        setattr(mod, name, lambda **kw: types.SimpleNamespace(**kw))
+        setattr(mod, name, _stub_class)
 
     def _resolve_smart_accel_from_config(**kwargs):
         flags = kwargs.get("flags")
@@ -58,7 +62,10 @@ def _make_stub_module():
             )
         return _SmartOutput()
 
-    mod.LoadFlags = lambda **kw: types.SimpleNamespace(**kw)
+    def _load_flags(**kw):
+        return types.SimpleNamespace(**kw)
+
+    mod.LoadFlags = _load_flags
     mod.resolve_smart_accel_from_config = _resolve_smart_accel_from_config
     return mod
 
@@ -167,7 +174,8 @@ def test_apply_warning_names_memory_subswitch(monkeypatch, caplog) -> None:
 
 def test_disk_offload_switch_alone_is_active() -> None:
     """ENABLE_KV_OFFLOAD 与 ENABLE_DISTRIBUTED_KV_OFFLOAD 并列且互斥(两套卸载方案,不互相派生);
-    磁盘卸载是 ENABLE_KV_OFFLOAD 方案内的二级开关,须显式开一级才生效。"""
+    磁盘卸载是 ENABLE_KV_OFFLOAD 方案内的二级开关,须显式开一级才生效。
+    """
     switches = collect_accel_switches({"ENABLE_KV_DISK_OFFLOAD": "true"})
     assert switches["kv_disk_enabled"] is True
     assert switches["kv_mem_enabled"] is False

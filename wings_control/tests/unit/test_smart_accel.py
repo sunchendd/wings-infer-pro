@@ -103,7 +103,8 @@ def test_collect_switches_xcache_install_defaults_true():
 
 def test_enabled_feature_switch_names_excludes_install_only():
     """安装类开关(缺省 True 的 xcache_install_enabled)不算"开启加速特性";
-    PD 禁令与 custom 路径 accel_enabled 判定共用本函数,不能被它误触发。"""
+    PD 禁令与 custom 路径 accel_enabled 判定共用本函数,不能被它误触发。
+    """
     # 空 env:xcache_install_enabled 缺省 True,但不算特性开关
     assert enabled_feature_switch_names(collect_accel_switches({})) == []
     # 显式打开安装开关同样不算;显式关掉它也不影响特性判定
@@ -308,12 +309,19 @@ def test_apply_propagates_smart_accel_configuration_error(monkeypatch):
 def _pre_serve_stub_mod(trusted):
     """构造返回启动前命令的 SmartAccel stub，用于验证消费端可信门禁。"""
     mod = types.SimpleNamespace()
-    mod.LoadFlags = lambda **kwargs: types.SimpleNamespace(**kwargs)
-    mod.resolve_smart_accel_from_config = lambda **kwargs: types.SimpleNamespace(
-        engine_params=types.SimpleNamespace(engine_config={}, env={}),
-        pre_serve=["mkdir -p /shared-volume"],
-        pre_serve_trusted=trusted,
-    )
+
+    def _load_flags(**kwargs):
+        return types.SimpleNamespace(**kwargs)
+
+    def _resolve_smart_accel(**kwargs):
+        return types.SimpleNamespace(
+            engine_params=types.SimpleNamespace(engine_config={}, env={}),
+            pre_serve=["mkdir -p /shared-volume"],
+            pre_serve_trusted=trusted,
+        )
+
+    mod.LoadFlags = _load_flags
+    mod.resolve_smart_accel_from_config = _resolve_smart_accel
     return mod
 
 

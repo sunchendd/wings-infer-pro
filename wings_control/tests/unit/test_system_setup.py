@@ -64,12 +64,14 @@ def _make_minimal_resolved(
 class TestSystemSetupParsing:
     """system_setup 解析到 ResolvedConfig 的测试。"""
 
-    def test_system_setup_none_when_absent(self):
+    @staticmethod
+    def test_system_setup_none_when_absent():
         """场景无 system_setup 时 ResolvedConfig.system_setup 为 None。"""
         resolved = _make_minimal_resolved(system_setup=None)
         assert resolved.system_setup is None
 
-    def test_system_setup_populated(self):
+    @staticmethod
+    def test_system_setup_populated():
         """system_setup 正确填充 sysctls/sysfs_writes/commands。"""
         setup = SystemSetup(
             sysctls={"vm.swappiness": 0, "kernel.numa_balancing": 0},
@@ -246,7 +248,8 @@ class TestSystemSetupRendering:
         assert "if [ -f '/tmp/$(id)/\"b1\"/set_env.sh' ];" in text
         assert "echo 'WARN: system_setup source not found, skipping: /tmp/$(id)/\"b1\"/set_env.sh' >&2" in text
 
-    def test_sysctls_rendered_as_comments(self, tmp_path):
+    @staticmethod
+    def test_sysctls_rendered_as_comments(tmp_path):
         """sysctls 渲染为注释行。"""
         setup = SystemSetup(
             sysctls={"vm.swappiness": 0, "kernel.numa_balancing": 0},
@@ -263,7 +266,8 @@ class TestSystemSetupRendering:
         assert "#   sysctl -w vm.swappiness=0" in content
         assert "#   sysctl -w kernel.numa_balancing=0" in content
 
-    def test_sysfs_writes_rendered_as_comments(self, tmp_path):
+    @staticmethod
+    def test_sysfs_writes_rendered_as_comments(tmp_path):
         """sysfs_writes 渲染为注释行。"""
         setup = SystemSetup(
             sysctls={},
@@ -283,7 +287,8 @@ class TestSystemSetupRendering:
         assert "performance" in content
         assert "scaling_governor" in content
 
-    def test_commands_noted_but_not_rendered(self, tmp_path):
+    @staticmethod
+    def test_commands_noted_but_not_rendered(tmp_path):
         """commands 标注存在但不渲染为可执行行。"""
         setup = SystemSetup(
             sysctls={},
@@ -300,7 +305,8 @@ class TestSystemSetupRendering:
         # 确保 commands 内容不以可执行行出现
         assert "nic_name=eth0" not in content.replace("# commands", "")
 
-    def test_no_system_setup_no_section(self, tmp_path):
+    @staticmethod
+    def test_no_system_setup_no_section(tmp_path):
         """无 system_setup 时脚本不含 System Setup 段。"""
         resolved = _make_minimal_resolved(system_setup=None)
         start_path, _ = build_scripts(resolved, tmp_path)
@@ -308,7 +314,8 @@ class TestSystemSetupRendering:
 
         assert "System Setup" not in content
 
-    def test_source_annotation_in_comments(self, tmp_path):
+    @staticmethod
+    def test_source_annotation_in_comments(tmp_path):
         """注释中包含 source 信息。"""
         setup = SystemSetup(
             sysctls={"vm.swappiness": 0},
@@ -328,7 +335,8 @@ class TestSystemSetupRendering:
 class TestSystemSetupAudit:
     """system_setup 在 audit.json 中的记录。"""
 
-    def test_audit_contains_system_setup(self, tmp_path):
+    @staticmethod
+    def test_audit_contains_system_setup(tmp_path):
         """audit.json 含 system_setup 块。"""
         setup = SystemSetup(
             sysctls={"vm.swappiness": 0},
@@ -348,7 +356,8 @@ class TestSystemSetupAudit:
         assert audit["system_setup"]["source_file"] == "model.yaml"
         assert audit["system_setup"]["source_path"] == "scenarios.standalone.system_setup"
 
-    def test_audit_no_system_setup_when_absent(self, tmp_path):
+    @staticmethod
+    def test_audit_no_system_setup_when_absent(tmp_path):
         """无 system_setup 时 audit.json 不含该块。"""
         resolved = _make_minimal_resolved(system_setup=None)
         audit_path = emit_audit(resolved, tmp_path)

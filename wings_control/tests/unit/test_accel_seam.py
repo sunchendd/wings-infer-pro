@@ -788,11 +788,13 @@ def test_kv_disk_cleanup_absent_without_disk(tmp_path):
     assert "rm -rf" not in start_text
     assert "rm -rf" not in repro_path.read_text(encoding="utf-8")
 
+
 # ── 部署进度 guard:标准路径先校验后落盘,失败不留半成品 ──────────────
 
 def test_standard_path_guard_failure_writes_no_scripts(monkeypatch, tmp_path):
     """标准 standalone 路径:analyzer preamble 缺失 → guard 在落盘前失败,
-    不留下未通过校验的 start_command.sh / repro.sh。"""
+    不留下未通过校验的 start_command.sh / repro.sh。
+    """
     # 让前置 preamble 返回 None → start_content 缺 log_analyzer 片段 → guard 失败
     monkeypatch.setattr(script_builder, "_build_analyzer_preamble", lambda _resolved: None)
 

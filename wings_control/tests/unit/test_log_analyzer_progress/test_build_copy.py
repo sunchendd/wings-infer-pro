@@ -12,9 +12,8 @@ import re
 class TestBuildCopyLogAnalyzer:
     """构建层：log_analyzer 模块拷贝链路验证。"""
 
-    def test_dockerfile_copies_log_analyzer_before_pyc(
-        self,
-        dockerfile_path,
+    @staticmethod
+    def test_dockerfile_copies_log_analyzer_before_pyc(dockerfile_path,
     ):
         """TC-BUILD-1: Dockerfile 在 compile_wings.sh 加密前 COPY log_analyzer。
 
@@ -52,15 +51,14 @@ class TestBuildCopyLogAnalyzer:
             )
 
         # 验证上方有注释说明拷贝原因
-        comment_lines = lines[max(0, copy_line_idx - 3) : copy_line_idx]
+        comment_lines = lines[max(0, copy_line_idx - 3):copy_line_idx]
         comment_text = " ".join(comment_lines)
         assert any(kw in comment_text for kw in ["pyc", "magic", "加密", "编译", "兼容"]), (
             f"COPY log_analyzer 上方缺少注释说明拷贝原因（pyc 兼容性），实际注释: {comment_lines}"
         )
 
-    def test_wings_start_copies_log_analyzer_to_shared_volume(
-        self,
-        wings_start_path,
+    @staticmethod
+    def test_wings_start_copies_log_analyzer_to_shared_volume(wings_start_path,
     ):
         """TC-BUILD-2: wings_start.sh 将 /opt/log_analyzer 拷贝到共享卷。
 

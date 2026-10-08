@@ -3,7 +3,8 @@
 工具由 yaml 声明、按 ``kv_connector`` 内容路由(``AscendStoreConnector``);不再有 KV_STORE_BACKEND env。
 name = 介质(cpu/disk/cpu_disk):后端工具(mooncake/memcache)是 **cpu 介质**下的内存卸载实现,
 scheme 的 ``name`` 统一为 ``cpu``(工具由 connector + ``kv_connector_extra_config.backend`` 区分)。
-覆盖 offload.py 的后端选择分支、render.py 的 ``{rank_ip}``/``{master_ip}`` 占位符与 ``{= expr}`` 算术求值、files 自描述落盘(path/content/scope/mode)、框架自动合成的 pre_serve/pre_serve_master
+覆盖 offload.py 的后端选择分支、render.py 的 ``{rank_ip}``/``{master_ip}`` 占位符与 ``{= expr}`` 算术求值、
+files 自描述落盘(path/content/scope/mode)、框架自动合成的 pre_serve/pre_serve_master
 (mkdir / envsubst / master-only ``bash daemon &``,不监听端口),以及真实 YAML 资产
 (MiniMax-M2.7-w8a8 的 mooncake 工具)的解析。
 """
@@ -189,7 +190,8 @@ def test_memcache_renders_protocol_dram(monkeypatch, tmp_path):
     assert "dram = 2GB" in local                # {= memory_capacity_gb // gpu_count}GB → "<per_card>GB"(8GB//4 卡)
     assert "meta = tcp://${MASTER_IP}:15000" in local
     assert "store = tcp://${RANK_IP}:16000" in local
-    # pre_serve(all)envsubst mmc_local.conf(含 {master_ip}+{rank_ip});pre_serve_master envsubst mmc_meta.conf + 起 MetaService
+    # pre_serve(all)envsubst mmc_local.conf(含 {master_ip}+{rank_ip});
+    # pre_serve_master envsubst mmc_meta.conf + 起 MetaService
     assert "envsubst '${MASTER_IP} ${RANK_IP}'" in "\n".join(out.pre_serve)
     psm = "\n".join(out.pre_serve_master)
     assert "envsubst" in psm and "mmc_meta.conf" in psm

@@ -217,6 +217,7 @@ def test_gateway_exact_no_rag_marker_forces_fallback(monkeypatch):
 
     assert result == "forwarded"
 
+
 def test_backend_failure_is_info_while_engine_is_starting(monkeypatch):
     from wings_ctl.proxy import gateway
 
@@ -232,7 +233,7 @@ def test_backend_failure_is_info_while_engine_is_starting(monkeypatch):
     assert infos == [
         ("retry_exception", {"phase": "starting", "detail": "connection refused"})
     ]
-    assert errors == []
+    assert not errors
 
 
 def test_backend_failure_remains_error_after_engine_was_ready(monkeypatch):
@@ -246,5 +247,5 @@ def test_backend_failure_remains_error_after_engine_was_ready(monkeypatch):
 
     gateway._log_backend_failure("retry_exception", detail="connection refused")
 
-    assert infos == []
+    assert not infos
     assert errors == [("retry_exception", {"detail": "connection refused"})]

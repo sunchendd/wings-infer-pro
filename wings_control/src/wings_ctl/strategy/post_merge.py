@@ -155,7 +155,9 @@ def apply_post_merge_strategy(
     # 处理 VLLM_ASCEND_ENABLE_FLASHCOMM1。
     removed_flashcomm = _FLASHCOMM1_ENV in env_traces
     filtered_env = {
-        key: traced for key, traced in env_traces.items() if key != _FLASHCOMM1_ENV
+        key: traced
+        for key, traced in env_traces.items()
+        if key != _FLASHCOMM1_ENV
     }
 
     removed = []

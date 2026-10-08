@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 
 import pytest
@@ -9,6 +10,8 @@ import pytest
 from wings_ctl.core.models import PipelineRequest, Target
 from wings_ctl.core.topology import Topology
 from wings_ctl.pipeline import run_pipeline
+
+_BASH = shutil.which("bash") or "/bin/bash"
 
 
 pytestmark = pytest.mark.skip(
@@ -59,7 +62,7 @@ def test_h100_kimi_standalone_strategies_pipeline_and_source_path(config_root_re
         patched = "\n".join(lines) + "\n"
         env = os.environ.copy()
         env.setdefault("LD_PRELOAD", "")
-        proc = subprocess.run(["bash"], input=patched, capture_output=True, text=True, env=env)
+        proc = subprocess.run([_BASH], input=patched, capture_output=True, text=True, env=env)
         assert proc.returncode == 0
         assert "vllm serve" in proc.stdout
     finally:

@@ -281,7 +281,9 @@ def test_select_pd_recipe_pair_rejects_missing_role() -> None:
     model = _model()
     nodes = model["scenarios"]["pd_disaggregation"]["strategies"]["pd_cluster"]["nodes"]
     model["scenarios"]["pd_disaggregation"]["strategies"]["pd_cluster"]["nodes"] = [
-        node for node in nodes if node["role"] == "prefill"
+        node
+        for node in nodes
+        if node["role"] == "prefill"
     ]
 
     with pytest.raises(ValueError, match="role=D"):

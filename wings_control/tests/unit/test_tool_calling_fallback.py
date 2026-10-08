@@ -12,7 +12,12 @@ def _write(path: Path, content: str) -> None:
 def test_vllm_falls_back_to_other_quantization_variant(tmp_path):
     _write(
         tmp_path / "engines" / "vllm" / "hw" / "models" / "Qwen" / "qwen-fp8.yaml",
-        """model:\n  name: Qwen3\n  variant_name: Qwen3-fp8\n  match:\n    - name_pattern: '(?i)qwen3'\nfeatures:\n  tool_calling:\n    args: [--enable-auto-tool-choice, --tool-call-parser, qwen3]\n""",
+        (
+            "model:\n  name: Qwen3\n  variant_name: Qwen3-fp8\n  match:\n"
+            "    - name_pattern: '(?i)qwen3'\n"
+            "features:\n  tool_calling:\n"
+            "    args: [--enable-auto-tool-choice, --tool-call-parser, qwen3]\n"
+        ),
     )
 
     current = {"model": {"name": "Qwen3"}, "features": {}}
@@ -26,7 +31,11 @@ def test_vllm_falls_back_to_other_quantization_variant(tmp_path):
 def test_vllm_ascend_falls_back_to_vllm_quantization_variant(tmp_path):
     _write(
         tmp_path / "engines" / "vllm" / "hw" / "models" / "Qwen3" / "qwen-fp8.yaml",
-        """model:\n  name: Qwen3\n  variant_name: Qwen3-fp8\nfeatures:\n  tool_calling:\n    args: [--enable-auto-tool-choice, --tool-call-parser, qwen3]\n""",
+        (
+            "model:\n  name: Qwen3\n  variant_name: Qwen3-fp8\n"
+            "features:\n  tool_calling:\n"
+            "    args: [--enable-auto-tool-choice, --tool-call-parser, qwen3]\n"
+        ),
     )
     current = {"model": {"name": "Qwen3"}, "features": {}}
 
@@ -63,11 +72,19 @@ def test_canonical_model_name_scans_only_matching_model_directories(tmp_path):
 def test_canonical_model_name_prevents_prefix_model_mismatch(tmp_path):
     _write(
         tmp_path / "engines" / "vllm" / "hw" / "models" / "DeepSeek-V3" / "v3.yaml",
-        """model:\n  name: DeepSeek-V3\n  match:\n    - name_pattern: '(?i)deepseek[-.]?v3'\nfeatures:\n  tool_calling:\n    args: [--tool-call-parser, deepseek_v3]\n""",
+        (
+            "model:\n  name: DeepSeek-V3\n  match:\n"
+            "    - name_pattern: '(?i)deepseek[-.]?v3'\n"
+            "features:\n  tool_calling:\n    args: [--tool-call-parser, deepseek_v3]\n"
+        ),
     )
     _write(
         tmp_path / "engines" / "vllm" / "hw" / "models" / "DeepSeek-V3.2" / "v32.yaml",
-        """model:\n  name: DeepSeek-V3.2\n  match:\n    - name_pattern: '(?i)deepseek[-.]?v3[.]2'\nfeatures:\n  tool_calling:\n    args: [--tool-call-parser, deepseek_v32]\n""",
+        (
+            "model:\n  name: DeepSeek-V3.2\n  match:\n"
+            "    - name_pattern: '(?i)deepseek[-.]?v3[.]2'\n"
+            "features:\n  tool_calling:\n    args: [--tool-call-parser, deepseek_v32]\n"
+        ),
     )
 
     data, path = find_tool_calling_config(
@@ -80,7 +97,10 @@ def test_canonical_model_name_prevents_prefix_model_mismatch(tmp_path):
 def test_fallback_does_not_match_other_model(tmp_path):
     _write(
         tmp_path / "engines" / "vllm" / "hw" / "models" / "Llama" / "llama.yaml",
-        """model:\n  name: Llama\n  match:\n    - name_pattern: '(?i)llama'\nfeatures:\n  tool_calling:\n    args: [--tool-call-parser, llama]\n""",
+        (
+            "model:\n  name: Llama\n  match:\n    - name_pattern: '(?i)llama'\n"
+            "features:\n  tool_calling:\n    args: [--tool-call-parser, llama]\n"
+        ),
     )
     features, _, _, _ = _prepare_feature_context(tmp_path, "Qwen3", "vllm", {"features": {}}, False, True)
     assert "tool_calling" not in features
@@ -96,4 +116,4 @@ def test_fallback_only_applies_to_supported_engines(tmp_path):
 
 def test_disabled_switch_does_not_scan(tmp_path):
     features, _, _, _ = _prepare_feature_context(tmp_path, "Qwen3", "vllm", {"features": {}}, False, False)
-    assert features == {}
+    assert not features

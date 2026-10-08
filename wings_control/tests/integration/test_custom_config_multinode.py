@@ -101,12 +101,12 @@ def _resolve(
 def test_a_vllm_worker_derives_common(config_root, hardware_info_path):
     resolved = _resolve(config_root, hardware_info_path)
     tr = resolved.engine_config_traces
-    # nnodes = len(NODE_IPS)
+    # 期望:nnodes 来自 NODE_IPS 数量
     assert tr["nnodes"].final_value == 3
     assert tr["nnodes"].final_layer == "strategy_multinode_custom"
     # node_rank = 本 Pod index(worker → 3rd node → 2)
     assert tr["node_rank"].final_value == 2
-    # master_addr = NODE_IPS[0] = master_ip
+    # 期望:master_addr 取 NODE_IPS[0](即 master_ip)
     assert tr["master_addr"].final_value == "10.0.0.1"
     # worker → headless
     assert tr["headless"].final_value is True
@@ -380,7 +380,7 @@ def test_d_ascend_env_derived(config_root, hardware_info_path):
     assert env["TP_SOCKET_IFNAME"] == "$IFACE_NAME"
     assert env["HCCL_SOCKET_IFNAME"] == "$IFACE_NAME"
     # system_setup 不再注入 shell 探测命令(15ffcc6:Python 侧解析网卡)
-    assert derive.system_setup_commands == []
+    assert not derive.system_setup_commands
 
 
 def test_d2_vllm_env_derived(config_root, hardware_info_path):
@@ -491,7 +491,8 @@ def test_e_sglang_dist_port_extraction():
 
 def test_e2_vllm_placeholder_dropped(config_root, hardware_info_path):
     """vllm:master_addr/nnodes/node_rank/headless/DP 通信参数带 <autofill:...> 占位符
-    → 全部被黑名单弃置(不入 traces,不渲染进 argv),且正常业务参数保留。"""
+    → 全部被黑名单弃置(不入 traces,不渲染进 argv),且正常业务参数保留。
+    """
     cf = CustomConfigFile(
         params={
             # 派生键(黑名单内)占位符形态 —— 必须被弃,绝不透传
@@ -522,7 +523,11 @@ def test_e2_vllm_placeholder_dropped(config_root, hardware_info_path):
     assert "autofill" not in str(resolved.engine_config_traces)
     assert "autofill" not in str(resolved.env_traces)
     # audit:占位符键记 dropped
-    dropped = {d["key"] for d in resolved.config_file_params if d["status"] == "dropped"}
+    dropped = {
+        d["key"]
+        for d in resolved.config_file_params
+        if d["status"] == "dropped"
+    }
     for key in ("master_addr", "nnodes", "node_rank", "headless", "data_parallel_address"):
         assert key in dropped
     # env 网卡占位符同样被弃
@@ -608,7 +613,8 @@ def test_g_vllm_end_to_end_scripts(config_root, hardware_info_path, tmp_path):
 def test_h_vllm_short_flags_canonicalized(config_root, hardware_info_path):
     """vllm 简写(:n/-r/-tp/-dp)经 canonical 归并:
     - n→nnodes、r→node_rank 命中黑名单被过滤(不渲染);
-    - tp→tensor_parallel_size、dp→data_parallel_size 被派生层 cfg.get 读取。"""
+    - tp→tensor_parallel_size、dp→data_parallel_size 被派生层 cfg.get 读取。
+    """
     cf = CustomConfigFile(
         params={
             # 简写(Clippy):n/r 应在黑名单过滤;tp/dp 应被派生层读成 canonical 键。
@@ -635,7 +641,11 @@ def test_h_vllm_short_flags_canonicalized(config_root, hardware_info_path):
     assert tr["data_parallel_size_local"].final_layer == "config_file"
     # 黑名单弃置记录:canonical nnodes/node_rank(n/r 归并后)被弃(vllm 框架权威派生),
     # 记 dropped 而不透传;data_parallel_size/data_parallel_size_local 用户自管不透传。
-    dropped = {d["key"] for d in resolved.config_file_params if d["status"] == "dropped"}
+    dropped = {
+        d["key"]
+        for d in resolved.config_file_params
+        if d["status"] == "dropped"
+    }
     assert "nnodes" in dropped and "node_rank" in dropped
     assert "data_parallel_size" not in dropped
     assert "data_parallel_size_local" not in dropped
@@ -643,7 +653,8 @@ def test_h_vllm_short_flags_canonicalized(config_root, hardware_info_path):
 
 def test_h1_dp_short_flags_canonicalized(config_root, hardware_info_path):
     """vllm DP 简写 -dpa/-dpp 经 canonical 归并:-dpp(rpc_port 用户可填)透传,
-    -dpa(address 黑名单)被弃。"""
+    -dpa(address 黑名单)被弃。
+    """
     cf = CustomConfigFile(
         params={"dpp": 13389, "dpa": "10.9.9.9"},
         env={},
@@ -654,7 +665,11 @@ def test_h1_dp_short_flags_canonicalized(config_root, hardware_info_path):
     assert tr["data_parallel_rpc_port"].final_value == 13389
     assert tr["data_parallel_rpc_port"].final_layer == "config_file"
     # dpa → data_parallel_address(黑名单,框架权威)→ 弃用;dp=1→NONE→不派生→不进 traces
-    dropped = {d["key"] for d in resolved.config_file_params if d["status"] == "dropped"}
+    dropped = {
+        d["key"]
+        for d in resolved.config_file_params
+        if d["status"] == "dropped"
+    }
     assert "data_parallel_address" in dropped
     assert "data_parallel_address" not in tr
 
@@ -663,7 +678,8 @@ def test_h3_sglang_aliases_canonicalized(config_root, hardware_info_path):
     """sglang 双长名 --tp-size/--dp-size 与 --nccl-init-addr 经 canonical 归并:
     tp_size/dp_size → tensor_parallel_size/data_parallel_size(用户自管,留);
     nccl_init_addr → dist_init_addr(**不在黑名单**,端口用户可填,留)。单测黑名单过滤
-    (无 sglang 资产)。"""
+    (无 sglang 资产)。
+    """
     from wings_ctl.core.config_resolver import (
         _canonicalize_config_file_params,
         _filter_config_file_blacklist,
@@ -680,7 +696,7 @@ def test_h3_sglang_aliases_canonicalized(config_root, hardware_info_path):
     assert "tensor_parallel_size" in kept and "data_parallel_size" in kept
     # dist_init_addr 现不在黑名单 → 保留(端口用户可填;host 由派生层覆盖)。
     assert "dist_init_addr" in kept
-    assert dropped == []
+    assert not dropped
 
 
 def test_h5_vllm_dp_address_blacklisted(config_root, hardware_info_path):
@@ -702,7 +718,11 @@ def test_h5_vllm_dp_address_blacklisted(config_root, hardware_info_path):
     # 黑名单 dropped,派生层不补(无 DP 场景)→ 不进 traces。
     cf = CustomConfigFile(params={"data_parallel_address": "10.0.0.1"}, env={})
     resolved = _resolve(config_root, hardware_info_path, engine="vllm", config_file=cf)
-    dropped = {d["key"] for d in resolved.config_file_params if d["status"] == "dropped"}
+    dropped = {
+        d["key"]
+        for d in resolved.config_file_params
+        if d["status"] == "dropped"
+    }
     assert "data_parallel_address" in dropped
     assert "data_parallel_address" not in resolved.engine_config_traces
 

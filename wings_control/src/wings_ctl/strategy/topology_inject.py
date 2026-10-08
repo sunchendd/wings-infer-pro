@@ -240,11 +240,15 @@ def coordinate_parallelism(
     tpl_sr = template_engine_config.get("data_parallel_start_rank") or 0
     if dp == tpl_dp and dp_local == tpl_local and start_rank == tpl_sr:
         notes["multinode_dp_status"] = "noop"
-        logger.info("multi_node coordination (DP-across): DP=%d dp_local=%d start_rank=%d (matches template)", dp, dp_local, start_rank)
+        logger.info(
+            "multi_node coordination (DP-across): DP=%d dp_local=%d start_rank=%d (matches template)",
+            dp, dp_local, start_rank,
+        )
         return {}, notes
     notes["multinode_dp_status"] = "overridden"
     logger.info(
-        "multi_node coordination (DP-across): DP=%d dp_local=%d start_rank=%d (index=%d, pod_count=%d, count=%d, TP=%d)",
+        "multi_node coordination (DP-across): DP=%d dp_local=%d start_rank=%d "
+        "(index=%d, pod_count=%d, count=%d, TP=%d)",
         dp, dp_local, start_rank, index, pod_count, device_count, tp,
     )
     return (
@@ -385,7 +389,8 @@ def build_rendezvous_address_override(
     if param is None:
         return {}
     port = validate_recipe_rendezvous_address(engine_config, engine=engine)
-    assert port is not None
+    if port is None:
+        raise ValueError(f"multi_node rendezvous override requires a valid recipe {param} port")
     recipe_value = engine_config[param]
     resolved = f"{master_ip}:{port}"
     logger.info(

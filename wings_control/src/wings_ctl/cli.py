@@ -573,7 +573,8 @@ def _print_multi_node_summary(engine: str, nodes: List[Any]) -> None:
         None。
     """
     logger.info(
-        "multi_node: %s nodes (placeholder; runtime variables are not injected; rerun wings-ctl in each Pod with RANK_IP/NODE_IPS)",
+        "multi_node: %s nodes (placeholder; runtime variables are not injected; "
+        "rerun wings-ctl in each Pod with RANK_IP/NODE_IPS)",
         len(nodes),
     )
     for node in nodes:
@@ -739,7 +740,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "--device-count",
         type=int,
         default=None,
-        help="GPU count from MaaS (fallback: DEVICE_COUNT env). Drives DP coordination (DP=count//TP; static TP; traced).",
+        help="GPU count from MaaS (fallback: DEVICE_COUNT env). Drives DP coordination "
+        "(DP=count//TP; static TP; traced).",
     )
     parser.add_argument(
         "--dry-run",
@@ -855,15 +857,16 @@ def main() -> None:
         # 特性开关本身不直接渲染进 argv,只提取为 ON 的开关传入 resolve_config:
         #   enable_auto_tool_choice / enable_auto_think_choice → feature_overlay 按 model.yaml features 渲染;
         #   enable_smartqos / enable_otlp_traces / enable_metrics → feature_inject 按引擎类型注入 engine_config/env。
+        feature_switch_keys = (
+            "enable_auto_tool_choice",
+            "enable_auto_think_choice",
+            "enable_smartqos",
+            "enable_otlp_traces",
+            "enable_metrics",
+        )
         feature_switches = {
             k: raw_user_cli_overrides[k]
-            for k in (
-                "enable_auto_tool_choice",
-                "enable_auto_think_choice",
-                "enable_smartqos",
-                "enable_otlp_traces",
-                "enable_metrics",
-            )
+            for k in feature_switch_keys
             if raw_user_cli_overrides.get(k)
         }
         # MaaS CLI is the authoritative RAG switch: omitted means explicitly disabled.

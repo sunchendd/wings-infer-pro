@@ -562,7 +562,8 @@ def apply_smart_accel(
     )
     if result.mooncake_component_sources:
         logger.info(
-            "Mooncake distributed KV component sources: mooncake.json=%s, start_mooncake_client.sh=%s, env=%s, transfer_config=%s",
+            "Mooncake distributed KV component sources: mooncake.json=%s, start_mooncake_client.sh=%s, "
+            "env=%s, transfer_config=%s",
             result.mooncake_component_sources.get("mooncake.json"),
             result.mooncake_component_sources.get("start_mooncake_client.sh"),
             result.mooncake_component_sources.get("env"),

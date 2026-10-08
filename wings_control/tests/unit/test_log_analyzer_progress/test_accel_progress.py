@@ -28,7 +28,8 @@ from .conftest import (
 class TestAccelProgress:
     """wings-accel 加速特性安装进度匹配测试。"""
 
-    def test_accel_install_progress(self, data_dir, tmp_path):
+    @staticmethod
+    def test_accel_install_progress(data_dir, tmp_path):
         """TC-Accel-OK: install.py 进度日志的 accel_enabling 阶段匹配。
 
         验证 accel_enabling 阶段被触发,且进度从 10 单调递增至 20。

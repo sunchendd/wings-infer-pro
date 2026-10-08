@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 
@@ -33,6 +34,8 @@ from wings_ctl.engines.version_resolver import resolve_engine_version
 from wings_ctl.engines.vllm_adapter import build_argv
 from wings_ctl.hardware.resolver import resolve_hardware
 from wings_ctl.rendering.script_builder import build_scripts
+
+_BASH = shutil.which("bash") or "/bin/bash"
 
 
 # ─── Golden command (顺序无关) ────────────────────────────────────────────
@@ -81,14 +84,16 @@ def _resolve_full(config_root: Path, hardware_info_path: Path) -> ResolvedConfig
 class TestStandaloneE2E:
     """端到端 standalone 闭环测试。"""
 
-    def test_a_argv_equals_golden(self, config_root, hardware_info_path):
+    @staticmethod
+    def test_a_argv_equals_golden(config_root, hardware_info_path):
         """(a) 还原出的 argv 集合等价于目标 golden 命令。"""
         resolved = _resolve_full(config_root, hardware_info_path)
         argv = build_argv(resolved.engine_config_traces)
 
         assert _argv_to_comparable_set(argv) == GOLDEN_ARGV_SET
 
-    def test_b_trace_layers(self, config_root, hardware_info_path):
+    @staticmethod
+    def test_b_trace_layers(config_root, hardware_info_path):
         """(b) trust_remote_code/max_model_len 均来自 model 层。"""
         resolved = _resolve_full(config_root, hardware_info_path)
 
@@ -100,7 +105,8 @@ class TestStandaloneE2E:
         assert mml.final_layer == "model_scenario"
         assert mml.final_value == 262144
 
-    def test_c_overlapping_key_events(self, config_root, hardware_info_path):
+    @staticmethod
+    def test_c_overlapping_key_events(config_root, hardware_info_path):
         """(c) 同名参数若同时存在于两层,trace.events 含两条且取高优先级层。"""
         # 两层都有 host
         layer0 = {"host": "127.0.0.1", "port": 9000}
@@ -125,7 +131,8 @@ class TestStandaloneE2E:
         assert port_traced.final_value == 9000
         assert len(port_traced.events) == 1
 
-    def test_d_bool_false_and_none_not_in_argv(self, config_root, hardware_info_path):
+    @staticmethod
+    def test_d_bool_false_and_none_not_in_argv(config_root, hardware_info_path):
         """(d) bool=false / None 值不出现在 argv。"""
         # 构造含 bool=false 和 None 的 traces
         traces = {
@@ -171,7 +178,8 @@ class TestStandaloneE2E:
         # None → not present
         assert "--some-none-param" not in argv
 
-    def test_e_non_standalone_raises(self, config_root, hardware_info_path):
+    @staticmethod
+    def test_e_non_standalone_raises(config_root, hardware_info_path):
         """(e) PD topology 缺规范化 pd_input 时 fail-fast(不再 NotImplementedError)。"""
         os.environ["ENGINE_VERSION"] = "0.19.0"
         try:
@@ -188,7 +196,8 @@ class TestStandaloneE2E:
         finally:
             os.environ.pop("ENGINE_VERSION", None)
 
-    def test_scripts_generated(self, config_root, hardware_info_path, tmp_path):
+    @staticmethod
+    def test_scripts_generated(config_root, hardware_info_path, tmp_path):
         """验证 start_command.sh 和 repro.sh 正确生成。"""
         resolved = _resolve_full(config_root, hardware_info_path)
         start_path, repro_path = build_scripts(resolved, tmp_path)
@@ -206,15 +215,17 @@ class TestStandaloneE2E:
         assert " <- " in repro_content  # 来源注释块
         assert "Reproducibility Script" in repro_content
 
-    def test_generated_scripts_pass_bash_n(self, config_root, hardware_info_path, tmp_path):
+    @staticmethod
+    def test_generated_scripts_pass_bash_n(config_root, hardware_info_path, tmp_path):
         """生成的 start_command.sh/repro.sh 必须通过 bash -n 语法校验。"""
         resolved = _resolve_full(config_root, hardware_info_path)
         start_path, repro_path = build_scripts(resolved, tmp_path)
 
-        subprocess.run(["bash", "-n", str(start_path)], check=True)
-        subprocess.run(["bash", "-n", str(repro_path)], check=True)
+        subprocess.run([_BASH, "-n", str(start_path)], check=True)
+        subprocess.run([_BASH, "-n", str(repro_path)], check=True)
 
-    def test_generated_scripts_exec_echo_full_command(self, config_root, hardware_info_path, tmp_path):
+    @staticmethod
+    def test_generated_scripts_exec_echo_full_command(config_root, hardware_info_path, tmp_path):
         """将 exec 替换为 echo 后真实执行,命令必须完整单行输出且参数不丢失。"""
         resolved = _resolve_full(config_root, hardware_info_path)
         start_path, repro_path = build_scripts(resolved, tmp_path)
@@ -230,7 +241,8 @@ class TestStandaloneE2E:
             assert cmd.split().count("--") == 0
             assert cmd.count("--") >= 6
 
-    def test_audit_json_generated(self, config_root, hardware_info_path, tmp_path):
+    @staticmethod
+    def test_audit_json_generated(config_root, hardware_info_path, tmp_path):
         """验证 audit.json 包含完整 events 链。"""
         resolved = _resolve_full(config_root, hardware_info_path)
         audit_path = emit_audit(resolved, tmp_path)
@@ -252,7 +264,8 @@ class TestStandaloneE2E:
         # trust_remote_code 的 final_layer 应为 model_scenario
         assert audit["engine_config"]["trust_remote_code"]["final_layer"] == "model_scenario"
 
-    def test_engine_version_fallback(self, config_root, hardware_info_path):
+    @staticmethod
+    def test_engine_version_fallback(config_root, hardware_info_path):
         """验证版本回退时 is_fallback=True + WARNING 审计。"""
         os.environ["ENGINE_VERSION"] = "99.99.99"
         try:
@@ -266,7 +279,8 @@ class TestStandaloneE2E:
         finally:
             os.environ.pop("ENGINE_VERSION", None)
 
-    def test_nested_value_serialized_as_json(self):
+    @staticmethod
+    def test_nested_value_serialized_as_json():
         """嵌套对象值序列化为紧凑 JSON 字符串。"""
         traces = {
             "model": TracedValue(
@@ -291,7 +305,8 @@ class TestStandaloneE2E:
         parsed = json.loads(argv[idx + 1])
         assert parsed == {"method": "mtp", "num_speculative_tokens": 3}
 
-    def test_engine_prefix_vllm(self):
+    @staticmethod
+    def test_engine_prefix_vllm():
         """engine='vllm' 产出 vllm serve 前缀。"""
         traces = {
             "model": TracedValue(
@@ -305,7 +320,8 @@ class TestStandaloneE2E:
         argv = build_argv(traces, engine="vllm")
         assert argv[:3] == ["vllm", "serve", "test-model"]
 
-    def test_engine_prefix_vllm_ascend(self):
+    @staticmethod
+    def test_engine_prefix_vllm_ascend():
         """engine='vllm-ascend' 也产出 vllm serve 前缀。"""
         traces = {
             "model": TracedValue(
@@ -319,7 +335,8 @@ class TestStandaloneE2E:
         argv = build_argv(traces, engine="vllm-ascend")
         assert argv[:3] == ["vllm", "serve", "test-model"]
 
-    def test_engine_unknown_raises(self):
+    @staticmethod
+    def test_engine_unknown_raises():
         """未知 engine 报 ValueError。"""
         traces = {
             "model": TracedValue(

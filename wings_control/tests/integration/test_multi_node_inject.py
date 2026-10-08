@@ -8,6 +8,7 @@ R-G DP 调整、产可执行脚本、强校验/越界 raise。
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -16,6 +17,8 @@ import pytest
 from wings_ctl.core.topology import Topology
 from wings_ctl.core.models import ClusterPlacement, PipelineRequest, Target, UserInput
 from wings_ctl.pipeline import run_pipeline
+
+_BASH = shutil.which("bash") or "/bin/bash"
 
 # 原用 ascend-a3 GLM-4.5;config 提交 8b2f5b5 误删 a3 该模型 multi_node 场景(config bug,docs/14)。
 # 改指 ascend-a2 GLM-4.5(multi_node 块等价:TP8/2Pod,device_count=16 经 R-G → dp_size4/dp_local2/
@@ -86,7 +89,7 @@ def test_inject_worker_start_command_executable_and_safe(config_root_real, tmp_p
     # 通信网卡以本 Pod IP 查询；测试环境没有虚拟集群 IP，按 eth0 兜底。
     assert "GLOO_SOCKET_IFNAME=eth0" in text
     # 语法合法
-    subprocess.run(["bash", "-n", str(start_path)], check=True)
+    subprocess.run([_BASH, "-n", str(start_path)], check=True)
     assert "exec vllm serve" in repro_path.read_text(encoding="utf-8")  # repro.sh 仍用 exec
 
 

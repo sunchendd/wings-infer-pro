@@ -235,7 +235,8 @@ def smart_kv_offload_expander(
         if target == "cpu_disk" and ("disk" in schemes or "cpu" in schemes):
             target = "disk" if "disk" in schemes else "cpu"
             logger.warning(
-                "kv_offload: cpu_disk scheme is missing; falling back to %r (YAML must explicitly declare cpu_disk for the combined mode)",
+                "kv_offload: cpu_disk scheme is missing; falling back to %r "
+                "(YAML must explicitly declare cpu_disk for the combined mode)",
                 target,
             )
         else:
@@ -333,7 +334,9 @@ def _synthesize_file_pre_serve(
             cmds = [
                 f"export {exports}",
                 # 优先 envsubst;命令不存在或非零退出 → sed 兜底;结果都写 .tmp 再 mv
-                f"if command -v envsubst >/dev/null 2>&1 && envsubst '{var_list}' < {quoted_path} > {quoted_tmp_path} 2>/dev/null; then :; else sed \"{sed_chain}\" {quoted_path} > {quoted_tmp_path}; fi",
+                f"if command -v envsubst >/dev/null 2>&1 && envsubst '{var_list}' < {quoted_path} "
+                f"> {quoted_tmp_path} 2>/dev/null; then :; "
+                f"else sed \"{sed_chain}\" {quoted_path} > {quoted_tmp_path}; fi",
                 f"mv {quoted_tmp_path} {quoted_path}",
             ]
             {"all": pre_serve, "master": pre_serve_master, "client": pre_serve_client}.get(

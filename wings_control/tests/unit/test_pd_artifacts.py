@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 from dataclasses import replace
 from pathlib import Path
@@ -30,6 +31,8 @@ from wings_ctl.core.models import (
 from wings_ctl.core.topology import Topology
 from wings_ctl.rendering.env_renderer import render_env_export
 from wings_ctl.rendering.script_builder import _endpoint_port, _validate_log_analyzer_present, build_scripts
+
+_BASH = shutil.which("bash") or "/bin/bash"
 
 
 class CliExitError(Exception):
@@ -148,8 +151,8 @@ def test_pd_fail_together_repro_is_valid_and_propagates_failure(tmp_path: Path) 
     _, repro = build_scripts(_resolved(), tmp_path)
     content = repro.read_text(encoding="utf-8")
 
-    syntax = subprocess.run(["bash", "-n", str(repro)], check=False, capture_output=True, text=True)
-    executed = subprocess.run(["bash", str(repro)], check=False, capture_output=True, text=True)
+    syntax = subprocess.run([_BASH, "-n", str(repro)], check=False, capture_output=True, text=True)
+    executed = subprocess.run([_BASH, str(repro)], check=False, capture_output=True, text=True)
 
     assert syntax.returncode == 0, syntax.stderr
     assert executed.returncode != 0
@@ -386,7 +389,8 @@ def test_pd_endpoint_port_accepts_valid_custom_port() -> None:
 
 def test_pd_analyzer_config_backend_port_from_endpoint(tmp_path: Path) -> None:
     """验证 PD analyzer config 的 backend_port 取自 processes[0].advertised_endpoint,
-    而非硬编码回退 17000。"""
+    而非硬编码回退 17000。
+    """
     # 构造 port=17123 的 synthetic PD 配置
     resolved = _resolved(process_count=1)
     proc = resolved.process_plan.processes[0]

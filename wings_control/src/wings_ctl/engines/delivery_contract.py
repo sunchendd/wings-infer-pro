@@ -368,7 +368,7 @@ def _strict_int(value: Any, key: str, requirement: str) -> int:
 def _matches_version_prefix(version: str, prefix: str) -> bool:
     if not version.startswith(prefix):
         return False
-    suffix = version[len(prefix) :]
+    suffix = version[len(prefix):]
     return not suffix or not suffix[0].isdigit()
 
 

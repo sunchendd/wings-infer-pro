@@ -292,8 +292,6 @@ def test_decoding_scenario_isolation_via_loader_route():
 
 def _make_draft_dir(tmp_path, architectures):
     """创建含 config.json 的草稿目录。"""
-    import json
-
     d = tmp_path / "draft"
     d.mkdir()
     (d / "config.json").write_text(json.dumps({"architectures": architectures}))
@@ -442,7 +440,8 @@ def test_no_draft_path_falls_to_no_model():
 
 def test_dspark_dual_form_no_draft(tmp_path):
     """dspark 无草稿形态(主模型自带权重,如 DeepSeek V4 Pro/Flash 0731):
-    不声明 requires_model_path → 进 no_model 分支,无草稿路径也产出。"""
+    不声明 requires_model_path → 进 no_model 分支,无草稿路径也产出。
+    """
     cfg, mod = make_input(enabled=True, model_path="")
     block = [
         {
@@ -460,7 +459,8 @@ def test_dspark_dual_form_no_draft(tmp_path):
 
 def test_dspark_dual_form_with_draft(tmp_path):
     """dspark 有草稿形态(如 Kimi K3 单独发草稿):
-    声明 requires_model_path + draft_arch → config.json 含 dspark 时匹配,带 model 字段。"""
+    声明 requires_model_path + draft_arch → config.json 含 dspark 时匹配,带 model 字段。
+    """
     draft = _make_draft_dir(tmp_path, ["K3DSparkModel"])
     cfg, mod = make_input(enabled=True, model_path=draft)
     block = [

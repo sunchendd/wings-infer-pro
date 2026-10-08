@@ -195,7 +195,7 @@ def test_partial_runtime_placement_currently_keeps_placeholder_view(rank_ip, nod
         master_ip=master_ip,
     )
 
-    assert engine_config_traces == {}
+    assert not engine_config_traces
     assert nodes is not None
     assert notes["multi_node_injection_status"] == "pending_runtime_context"
 

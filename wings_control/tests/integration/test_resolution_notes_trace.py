@@ -104,7 +104,6 @@ def test_load_model_config_returns_pattern(config_root_real):
 def test_no_match_fallback_success_with_warn_and_flag(config_root_real, tmp_path, caplog):
     """no-match 解析阶段走 default_model 兜底,并记录 fallback/warning/layer 语义。"""
     from wings_ctl.core.config_resolver import resolve_config
-    from wings_ctl.engines.version_resolver import resolve_engine_version
     from wings_ctl.hardware.resolver import resolve_hardware
 
     hardware_info_path = tmp_path / "hardware_info.json"

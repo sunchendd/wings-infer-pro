@@ -106,7 +106,9 @@ def resolve_engine_version(
     if required_prefix is not None:
         require_exact = True
     if require_exact and requested_raw is None:
-        raise ValueError("PD requires an explicit ENGINE_VERSION that matches a supported configuration directory prefix")
+        raise ValueError(
+            "PD requires an explicit ENGINE_VERSION that matches a supported configuration directory prefix"
+        )
     engine_root = config_root / "engines" / engine
 
     # 版本层有无,靠"目录名像不像版本号"这条通用规则判定,不靠引擎名。
@@ -150,7 +152,10 @@ def resolve_engine_version(
                     f"Strict ENGINE_VERSION={requested_raw!r} did not match a version directory under {engine_dir}; "
                     f"engine={engine!r}, required prefix={required_prefix!r}."
                 )
-            raise FileNotFoundError(f"PD ENGINE_VERSION={requested_raw!r} does not match a configuration directory prefix; engine={engine!r}")
+            raise FileNotFoundError(
+                f"PD ENGINE_VERSION={requested_raw!r} does not match a configuration directory prefix; "
+                f"engine={engine!r}"
+            )
 
     if not has_version_dir:
         return EngineVersion(

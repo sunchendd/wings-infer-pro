@@ -284,8 +284,9 @@ def test_nonexistent_hardware_uses_generic_fallback(config_root_real, tmp_path, 
     assert audit["resolution_notes"]["hardware_fallback"] is True
     assert audit["resolution_notes"]["resolved_hardware_family"] == "_generic"
     captured = capsys.readouterr()
-    assert "generic best-effort hardware recipe" in captured.err or "generic best-effort recipe" in startup_log.read_text(
-        encoding="utf-8"
+    assert (
+        "generic best-effort hardware recipe" in captured.err
+        or "generic best-effort recipe" in startup_log.read_text(encoding="utf-8")
     )
 
 

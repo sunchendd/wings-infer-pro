@@ -19,7 +19,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 # 使 log_analyzer 可作为顶层包导入。
 SRC_WINGS_CTL = PROJECT_ROOT / "src" / "wings_ctl"
 if str(SRC_WINGS_CTL) not in sys.path:
-    sys.path.insert(0, str(SRC_WINGS_CTL))
+    sys.path.append(str(SRC_WINGS_CTL))
 DATA_DIR = Path(__file__).parent / "data"
 
 # 构建层文件

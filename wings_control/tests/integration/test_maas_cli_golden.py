@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -9,6 +10,8 @@ import pytest
 
 from tests.script_test_utils import run_vllm_command_as_echo
 from wings_ctl import cli
+
+logger = logging.getLogger(__name__)
 
 
 # Golden maintenance note:
@@ -227,7 +230,7 @@ def test_maas_cli_golden_and_invariants(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     model = scene.model_resolver(config_root_real, tmp_path, monkeypatch)
-    print(f"[golden] {scene.name} selected model: {model}")
+    logger.info(f"[golden] {scene.name} selected model: {model}")
     argv, audit = _run_cli(
         tmp_path=tmp_path,
         monkeypatch=monkeypatch,
@@ -336,18 +339,18 @@ def test_full_maas_param_passdown(
     }
 
     # 可展示输出(pytest -s 时打印):全量 MaaS 启动参数逐条处置表,供评审现场查看。
-    print("\n=== 全量 MaaS 启动参数下发 → 处置(engine=vllm-ascend model=DeepSeek-V4-Flash)===")
-    print(f"  {'native_key':28}{'处置':10}reason / 备注")
-    print(f"  {'-' * 28}{'-' * 10}{'-' * 30}")
+    logger.info("\n=== 全量 MaaS 启动参数下发 → 处置(engine=vllm-ascend model=DeepSeek-V4-Flash)===")
+    logger.info(f"  {'native_key':28}{'处置':10}reason / 备注")
+    logger.info(f"  {'-' * 28}{'-' * 10}{'-' * 30}")
     for key, status in expected_status.items():
         reason = str(row_by_key.get(key, {}).get("reason", ""))
         note = reason if status == "dropped" else "用户值生效(applied)"
-        print(f"  {key:28}{status:10}{note}")
-    print(f"  {'device_count':28}{'audit-only':10}写 resolution_notes="
+        logger.info(f"  {key:28}{status:10}{note}")
+    logger.info(f"  {'device_count':28}{'audit-only':10}写 resolution_notes="
           f"{audit['resolution_notes'].get('device_count')},不参与 DP 计算(I15)")
     applied_n = sum(1 for s in expected_status.values() if s == "applied")
     dropped_n = sum(1 for s in expected_status.values() if s == "dropped")
-    print(f"  小结:applied={applied_n} dropped={dropped_n}(均带 reason);用户特异值未泄漏 argv\n")
+    logger.info(f"  小结:applied={applied_n} dropped={dropped_n}(均带 reason);用户特异值未泄漏 argv\n")
 
     for key, status in expected_status.items():
         row = row_by_key.get(key)
@@ -427,13 +430,13 @@ def test_device_count_computes_dp(
     argv12, audit12 = _run_cli(**common, cli_args=base_args + ["--device-count", "12"])
 
     # 可展示输出(pytest -s):DeviceCountTransform 协调结果
-    print("\n=== DeviceCountTransform 演示(DeepSeek-V4-Flash,模板 TP=4)===")
-    print(f"  --device-count 8  → data-parallel-size={_flag(argv8, '--data-parallel-size')} "
+    logger.info("\n=== DeviceCountTransform 演示(DeepSeek-V4-Flash,模板 TP=4)===")
+    logger.info(f"  --device-count 8  → data-parallel-size={_flag(argv8, '--data-parallel-size')} "
           f"/ tensor-parallel-size={_flag(argv8, '--tensor-parallel-size')}(静态)"
           f" / final_layer={audit8['engine_config']['data_parallel_size']['final_layer']}")
-    print(f"  --device-count 12 → data-parallel-size={_flag(argv12, '--data-parallel-size')} "
+    logger.info(f"  --device-count 12 → data-parallel-size={_flag(argv12, '--data-parallel-size')} "
           f"/ tensor-parallel-size={_flag(argv12, '--tensor-parallel-size')}(静态)")
-    print("  → DP=cnt//TP 随 device-count 变,TP 静态不动,改写归 strategy_device_count 层\n")
+    logger.info("  → DP=cnt//TP 随 device-count 变,TP 静态不动,改写归 strategy_device_count 层\n")
 
     # 留底:device_count 写 audit
     assert int(audit8["resolution_notes"]["device_count"]) == 8

@@ -158,7 +158,9 @@ def smart_distributed_kv_offload_expander(
     files = plan_scheme_files(
         scheme.get("files") or [],
         ctx,
-        source_path_prefix=f"{ctx.source_path}.distributed_kv_offload[0]" if ctx.source_path else "distributed_kv_offload[0]",
+        source_path_prefix=(
+            f"{ctx.source_path}.distributed_kv_offload[0]" if ctx.source_path else "distributed_kv_offload[0]"
+        ),
     )
     by_name = {file.path.rsplit("/", 1)[-1]: file for file in files}
     config = by_name.get(_CONFIG_FILE)
@@ -219,13 +221,16 @@ def apply_mooncake_script_fallback(
         engine_params=EngineParams(),
     )
     files_by_name = {
-        file.path.rsplit("/", 1)[-1]: file for file in result.generated_files
+        file.path.rsplit("/", 1)[-1]: file
+        for file in result.generated_files
     }
     component_sources = {
         "mooncake.json": _YAML_SOURCE if _CONFIG_FILE in files_by_name else _SCRIPT_FALLBACK_SOURCE,
         "start_mooncake_store.sh": _YAML_SOURCE if _CLIENT_SCRIPT in files_by_name else _SCRIPT_FALLBACK_SOURCE,
         "env": _YAML_SOURCE if "MOONCAKE_CONFIG_PATH" in result.engine_params.env else _SCRIPT_FALLBACK_SOURCE,
-        "transfer_config": _YAML_SOURCE if "kv_transfer_config" in result.engine_params.engine_config else _SCRIPT_FALLBACK_SOURCE,
+        "transfer_config": (
+            _YAML_SOURCE if "kv_transfer_config" in result.engine_params.engine_config else _SCRIPT_FALLBACK_SOURCE
+        ),
     }
     if component_sources["transfer_config"] == _SCRIPT_FALLBACK_SOURCE:
         # kv_transfer_config 必须由 YAML 声明:缺失是确定性配置错误,fail-fast。
