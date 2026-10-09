@@ -130,6 +130,14 @@ YAML 声明、代码注入还是被 `ENABLE_XCACHE_INSTALL=false` 关闭）。�
 `ENABLE_DISTRIBUTED_KV_OFFLOAD` 时两条路线都不产生任何文件、环境或
 启动前命令。
 
+## DeepSeek V4 Pro SM120 TP16 依赖
+
+vLLM v0.28.0 的 DeepSeek-V4-Pro-0813 使用 TP16，SmartAccel 指定
+`flashinfer-sm120:0.6.16.post3+sm120.9dc1b249.tp4` 和
+`lmcache:0.5.4+sm120.mp`。FlashInfer 交付必须同时包含 H8 top-k 192/256
+decode 特化、H8 prefill 和对应的 AOT `.so`。该版本统一覆盖 TP4 和 TP16，同名旧交付需要重新构建；
+包存在性预检也不能代替 GPU 正确性验证。
+
 ## 当前边界和错误
 
 使用模型 recipe 的 PD 路径发现 Accel 已启用时会直接报错。`--config-file` 的 PD 路径目前会静默忽略这些开关，这是待修复的缺口。SGLang 首期不支持 Accel，收到相关开关后会告警并忽略。
