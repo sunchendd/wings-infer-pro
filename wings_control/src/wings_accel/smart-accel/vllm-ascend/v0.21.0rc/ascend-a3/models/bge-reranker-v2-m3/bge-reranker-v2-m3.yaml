@@ -1,0 +1,7 @@
+# SmartAccel configuration for the vLLM-Ascend A3 reranker model.
+model:
+  name: bge-reranker-v2-m3
+  variant_name: "bge-reranker-v2-m3"
+  match:
+    - name_pattern: "(?i)bge[-.]?reranker[-.]?v2[-.]?m3"
+smart_accel: {}
