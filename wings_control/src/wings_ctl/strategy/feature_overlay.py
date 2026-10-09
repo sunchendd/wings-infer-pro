@@ -110,7 +110,8 @@ def feature_overlay_transform(engine_config: dict, ctx: dict[str, Any]) -> Featu
             # 开关开了但 yaml 没这特性: 记录 warning,不中断流程。
             notes[f"feature_overlay.{feature_key}"] = f"switch_on_but_absent(switch={switch_key})"
             logger.warning(
-                "Feature switch %s is enabled, but model.yaml features.%s is missing or has no args; skipping in warn-only mode",
+                "Feature switch %s is enabled, but model.yaml features.%s is missing or has no args; "
+                "skipping in warn-only mode",
                 switch_key,
                 feature_key,
             )
@@ -123,7 +124,10 @@ def feature_overlay_transform(engine_config: dict, ctx: dict[str, Any]) -> Featu
             if feature_key == "reasoning"
             else str(ctx.get("tool_calling_source_file") or "<strategy:feature>")
         )
-        source_prefix = str(ctx.get("reasoning_source_path") or "strategy.feature.reasoning") if feature_key == "reasoning" else "features.tool_calling.args"
+        if feature_key == "reasoning":
+            source_prefix = str(ctx.get("reasoning_source_path") or "strategy.feature.reasoning")
+        else:
+            source_prefix = "features.tool_calling.args"
         for key in parsed:
             trace_path = (
                 source_prefix

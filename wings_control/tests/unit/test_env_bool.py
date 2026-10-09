@@ -67,11 +67,14 @@ def test_get_interface_for_ip_returns_matching_interface(monkeypatch):
     """验证:IP 匹配到网卡时返回该网卡且不走 eth0 fallback。"""
     monkeypatch.setattr(env_utils.socket, "if_nameindex", lambda: [(1, "lo"), (2, "ens5")])
     addresses = {"lo": b"\x7f\x00\x00\x01", "ens5": b"\x0a\x00\x00\x02"}
-    monkeypatch.setattr(
-        env_utils.fcntl,
-        "ioctl",
-        lambda _fd, _op, request: b"\x00" * 20 + addresses[request.split(b"\0", 1)[0].decode()],
-    )
+
+    def _fake_ioctl(_fd, _op, request):
+        ifname = request.split(b"\0", 1)[0].decode()
+        if ifname not in addresses:
+            raise KeyError(ifname)
+        return b"\x00" * 20 + addresses[ifname]
+
+    monkeypatch.setattr(env_utils.fcntl, "ioctl", _fake_ioctl)
 
     assert get_interface_for_ip("10.0.0.2") == ("ens5", True)
 

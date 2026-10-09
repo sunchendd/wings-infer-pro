@@ -100,7 +100,8 @@ def _build_audit_dict(resolved: ResolvedConfig) -> Dict[str, Any]:
 
     # engine_config 完整追踪
     audit["engine_config"] = {
-        key: _serialize_traced_value(traced) for key, traced in resolved.engine_config_traces.items()
+        key: _serialize_traced_value(traced)
+        for key, traced in resolved.engine_config_traces.items()
     }
 
     # env 完整追踪

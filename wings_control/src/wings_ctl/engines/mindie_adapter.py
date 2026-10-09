@@ -7,6 +7,15 @@
 
 from __future__ import annotations
 
+__all__ = [
+    "DEFAULT_MINDIE_WORK_DIR",
+    "SUPPORTED_MINDIE_VERSION",
+    "build_config_overrides",
+    "build_launch_parts",
+    "build_trace_comment_lines",
+    "validate_resolved_config",
+]
+
 from typing import Any, Dict, List, Tuple
 
 from wings_ctl.core.models import ResolvedConfig
@@ -37,13 +46,3 @@ def build_launch_parts(resolved: ResolvedConfig) -> Tuple[List[str], List[str], 
     """兼容旧 ``(argv, pre_start, preview)`` 返回契约。"""
     launch = _build_launch_plan(_plan_from_resolved(resolved))
     return launch.argv, launch.pre_start_lines, launch.preview
-
-
-__all__ = [
-    "DEFAULT_MINDIE_WORK_DIR",
-    "SUPPORTED_MINDIE_VERSION",
-    "build_config_overrides",
-    "build_launch_parts",
-    "build_trace_comment_lines",
-    "validate_resolved_config",
-]

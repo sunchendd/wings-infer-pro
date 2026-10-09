@@ -21,7 +21,8 @@ from .conftest import (
 class TestMindIEProgress:
     """MindIE 引擎进度匹配测试。"""
 
-    def test_mindie_ascend_progress(self, data_dir, tmp_path):
+    @staticmethod
+    def test_mindie_ascend_progress(data_dir, tmp_path):
         """TC-MindIE-OK: MindIE Ascend 完整部署日志的进度匹配。
 
         日志: mindie_ascend.log (MindIE, Ascend NPU, 聚合日志)

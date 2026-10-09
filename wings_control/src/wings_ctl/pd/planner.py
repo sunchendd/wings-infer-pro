@@ -135,8 +135,8 @@ def _resolve_explicit_allocation(
     topology，不限制本次 deployment 的实际 shape。
     """
     placement = pd_input.placement
-    assert placement.node_ips is not None
-    assert placement.rank_ip is not None
+    if placement.node_ips is None or placement.rank_ip is None:
+        raise ValueError("PD explicit_allocation requires placement.node_ips and placement.rank_ip")
     member_index = placement.node_ips.index(placement.rank_ip)
     role_shape = explicit.prefill if pd_input.role is PdRole.PREFILL else explicit.decode
     expected_global_dp = len(placement.node_ips) * explicit.dp_size_local

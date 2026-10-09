@@ -133,7 +133,7 @@ def test_coord_b_uses_world_size_as_tp():
         {"tensor_parallel_size": 8, "data_parallel_size": 3, "node_rank": 0},
         device_count=4, pod_count=2, index=0,
     )
-    assert override == {}
+    assert not override
     assert notes["multinode_dp_resolved_tp"] == "8"
     assert notes["multinode_dp_resolved_dp"] == "3"
 
@@ -200,7 +200,7 @@ def test_coord_b_keeps_dp_when_world_size_equals_tp():
         {"tensor_parallel_size": 8, "data_parallel_size": 3, "node_rank": 0},
         device_count=2, pod_count=4, index=3,
     )
-    assert override == {}
+    assert not override
     assert notes["multinode_dp_resolved_dp"] == "3"
 
 
@@ -294,10 +294,10 @@ def test_data_parallel_address_worker_local_token_still_uses_master_ip():
 
 def test_data_parallel_address_is_not_added_when_recipe_does_not_declare_it():
     """验证 recipe 未声明 DP 地址时不扩展新参数。"""
-    assert build_data_parallel_address_override(
+    assert not build_data_parallel_address_override(
         {"tensor_parallel_size": 8},
         master_ip="10.0.0.1",
-    ) == {}
+    )
 
 
 @pytest.mark.parametrize("master_ip", [None, ""])
@@ -344,11 +344,11 @@ def test_sglang_rendezvous_requires_valid_recipe_port(recipe_value):
 
 
 def test_vllm_has_no_rendezvous_override_contract():
-    assert build_rendezvous_address_override(
+    assert not build_rendezvous_address_override(
         {"dist_init_addr": "192.168.1.100:28030"},
         engine="vllm",
         master_ip="10.0.0.1",
-    ) == {}
+    )
 
 
 def test_sglang_two_node_tp_across_uses_native_tp_key():

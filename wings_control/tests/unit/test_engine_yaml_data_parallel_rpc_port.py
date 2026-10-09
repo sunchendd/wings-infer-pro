@@ -29,13 +29,16 @@ def _find_non_integer_ports(value: Any, path: str) -> list[str]:
 
 def test_all_repository_yamls_use_integer_data_parallel_rpc_port() -> None:
     errors: list[str] = []
-    yaml_paths = sorted(
-        path
-        for pattern in ("*.yaml", "*.yml")
-        for path in REPOSITORY_ROOT.rglob(pattern)
-        if ".git" not in path.parts
-        and "data_parallel_rpc_port" in path.read_text(encoding="utf-8")
-    )
+
+    def _contains_data_parallel_rpc_port(path: Path) -> bool:
+        return "data_parallel_rpc_port" in path.read_text(encoding="utf-8")
+
+    def _is_candidate_yaml(path: Path) -> bool:
+        return ".git" not in path.parts and _contains_data_parallel_rpc_port(path)
+
+    yaml_paths = sorted(path for path in REPOSITORY_ROOT.rglob("*.yaml") if _is_candidate_yaml(path))
+    yaml_paths += sorted(path for path in REPOSITORY_ROOT.rglob("*.yml") if _is_candidate_yaml(path))
+    yaml_paths.sort()
 
     for yaml_path in yaml_paths:
         document = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))

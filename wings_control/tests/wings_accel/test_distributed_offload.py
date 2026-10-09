@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -13,6 +14,8 @@ from wings_accel.distributed_offload import (
 )
 from wings_accel.render import PlaceholderContext
 from wings_accel.schemas import DistributedKVCacheConfig, SmartAccelConfigurationError
+
+_BASH = shutil.which("bash") or "/bin/bash"
 
 
 def _ctx():
@@ -34,8 +37,17 @@ def _block():
         "client": {"rpc_port": 50052, "master_rpc_port": 50051, "metadata_port": 10080, "metadata_path": "/metadata"},
         "cli_params": {"kv_transfer_config": {"kv_connector": "MooncakeStoreConnector", "kv_role": "kv_both"}},
         "files": [
-            {"path": "mooncake.json", "content": '{"mode":"standalone-store","metadata_server":"http://mooncake-service-order-7:10080/metadata","master_server_address":"mooncake-service-order-7:50051","global_segment_size":0,"local_buffer_size":"1GB","protocol":"rdma","enable_offload":true}\n'},
-            {"path": "start_mooncake_store.sh", "scope": "all", "mode": "0755", "content": "#!/usr/bin/env bash\nexec mooncake_client --port=\"${MOONCAKE_CLIENT_RPC_PORT}\"\n"},
+            {
+                "path": "mooncake.json",
+                "content": '{"mode":"standalone-store",'
+                           '"metadata_server":"http://mooncake-service-order-7:10080/metadata",'
+                           '"master_server_address":"mooncake-service-order-7:50051","global_segment_size":0,'
+                           '"local_buffer_size":"1GB","protocol":"rdma","enable_offload":true}\n',
+            },
+            {
+                "path": "start_mooncake_store.sh", "scope": "all", "mode": "0755",
+                "content": "#!/usr/bin/env bash\nexec mooncake_client --port=\"${MOONCAKE_CLIENT_RPC_PORT}\"\n",
+            },
         ],
     }]
 
@@ -199,6 +211,7 @@ def test_script_fallback_sources_engine_environment_before_client_start():
         disk_path="/mnt/mooncake",
     )
 
+
 def test_script_fallback_rejects_missing_transfer_config():
     """新策略:kv_transfer_config 必须由 YAML 提供,缺失 → 报错。"""
     cfg = DistributedKVCacheConfig(
@@ -247,7 +260,7 @@ def test_script_fallback_json_writes_vllm_mooncake_config(tmp_path):
         "ENABLE_KV_DISK_OFFLOAD": "true",
     }
 
-    subprocess.run(["bash", str(script)], check=True, env=env, capture_output=True, text=True)
+    subprocess.run([_BASH, str(script)], check=True, env=env, capture_output=True, text=True)
 
     # local_buffer_size 不在 JSON 里:engine 侧缓冲由 client.env 的 KV_LOCAL_BUFFER_SIZE
     # 传递(不再由 KV_MEM_OFFLOAD_SIZE 派生,容量与缓冲职责分离)。

@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 from typing import Any, Dict, List, NamedTuple, Optional
 
@@ -78,8 +79,12 @@ def _register(engine: str):
     """装饰器:注册某引擎的 params 派生器。"""
 
     def deco(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            return fn(*args, **kwargs)
+
         _REGISTRY[engine] = fn
-        return fn
+        return wrapper
 
     return deco
 

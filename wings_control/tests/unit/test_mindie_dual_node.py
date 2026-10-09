@@ -244,7 +244,7 @@ def test_prepare_does_not_retry_non_missing_read_error(
 
     with pytest.raises(ValueError, match="cannot read ranktable"):
         prepare_control_ranktable(plan)
-    assert sleep_calls == []
+    assert not sleep_calls
     assert not target.exists()
 
 

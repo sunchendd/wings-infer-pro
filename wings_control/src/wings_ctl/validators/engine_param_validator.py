@@ -176,7 +176,8 @@ def validate_engine_params(resolved: ResolvedConfig, config_root: Path) -> None:
     if supported is None:
         # 缺清单时只告警并跳过,不阻塞启动。
         logger.warning(
-            "EngineParamValidator: supported_params list is missing or empty (%s); skipping validation in warn-only mode.",
+            "EngineParamValidator: supported_params list is missing or empty (%s); "
+            "skipping validation in warn-only mode.",
             path,
         )
         resolved.param_validation = ParamValidationResult(

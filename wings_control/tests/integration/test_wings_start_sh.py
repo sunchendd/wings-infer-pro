@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import signal
 import subprocess
 import time
 from pathlib import Path
 
 import pytest
+
+_BASH = shutil.which("bash") or "/bin/bash"
 
 # tests/integration/<this> → 仓库根
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -38,7 +41,7 @@ def _run(args: list[str], tmp_path: Path) -> subprocess.CompletedProcess:
     for k in ("RANK_IP", "NODE_IPS", "MASTER_IP", "PD_ROLE"):
         env.pop(k, None)
     return subprocess.run(
-        ["bash", str(_SCRIPT), *args],
+        [_BASH, str(_SCRIPT), *args],
         cwd=str(_REPO_ROOT),
         env=env,
         capture_output=True,
@@ -66,7 +69,7 @@ def _start(args: list[str], tmp_path: Path) -> subprocess.Popen[str]:
     for k in ("RANK_IP", "NODE_IPS", "MASTER_IP", "PD_ROLE"):
         env.pop(k, None)
     return subprocess.Popen(
-        ["bash", str(_SCRIPT), *args],
+        [_BASH, str(_SCRIPT), *args],
         cwd=str(_REPO_ROOT),
         env=env,
         stdout=subprocess.PIPE,

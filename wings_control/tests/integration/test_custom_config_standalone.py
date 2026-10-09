@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -37,6 +38,8 @@ from wings_ctl.engines.vllm_adapter import build_argv
 from wings_ctl.hardware.resolver import resolve_hardware
 from wings_ctl.pipeline import resolve_pipeline_custom, run_pipeline_custom
 from wings_ctl.rendering.script_builder import build_scripts
+
+_BASH = shutil.which("bash") or "/bin/bash"
 
 
 CONFIG_FILE = CustomConfigFile(
@@ -257,8 +260,6 @@ def test_c4_blacklist_is_per_engine(config_root, hardware_info_path):
     assert "CUDA_VISIBLE_DEVICES" not in _config_file_env_blacklist("vllm-ascend")
 
     # vllm 端到端:data_parallel_size(全局 DP)用户自管 → 保留(非黑名单)。
-    from wings_ctl.core.models import CustomConfigFile
-
     cf = CustomConfigFile(params={"data_parallel_size": 8}, env={})
     resolved_vllm = _resolve(config_root, hardware_info_path, config_file=cf)
     assert resolved_vllm.engine_config_traces["data_parallel_size"].final_value == 8
@@ -268,7 +269,7 @@ def test_c4_blacklist_is_per_engine(config_root, hardware_info_path):
     kept, dropped = _filter_config_file_blacklist({"data_parallel_size": 8, "dist_init_addr": "x"}, engine="sglang")
     assert "data_parallel_size" in kept
     assert "dist_init_addr" in kept
-    assert dropped == []
+    assert not dropped
 
 
 # ─── (d)(e) env 渲染:unsafe 放行 / 普通安全校验 ───
@@ -287,8 +288,8 @@ def test_d_env_unsafe_rendered_in_scripts(config_root, hardware_info_path, tmp_p
         assert 'export OTEL_RESOURCE_ATTRIBUTES="service.instance.id=$(hostname)"' in content
         assert 'export MY_STATIC="static-value"' in content
     # bash -n 语法通过(双引号内 $(hostname) 不破坏语法)
-    subprocess.run(["bash", "-n", str(start_path)], check=True)
-    subprocess.run(["bash", "-n", str(repro_path)], check=True)
+    subprocess.run([_BASH, "-n", str(start_path)], check=True)
+    subprocess.run([_BASH, "-n", str(repro_path)], check=True)
 
 
 def test_e_non_config_file_env_still_validated(config_root, hardware_info_path):
@@ -338,8 +339,8 @@ def test_f_three_artifacts_generated(config_root, hardware_info_path, tmp_path):
     start_content = start_path.read_text()
     assert "$(hostname)" in start_content
 
-    subprocess.run(["bash", "-n", str(start_path)], check=True)
-    subprocess.run(["bash", "-n", str(repro_path)], check=True)
+    subprocess.run([_BASH, "-n", str(start_path)], check=True)
+    subprocess.run([_BASH, "-n", str(repro_path)], check=True)
 
 
 def test_g_audit_config_and_user_cli_params(config_root, hardware_info_path, tmp_path):

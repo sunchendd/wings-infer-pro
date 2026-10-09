@@ -24,7 +24,8 @@ from .conftest import (
 class TestVLLMProgress:
     """vLLM 引擎进度匹配测试。"""
 
-    def test_model_loading_patterns_cover_multithread_loader(self):
+    @staticmethod
+    def test_model_loading_patterns_cover_multithread_loader():
         """通用 vLLM 插件应覆盖 prefetch 多线程 loader 的分片进度与收尾日志。"""
         plugin = VLLMSingleGPUPlugin({})
         patterns = plugin.get_log_patterns()
@@ -42,7 +43,8 @@ class TestVLLMProgress:
         assert progress_for("Loading weights took 18.79 seconds") == 60
         assert progress_for("Loading model weights took 12.7741 GB") == 60
 
-    def test_vllm_cuda_tp1_progress(self, data_dir, tmp_path):
+    @staticmethod
+    def test_vllm_cuda_tp1_progress(data_dir, tmp_path):
         """TC-vLLM-OK: vLLM CUDA TP1 完整部署日志的进度匹配。
 
         日志: vllm_cuda_tp1.log (vLLM v0.17.1, Qwen3-32B, CUDA, OpenAI API)
@@ -108,7 +110,8 @@ class TestVLLMProgress:
         # 验证无 failed 状态
         assert not has_status(captured, "failed"), "进度行中不应出现 status=failed"
 
-    def test_vllm_ascend_tp4_progress(self, data_dir, tmp_path):
+    @staticmethod
+    def test_vllm_ascend_tp4_progress(data_dir, tmp_path):
         """TC-vLLM-Ascend-OK: vLLM Ascend TP4 完整部署日志的进度匹配。
 
         日志: vllm_ascend_tp4.log (vLLM v0.17.0, Qwen3-Next-80B, Ascend NPU, TP4)

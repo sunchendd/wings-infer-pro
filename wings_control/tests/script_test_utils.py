@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+import shutil
+
+_BASH = shutil.which("bash") or "/bin/bash"
 
 
 def run_vllm_command_as_echo(script_path: Path) -> str:
@@ -39,7 +42,7 @@ def run_vllm_command_as_echo(script_path: Path) -> str:
     echo_path = script_path.with_name(f"echo_{script_path.name}")
     echo_path.write_text(f"#!/usr/bin/env bash\nset -euo pipefail\necho {command}\n", encoding="utf-8")
     output = subprocess.run(
-        ["bash", str(echo_path)],
+        [_BASH, str(echo_path)],
         check=True,
         capture_output=True,
         text=True,

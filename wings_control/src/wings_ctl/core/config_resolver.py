@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 from copy import deepcopy
@@ -630,7 +631,8 @@ def _select_scenario(
             strategy_name = default_strategy_names[0]
             selection_source = "fallback_first_multiple_defaults"
             logger.warning(
-                "scenarios.%s.strategies has multiple default_strategy=true values (%s); selecting first default '%s' by order",
+                "scenarios.%s.strategies has multiple default_strategy=true values (%s); "
+                "selecting first default '%s' by order",
                 scenario_key,
                 ",".join(default_strategy_names),
                 strategy_name,
@@ -1926,7 +1928,8 @@ def _build_pd_process_overrides(
             overrides["data_parallel_external_lb"] = True
 
     kv_policy = runtime.connector_profile.kv_port_policy
-    assert kv_policy.base is not None
+    if kv_policy.base is None:
+        raise ValueError("PD kv_port_policy.base is required for exact PD launch")
     kv_port = (
         kv_policy.base + topology.instance_index * kv_policy.instance_stride + local_index * kv_policy.process_stride
     )
@@ -2059,7 +2062,8 @@ def _build_pd_process_plan(
     # topology 已完成 role、Instance 成员、global/local DP closure 和卡数容量校验；
     # 本函数只把这份规范结果展开成当前 Pod 真正要启动的进程，不再推导并行策略。
     topology = resolved.pd_topology
-    assert topology is not None
+    if topology is None:
+        raise ValueError("resolved.pd_topology is required for exact PD launch")
     role_shape = topology.prefill if topology.role is PdRole.PREFILL else topology.decode
     uses_external_dp = _uses_external_pd_launch(runtime, role_shape)
 
@@ -2092,7 +2096,8 @@ def _build_pd_process_plan(
         # 这些值共同描述同一条 engine 命令，必须在一个循环中保持同序生成。
         rank = topology.rank_start + local_index
         host = topology.placement.rank_ip
-        assert host is not None
+        if host is None:
+            raise ValueError("PD topology placement.rank_ip is required for exact PD launch")
         endpoint = f"{host}:{port}"
 
         # 静态 role trace 保留 recipe/feature/user 来源；PD-owned rank、端口和 connector
@@ -2246,7 +2251,8 @@ def _resolve_pd_config(
         has_version_dir=env.engine_version.has_version_dir,
         exact_variant_only=True,
     )
-    assert model_data is not None and model_path is not None
+    if model_data is None or model_path is None:
+        raise ValueError("PD requires resolved model_data and model_path")
     # FeatureOverlay 沿用标准推理语义，但必须在 per-process runtime 层之前进入静态
     # role trace，确保每条进程命令都继承同一份 feature 决策与来源事件。
     normalized_features, reasoning_resolution, reasoning_table_source, tool_calling_source = _prepare_feature_context(
@@ -2296,7 +2302,8 @@ def _resolve_pd_config(
     role_recipe = pair[pd_input.role]
     pd_topology = resolve_pd_topology(pd_input, pair, device_count)
     rank_ip = pd_topology.placement.rank_ip
-    assert rank_ip is not None
+    if rank_ip is None:
+        raise ValueError("PD topology placement.rank_ip is required")
     system_setup = _build_system_setup(
         role_recipe.system_setup,
         str(model_path),
@@ -3135,8 +3142,12 @@ def _register_pd_process(engine: str):
     """装饰器:注册某引擎的 custom PD 进程层派生器。"""
 
     def deco(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            return fn(*args, **kwargs)
+
         _PD_PROCESS_DERIVE_REGISTRY[engine] = fn
-        return fn
+        return wrapper
 
     return deco
 

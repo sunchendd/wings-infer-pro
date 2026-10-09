@@ -38,7 +38,10 @@ def parse_pd_role(raw_role: str | None) -> tuple[PdRole | None, bool]:
         ValueError: 值为空串或不属于 ``none/P/D``。
     """
     if raw_role is None:
-        logger.warning("PD_ROLE is unset; treating this as standard inference during migration. MaaS should explicitly send PD_ROLE=none")
+        logger.warning(
+            "PD_ROLE is unset; treating this as standard inference during migration. "
+            "MaaS should explicitly send PD_ROLE=none"
+        )
         return None, True
     if raw_role == "none":
         return None, False
@@ -46,7 +49,9 @@ def parse_pd_role(raw_role: str | None) -> tuple[PdRole | None, bool]:
         return PdRole.PREFILL, False
     if raw_role == PdRole.DECODE.value:
         return PdRole.DECODE, False
-    raise ValueError(f"PD_ROLE must be 'none', 'P', or 'D'; got {raw_role!r}. An empty string is not standard inference.")
+    raise ValueError(
+        f"PD_ROLE must be 'none', 'P', or 'D'; got {raw_role!r}. An empty string is not standard inference."
+    )
 
 
 def _parse_integer_field(env: Mapping[str, str], name: str, *, allow_zero: bool) -> int:
@@ -165,7 +170,9 @@ def validate_pd_placement(placement: ClusterPlacement) -> None:
         ValueError: placement 缺失、成员少于 2、顺序错误、成员重复或当前 Pod 不在成员中。
     """
     if not placement.master_ip:
-        raise ValueError("Cross-Pod PD requires MASTER_IP, which must be the first Pod IP of the current logical instance")
+        raise ValueError(
+            "Cross-Pod PD requires MASTER_IP, which must be the first Pod IP of the current logical instance"
+        )
     if not placement.rank_ip:
         raise ValueError("Cross-Pod PD requires RANK_IP for the current Pod")
     if not placement.node_ips:

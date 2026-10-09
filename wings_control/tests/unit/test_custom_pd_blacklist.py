@@ -87,4 +87,4 @@ def test_d3a_ascend_visible_device_kept_for_vllm():
     """vllm 引擎下 ASCEND_RT_VISIBLE_DEVICES 非黑名单(引擎不匹配)→ 透传。"""
     kept, dropped = _filter_config_file_env_blacklist({"ASCEND_RT_VISIBLE_DEVICES": "2"}, engine="vllm")
     assert "ASCEND_RT_VISIBLE_DEVICES" in kept
-    assert dropped == []
+    assert not dropped

@@ -21,7 +21,8 @@ from .conftest import (
 class TestSGLangProgress:
     """SGLang 引擎进度匹配测试。"""
 
-    def test_sglang_cuda_tp1_progress(self, data_dir, tmp_path):
+    @staticmethod
+    def test_sglang_cuda_tp1_progress(data_dir, tmp_path):
         """TC-SGLang-OK: SGLang CUDA TP1 完整部署日志的进度匹配。
 
         日志: sglang_cuda_tp1.log (SGLang, Qwen3-32B, CUDA, TP1)

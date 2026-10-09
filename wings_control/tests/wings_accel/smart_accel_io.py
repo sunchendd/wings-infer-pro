@@ -77,6 +77,10 @@ from wings_accel.schemas import (
     SmartKVSparseConfig,
 )
 
+logger = logging.getLogger(__name__)
+
+_BASH = shutil.which("bash") or "/bin/bash"
+
 # ── 资产路径 ── smart_accel_io.py → wings_control/src/wings_accel/smart-accel
 _SMART_ACCEL_ROOT = Path(__file__).resolve().parents[2] / "src" / "wings_accel" / "smart-accel"
 DEFAULT_SCAN_DIRS = ["vllm", "vllm-ascend"]
@@ -103,12 +107,17 @@ _DISK_PATH = "/var/cache/lmcache"
 
 # SmartAccelOutput 选中字段 / 诊断 key,按特性分叉(core._collect_diagnostics 的 key)
 _SCHEME_GETTER = {
-    "decoding": lambda o: o.smart_decoding_scheme,
-    "sparse": lambda o: o.smart_kv_sparse_scheme,
-    "offload": lambda o: o.smart_kv_cache_scheme,
-    "distributed": lambda o: o.smart_distributed_kv_cache_scheme,
+    "decoding": lambda out: out.smart_decoding_scheme,
+    "sparse": lambda out: out.smart_kv_sparse_scheme,
+    "offload": lambda out: out.smart_kv_cache_scheme,
+    "distributed": lambda out: out.smart_distributed_kv_cache_scheme,
 }
-_DIAG_KEY = {"decoding": "decoding", "sparse": "sparse", "offload": "kv_cache", "distributed": "distributed_kv_cache"}
+_DIAG_KEY = {
+    "decoding": "decoding",
+    "sparse": "sparse",
+    "offload": "kv_cache",
+    "distributed": "distributed_kv_cache",
+}
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -134,43 +143,43 @@ def _flags_from_args(args) -> LoadFlags:
 
 
 def _print_input(inp) -> None:
-    print("════════════════ SmartAccelInput ════════════════")
+    logger.info("════════════════ SmartAccelInput ════════════════")
     hw = inp.hardware_config
-    print(f"[Hardware] gpu_type={hw.gpu_type}  gpu_count={hw.gpu_count}")
+    logger.info(f"[Hardware] gpu_type={hw.gpu_type}  gpu_count={hw.gpu_count}")
     m = inp.model_config
-    print(f"[Model]    name={m.model_name or '-'}  arch={m.model_arch or '-'}")
-    print(f"           path={m.model_path or '-'}")
+    logger.info(f"[Model]    name={m.model_name or '-'}  arch={m.model_arch or '-'}")
+    logger.info(f"           path={m.model_path or '-'}")
     e = inp.engine_config
-    print(f"[Engine]   name={e.name}  version={e.version}")
-    print(f"[Deploy]   pd_role={inp.deployment_mode.pd_role or '-'}")
+    logger.info(f"[Engine]   name={e.name}  version={e.version}")
+    logger.info(f"[Deploy]   pd_role={inp.deployment_mode.pd_role or '-'}")
 
     dec = inp.smart_decoding_config
-    print(f"[Decoding] enabled={dec.enabled}  model_path={dec.model_path or '-'}")
+    logger.info(f"[Decoding] enabled={dec.enabled}  model_path={dec.model_path or '-'}")
 
     sp = inp.smart_kv_sparse_config
-    print(f"[Sparse]   enabled={sp.enabled}  mode={sp.mode}")
+    logger.info(f"[Sparse]   enabled={sp.enabled}  mode={sp.mode}")
 
     kv = inp.smart_kv_cache_config
-    print(f"[KVCache]  enabled={kv.enabled}")
+    logger.info(f"[KVCache]  enabled={kv.enabled}")
     if kv.enabled:
-        print(
+        logger.info(
             f"           memory_offload={kv.memory_offload_enabled}"
             f"  memory_offload_size_mode={kv.memory_offload_size_mode or '-'}"
             f"  capacity_gb={getattr(kv, '_memory_capacity_gb', 0)}"
         )
-        print(
+        logger.info(
             f"           disk_offload={kv.disk_offload_enabled}"
             f"  capacity_gb={kv.disk_capacity_gb}"
             f"  path={kv.disk_path or '-'}"
         )
-        print(f"           qat={kv.qat_enabled}  devices={kv.qat_device_count}  level={kv.qat_compression_level}")
+        logger.info(f"           qat={kv.qat_enabled}  devices={kv.qat_device_count}  level={kv.qat_compression_level}")
 
 
 def _print_output(out) -> None:
-    print()
-    print("════════════════ SmartAccelOutput ════════════════")
+    logger.info()
+    logger.info("════════════════ SmartAccelOutput ════════════════")
 
-    print("\n── Schemes ──")
+    logger.info("\n── Schemes ──")
     _print_params(
         {
             "smart_decoding_scheme": out.smart_decoding_scheme,
@@ -179,29 +188,29 @@ def _print_output(out) -> None:
         }
     )
 
-    print("\n── EngineParams ──")
+    logger.info("\n── EngineParams ──")
     _print_params(out.engine_params.engine_config)
     _print_env(out.engine_params.env)
 
 
 def _print_params(params) -> None:
     if not params:
-        print("  (无)")
+        logger.info("  (无)")
         return
     for k, v in params.items():
-        print(f"  {k}: {v if v is not None else '-'}")
+        logger.info(f"  {k}: {v if v is not None else '-'}")
 
 
 def _print_cli(cli) -> None:
     if cli:
-        print(f"  CLI: {' '.join(cli)}")
+        logger.info(f"  CLI: {' '.join(cli)}")
 
 
 def _print_env(env) -> None:
     if env:
-        print("  ENV:")
+        logger.info("  ENV:")
         for k, v in env.items():
-            print(f"    {k}={v}")
+            logger.info(f"    {k}={v}")
 
 
 def _legacy_main(args) -> int:
@@ -209,7 +218,8 @@ def _legacy_main(args) -> int:
     flags = _flags_from_args(args)
     smart_input = load_smart_accel_from_yaml(args.yaml_path, flags)
     if smart_input is None:
-        raise SystemExit(f"SmartAccel YAML not found: {args.yaml_path}")
+        logger.error("SmartAccel YAML not found: %s", args.yaml_path)
+        return 2
     output = func_smart_accel(smart_input)
 
     if args.json:
@@ -218,7 +228,7 @@ def _legacy_main(args) -> int:
             result["input"] = dataclasses.asdict(smart_input)
         if args.print in ("output", "both"):
             result["output"] = dataclasses.asdict(output)
-        print(json.dumps(result, indent=2, ensure_ascii=False))
+        logger.info(json.dumps(result, indent=2, ensure_ascii=False))
     else:
         if args.print in ("input", "both"):
             _print_input(smart_input)
@@ -285,7 +295,7 @@ def _validate_generated_file_plans(file_plans) -> None:
             elif path.suffix.lower() in (".yaml", ".yml"):
                 yaml.safe_load(text)
             elif path.suffix.lower() == ".sh":
-                process = subprocess.run(["bash", "-n"], input=text, capture_output=True, text=True, timeout=5)
+                process = subprocess.run([_BASH, "-n"], input=text, capture_output=True, text=True, timeout=5)
                 if process.returncode != 0:
                     stderr = (process.stderr or "").strip()[:120]
                     errors.append(f"{path.name}: bash -n failed: {stderr}")
@@ -459,7 +469,9 @@ def _test_distributed(base: SmartAccelInput) -> List[VariantResult]:
             memory_offload_enabled=True,
             memory_capacity_gb=_MEM_CAPACITY_GB,
         )
-        results.append(_run_one("distributed", str(scheme.get("name") or "?"), inp, expect=str(scheme.get("name") or "")))
+        results.append(
+            _run_one("distributed", str(scheme.get("name") or "?"), inp, expect=str(scheme.get("name") or ""))
+        )
     return results
 
 
@@ -502,29 +514,29 @@ def _print_variant_detail(r: VariantResult, vol_tmp: str = "") -> None:
 
     vol_tmp: offload 文件计划使用的临时路径根;pre_serve 命令里的该路径改写为生产卷 /shared-volume 便于阅读。
     """
-    print(_result_line(r))
+    logger.info(_result_line(r))
     if r.engine_config:
-        print("        engine_config:")
+        logger.info("        engine_config:")
         for k, v in r.engine_config.items():
-            print(f"          {k}: {v}")
+            logger.info(f"          {k}: {v}")
     if r.envs:
-        print("        envs:")
+        logger.info("        envs:")
         for k, v in r.envs.items():
-            print(f"          {k}={v}")
+            logger.info(f"          {k}={v}")
     if r.packages:
-        print(f"        packages: {r.packages}")
+        logger.info(f"        packages: {r.packages}")
     if r.pre_serve:
-        print("        pre_serve(所有节点):")
+        logger.info("        pre_serve(所有节点):")
         for c in _to_canonical_volume(r.pre_serve, vol_tmp):
-            print(f"          {c}")
+            logger.info(f"          {c}")
     if r.pre_serve_master:
-        print("        pre_serve_master(仅 master):")
+        logger.info("        pre_serve_master(仅 master):")
         for c in _to_canonical_volume(r.pre_serve_master, vol_tmp):
-            print(f"          {c}")
+            logger.info(f"          {c}")
     if r.pre_serve_client:
-        print("        pre_serve_client(仅 client):")
+        logger.info("        pre_serve_client(仅 client):")
         for c in _to_canonical_volume(r.pre_serve_client, vol_tmp):
-            print(f"          {c}")
+            logger.info(f"          {c}")
 
 
 def _print_matrix(
@@ -532,18 +544,18 @@ def _print_matrix(
 ) -> None:
     rel = _relpath(yaml_path)
     model_name = base.model_config.model_name if base else "?"
-    print(f"═══ {rel}  (model={model_name}) ═══")
+    logger.info(f"═══ {rel}  (model={model_name}) ═══")
     if not results:
-        print("  (无 decoding/sparse/kv_offload 变体)")
+        logger.info("  (无 decoding/sparse/kv_offload 变体)")
         return
     if verbose:
         for r in results:
             _print_variant_detail(r, vol_tmp)
     else:
         for r in results:
-            print(_result_line(r))
+            logger.info(_result_line(r))
     n_ok = sum(1 for r in results if r.ok)
-    print(f"  -> {n_ok}/{len(results)} ok")
+    logger.info(f"  -> {n_ok}/{len(results)} ok")
 
 
 def _relpath(p: Path) -> str:
@@ -561,7 +573,7 @@ def _iter_yaml_files(dirs: List[str], filter_sub: Optional[str]) -> List[Path]:
     for d in dirs:
         root = _SMART_ACCEL_ROOT / d
         if not root.is_dir():
-            print(f"[warn] 扫描目录不存在: {root}", file=sys.stderr)
+            logger.warning("扫描目录不存在: %s", root)
             continue
         for yf in sorted(root.rglob("*.yaml")):
             if yf in seen:
@@ -590,9 +602,8 @@ def _run_scan(args, dirs: List[str]) -> int:
 
     files = _iter_yaml_files(dirs, args.filter)
     if not files:
-        print(
-            f"[error] 未找到模型 YAML(dirs={dirs}" + (f", filter={args.filter!r}" if args.filter else "") + ")",
-            file=sys.stderr,
+        logger.error(
+            "未找到模型 YAML(dirs=%s%s)", dirs, f", filter={args.filter!r}" if args.filter else ""
         )
         return 2
 
@@ -605,10 +616,10 @@ def _run_scan(args, dirs: List[str]) -> int:
     os.environ["SHARED_VOLUME_PATH"] = tmpdir
 
     if not args.json:
-        print(f"扫描 smart-accel: {', '.join(dirs)}  ({len(files)} 个 YAML,features={features})")
+        logger.info(f"扫描 smart-accel: {', '.join(dirs)}  ({len(files)} 个 YAML,features={features})")
         if args.verbose:
-            print(f"offload file plan temporary root: {tmpdir}")
-        print()
+            logger.info(f"offload file plan temporary root: {tmpdir}")
+        logger.info()
 
     all_results: List[Tuple[Path, Optional[SmartAccelInput], List[VariantResult]]] = []
     json_records: List[Dict[str, Any]] = []
@@ -631,18 +642,18 @@ def _run_scan(args, dirs: List[str]) -> int:
                         f"{sum(1 for r in results if r.feature == f)}"
                         for f in features
                     )
-                    print(f"[{status}] {_relpath(yf)}  ({feat_counts})" + ("" if base else "  <load failed>"))
+                    logger.info(f"[{status}] {_relpath(yf)}  ({feat_counts})" + ("" if base else "  <load failed>"))
             for r in results:
                 if not r.ok:
                     failures.append((yf, r))
             if not args.json and not args.quiet and idx % 50 == 0:
-                print(f"  …已处理 {idx}/{len(files)}", file=sys.stderr)
+                logger.info("  …已处理 %d/%d", idx, len(files))
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
     if args.json:
         agg = _aggregate(all_results, features)
-        print(
+        logger.info(
             json.dumps(
                 {"scan_dirs": dirs, "features": features, "aggregate": agg, "models": json_records},
                 indent=2,
@@ -653,14 +664,14 @@ def _run_scan(args, dirs: List[str]) -> int:
 
     # 失败详情
     if failures:
-        print()
-        print(f"═══ 失败变体 ({len(failures)}) ═══")
+        logger.info()
+        logger.info(f"═══ 失败变体 ({len(failures)}) ═══")
         for yf, r in failures:
-            print(f"  {_relpath(yf)}")
+            logger.info(f"  {_relpath(yf)}")
             _print_variant_detail(r, vol_tmp=tmpdir)
     else:
         if not args.quiet:
-            print()
+            logger.info()
 
     _print_summary(all_results, features)
     agg = _aggregate(all_results, features)
@@ -696,17 +707,17 @@ def _aggregate(all_results, features) -> Dict[str, Any]:
 
 def _print_summary(all_results, features) -> None:
     agg = _aggregate(all_results, features)
-    print("═══ 汇总 ═══")
-    print(
+    logger.info("═══ 汇总 ═══")
+    logger.info(
         f"  模型: {agg['models']}   变体: {agg['variants']}   "
         f"通过: {agg['pass']}   失败: {agg['fail']}   失败模型: {agg['failed_models']}"
     )
-    print("  按特性(pass/total):")
+    logger.info("  按特性(pass/total):")
     for f in features:
         s = agg["per_feature"].get(f, {"pass": 0, "total": 0})
-        print(f"    {f:9s} {s['pass']}/{s['total']}")
+        logger.info(f"    {f:9s} {s['pass']}/{s['total']}")
     if agg["fail"] == 0:
-        print("  ✓ 全部通过")
+        logger.info("  ✓ 全部通过")
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -759,26 +770,30 @@ _FEAT_TITLE = {"decoding": "投机 decoding", "sparse": "稀疏 sparse", "offloa
 def _print_coverage(
     cov: Dict[str, Dict[str, List[Path]]], features: List[str], n_files: int, dirs: List[str], max_paths: int
 ) -> None:
-    print("═══ 路径覆盖检查 ═══")
-    print(f"目录: {', '.join(dirs)}   模型 YAML: {n_files}   特性: {features}")
-    print()
+    logger.info("═══ 路径覆盖检查 ═══")
+    logger.info(f"目录: {', '.join(dirs)}   模型 YAML: {n_files}   特性: {features}")
+    logger.info()
     for f in features:
         variants = cov.get(f, {})
-        distinct = {p for paths in variants.values() for p in paths}
-        print(f"── {_FEAT_TITLE.get(f, f)}  ({len(variants)} 种变体, {len(distinct)} 路径声明) ──")
+        distinct = {
+            p
+            for paths in variants.values()
+            for p in paths
+        }
+        logger.info(f"── {_FEAT_TITLE.get(f, f)}  ({len(variants)} 种变体, {len(distinct)} 路径声明) ──")
         if not variants:
-            print("  (无)")
-            print()
+            logger.info("  (无)")
+            logger.info()
             continue
         for label in sorted(variants, key=lambda k: (-len(variants[k]), k)):
             paths = variants[label]
-            print(f"  {label:24s} {len(paths):4d} 路径")
+            logger.info(f"  {label:24s} {len(paths):4d} 路径")
             shown = paths if max_paths <= 0 else paths[:max_paths]
             for p in shown:
-                print(f"      {_relpath(p)}")
+                logger.info(f"      {_relpath(p)}")
             if max_paths > 0 and len(paths) > max_paths:
-                print(f"      …还有 {len(paths) - max_paths} 个(用 --max-paths 0 查看全部)")
-        print()
+                logger.info(f"      …还有 {len(paths) - max_paths} 个(用 --max-paths 0 查看全部)")
+        logger.info()
 
 
 def _coverage_to_json(cov, features, n_files, dirs) -> Dict[str, Any]:
@@ -786,7 +801,11 @@ def _coverage_to_json(cov, features, n_files, dirs) -> Dict[str, Any]:
     cov_out = {}
     for f in features:
         variants = cov.get(f, {})
-        distinct = {p for paths in variants.values() for p in paths}
+        distinct = {
+            p
+            for paths in variants.values()
+            for p in paths
+        }
         cov_out[f] = {
             "variant_count": len(variants),
             "distinct_paths": len(distinct),
@@ -803,15 +822,14 @@ def _run_coverage(args, dirs: List[str]) -> int:
     """路径覆盖检查:不跑 func_smart_accel,只统计各变体被哪些路径声明。"""
     files = _iter_yaml_files(dirs, args.filter)
     if not files:
-        print(
-            f"[error] 未找到模型 YAML(dirs={dirs}" + (f", filter={args.filter!r}" if args.filter else "") + ")",
-            file=sys.stderr,
+        logger.error(
+            "未找到模型 YAML(dirs=%s%s)", dirs, f", filter={args.filter!r}" if args.filter else ""
         )
         return 2
     features = args.feature or ["decoding", "sparse", "offload", "distributed"]
     cov = _coverage(files, features)
     if args.json:
-        print(json.dumps(_coverage_to_json(cov, features, len(files), dirs), indent=2, ensure_ascii=False))
+        logger.info(json.dumps(_coverage_to_json(cov, features, len(files), dirs), indent=2, ensure_ascii=False))
     else:
         _print_coverage(cov, features, len(files), dirs, args.max_paths)
     return 0
@@ -914,9 +932,8 @@ def _save_samples(args, dirs: List[str]) -> int:
     outdir.mkdir(parents=True, exist_ok=True)
     files = _iter_yaml_files(dirs, args.filter)
     if not files:
-        print(
-            f"[error] 未找到模型 YAML(dirs={dirs}" + (f", filter={args.filter!r}" if args.filter else "") + ")",
-            file=sys.stderr,
+        logger.error(
+            "未找到模型 YAML(dirs=%s%s)", dirs, f", filter={args.filter!r}" if args.filter else ""
         )
         return 2
     features = args.feature or ["decoding", "sparse", "offload", "distributed"]
@@ -944,12 +961,12 @@ def _save_samples(args, dirs: List[str]) -> int:
                 md.append(_fmt_variant_section(label, len(paths), rep, r, vol_tmp=tmpdir))
                 index.append(f"- [{label}](./{f}.md#{_anchor(label)}) — {len(paths)} 路径,代表 `{_relpath(rep)}`")
             (outdir / f"{f}.md").write_text("\n".join(md), encoding="utf-8")
-            print(f"  写入 {outdir / f'{f}.md'}")
+            logger.info(f"  写入 {outdir / f'{f}.md'}")
         (outdir / "INDEX.md").write_text("\n".join(index), encoding="utf-8")
-        print(f"  写入 {outdir / 'INDEX.md'}")
+        logger.info(f"  写入 {outdir / 'INDEX.md'}")
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
-    print(f"\n样本已保存至 {outdir}")
+    logger.info(f"\n样本已保存至 {outdir}")
     return 0
 
 
@@ -1040,10 +1057,12 @@ def main() -> int:
         return _run_scan(args, dirs)
     if args.matrix:
         if not args.yaml_path:
-            raise SystemExit("--matrix 需要一个 YAML 路径")
+            logger.error("--matrix 需要一个 YAML 路径")
+            return 2
         ypath = Path(args.yaml_path)
         if not ypath.is_file():
-            raise SystemExit(f"YAML 不存在: {ypath}")
+            logger.error("YAML 不存在: %s", ypath)
+            return 2
         features = args.feature or ["decoding", "sparse", "offload", "distributed"]
         # offload file plans use a temporary path root; displayed commands are normalized to /shared-volume
         tmpdir = tempfile.mkdtemp(prefix="smart_accel_io_")
@@ -1051,7 +1070,7 @@ def main() -> int:
         try:
             base, results = _run_matrix(ypath, features)
             if args.json:
-                print(json.dumps(_result_to_dict(ypath, base, results), indent=2, ensure_ascii=False))
+                logger.info(json.dumps(_result_to_dict(ypath, base, results), indent=2, ensure_ascii=False))
             else:
                 _print_matrix(ypath, base, results, verbose=True, vol_tmp=tmpdir)
         finally:
@@ -1060,9 +1079,15 @@ def main() -> int:
 
     # 形态一:legacy 单 YAML 快照
     if not args.yaml_path:
-        raise SystemExit("需要 YAML 路径,或使用 --matrix / --scan / --scan-all / --coverage / --save-samples")
+        logger.error("需要 YAML 路径,或使用 --matrix / --scan / --scan-all / --coverage / --save-samples")
+        return 2
     return _legacy_main(args)
 
 
 if __name__ == "__main__":
+    _handler = logging.StreamHandler(sys.stdout)
+    _handler.setFormatter(logging.Formatter("%(message)s"))
+    logger.addHandler(_handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
     sys.exit(main())

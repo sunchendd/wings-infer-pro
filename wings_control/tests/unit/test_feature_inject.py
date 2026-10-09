@@ -25,7 +25,7 @@ def test_smartqos_vllm() -> None:
     """验证 vLLM 开 SmartQoS → 注入 scheduling_policy=priority。"""
     override, env, notes = _inject_smartqos({"enable_smartqos": True}, "vllm")
     assert override == {"scheduling_policy": "priority"}
-    assert env == {}
+    assert not env
     assert notes["feature_inject.smartqos"] == "enabled"
     assert notes["feature_inject.smartqos.vllm"] == "scheduling_policy=priority"
 
@@ -54,8 +54,8 @@ def test_smartqos_sglang() -> None:
 def test_smartqos_unsupported_engine_skip() -> None:
     """验证不支持的引擎(如 mindie)→ skip,仅记录 notes,不注入参数。"""
     override, env, notes = _inject_smartqos({"enable_smartqos": True}, "mindie")
-    assert override == {}
-    assert env == {}
+    assert not override
+    assert not env
     assert "feature_inject.smartqos.skip" in notes
     assert "mindie" in notes["feature_inject.smartqos.skip"]
 
@@ -63,9 +63,9 @@ def test_smartqos_unsupported_engine_skip() -> None:
 def test_smartqos_switch_off_is_noop() -> None:
     """验证开关未开 → no-op(空 override/env/notes)。"""
     override, env, notes = _inject_smartqos({}, "vllm")
-    assert override == {}
-    assert env == {}
-    assert notes == {}
+    assert not override
+    assert not env
+    assert not notes
 
 
 # ── _inject_otlp_traces ───────────────────────────────────────────────────
@@ -110,7 +110,7 @@ def test_otlp_unsupported_engine_skip(monkeypatch) -> None:
     """验证不支持的引擎 → skip,仅记录 notes。"""
     monkeypatch.setenv("OTLP_TRACES_ENDPOINT", "collector:4317")
     override, env, notes = _inject_otlp_traces({"enable_otlp_traces": True}, "mindie")
-    assert override == {}
+    assert not override
     # 通用 OTEL 环境变量仍会设置(不依赖引擎)
     assert env["OTEL_EXPORTER_OTLP_TRACES_INSECURE"] == "true"
     assert "feature_inject.otlp_traces.skip" in notes
@@ -119,9 +119,9 @@ def test_otlp_unsupported_engine_skip(monkeypatch) -> None:
 def test_otlp_switch_off_is_noop() -> None:
     """验证开关未开 → no-op。"""
     override, env, notes = _inject_otlp_traces({}, "vllm")
-    assert override == {}
-    assert env == {}
-    assert notes == {}
+    assert not override
+    assert not env
+    assert not notes
 
 
 # ── _inject_metrics ───────────────────────────────────────────────────────
@@ -129,30 +129,30 @@ def test_otlp_switch_off_is_noop() -> None:
 
 def test_rag_acc_enabled_injects_proxy_env() -> None:
     override, env, notes = _inject_rag_acc({"enable_rag_acc": True}, "vllm")
-    assert override == {}
+    assert not override
     assert env == {"RAG_ACC_ENABLED": "true"}
     assert notes["feature_inject.rag_acc"] == "enabled"
 
 
 def test_rag_acc_explicitly_disabled_injects_proxy_env() -> None:
     override, env, notes = _inject_rag_acc({"enable_rag_acc": False}, "vllm")
-    assert override == {}
+    assert not override
     assert env == {"RAG_ACC_ENABLED": "false"}
     assert notes["feature_inject.rag_acc"] == "disabled"
 
 
 def test_rag_acc_disabled_is_noop() -> None:
     override, env, notes = _inject_rag_acc({}, "vllm")
-    assert override == {}
-    assert env == {}
-    assert notes == {}
+    assert not override
+    assert not env
+    assert not notes
 
 
 def test_metrics_sglang() -> None:
     """验证 SGLang 开 Metrics → 注入 enable_metrics=True。"""
     override, env, notes = _inject_metrics({"enable_metrics": True}, "sglang")
     assert override == {"enable_metrics": True}
-    assert env == {}
+    assert not env
     assert notes["feature_inject.metrics"] == "enabled"
     assert notes["feature_inject.metrics.sglang"] == "enable_metrics"
 
@@ -160,31 +160,31 @@ def test_metrics_sglang() -> None:
 def test_metrics_vllm_default_on() -> None:
     """验证 vLLM 开 Metrics → 无注入(默认开启),notes 标注 default_on, no_inject。"""
     override, env, notes = _inject_metrics({"enable_metrics": True}, "vllm")
-    assert override == {}
-    assert env == {}
+    assert not override
+    assert not env
     assert notes["feature_inject.metrics.vllm"] == "default_on, no_inject"
 
 
 def test_metrics_vllm_ascend_default_on() -> None:
     """验证 vllm-ascend 与 vllm 共用 default_on 逻辑。"""
     override, _, notes = _inject_metrics({"enable_metrics": True}, "vllm-ascend")
-    assert override == {}
+    assert not override
     assert notes["feature_inject.metrics.vllm"] == "default_on, no_inject"
 
 
 def test_metrics_unsupported_engine_skip() -> None:
     """验证不支持的引擎 → skip。"""
     override, _, notes = _inject_metrics({"enable_metrics": True}, "mindie")
-    assert override == {}
+    assert not override
     assert "feature_inject.metrics.skip" in notes
 
 
 def test_metrics_switch_off_is_noop() -> None:
     """验证开关未开 → no-op。"""
     override, env, notes = _inject_metrics({}, "sglang")
-    assert override == {}
-    assert env == {}
-    assert notes == {}
+    assert not override
+    assert not env
+    assert not notes
 
 
 # ── feature_inject_transform(注册表汇总)─────────────────────────────────
@@ -246,9 +246,9 @@ def test_transform_all_switches_vllm(monkeypatch) -> None:
 def test_transform_no_switches_is_noop() -> None:
     """验证无开关 → no-op(空 override/env/notes)。"""
     override, env, notes = feature_inject_transform({}, "vllm")
-    assert override == {}
-    assert env == {}
-    assert notes == {}
+    assert not override
+    assert not env
+    assert not notes
 
 
 def test_transform_partial_switches(monkeypatch) -> None:
@@ -277,7 +277,7 @@ def test_transform_unsupported_engine_all_skip(monkeypatch) -> None:
         "enable_metrics": True,
     }
     override, env, notes = feature_inject_transform(switches, "mindie")
-    assert override == {}
+    assert not override
     # 通用 OTEL 环境变量仍设置(不依赖引擎)
     assert env["OTEL_EXPORTER_OTLP_TRACES_INSECURE"] == "true"
     # 三个特性都记录 skip

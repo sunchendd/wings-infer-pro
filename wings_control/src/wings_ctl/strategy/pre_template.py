@@ -43,11 +43,13 @@ def pre_template_strategy(
         ValueError: 标准多机缺 ``master_ip``。
     """
     if pd_role is not None:
-        topology_by_role = {
+        topology = {
             PdRole.PREFILL: Topology.PD_PREFILL,
             PdRole.DECODE: Topology.PD_DECODE,
-        }
-        return engine, topology_by_role[pd_role]
+        }.get(pd_role)
+        if topology is None:
+            raise ValueError(f"unsupported PD role: {pd_role!r}")
+        return engine, topology
 
     # Mooncake master 专属 Pod:部署层事实优先于标准分布式语义。该 Pod 不属于
     # 推理集群(无 RANK_IP/NODE_IPS/MASTER_IP),豁免标准多机的 MASTER_IP 强校验;

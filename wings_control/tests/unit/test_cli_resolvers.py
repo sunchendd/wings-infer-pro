@@ -108,13 +108,13 @@ def test_gpu_usage_mode_enpu_is_case_and_whitespace_insensitive():
 
 def test_gpu_usage_mode_full_does_not_inject_enforce_eager():
     """默认 full 模式保持原配置。"""
-    assert cli._apply_gpu_usage_mode({}, "full", "vllm") == {}
+    assert not cli._apply_gpu_usage_mode({}, "full", "vllm")
 
 
 @pytest.mark.parametrize("engine", ["vllm", "sglang"])
 def test_gpu_usage_mode_enpu_does_not_inject_for_other_engines(engine):
     """enpu 配合非 vllm-ascend 引擎时保持原配置。"""
-    assert cli._apply_gpu_usage_mode({}, "enpu", engine) == {}
+    assert not cli._apply_gpu_usage_mode({}, "enpu", engine)
 
 
 # ─── _resolve_engine / _canonicalize_engine(引擎名归一:下划线→连字符)──────────

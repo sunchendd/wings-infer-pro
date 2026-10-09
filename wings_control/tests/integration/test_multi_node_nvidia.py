@@ -9,12 +9,15 @@ TP 跨 Pod(tep,DP=1)、worker --headless。固定输入:DeepSeek-V4-Pro-fp8(vllm
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
 from wings_ctl.core.topology import Topology
 from wings_ctl.core.models import ClusterPlacement, PipelineRequest, Target
 from wings_ctl.pipeline import run_pipeline
+
+_BASH = shutil.which("bash") or "/bin/bash"
 
 _HW = {"hardware_family": "h100", "device": "nvidia", "count": 8}
 _MODEL = "DeepSeek-V4-Pro-fp8"  # 完整变体名(variant_name);传家族名 DeepSeek-V4-Pro 会命中 fp8/dspark 歧义
@@ -68,7 +71,7 @@ def test_nvidia_worker_argv_node_rank_and_literal_master(config_root_real, tmp_p
     assert "IFACE_NAME=$(awk" not in text
     assert "NCCL_SOCKET_IFNAME=$IFACE_NAME" not in text
     assert "export NCCL_SOCKET_IFNAME=" in text
-    subprocess.run(["bash", "-n", str(start_path)], check=True)
+    subprocess.run([_BASH, "-n", str(start_path)], check=True)
     assert "exec vllm serve" in repro_path.read_text(encoding="utf-8")  # repro.sh 仍用 exec
 
 

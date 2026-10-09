@@ -273,7 +273,11 @@ def _routed_source_path(smart_accel: Any, topology: Optional[str]) -> str:
     if not isinstance(smart_accel, dict) or not smart_accel:
         return ""
     topo = (topology or "standalone").strip().lower()
-    scenario_name = "multi_node" if topo == "multi_node" else "pd_disaggregation" if topo in ("pd_prefill", "pd_decode") else "standalone"
+    scenario_name = (
+        "multi_node" if topo == "multi_node"
+        else "pd_disaggregation" if topo in ("pd_prefill", "pd_decode")
+        else "standalone"
+    )
     scenario = smart_accel.get(scenario_name)
     if not isinstance(scenario, dict):
         return f"smart_accel.{scenario_name}"
@@ -300,6 +304,8 @@ def _routed_source_path(smart_accel: Any, topology: Optional[str]) -> str:
             if role in (wanted, wanted[0]):
                 return f"{base}.nodes[{index}]"
     return base
+
+
 def _select_default_strategy(scenario: Any) -> Optional[Dict[str, Any]]:
     """从 scenario 块的 strategies 里选默认策略(对齐 wings_control ``_select_scenario``)。
 

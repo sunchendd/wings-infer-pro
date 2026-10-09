@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -28,6 +29,8 @@ from wings_ctl.core.models import (
 )
 from wings_ctl.core.topology import Topology
 from wings_ctl.pipeline import resolve_pipeline, run_pipeline
+
+_BASH = shutil.which("bash") or "/bin/bash"
 
 _VARIANT = "Synthetic-GLM51-FP8"
 _ORDINARY_VARIANT = "Synthetic-Ordinary-PD"
@@ -616,8 +619,8 @@ def test_pd_pipeline_generates_scripts_and_audit(
     assert all(f"${index}" not in line for line in engine_lines for index in range(2, 8))
     assert "echo must-not-run" not in script
     # 生成的 PD 脚本必须通过 bash -n 语法校验(与 standalone 同一护栏)
-    subprocess.run(["bash", "-n", str(start)], check=True)
-    subprocess.run(["bash", "-n", str(repro)], check=True)
+    subprocess.run([_BASH, "-n", str(start)], check=True)
+    subprocess.run([_BASH, "-n", str(repro)], check=True)
     data = json.loads(audit.read_text(encoding="utf-8"))
     assert data["engine_config"] == {}  # PD 执行方消费 process_plan，顶层不伪造
     assert data["pd"]["role"] == "D"

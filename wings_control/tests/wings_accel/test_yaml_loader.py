@@ -78,7 +78,8 @@ def _write_yaml(tmp_path, content):
 
 
 class TestMemoryOffloadSizeMode:
-    def test_auto_enables_with_sufficient_pod(self, tmp_path):
+    @staticmethod
+    def test_auto_enables_with_sufficient_pod(tmp_path):
         """256G pod, 8 workers → engine_self=59, margin=25.6, available=171"""
         path = _write_yaml(tmp_path, YAML_TEMPLATE)
         flags = LoadFlags(
@@ -93,7 +94,8 @@ class TestMemoryOffloadSizeMode:
         assert cfg.memory_offload_enabled is True
         assert getattr(cfg, "_memory_capacity_gb") == 171
 
-    def test_auto_disables_below_threshold(self, tmp_path):
+    @staticmethod
+    def test_auto_disables_below_threshold(tmp_path):
         """100G pod → available=31G < 100G threshold → memory offload off"""
         path = _write_yaml(tmp_path, YAML_TEMPLATE)
         flags = LoadFlags(
@@ -106,7 +108,8 @@ class TestMemoryOffloadSizeMode:
         cfg = smart_input.smart_kv_cache_config
         assert cfg.memory_offload_enabled is False
 
-    def test_auto_worker_count_scales_overhead(self, tmp_path):
+    @staticmethod
+    def test_auto_worker_count_scales_overhead(tmp_path):
         """worker 数翻倍:4 → 8 workers,available 相差 28G(4 worker × 7G)"""
         path = _write_yaml(tmp_path, YAML_TEMPLATE)
 
@@ -118,14 +121,16 @@ class TestMemoryOffloadSizeMode:
         assert getattr(inp4.smart_kv_cache_config, "_memory_capacity_gb") == 429
         assert getattr(inp8.smart_kv_cache_config, "_memory_capacity_gb") == 401
 
-    def test_manual_uses_fixed_memory_gb(self, tmp_path):
+    @staticmethod
+    def test_manual_uses_fixed_memory_gb(tmp_path):
         """manual 模式 → 用 flags.memory_gb 静态值"""
         path = _write_yaml(tmp_path, YAML_TEMPLATE)
         flags = LoadFlags(kv=True, memory_offload_size_mode="128")
         smart_input = load_smart_accel_from_yaml(path, flags)
         assert getattr(smart_input.smart_kv_cache_config, "_memory_capacity_gb") == 128
 
-    def test_numeric_memory_size_uses_fixed_gb(self, tmp_path):
+    @staticmethod
+    def test_numeric_memory_size_uses_fixed_gb(tmp_path):
         """KV_MEM_OFFLOAD_SIZE 数值字符串 → manual + 固定 GB。"""
         path = _write_yaml(tmp_path, YAML_TEMPLATE)
         flags = LoadFlags(kv=True, memory_offload_size_mode="192")
@@ -134,7 +139,8 @@ class TestMemoryOffloadSizeMode:
         assert cfg.memory_offload_size_mode == "192"
         assert getattr(cfg, "_memory_capacity_gb") == 192
 
-    def test_distributed_auto_estimates_capacity(self, tmp_path):
+    @staticmethod
+    def test_distributed_auto_estimates_capacity(tmp_path):
         """分布式 auto 智能推荐:512G pod, 8 卡 → available=401,mode/容量透传 dkv。"""
         path = _write_yaml(tmp_path, YAML_TEMPLATE)
         flags = LoadFlags(
@@ -151,7 +157,8 @@ class TestMemoryOffloadSizeMode:
         # 本地卸载未开 → 本地配置不启用,容量私有属性仍携带估算值(ctx 回退用)
         assert smart_input.smart_kv_cache_config.memory_offload_enabled is False
 
-    def test_distributed_auto_below_threshold_degrades(self, tmp_path):
+    @staticmethod
+    def test_distributed_auto_below_threshold_degrades(tmp_path):
         """分布式 auto 估算不足 → 与本地同分支关闭整个特性(enabled/memory_offload 同置 False)。"""
         path = _write_yaml(tmp_path, YAML_TEMPLATE)
         flags = LoadFlags(
@@ -168,7 +175,8 @@ class TestMemoryOffloadSizeMode:
         assert dkv.memory_offload_size_mode == "auto"
         assert dkv.memory_capacity_gb == 0
 
-    def test_distributed_numeric_mode_uses_fixed_gb(self, tmp_path):
+    @staticmethod
+    def test_distributed_numeric_mode_uses_fixed_gb(tmp_path):
         """分布式数值模式 → 固定 GB 原样透传(不走估算)。"""
         path = _write_yaml(tmp_path, YAML_TEMPLATE)
         flags = LoadFlags(
@@ -183,7 +191,8 @@ class TestMemoryOffloadSizeMode:
         assert dkv.memory_offload_size_mode == "64"
         assert dkv.memory_capacity_gb == 64
 
-    def test_distributed_without_yaml_declaration_degrades(self, tmp_path):
+    @staticmethod
+    def test_distributed_without_yaml_declaration_degrades(tmp_path):
         """YAML 未声明 distributed_kv_offload → 存在性护栏优雅关闭(与本地 has_memory_method 同构)。"""
         path = _write_yaml(tmp_path, YAML_TEMPLATE_LOCAL_ONLY)
         flags = LoadFlags(
@@ -200,7 +209,8 @@ class TestMemoryOffloadSizeMode:
         assert dkv.memory_offload_size_mode == "64"
         assert dkv.memory_capacity_gb == 0
 
-    def test_distributed_install_xcache_flag_threads_through(self, tmp_path):
+    @staticmethod
+    def test_distributed_install_xcache_flag_threads_through(tmp_path):
         """install_xcache 缺省 True;False → DistributedKVCacheConfig.install_transfer_engine=False。"""
         path = _write_yaml(tmp_path, YAML_TEMPLATE)
         flags = LoadFlags(
@@ -218,19 +228,22 @@ class TestMemoryOffloadSizeMode:
 
 
 class TestPdRole:
-    def test_pd_role_prefill_wired(self, tmp_path):
+    @staticmethod
+    def test_pd_role_prefill_wired(tmp_path):
         path = _write_yaml(tmp_path, YAML_TEMPLATE)
         flags = LoadFlags(pd_role="prefill")
         smart_input = load_smart_accel_from_yaml(path, flags)
         assert smart_input.deployment_mode.pd_role == "prefill"
 
-    def test_pd_role_decode_wired(self, tmp_path):
+    @staticmethod
+    def test_pd_role_decode_wired(tmp_path):
         path = _write_yaml(tmp_path, YAML_TEMPLATE)
         flags = LoadFlags(pd_role="decode")
         smart_input = load_smart_accel_from_yaml(path, flags)
         assert smart_input.deployment_mode.pd_role == "decode"
 
-    def test_pd_role_none_by_default(self, tmp_path):
+    @staticmethod
+    def test_pd_role_none_by_default(tmp_path):
         path = _write_yaml(tmp_path, YAML_TEMPLATE)
         smart_input = load_smart_accel_from_yaml(path)
         assert smart_input.deployment_mode.pd_role is None

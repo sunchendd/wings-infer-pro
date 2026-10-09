@@ -517,7 +517,9 @@ def _write_mooncake_client_env(overrides: Optional[Dict[str, str]] = None) -> No
     target_dir = shared_root / "mooncake"
     target_dir.mkdir(parents=True, exist_ok=True)
     lines = _render_mooncake_client_env(overrides)
-    content = "\n".join(["# Mooncake client environment (rendered from env.yaml + MaaS env + accel resolved)", *lines, ""])
+    content = "\n".join(
+        ["# Mooncake client environment (rendered from env.yaml + MaaS env + accel resolved)", *lines, ""]
+    )
     tmp_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -1314,7 +1316,10 @@ def _render_multi_node_placeholder(resolved: ResolvedConfig) -> str:
     lines = ["#!/usr/bin/env bash"]
     lines.extend(_MULTI_NODE_BANNER)
     lines.append("set -euo pipefail")
-    lines.append('echo "multi_node placeholder script: runtime injection is pending (missing RANK_IP/NODE_IPS); do not execute directly" >&2')
+    lines.append(
+        'echo "multi_node placeholder script: runtime injection is pending (missing RANK_IP/NODE_IPS); '
+        'do not execute directly" >&2'
+    )
     lines.append("exit 3")
     lines.append("")
 
@@ -1540,7 +1545,9 @@ def _render_pd_repro_sh(
 
     if plan.lifecycle == "single":
         process = plan.processes[0]
-        lines.append(f"# process[{process.process_index}] rank={process.dp_rank} endpoint={process.advertised_endpoint}")
+        lines.append(
+            f"# process[{process.process_index}] rank={process.dp_rank} endpoint={process.advertised_endpoint}"
+        )
         lines.extend(_render_env_section(process.env_traces))
         if process.env_traces:
             lines.append("")
@@ -1563,7 +1570,9 @@ def _render_pd_repro_sh(
         "",
     ]
     for process in plan.processes:
-        lines.append(f"# process[{process.process_index}] rank={process.dp_rank} endpoint={process.advertised_endpoint}")
+        lines.append(
+            f"# process[{process.process_index}] rank={process.dp_rank} endpoint={process.advertised_endpoint}"
+        )
         lines.append("(")
         lines.extend(f"  {line}" for line in _render_env_section(process.env_traces))
         lines.append("  exec " + shlex.join(process.argv))

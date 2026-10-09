@@ -17,7 +17,8 @@ from wings_ctl.core.topology import Topology
 # 对应的 Literal 供类型检查；新增取值时必须同步 recipe 归一化、运行时校验和测试。
 PD_TOPOLOGY_DERIVED_1P1D = "derived_1p1d"  # 六字段缺失，由当前 Pod 卡数派生普通 1P1D。
 PD_TOPOLOGY_EXPLICIT_ALLOCATION = "explicit_allocation"  # MaaS 六字段完整下发显式拓扑。
-PD_TOPOLOGY_CUSTOM_CONFIG = "custom_config"  # custom --config-file 路径：并行度由 config-file(及 MaaS 兜底)驱动，不复用 recipe derived_1p1d 语义。
+# custom --config-file 路径：并行度由 config-file(及 MaaS 兜底)驱动，不复用 recipe derived_1p1d 语义。
+PD_TOPOLOGY_CUSTOM_CONFIG = "custom_config"
 PD_PROCESS_LAYOUT_SINGLE = "single_process"  # 当前 Pod 只生成一条引擎命令。
 PD_PROCESS_LAYOUT_PER_LOCAL_RANK = "per_local_dp_rank"  # 每个 local DP rank 生成一条命令。
 PD_DP_LAUNCH_NONE = "none"  # 命令不携带外部 DP rank 参数。
@@ -397,6 +398,7 @@ class PipelineRequest:
     pd_input: Optional[PdRuntimeInput] = None
     pd_role_missing_legacy: bool = False
     license_file: Optional[Path] = None
+
 
 @dataclass(frozen=True)
 class CustomConfigFile:

@@ -294,7 +294,8 @@ def test_j_legacy_drop_has_reason(config_root, hardware_info_path):
     """丢弃项进 config_file_dropped 审计,带 legacy_json_adapter reason。"""
     resolved = _resolve(config_root, hardware_info_path, engine="sglang", device_count=2)
     drop_entries = [
-        d for d in resolved.config_file_params
+        d
+        for d in resolved.config_file_params
         if d["status"] == "dropped" and d["key"] in ("enable_chunked_prefill", "block_size")
     ]
     assert len(drop_entries) == 2

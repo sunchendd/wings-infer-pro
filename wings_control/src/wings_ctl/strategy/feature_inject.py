@@ -147,9 +147,9 @@ def feature_inject_transform(
     notes: dict[str, str] = {}
 
     for _, injector in _FEATURE_INJECTORS.items():
-        o, e, n = injector(switches, engine)
-        override.update(o)
-        env.update(e)
-        notes.update(n)
+        inject_override, inject_env, inject_notes = injector(switches, engine)
+        override.update(inject_override)
+        env.update(inject_env)
+        notes.update(inject_notes)
 
     return override, env, notes
