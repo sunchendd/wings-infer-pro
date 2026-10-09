@@ -1,0 +1,7 @@
+# SmartAccel configuration for the vLLM-Ascend A3 embedding model.
+model:
+  name: Qwen3-Embedding-0.6B
+  variant_name: "Qwen3-Embedding-0.6B"
+  match:
+    - name_pattern: "(?i)qwen3[-.]?embedding[-.]?0.6b"
+smart_accel: {}

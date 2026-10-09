@@ -1,0 +1,7 @@
+# SmartAccel configuration for the vLLM-Ascend A3 embedding model.
+model:
+  name: bge-m3
+  variant_name: "bge-m3"
+  match:
+    - name_pattern: "(?i)bge[-.]?m3"
+smart_accel: {}
