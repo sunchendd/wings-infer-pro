@@ -35,6 +35,9 @@ smart_accel:
           envs: {}
         custom_features:
         - name: sm120_dsv4_patch
+          packages:
+            flashinfer: v0.6.12
+            deepgemm: nv_dev_a6b593d
           cli_params: {}
           envs:
             XFUSION_DSV4_ON_SM120: "1"

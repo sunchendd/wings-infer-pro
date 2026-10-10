@@ -30,6 +30,11 @@ MaaS 开关 + 模型配置 / 部署上下文
 
 `engine_config` 和 `env` 会影响最终引擎命令和环境变量。`packages`、共享卷文件和 pre-serve 命令都属于启动前准备，不能当作引擎参数处理。
 
+`packages` 的版本允许非空交付标识，例如 `deepgemm: nv_dev_a6b593d`，不要求符合
+PEP 440。包名和版本原样传给安装器，必须与交付 `manifest.json` 中的键一致。
+跨特性依赖合并时，PEP 440 版本继续规范化比较，其他版本按原文比较；同包不同版本
+仍报冲突。包名、版本缺失或依赖声明格式错误仍会阻止启动。
+
 普通 recipe 的合并顺序为 recipe/feature、Accel、用户 CLI；自定义配置的顺序为 builtin/feature、Accel、`--config-file`、用户 CLI。`engine_config` 按嵌套字段合并。Accel 不得在 `build_argv()` 之后追加命令字符串，也不得绕开来源记录直接修改已解析配置。
 
 ## 正式启动时做什么

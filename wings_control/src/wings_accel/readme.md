@@ -180,7 +180,7 @@ class PackageRequirement:          # 已解析的精确 pip 依赖(render 解析
     name: str                      # YAML 声明的原始包名(交付用)
     version: str                   # YAML 声明的原始版本(如 v0.4.5;交付用)
     canonical_name: str            # 规范化包名(冲突比较键)
-    canonical_version: str         # PEP 440 规范化版本(如 v0.4.5 → 0.4.5;冲突比较键)
+    canonical_version: str         # PEP 440 规范化版本或其他交付版本原文(冲突比较键)
     manifest: str                  # property,渲染为原始 "name:version"(交付 install.py)
 
 @dataclass
@@ -211,8 +211,9 @@ class SmartAccelOutput:            # 总输出
   是其 manifest 字符串列表。合法声明形态:缺失/`null`(→ 空依赖)、`name→version` dict、
   恰好一个冒号的 `name:version` 字符串、二者构成的 list(后两者为兼容旧形态);其余类型
   (如 int)或缺 version 的裸包名属确定性配置错误,抛 `SmartAccelPackageFormatError` 并穿透
-  `apply_smart_accel()` fail-fast。冲突比较用规范化值(同 canonical 包名 + 不同 PEP 440
-  版本 → 抛 `SmartAccelPackageConflictError`;同版本重复声明自动去重);**交付保留 YAML
+  `apply_smart_accel()` fail-fast。版本允许非空交付标识:PEP 440 版本规范化,其他版本按
+  原文比较(同 canonical 包名 + 不同版本比较键 → 抛 `SmartAccelPackageConflictError`;
+  同版本重复声明自动去重);**交付保留 YAML
   首次声明的原始 `name:version`**——wings-accel `install.py` 按 manifest 键精确查找,
   镜像包目录名带 `v` 前缀(如 `packages/lmcache-ascend/v0.4.5`),改写会导致
   `Package not found`。
@@ -447,8 +448,8 @@ YAML `packages` 是**键值对**(name→version,无 list dash):
 
 兼容旧形态:单字符串 `"name:version"` 及其构成的 list。输出保留 YAML 声明的原始
 `["name:version", ...]`(与 install.py manifest 键精确匹配,镜像包目录名带 `v` 前缀)。
-规范化值(包名 `canonicalize_name`、版本 PEP 440,如 `v0.4.5` → `0.4.5`)仅用于
-跨 feature 冲突比较,不改写交付内容。
+规范化值(包名 `canonicalize_name`、PEP 440 版本规范化或其他版本原文)仅用于
+跨 feature 冲突比较,不改写交付内容;版本不要求符合 PEP 440。
 
 非法形态是确定性配置错误,抛 `SmartAccelPackageFormatError`(不静默丢弃、不降级):
 
