@@ -1,0 +1,42 @@
+# SmartAccel 加速配置(decoding=mtp)
+# variant_name 必须等于 MaaS 下发的完整 --model-name;loader 按 variant_name 精确匹配优先,
+# name_pattern 仅作家族兜底。
+# 投机参数与引擎 features.spec_decoding 同源:mtp,num_speculative_tokens=1,enforce_eager,
+# P/D 双角色均启用(与 engine recipe 一致)。
+# 引擎 recipe 仅声明 pd_disaggregation,本资产不声明 standalone/multi_node。
+model:
+  name: DeepSeek-V4-Pro
+  variant_name: "DeepSeek-V4-Pro-w4a8-1m-4node"
+  match:
+    - name_pattern: "(?i)deepseek[-.]?v4[-.]?pro[-.]?w4a8[-.]?1m[-.]?4node"
+smart_accel:
+  pd_disaggregation:
+    source_ref: vllm_ascend_deepseek-v4-pro_w4a8_1m_4node_a3_manual#pd_cluster
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        default_strategy: true
+        nodes:
+        - role: prefill
+          index: 0
+          decoding:
+          - name: mtp
+            cli_params:
+              speculative_config:
+                method: mtp
+                num_speculative_tokens: 1
+                enforce_eager: true
+            envs: {}
+        - role: decode
+          index: 0
+          decoding:
+          - name: mtp
+            cli_params:
+              speculative_config:
+                method: mtp
+                num_speculative_tokens: 1
+                enforce_eager: true
+            envs: {}

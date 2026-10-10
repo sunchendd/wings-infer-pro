@@ -1,0 +1,7 @@
+{
+  "hardware_family": "ascend-a3",
+  "device": "ascend",
+  "count": 16,
+  "gpu": null,
+  "cann_version": null
+}
