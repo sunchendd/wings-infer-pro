@@ -51,7 +51,6 @@ scenarios:
         engine_config:
           model: deepseek-ai/DeepSeek-V4.1-Flash
           host: "0.0.0.0"
-          language_model_only: true
           tensor_parallel_size: 8
           enable_expert_parallel: true
           kv_cache_dtype: fp8_ds_mla
@@ -62,7 +61,7 @@ scenarios:
           compilation_config:
             mode: 1
             cudagraph_mode: FULL_DECODE_ONLY
+          mm_encoder_tp_mode: data
           port: 17000
         env:
           VLLM_ENGINE_READY_TIMEOUT_S: 3600
-          VLLM_USE_RUST_FRONTEND: 1
