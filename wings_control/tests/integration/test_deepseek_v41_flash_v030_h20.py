@@ -54,19 +54,20 @@ _EXPECTED_OPTION_VALUES = {
     "--kv-cache-dtype": "fp8_ds_mla",
     "--block-size": "64",
     "--gpu-memory-utilization": "0.92",
+    "--mm-encoder-tp-mode": "data",
     "--port": "17000",
 }
 _EXPECTED_FLAGS = (
     "--enable-auto-tool-choice",
     "--enable-expert-parallel",
     "--enable-prefix-caching",
-    "--language-model-only",
     "--swa-bounded-replay",
 )
+_UNEXPECTED_FLAGS = ("--language-model-only",)
 _EXPECTED_ENV_LINES = (
     "export VLLM_ENGINE_READY_TIMEOUT_S=3600",
-    "export VLLM_USE_RUST_FRONTEND=1",
 )
+_UNEXPECTED_ENV_LINES = ("export VLLM_USE_RUST_FRONTEND=",)
 
 
 def _write_hardware_info(tmp_path):
@@ -116,12 +117,16 @@ def _assert_flags(argv):
     """校验新版 vLLM 配置要求的裸开关。"""
     for flag in _EXPECTED_FLAGS:
         assert flag in argv
+    for flag in _UNEXPECTED_FLAGS:
+        assert flag not in argv
 
 
 def _assert_env(output):
     """校验配置环境变量已进入 dry-run。"""
     for line in _EXPECTED_ENV_LINES:
         assert line in output
+    for line in _UNEXPECTED_ENV_LINES:
+        assert line not in output
 
 
 def _assert_dry_run_output(output):
