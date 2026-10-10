@@ -471,8 +471,8 @@ def extract_package_requirements(scheme: Dict[str, Any]) -> List[PackageRequirem
       - 恰好一个冒号的 ``name:version`` 字符串(合法旧形态);
       - 上述 dict / 字符串构成的 list(合法旧形态)。
 
-    版本仍需可被 PEP 440 解析(否则抛 SmartAccelPackageFormatError),但规范化结果
-    只写入 ``canonical_version`` 供冲突比较;``name``/``version`` 保留 YAML 原始
+    版本允许任意非空交付标识。PEP 440 版本规范化,其他版本按原文比较;
+    比较结果只写入 ``canonical_version``;``name``/``version`` 保留 YAML 原始
     声明用于交付(wings-accel install.py 按 manifest 键精确查找)。
     """
     raw = (scheme or {}).get("packages")
@@ -507,10 +507,8 @@ def extract_package_requirements(scheme: Dict[str, Any]) -> List[PackageRequirem
             raise SmartAccelPackageFormatError("SmartAccel package must declare non-empty name and version")
         try:
             normalized_version = str(Version(raw_version))
-        except InvalidVersion as exc:
-            raise SmartAccelPackageFormatError(
-                f"SmartAccel package {raw_name!r} has invalid version {raw_version!r}"
-            ) from exc
+        except InvalidVersion:
+            normalized_version = raw_version
         # 交付保留 YAML 原始 name:version(install.py 按 manifest 键精确查找,
         # 镜像包目录名带 v 前缀);canonical 值仅用于跨 feature 冲突比较。
         requirements.append(
@@ -536,7 +534,8 @@ def extract_packages(scheme: Dict[str, Any]) -> List[str]:
     输出统一为 YAML 声明的原始 ``["name:version", ...]``(与 install.py manifest 键
     精确匹配;packages 经 ``--config '{json}'`` 传递,纯 JSON 字符串,无 shell/pip
     解析歧义,无需 pip-style ``==``)。兼容旧 list 形态与单字符串;规范化值
-    (canonicalize_name + PEP 440)仅用于跨 feature 冲突比较,不改写交付内容。
+    (包名规范化、PEP 440 版本规范化或其他版本原文)仅用于跨 feature 冲突比较,
+    不改写交付内容。
 
     Args:
         scheme: 单个 scheme dict;``packages`` 缺失/``None`` → 返回空列表。

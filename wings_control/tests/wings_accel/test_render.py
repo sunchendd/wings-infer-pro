@@ -2,10 +2,12 @@
 
 import pytest
 
+from wings_accel.core import _merge_package_requirements
 from wings_accel.render import (
     PlaceholderContext,
     deep_merge_dicts,
     extract_packages,
+    extract_package_requirements,
     fill_envs,
     merge_engine_params,
     plan_scheme_files,
@@ -16,6 +18,7 @@ from wings_accel.schemas import (
     GeneratedFile,
     SmartAccelConfigurationError,
     SmartAccelPackageFormatError,
+    SmartAccelPackageConflictError,
 )
 
 
@@ -108,6 +111,36 @@ def test_extract_packages_supports_legacy_string_formats(packages):
 ])
 def test_extract_packages_rejects_invalid_formats(packages):
     """非法 packages 形态必须抛 SmartAccelPackageFormatError,不得静默变空依赖。"""
+    with pytest.raises(SmartAccelPackageFormatError):
+        extract_packages({"packages": packages})
+
+
+@pytest.mark.parametrize("versions,expected", [
+    (["nv_dev_a6b593d", "nv_dev_a6b593d"], ["deepgemm:nv_dev_a6b593d"]),
+    (["v0.6.12", "0.6.12"], ["deepgemm:v0.6.12"]),
+])
+def test_package_merge_preserves_delivery_versions(versions, expected):
+    """交付版本原样输出;相同标识和等价 PEP 440 版本仍去重。"""
+    requirements = [
+        ("custom_features", extract_package_requirements({"packages": {"deepgemm": version}})[0])
+        for version in versions
+    ]
+    assert _merge_package_requirements(requirements) == expected
+
+
+def test_package_merge_rejects_different_delivery_versions():
+    """接受非 PEP 440 标识后,同包不同交付版本仍报冲突。"""
+    requirements = [
+        ("custom_features", extract_package_requirements({"packages": {"deepgemm": version}})[0])
+        for version in ["nv_dev_a6b593d", "nv_dev_other"]
+    ]
+    with pytest.raises(SmartAccelPackageConflictError):
+        _merge_package_requirements(requirements)
+
+
+@pytest.mark.parametrize("packages", [{"deepgemm": ""}, {"": "nv_dev_a6b593d"}])
+def test_extract_packages_rejects_empty_delivery_identifiers(packages):
+    """解除版本语法限制后,包名和版本仍不能为空。"""
     with pytest.raises(SmartAccelPackageFormatError):
         extract_packages({"packages": packages})
 
