@@ -1,0 +1,153 @@
+# 来源追溯
+upstream_sources:
+  - id: modelscope_eco-tech_deepseek-v4-flash-0731-w8a8_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4-Flash-0731-w8a8"
+    note: 由 nightly-releases-v0.25.1rc/ascend-a2 同名 recipe 移植到 v0.23.0(分布式 KV 卸载适配)。dspark 投机解码需 vLLM-Ascend >= v0.25.0(官方 DeepSeek-V4-Flash 教程 Attention 说明),v0.23.0 不声明 spec_decoding;其余参数保持原 recipe。
+
+# 模型基本信息
+model:
+  name: DeepSeek-V4-Flash
+  provider: Eco-Tech
+  model_id: Eco-Tech/DeepSeek-V4-Flash-0731-w8a8
+  min_engine_version: v0.23.0
+  match:
+    - name_pattern: "(?i)deepseek[-.]?v4[-.]?flash"
+  variant_name: DeepSeek-V4-Flash-0731-w8a8
+
+# 硬件信息
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 512
+  multi_node: true  # 支持单节点及多节点场景
+features:
+  tool_calling:
+    description: Enable automatic tool/function calling via the model's tool-call parser.
+    args: [--tokenizer-mode, deepseek_v4, --tool-call-parser, deepseek_v4, --enable-auto-tool-choice]
+  reasoning:
+    description: Enable the model's reasoning-content parser.
+    args: [--reasoning-parser, deepseek_v4]
+
+# 部署场景
+scenarios:
+  standalone:
+    source_ref: "modelscope_eco-tech_deepseek-v4-flash-0731-w8a8_manual#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: Eco-Tech/DeepSeek-V4-Flash-0731-w8a8
+          host: "0.0.0.0"
+          max_model_len: 800000
+          max_num_batched_tokens: 8192
+          served_model_name: dsv4
+          gpu_memory_utilization: 0.9
+          max_num_seqs: 32
+          data_parallel_size: 1
+          tensor_parallel_size: 8
+          enable_expert_parallel: true
+          no_disable_hybrid_kv_cache_manager: true
+          model_loader_extra_config:
+            enable_multithread_load: true
+            num_threads: 128
+          quantization: ascend
+          port: 8000
+          block_size: 128
+          compilation_config:
+            cudagraph_mode: FULL_DECODE_ONLY
+        env:
+          OMP_NUM_THREADS: 10
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+          HCCL_BUFFSIZE: 1024
+          TASK_QUEUE_ENABLE: 1
+          HCCL_OP_EXPANSION_MODE: AIV
+
+  multi_node:
+    source_ref: modelscope_eco-tech_deepseek-v4-flash-0731-w8a8_manual#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        display_name: Multi-Node
+        default_strategy: true
+        head:
+          engine_config:
+            model: Eco-Tech/DeepSeek-V4-Flash-0731-w8a8
+            host: 0.0.0.0
+            max_model_len: 800000
+            max_num_batched_tokens: 8192
+            served_model_name: dsv4
+            gpu_memory_utilization: 0.9
+            max_num_seqs: 32
+            tensor_parallel_size: 8
+            enable_expert_parallel: true
+            no_disable_hybrid_kv_cache_manager: true
+            model_loader_extra_config:
+              enable_multithread_load: true
+              num_threads: 128
+            quantization: ascend
+            port: 8000
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 0
+            data_parallel_address: $local_ip
+            data_parallel_rpc_port: 12321
+            block_size: 128
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+          env:
+            OMP_NUM_THREADS: 10
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+            LD_PRELOAD: /usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}
+            HCCL_BUFFSIZE: 1024
+            TASK_QUEUE_ENABLE: 1
+            HCCL_OP_EXPANSION_MODE: AIV
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+        worker:
+          engine_config:
+            model: Eco-Tech/DeepSeek-V4-Flash-0731-w8a8
+            host: 0.0.0.0
+            max_model_len: 800000
+            max_num_batched_tokens: 8192
+            served_model_name: dsv4
+            gpu_memory_utilization: 0.9
+            max_num_seqs: 32
+            tensor_parallel_size: 8
+            enable_expert_parallel: true
+            no_disable_hybrid_kv_cache_manager: true
+            model_loader_extra_config:
+              enable_multithread_load: true
+              num_threads: 128
+            quantization: ascend
+            port: 8000
+            headless: true
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 1
+            data_parallel_address: $node0_ip
+            data_parallel_rpc_port: 12321
+            block_size: 128
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+          env:
+            OMP_NUM_THREADS: 10
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+            LD_PRELOAD: /usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}
+            HCCL_BUFFSIZE: 1024
+            TASK_QUEUE_ENABLE: 1
+            HCCL_OP_EXPANSION_MODE: AIV
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name

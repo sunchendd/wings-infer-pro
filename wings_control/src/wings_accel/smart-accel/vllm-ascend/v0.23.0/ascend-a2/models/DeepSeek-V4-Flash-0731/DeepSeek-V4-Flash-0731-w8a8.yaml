@@ -1,0 +1,71 @@
+# vLLM-Ascend v0.23.0 / Ascend A2 DeepSeek-V4-Flash-0731-w8a8 分布式 Mooncake KV 卸载资产。
+# Mooncake client 由受控 mooncake_npu fallback 资产在每个 engine Pod 中独立拉起;
+# 本 YAML 仅声明 vLLM-Ascend 的 connector、运行时选择和两种支持拓扑。
+# v0.23.0 不声明 decoding:engine recipe 未声明 spec_decoding(dspark 需 >= v0.25.0)。
+model:
+  name: DeepSeek-V4-Flash
+  variant_name: "DeepSeek-V4-Flash-0731-w8a8"
+  match:
+    - name_pattern: "(?i)^deepseek[-.]?v4[-.]?flash[-.]?0731[-.]?w8a8$"
+smart_accel:
+  standalone:
+    source_ref: "modelscope_eco-tech_deepseek-v4-flash-0731-w8a8_manual#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        distributed_kv_offload:
+          - name: mooncake_standalone_store
+            runtime: mooncake_npu
+            delivery:
+              mode: fallback
+            client:
+              rpc_port: 50052
+              master_rpc_port: 50051
+              metadata_port: 10080
+              metadata_path: /metadata
+              device_names: ""
+            cli_params:
+              kv_transfer_config:
+                kv_connector: AscendStoreConnector
+                kv_role: kv_both
+                kv_load_failure_policy: recompute
+                kv_connector_extra_config:
+                  backend: mooncake
+                  lookup_rpc_port: "0"
+                  register_buffer: true
+                  use_layerwise: false
+            envs: {}
+
+  multi_node:
+    source_ref: modelscope_eco-tech_deepseek-v4-flash-0731-w8a8_manual#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        default_strategy: true
+        distributed_kv_offload:
+          - name: mooncake_standalone_store
+            runtime: mooncake_npu
+            delivery:
+              mode: fallback
+            client:
+              rpc_port: 50052
+              master_rpc_port: 50051
+              metadata_port: 10080
+              metadata_path: /metadata
+              device_names: ""
+            cli_params:
+              kv_transfer_config:
+                kv_connector: AscendStoreConnector
+                kv_role: kv_both
+                kv_load_failure_policy: recompute
+                kv_connector_extra_config:
+                  backend: mooncake
+                  lookup_rpc_port: "0"
+                  register_buffer: true
+                  use_layerwise: false
+            envs: {}

@@ -334,21 +334,22 @@ def _write_accel_generated_files(generated_files: List[GeneratedFileSpec]) -> No
                     logger.debug("failed to clean temporary accel generated file %s", tmp_path)
 
 
-# Mooncake 脚本兜底资产的镜像内安装路径。构建期由 Dockerfile 在 compile_wings.sh
-# 加密(.py → .pyc 并删除 .py)之前 COPY 到 /opt/mooncake_assets:mooncake_store.py
-# 是 engine 容器的运行时资产(以 `python3 xxx.py` 方式执行),跨容器跑不了
-# wings-control(Python 3.10)编译的 .pyc(bad magic number),必须保持 .py 交付。
-# 与 log_analyzer 同模式(见 Dockerfile / wings_start.sh)。本地/测试可用
-# MOONCAKE_ASSETS_PATH 覆盖,缺省回退仓库源目录(见 _resolve_mooncake_assets_dir)。
-_MOONCAKE_ASSETS_PATH_ENV = "MOONCAKE_ASSETS_PATH"
-_DEFAULT_MOONCAKE_ASSETS = "/opt/mooncake_assets"
+# 分布式运行时资产在 Docker 构建加密前以源码形式复制到 /opt/distributed_offload_assets。
+# engine 容器会执行 mooncake_store.py，不能使用由 wings-control Python 编译出的 .pyc。
+# 资产选择由 accel.mooncake_runtime 决定，不能由硬件名称或 script_builder 的 engine 分支猜测；
+# DISTRIBUTED_OFFLOAD_ASSETS_PATH 必须包含 mooncake_cuda/mooncake_npu 两个命名子目录。
+_DISTRIBUTED_OFFLOAD_ASSETS_PATH_ENV = "DISTRIBUTED_OFFLOAD_ASSETS_PATH"
+_DEFAULT_DISTRIBUTED_OFFLOAD_ASSETS = "/opt/distributed_offload_assets"
+_DISTRIBUTED_OFFLOAD_DIR = "distributed_offload"
+_MOONCAKE_RUNTIMES = frozenset({"mooncake_cuda", "mooncake_npu"})
 
 
-def _resolve_mooncake_assets_dir() -> Path:
-    """解析 Mooncake 脚本兜底资产源目录(镜像 /opt/mooncake_assets 优先)。
+def _resolve_mooncake_assets_dir(runtime: str = "mooncake_cuda") -> Path:
+    """解析 Mooncake 脚本兜底资产源目录(镜像 distributed_offload_assets 优先)。
 
-    优先级:``MOONCAKE_ASSETS_PATH`` env → 镜像默认 ``/opt/mooncake_assets`` →
-    仓库内 ``src/wings_accel/distributed_offload/mooncake``(仅本地/测试回退,
+    优先级:``DISTRIBUTED_OFFLOAD_ASSETS_PATH/<runtime>`` → 镜像默认
+    ``/opt/distributed_offload_assets/<runtime>`` → 仓库内
+    ``src/wings_accel/distributed_offload/<runtime>``(仅本地/测试回退,
     回退时打 WARN)。目录里只有 ``mooncake_store.pyc`` 没有 ``mooncake_store.py``
     说明镜像用旧 Dockerfile 构建(资产被加密步骤吃掉),fail-fast 阻止 .pyc 被
     静默拷到共享卷、把故障带到引擎启动期。
@@ -359,23 +360,39 @@ def _resolve_mooncake_assets_dir() -> Path:
     Raises:
         ValueError: 目录内只剩 .pyc 没有 .py(旧镜像/旧构建)时。
     """
-    assets_dir = Path(
-        os.environ.get(_MOONCAKE_ASSETS_PATH_ENV, _DEFAULT_MOONCAKE_ASSETS)
+    runtime = runtime or "mooncake_cuda"
+    if runtime not in _MOONCAKE_RUNTIMES:
+        raise ValueError(f"unsupported Mooncake runtime for assets: {runtime!r}")
+    configured_root = Path(
+        os.environ.get(_DISTRIBUTED_OFFLOAD_ASSETS_PATH_ENV, _DEFAULT_DISTRIBUTED_OFFLOAD_ASSETS)
     )
+    assets_dir = configured_root / runtime
+    # 每个 runtime 必须使用自己的命名目录；不接受旧式单目录资产，避免 CUDA/NPU
+    # 脚本或 wheel 配置被错误混用。
+    if (assets_dir / "mooncake_store.pyc").is_file() and not (
+        assets_dir / "mooncake_store.py"
+    ).is_file():
+        raise ValueError(
+            "Mooncake assets contain mooncake_store.pyc but no mooncake_store.py: the "
+            "image was built without copying assets to /opt/distributed_offload_assets before "
+            "the compile step; rebuild the wings-control image"
+        )
     if not assets_dir.is_dir():
         repo_dir = (
             Path(__file__).resolve().parents[2]
             / "wings_accel"
             / "distributed_offload"
-            / "mooncake"
+            / runtime
         )
         if repo_dir.is_dir():
             logger.warning(
-                "Mooncake assets directory %s not found; falling back to repo source "
-                "%s (dev/test only; production image must ship %s)",
+                "Mooncake %s assets directory %s not found; falling back to repo source "
+                "%s (dev/test only; production image must ship %s/%s)",
+                runtime,
                 assets_dir,
                 repo_dir,
-                _DEFAULT_MOONCAKE_ASSETS,
+                _DEFAULT_DISTRIBUTED_OFFLOAD_ASSETS,
+                runtime,
             )
             assets_dir = repo_dir
     if (assets_dir / "mooncake_store.pyc").is_file() and not (
@@ -383,26 +400,27 @@ def _resolve_mooncake_assets_dir() -> Path:
     ).is_file():
         raise ValueError(
             "Mooncake assets contain mooncake_store.pyc but no mooncake_store.py: the "
-            "image was built without copying assets to /opt/mooncake_assets before "
+            "image was built without copying assets to /opt/distributed_offload_assets before "
             "the compile step; rebuild the wings-control image"
         )
     return assets_dir
 
 
-def _install_mooncake_script_assets() -> None:
+def _install_mooncake_script_assets(runtime: str = "mooncake_cuda") -> None:
     """原子复制随包的 Mooncake 脚本兜底资产到共享卷。
 
-    资产源为镜像内未加密副本(/opt/mooncake_assets,见 _resolve_mooncake_assets_dir)。
+    资产源为镜像内未加密副本(/opt/distributed_offload_assets,见 _resolve_mooncake_assets_dir)。
     脚本兜底只能使用受控的常规文件；拒绝符号链接和超出目标目录的路径，
     避免共享卷复制成为任意文件写入入口。调用方只会在分布式 KV 开关已生效且
     至少一个部件选择脚本兜底时调用本函数。复制完成后渲染 client.env
     （env.yaml 默认值 + MaaS env 覆盖 → export 行）供 pre-serve 段 source。
     """
-    source_dir = _resolve_mooncake_assets_dir()
+    runtime = runtime or "mooncake_cuda"
+    source_dir = _resolve_mooncake_assets_dir(runtime)
     if not source_dir.is_dir():
         raise ValueError(f"Mooncake fallback asset directory is missing: {source_dir}")
     shared_root = Path(settings.SHARED_VOLUME_PATH).resolve()
-    target_dir = shared_root / "mooncake"
+    target_dir = shared_root / _DISTRIBUTED_OFFLOAD_DIR / runtime
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
@@ -449,33 +467,9 @@ def _install_mooncake_script_assets() -> None:
     logger.info("installed Mooncake script fallback assets in %s", target_dir)
 
 
-def _render_mooncake_client_env(overrides: Optional[Dict[str, str]] = None) -> List[str]:
-    """渲染 Mooncake client.env（env.yaml 默认值 + MaaS env 覆盖 → export 行）。
-
-    env.yaml 是 Mooncake client 环境变量的唯一集中定义（带默认值）；MaaS 下发的
-    同名变量**原样透传**（不派生中间名）：ENABLE_KV_OFFLOAD /
-    ENABLE_DISTRIBUTED_KV_OFFLOAD / ENABLE_KV_DISK_OFFLOAD / ENABLE_KV_MEM_OFFLOAD /
-    KV_DISK_OFFLOAD_PATH / KV_DISK_OFFLOAD_SIZE / KV_MEM_OFFLOAD_SIZE /
-    KV_PROTOCOL / SERVING_CONFIG_ID 共 9 个。engine Pod 不在 wings-control
-    进程内, 所以最终值必须渲染成 export 行落到 client.env,由 engine 侧
-    source 加载。
-
-    覆盖层级：env.yaml 默认 < MaaS 原始 env(os.environ) < ``overrides``(最高)。
-    ``overrides`` 承载 wings-accel 解析后的最终值——KV_MEM_OFFLOAD_SIZE=auto
-    智能推荐时,MaaS 原始 "auto" 字面量不能进 client.env(脚本侧校验纯数值),
-    由调用方把估算值以 overrides 传入覆盖。
-
-    Args:
-        overrides: accel 解析值覆盖层(如 ``{"KV_MEM_OFFLOAD_SIZE": "171"}``);
-            None/空 = 无覆盖,行为与历史一致。
-
-    Returns:
-        ``export KEY=value`` 行列表（经 render_env_export 安全转义）。
-
-    Raises:
-        ValueError: env.yaml 缺失或结构非法（fail-fast,不让 client 带空环境启动）。
-    """
-    env_yaml_path = _resolve_mooncake_assets_dir() / "env.yaml"
+def _load_mooncake_env_defaults(runtime: str) -> Dict[str, Dict[str, object]]:
+    """读取并校验 runtime 的 client/master/engine 三类环境默认值。"""
+    env_yaml_path = _resolve_mooncake_assets_dir(runtime) / "env.yaml"
     try:
         import yaml
 
@@ -487,39 +481,83 @@ def _render_mooncake_client_env(overrides: Optional[Dict[str, str]] = None) -> L
     if not isinstance(raw, dict):
         raise ValueError(f"Mooncake env defaults must be a mapping: {env_yaml_path}")
 
-    defaults = {str(k): v for k, v in raw.items()}
+    expected_roles = {"client", "master", "engine"}
+    if set(raw) != expected_roles:
+        raise ValueError(
+            "Mooncake env defaults must contain exactly client, master, and engine mappings: "
+            f"{env_yaml_path}"
+        )
+    role_defaults: Dict[str, Dict[str, object]] = {}
+    for role in sorted(expected_roles):
+        defaults = raw[role]
+        if not isinstance(defaults, dict):
+            raise ValueError(f"Mooncake {role} env defaults must be a mapping: {env_yaml_path}")
+        role_defaults[role] = {str(key): value for key, value in defaults.items()}
+    return role_defaults
 
-    # MaaS 同名下发的变量原样覆盖默认值（strip 空白,空值不覆盖）。
+
+def _render_mooncake_role_env(
+    role: str,
+    runtime: str,
+    overrides: Optional[Dict[str, str]] = None,
+) -> List[str]:
+    """渲染一个 Mooncake role 的环境导出（默认 < MaaS < accel 解析值）。"""
+    role_defaults = _load_mooncake_env_defaults(runtime)
+    try:
+        defaults = dict(role_defaults[role])
+    except KeyError as exc:  # 防御调用方拼写错误，不让空 env 文件进入运行期。
+        raise ValueError(f"unsupported Mooncake environment role: {role!r}") from exc
+
     for name in defaults:
         value = os.environ.get(name)
         if value is not None and value.strip():
             defaults[name] = value.strip()
-
-    # accel 解析值最终覆盖(如 auto 估算出的 KV_MEM_OFFLOAD_SIZE 数值)。
     for name, value in (overrides or {}).items():
-        if value is not None and str(value).strip():
+        if name in defaults and value is not None and str(value).strip():
             defaults[name] = str(value).strip()
-
     return [
         render_env_export(key, value, allow_unsafe=False)
         for key, value in sorted(defaults.items())
     ]
 
 
-def _write_mooncake_client_env(overrides: Optional[Dict[str, str]] = None) -> None:
+def _render_mooncake_client_env(
+    runtime: str | Dict[str, str] = "mooncake_cuda",
+    overrides: Optional[Dict[str, str]] = None,
+) -> List[str]:
+    """渲染 standalone Store/JSON generator 专用 client.env。"""
+    if isinstance(runtime, dict):
+        if overrides is not None:
+            raise ValueError("Mooncake env overrides must be passed once")
+        overrides = runtime
+        runtime = "mooncake_cuda"
+    return _render_mooncake_role_env("client", runtime, overrides)
+
+
+def _write_mooncake_client_env(
+    runtime: str | Dict[str, str] = "mooncake_cuda",
+    overrides: Optional[Dict[str, str]] = None,
+) -> None:
     """把渲染好的 client.env 原子写入共享卷（export 行,engine 侧 source 用）。
 
     先于 pre-serve 段执行,保证 creat_mooncake_json.sh / start_mooncake_client.sh
     读到最终环境变量。``overrides`` 语义见 :func:`_render_mooncake_client_env`。
     写入失败 fail-fast(与脚本兜底资产安装同口径)。
     """
+    # 兼容旧调用：_write_mooncake_client_env({"KV_MEM_OFFLOAD_SIZE": "171"})。
+    if isinstance(runtime, dict):
+        if overrides is not None:
+            raise ValueError("Mooncake env overrides must be passed once")
+        overrides = runtime
+        runtime = "mooncake_cuda"
+    runtime = runtime or "mooncake_cuda"
     shared_root = Path(settings.SHARED_VOLUME_PATH).resolve()
-    target_dir = shared_root / "mooncake"
+    target_dir = shared_root / _DISTRIBUTED_OFFLOAD_DIR / runtime
     target_dir.mkdir(parents=True, exist_ok=True)
-    lines = _render_mooncake_client_env(overrides)
+    lines = _render_mooncake_client_env(runtime, overrides)
     content = "\n".join(
         ["# Mooncake client environment (rendered from env.yaml + MaaS env + accel resolved)", *lines, ""]
-    )
+        )
     tmp_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -545,18 +583,22 @@ def _write_mooncake_client_env(overrides: Optional[Dict[str, str]] = None) -> No
                 logger.debug("failed to clean temporary Mooncake client.env")
 
 
-def _write_mooncake_master_env(overrides: Optional[Dict[str, str]] = None) -> None:
+def _write_mooncake_master_env(
+    runtime: str = "mooncake_cuda",
+    overrides: Optional[Dict[str, str]] = None,
+) -> None:
     """把渲染好的 master.env 原子写入共享卷(export 行,engine 侧 source 用)。
 
     与 client.env 同链路:env.yaml 默认值 + MaaS env 覆盖 + accel 解析值覆盖 → export 行。
     master 分支段(IS_MOONCAKE_MASTER)在 pre-serve 之前 source 本文件,保证
     start_mooncake_master.sh 读到最终值。写入失败 fail-fast(与 client.env 同口径)。
     """
+    runtime = runtime or "mooncake_cuda"
     shared_root = Path(settings.SHARED_VOLUME_PATH).resolve()
-    target_dir = shared_root / "mooncake"
+    target_dir = shared_root / _DISTRIBUTED_OFFLOAD_DIR / runtime
     target_dir.mkdir(parents=True, exist_ok=True)
-    lines = _render_mooncake_client_env(overrides)
-    content = "\n".join(["# Mooncake master environment (rendered from env.yaml + MaaS env)", *lines, ""])
+    lines = _render_mooncake_role_env("master", runtime, overrides)
+    content = "\n".join(["# Mooncake master environment (rendered from env.yaml + MaaS env + accel resolved)", *lines, ""])
     tmp_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -688,17 +730,24 @@ def _render_mooncake_master_hold_section() -> List[str]:
     ]
 
 
-def _mooncake_kv_mem_env_overrides(accel: AccelResult) -> Optional[Dict[str, str]]:
-    """KV_MEM_OFFLOAD_SIZE=auto 智能推荐的解析值覆盖(client.env / master.env 共用)。
-
-    accel 已把估算值解析进 ``kv_mem_offload_size_gb``,以其覆盖 env 文件的原始
-    "auto" 字面量(脚本只见数值)。本地/分布式互斥,mooncake 资产只在分布式产出
-    时装载,不会误伤本地场景。主管线与 master 交付支线共用本助手,保证两处口径一致。
-    """
+def _mooncake_env_overrides(accel: AccelResult) -> Dict[str, str]:
+    """KV_MEM_OFFLOAD_SIZE=auto 智能推荐的解析值覆盖 Mooncake role env。"""
+    overrides = dict(accel.mooncake_env_overrides)
     resolved_size = accel.kv_mem_offload_size_gb
     if resolved_size and resolved_size > 0:
-        return {"KV_MEM_OFFLOAD_SIZE": str(resolved_size)}
-    return None
+        overrides["KV_MEM_OFFLOAD_SIZE"] = str(resolved_size)
+    return overrides
+
+
+def _mooncake_engine_env_exports(accel: AccelResult) -> List[str]:
+    """返回仅供 vLLM launcher 消费的 Mooncake runtime 环境导出。"""
+    runtime = accel.mooncake_runtime
+    if not runtime or not (accel.mooncake_env_files_required or accel.mooncake_script_assets_required):
+        return []
+    overrides = _mooncake_env_overrides(accel)
+    if accel.mooncake_config_path:
+        overrides["MOONCAKE_CONFIG_PATH"] = accel.mooncake_config_path
+    return _render_mooncake_role_env("engine", runtime, overrides)
 
 
 def _deliver_mooncake_master_pod(
@@ -741,10 +790,11 @@ def _deliver_mooncake_master_pod(
     _write_advanced_features_json(resolved)
     _write_accel_generated_files(resolved.accel.generated_files)
     if resolved.accel.mooncake_script_assets_required:
-        _install_mooncake_script_assets()
-        env_overrides = _mooncake_kv_mem_env_overrides(resolved.accel)
-        _write_mooncake_client_env(env_overrides)
-        _write_mooncake_master_env(env_overrides)
+        _install_mooncake_script_assets(resolved.accel.mooncake_runtime)
+    if resolved.accel.mooncake_env_files_required or resolved.accel.mooncake_script_assets_required:
+        env_overrides = _mooncake_env_overrides(resolved.accel)
+        _write_mooncake_client_env(resolved.accel.mooncake_runtime, env_overrides)
+        _write_mooncake_master_env(resolved.accel.mooncake_runtime, env_overrides)
 
     # 特性生效 → 产出段;未生效(auto 降级/开关未开)→ 挂起兜底段(与主管线
     # build_scripts 的二选一同构,复用同一段源)。
@@ -767,8 +817,6 @@ def _deliver_mooncake_master_pod(
     lines = [
         "#!/usr/bin/env bash",
         "set -euo pipefail",
-        "set -o errexit",
-        "set -o xtrace",
         "",
         *_wings_log_fn_lines(),
         "",
@@ -1057,6 +1105,7 @@ def _render_start_command_sh(
     engine_pre_start: Optional[List[str]] = None,
     system_setup_source_commands: Optional[List[str]] = None,
     mooncake_master_section: Optional[List[str]] = None,
+    mooncake_engine_env: Optional[List[str]] = None,
 ) -> str:
     """生成 start_command.sh 内容。简洁执行脚本。
 
@@ -1084,6 +1133,8 @@ def _render_start_command_sh(
         mooncake_master_section: Mooncake master 分支段(early-exit 块的 shell 行);
             仅 distributed KV 启用时非空,在 install 段之后、pre-serve 之前插入。
             None/空 → 不渲染(非 mooncake 路径零影响)。
+        mooncake_engine_env: 仅供 vLLM connector 消费的 Mooncake export 行；在
+            Store 启动后、引擎命令前输出。
     """
     lines = [
         "#!/usr/bin/env bash",
@@ -1139,6 +1190,12 @@ def _render_start_command_sh(
     pre_serve_lines = _render_accel_pre_serve_section(accel_pre_serve, accel_pre_serve_master, accel_pre_serve_client)
     if pre_serve_lines:
         lines.extend(pre_serve_lines)
+
+    # Mooncake connector config belongs to vLLM, not the standalone Store or
+    # master. Export it after their launch preparation and before vLLM starts.
+    if mooncake_engine_env:
+        lines.extend(mooncake_engine_env)
+        lines.append("")
 
     # KV 磁盘卸载残留清理(仅 disk 开启):vllm serve 前清空卸载目录,保证重启后占用不超规划容量
     lines.extend(_render_kv_disk_cleanup_section(kv_disk_offload_path))
@@ -1705,12 +1762,11 @@ def build_scripts(
     # 解析期不落盘,此处(仅正式运行,非 dry-run)校验并原子写入共享卷。
     _write_accel_generated_files(resolved.accel.generated_files)
     if resolved.accel.mooncake_script_assets_required:
-        _install_mooncake_script_assets()
-        # KV_MEM_OFFLOAD_SIZE=auto 智能推荐:覆盖逻辑与 master 交付支线共用
-        # _mooncake_kv_mem_env_overrides(单一口径,语义见该函数 docstring)。
-        env_overrides = _mooncake_kv_mem_env_overrides(resolved.accel)
-        _write_mooncake_client_env(env_overrides)
-        _write_mooncake_master_env(env_overrides)
+        _install_mooncake_script_assets(resolved.accel.mooncake_runtime)
+    if resolved.accel.mooncake_env_files_required or resolved.accel.mooncake_script_assets_required:
+        env_overrides = _mooncake_env_overrides(resolved.accel)
+        _write_mooncake_client_env(resolved.accel.mooncake_runtime, env_overrides)
+        _write_mooncake_master_env(resolved.accel.mooncake_runtime, env_overrides)
 
     # registry 是 CLI、正式渲染和摘要共用的唯一 adapter 分发点。公共层只消费
     # 启动计划，不判断 MindIE，也不读取其 engine_state。
@@ -1738,6 +1794,7 @@ def build_scripts(
         engine_pre_start=launch_plan.pre_start_lines,
         system_setup_source_commands=launch_plan.system_setup_source_commands,
         mooncake_master_section=mooncake_master_section,
+        mooncake_engine_env=_mooncake_engine_env_exports(resolved.accel),
     )
     # 部署进度功能守卫:standalone / multi_node 真实部署须含 log_analyzer 片段。
     # worker 与占位按 §5.2 口径跳过;任何真实部署路径漏接都会在此 fail-fast。

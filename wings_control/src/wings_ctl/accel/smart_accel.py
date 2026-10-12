@@ -90,7 +90,12 @@ class AccelResult:
     generated_files: list[GeneratedFileSpec] = field(default_factory=list)
     # Mooncake 的四部件来源及脚本兜底资产安装标志，由 wings_accel 透传。
     mooncake_component_sources: dict[str, str] = field(default_factory=dict)
+    mooncake_runtime: str = ""
+    mooncake_env_overrides: dict[str, str] = field(default_factory=dict)
+    mooncake_config_path: str = ""
+    mooncake_env_files_required: bool = False
     mooncake_script_assets_required: bool = False
+    mooncake_master_script: str = ""
     # Mooncake master 分支段(early-exit 块的 shell 行);由 wings_accel 透传,
     # script_builder 在 install 段之后、pre-serve 之前渲染。空 → 不渲染。
     mooncake_master_section: list[str] = field(default_factory=list)
@@ -414,7 +419,12 @@ def collect_output(output) -> AccelResult:
             # wings_accel.GeneratedFile 的具体结构(两侧可独立演进)。
             generated_files=generated_files,
             mooncake_component_sources=mooncake_component_sources,
+            mooncake_runtime=str(getattr(output, "mooncake_runtime", "") or ""),
+            mooncake_env_overrides=dict(getattr(output, "mooncake_env_overrides", {}) or {}),
+            mooncake_config_path=str(getattr(output, "mooncake_config_path", "") or ""),
+            mooncake_env_files_required=bool(getattr(output, "mooncake_env_files_required", False)),
             mooncake_script_assets_required=bool(getattr(output, "mooncake_script_assets_required", False)),
+            mooncake_master_script=str(getattr(output, "mooncake_master_script", "") or ""),
             mooncake_master_section=list(getattr(output, "mooncake_master_section", []) or []),
             # 传输引擎包(manifest 键原样);getattr 兜底旧/stub 输出无该字段 → None
             mooncake_transfer_engine_package=getattr(output, "mooncake_transfer_engine_package", None),
