@@ -7,6 +7,12 @@ LOG_PATH=/var/log/wings
 
 CUR_PATH=$(cd "$(dirname "$0")" || exit; pwd)
 
+if [ ! -f "${CUR_PATH}/master.env" ]; then
+  echo "Mooncake master environment is missing: ${CUR_PATH}/master.env" >&2
+  exit 1
+fi
+source "${CUR_PATH}/master.env"
+
 function log() {
   exec_hostname=$(cat /etc/hostname)
   # 获取毫秒级时间戳

@@ -77,21 +77,27 @@ def _accel_volume(tmp_path, monkeypatch, *versions):
 def test_distributed_mooncake_renders_client_for_all_nodes(monkeypatch, tmp_path):
     monkeypatch.setenv("SHARED_VOLUME_PATH", str(tmp_path))
     cfg = DistributedKVCacheConfig(
-        enabled=True, protocol="rdma", serving_config_id="order-7", local_buffer_size="1GB",
-        memory_offload_enabled=True, memory_capacity_gb=32,
-        disk_offload_enabled=True, disk_capacity_gb=128, disk_path="/mnt/mooncake",
+        enabled=True,
+        protocol="rdma",
+        serving_config_id="order-7",
+        local_buffer_size="1GB",
+        memory_offload_enabled=True,
+        memory_capacity_gb=32,
+        disk_offload_enabled=True,
+        disk_capacity_gb=128,
+        disk_path="/mnt/mooncake",
     )
 
     output = smart_distributed_kv_offload_expander(cfg, _block(), _ctx())
 
     assert output.scheme == "mooncake_standalone_store"
     assert output.engine_params.engine_config["kv_transfer_config"]["kv_connector"] == "MooncakeStoreConnector"
-    # YAML 提供 mooncake.json 时,env 只落 MOONCAKE_CONFIG_PATH 指向实际落盘路径;
-    # 其余运行时变量由 env.yaml → client.env(脚本兜底)透传,MOONCAKE_PREFERRED_SEGMENT
-    # 等派生值已随重构移除。
-    assert output.engine_params.env["MOONCAKE_CONFIG_PATH"] == str(tmp_path / "mooncake.json")
-    assert output.engine_params.env["MOONCAKE_OFFLOAD_FILE_STORAGE_PATH"] == "/mnt/mooncake"
-    assert output.engine_params.env["MOONCAKE_OFFLOAD_TOTAL_SIZE_LIMIT_BYTES"] == str(128 * 1024**3)
+    # YAML 提供 mooncake.json 时，connector path 独立保存在 Mooncake runtime
+    # metadata，最终只在 launcher 的 vLLM 启动边界 export。
+    assert output.mooncake_config_path == str(tmp_path / "mooncake.json")
+    assert "MOONCAKE_CONFIG_PATH" not in output.engine_params.env
+    assert "MOONCAKE_OFFLOAD_FILE_STORAGE_PATH" not in output.engine_params.env
+    assert "MOONCAKE_OFFLOAD_TOTAL_SIZE_LIMIT_BYTES" not in output.engine_params.env
     assert output.pre_serve == [f"bash {tmp_path}/start_mooncake_store.sh &"]
     config = json.loads(next(item.content for item in output.generated_files if item.path.endswith("mooncake.json")))
     assert config == {
@@ -110,9 +116,15 @@ def test_distributed_mooncake_rejects_unsafe_required_values(monkeypatch, tmp_pa
     """disk offload 开启但路径/容量非法 → fail-fast（KV_PROTOCOL 等 env 由脚本侧校验）。"""
     monkeypatch.setenv("SHARED_VOLUME_PATH", str(tmp_path))
     kwargs = dict(
-        enabled=True, protocol="rdma", serving_config_id="order-7", local_buffer_size="1GB",
-        memory_offload_enabled=True, memory_capacity_gb=32,
-        disk_offload_enabled=True, disk_capacity_gb=128, disk_path="/mnt/mooncake",
+        enabled=True,
+        protocol="rdma",
+        serving_config_id="order-7",
+        local_buffer_size="1GB",
+        memory_offload_enabled=True,
+        memory_capacity_gb=32,
+        disk_offload_enabled=True,
+        disk_capacity_gb=128,
+        disk_path="/mnt/mooncake",
     )
     kwargs[field] = value
     with pytest.raises(SmartAccelConfigurationError):
@@ -129,8 +141,13 @@ def test_distributed_mooncake_requires_memory_capacity(monkeypatch, tmp_path):
 def test_auto_estimate_below_threshold_disables_expander():
     """auto 估算不足 → loader 在与本地同一分支置 enabled=False → expander 自然不产出。"""
     cfg = DistributedKVCacheConfig(
-        enabled=False, protocol="rdma", serving_config_id="order-7", local_buffer_size="1GB",
-        memory_offload_size_mode="auto", memory_offload_enabled=False, memory_capacity_gb=0,
+        enabled=False,
+        protocol="rdma",
+        serving_config_id="order-7",
+        local_buffer_size="1GB",
+        memory_offload_size_mode="auto",
+        memory_offload_enabled=False,
+        memory_capacity_gb=0,
     )
 
     assert smart_distributed_kv_offload_expander(cfg, _block(), _ctx()) is None
@@ -139,8 +156,13 @@ def test_auto_estimate_below_threshold_disables_expander():
 def test_auto_estimate_below_threshold_disables_script_fallback():
     """auto 估算不足 → loader 已置 enabled=False → 脚本兜底同样不产出任何部件。"""
     cfg = DistributedKVCacheConfig(
-        enabled=False, protocol="rdma", serving_config_id="order-7", local_buffer_size="1GB",
-        memory_offload_size_mode="auto", memory_offload_enabled=False, memory_capacity_gb=0,
+        enabled=False,
+        protocol="rdma",
+        serving_config_id="order-7",
+        local_buffer_size="1GB",
+        memory_offload_size_mode="auto",
+        memory_offload_enabled=False,
+        memory_capacity_gb=0,
     )
 
     assert apply_mooncake_script_fallback(cfg, None) is None
@@ -150,8 +172,13 @@ def test_auto_estimate_effective_still_produces(monkeypatch, tmp_path):
     """auto 估算生效(memory_capacity_gb>0)→ 与数值模式同样正常产出。"""
     monkeypatch.setenv("SHARED_VOLUME_PATH", str(tmp_path))
     cfg = DistributedKVCacheConfig(
-        enabled=True, protocol="rdma", serving_config_id="order-7", local_buffer_size="1GB",
-        memory_offload_size_mode="auto", memory_offload_enabled=True, memory_capacity_gb=171,
+        enabled=True,
+        protocol="rdma",
+        serving_config_id="order-7",
+        local_buffer_size="1GB",
+        memory_offload_size_mode="auto",
+        memory_offload_enabled=True,
+        memory_capacity_gb=171,
     )
 
     output = smart_distributed_kv_offload_expander(cfg, _block(), _ctx())
@@ -188,28 +215,13 @@ def test_distributed_mooncake_uses_script_fallback_for_missing_yaml_parts(tmp_pa
         "kv_connector": "MooncakeStoreConnector",
         "kv_role": "kv_both",
     }
-    assert 'bash "$SHARED_VOLUME_PATH/mooncake/start_mooncake_store.sh" &' in output.pre_serve
+    assert 'bash "$SHARED_VOLUME_PATH/distributed_offload/mooncake_cuda/start_mooncake_store.sh" &' in output.pre_serve
     assert any("Mooncake distributed KV component sources" in line for line in output.pre_serve)
     # 默认注入:YAML 未声明 packages → 按 accel-volume 工件最高版本注入 transfer engine。
     assert [req.manifest for req in output.packages] == ["xcache_cuda:v0.3.12.post1"]
     # 注入的传输引擎包单独透传:master Pod 交付支线据此渲染只含该包的 install 段
     # (mooncake_master 二进制来源,见 docs/contracts/wings-accel-interface.md)。
     assert output.mooncake_transfer_engine_package == "xcache_cuda:v0.3.12.post1"
-
-
-def test_script_fallback_sources_engine_environment_before_client_start():
-    """脚本回退环境必须由受控 env 文件加载，不能散落在 Python 渲染结果中。"""
-    cfg = DistributedKVCacheConfig(
-        enabled=True,
-        protocol="rdma",
-        serving_config_id="order-7",
-        local_buffer_size="1GB",
-        memory_offload_enabled=True,
-        memory_capacity_gb=32,
-        disk_offload_enabled=True,
-        disk_capacity_gb=128,
-        disk_path="/mnt/mooncake",
-    )
 
 
 def test_script_fallback_rejects_missing_transfer_config():
@@ -249,7 +261,9 @@ def test_script_fallback_json_writes_vllm_mooncake_config(tmp_path):
     """脚本兜底 JSON 只读取受限环境变量，并原子写入共享卷目标。"""
     import wings_accel.distributed_offload as distributed_offload
 
-    script = Path(distributed_offload.__file__).parent / "distributed_offload" / "mooncake" / "creat_mooncake_json.sh"
+    script = (
+        Path(distributed_offload.__file__).parent / "distributed_offload" / "mooncake_cuda" / "creat_mooncake_json.sh"
+    )
     env = {
         **os.environ,
         "SHARED_VOLUME_PATH": str(tmp_path),
@@ -260,11 +274,26 @@ def test_script_fallback_json_writes_vllm_mooncake_config(tmp_path):
         "ENABLE_KV_DISK_OFFLOAD": "true",
     }
 
-    subprocess.run([_BASH, str(script)], check=True, env=env, capture_output=True, text=True)
+    copied_script = tmp_path / "creat_mooncake_json.sh"
+    copied_script.write_text(script.read_text(encoding="utf-8"), encoding="utf-8")
+    (tmp_path / "client.env").write_text(
+        "\n".join(
+            [
+                "export SERVING_CONFIG_ID=order-7",
+                "export KV_PROTOCOL=rdma",
+                "export KV_MEM_OFFLOAD_SIZE=1",
+                "export ENABLE_KV_MEM_OFFLOAD=true",
+                "export ENABLE_KV_DISK_OFFLOAD=true",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    subprocess.run(["bash", str(copied_script)], check=True, env=env, capture_output=True, text=True)
 
     # local_buffer_size 不在 JSON 里:engine 侧缓冲由 client.env 的 KV_LOCAL_BUFFER_SIZE
     # 传递(不再由 KV_MEM_OFFLOAD_SIZE 派生,容量与缓冲职责分离)。
-    assert json.loads((tmp_path / "mooncake" / "mooncake.json").read_text()) == {
+    assert json.loads((tmp_path / "distributed_offload" / "mooncake_cuda" / "mooncake.json").read_text()) == {
         "mode": "standalone-store",
         "metadata_server": "http://mooncake-service-order-7:10080/metadata",
         "master_server_address": "mooncake-service-order-7:50051",
@@ -303,7 +332,7 @@ def test_target_asset_routes_mooncake_for_supported_topologies(topology, tmp_pat
     assert output.engine_params.engine_config["kv_transfer_config"]["kv_connector"] == "MooncakeStoreConnector"
     # pre_serve 现在是受控脚本兜底管线(export/source/creat_json/client 启动/审计 echo);
     # client 启动行不再位于首位,按精确整行断言。
-    assert 'bash "$SHARED_VOLUME_PATH/mooncake/start_mooncake_store.sh" &' in output.pre_serve
+    assert 'bash "$SHARED_VOLUME_PATH/distributed_offload/mooncake_cuda/start_mooncake_store.sh" &' in output.pre_serve
     # 全链路(含脚本兜底)同样注入默认 transfer engine 包,流经 install.py 段。
     assert "xcache_cuda:v0.3.12.post1" in output.packages
 
@@ -344,7 +373,7 @@ def test_v4_flash_0731_h20_routes_mooncake_for_supported_topologies(topology, tm
     assert kt["kv_connector"] == "MooncakeStoreConnector"
     assert kt["kv_role"] == "kv_both"
     assert kt["kv_load_failure_policy"] == "recompute"
-    assert 'bash "$SHARED_VOLUME_PATH/mooncake/start_mooncake_store.sh" &' in output.pre_serve
+    assert 'bash "$SHARED_VOLUME_PATH/distributed_offload/mooncake_cuda/start_mooncake_store.sh" &' in output.pre_serve
     assert "xcache_cuda:v0.3.12.post1" in output.packages
 
 
@@ -371,12 +400,12 @@ def test_script_fallback_synthesizes_mooncake_master_section(tmp_path, monkeypat
 
     section = "\n".join(output.mooncake_master_section)
     assert "IS_MOONCAKE_MASTER" in section
-    assert 'source "$SHARED_VOLUME_PATH/mooncake/master.env"' in section
-    # 后台拉起且不做输出重定向:master.sh 自带日志处理,stdout/stderr 流向 engine.log。
-    assert 'bash "$SHARED_VOLUME_PATH/mooncake/start_mooncake_master.sh" &' in section
+    assert 'source "$SHARED_VOLUME_PATH/distributed_offload/mooncake_cuda/master.env"' not in section
+    # master runtime asset owns sourcing master.env and its own logging.
+    assert 'bash "$SHARED_VOLUME_PATH/distributed_offload/mooncake_cuda/start_mooncake_master.sh" &' in section
     assert ">>" not in section
-    assert "wait \"$MASTER_PID\"" in section
-    assert "exit \"$?\"" in section
+    assert 'wait "$MASTER_PID"' in section
+    assert 'exit "$?"' in section
 
 
 def test_script_fallback_skips_master_section_when_yaml_only():
@@ -414,9 +443,7 @@ def test_fallback_injects_highest_available_version(tmp_path, monkeypatch):
         memory_capacity_gb=32,
     )
 
-    output = apply_mooncake_script_fallback(
-        cfg, smart_distributed_kv_offload_expander(cfg, _partial_block(), _ctx())
-    )
+    output = apply_mooncake_script_fallback(cfg, smart_distributed_kv_offload_expander(cfg, _partial_block(), _ctx()))
 
     assert [req.manifest for req in output.packages] == ["xcache_cuda:v0.3.12.post1"]
 
@@ -435,9 +462,7 @@ def test_fallback_yaml_declared_version_overrides_default(tmp_path, monkeypatch)
 
     output = apply_mooncake_script_fallback(
         cfg,
-        smart_distributed_kv_offload_expander(
-            cfg, _partial_block(packages={"xcache_cuda": "v0.3.10"}), _ctx()
-        ),
+        smart_distributed_kv_offload_expander(cfg, _partial_block(packages={"xcache_cuda": "v0.3.10"}), _ctx()),
     )
 
     assert [req.manifest for req in output.packages] == ["xcache_cuda:v0.3.10"]
@@ -456,9 +481,7 @@ def test_fallback_requires_accel_volume_when_unpinned(tmp_path, monkeypatch):
     )
 
     with pytest.raises(SmartAccelConfigurationError, match="wings-accel artifact"):
-        apply_mooncake_script_fallback(
-            cfg, smart_distributed_kv_offload_expander(cfg, _partial_block(), _ctx())
-        )
+        apply_mooncake_script_fallback(cfg, smart_distributed_kv_offload_expander(cfg, _partial_block(), _ctx()))
 
 
 def test_fallback_skips_injection_when_install_disabled(tmp_path, monkeypatch, caplog):
@@ -508,9 +531,7 @@ def test_fallback_disabled_install_keeps_yaml_declaration(tmp_path, monkeypatch)
 
     output = apply_mooncake_script_fallback(
         cfg,
-        smart_distributed_kv_offload_expander(
-            cfg, _partial_block(packages={"xcache_cuda": "v0.3.10"}), _ctx()
-        ),
+        smart_distributed_kv_offload_expander(cfg, _partial_block(packages={"xcache_cuda": "v0.3.10"}), _ctx()),
     )
 
     assert [req.manifest for req in output.packages] == ["xcache_cuda:v0.3.10"]

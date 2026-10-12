@@ -143,10 +143,14 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
         smart_input.distributed_kv_cache_config,
         smart_accel.get("distributed_kv_offload"),
         ctx,
+        engine_name=smart_input.engine_config.name,
+        topology=smart_input.deployment_mode.topology,
     )
     distributed_offload = apply_mooncake_script_fallback(
         smart_input.distributed_kv_cache_config,
         distributed_offload,
+        engine_name=smart_input.engine_config.name,
+        topology=smart_input.deployment_mode.topology,
     )
     if offload and distributed_offload:
         raise SmartAccelConfigurationError(
@@ -175,7 +179,12 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
     pre_serve_client: list = []
     generated_files: list[GeneratedFile] = []
     mooncake_component_sources: dict[str, str] = {}
+    mooncake_runtime = ""
+    mooncake_env_overrides: dict[str, str] = {}
+    mooncake_config_path = ""
+    mooncake_env_files_required = False
     mooncake_script_assets_required = False
+    mooncake_master_script = ""
     mooncake_master_section: list[str] = []
     mooncake_transfer_engine_package: str | None = None
     for feature_name, feature in (
@@ -194,7 +203,12 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
             generated_files.extend(feature.generated_files)
             if feature_name == "distributed_kv_offload":
                 mooncake_component_sources = dict(feature.mooncake_component_sources)
+                mooncake_runtime = feature.mooncake_runtime
+                mooncake_env_overrides = dict(feature.mooncake_env_overrides)
+                mooncake_config_path = feature.mooncake_config_path
+                mooncake_env_files_required = feature.mooncake_env_files_required
                 mooncake_script_assets_required = feature.mooncake_script_assets_required
+                mooncake_master_script = feature.mooncake_master_script
                 mooncake_master_section = list(feature.mooncake_master_section)
                 mooncake_transfer_engine_package = feature.mooncake_transfer_engine_package
     _ensure_unique_generated_file_paths(generated_files)
@@ -226,7 +240,12 @@ def func_smart_accel(smart_input: SmartAccelInput) -> SmartAccelOutput:
         pre_serve_client=pre_serve_client,
         generated_files=generated_files,
         mooncake_component_sources=mooncake_component_sources,
+        mooncake_runtime=mooncake_runtime,
+        mooncake_env_overrides=mooncake_env_overrides,
+        mooncake_config_path=mooncake_config_path,
+        mooncake_env_files_required=mooncake_env_files_required,
         mooncake_script_assets_required=mooncake_script_assets_required,
+        mooncake_master_script=mooncake_master_script,
         mooncake_master_section=mooncake_master_section,
         mooncake_transfer_engine_package=mooncake_transfer_engine_package,
     )

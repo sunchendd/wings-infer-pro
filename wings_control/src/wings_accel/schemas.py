@@ -338,8 +338,20 @@ class _FeatureOutput:
     pre_serve_master: List[str] = field(default_factory=list) # 仅 master 节点执行的框架合成命令
     pre_serve_client: List[str] = field(default_factory=list) # 仅 client(非 master)节点执行的框架合成命令
     generated_files: List[GeneratedFile] = field(default_factory=list) # 已渲染、未写盘的文件计划;由 wings-control 在产物阶段消费
-    # True 时 script_builder 将随包的脚本兜底资产复制到共享卷。
+    mooncake_component_sources: Dict[str, str] = field(default_factory=dict) # runtime、组件与传输引擎来源
+    # Mooncake 运行时标识:mooncake_cuda / mooncake_npu。空表示未启用分布式 Mooncake。
+    mooncake_runtime: str = ""
+    # YAML delivery.envs 经过占位符填充后的环境覆盖，仅写入 Mooncake client/master env。
+    mooncake_env_overrides: Dict[str, str] = field(default_factory=dict)
+    # vLLM connector 所需的 Mooncake config 路径，渲染为 launcher 局部 export，
+    # 不进入 client.env/master.env 或通用 engine env。
+    mooncake_config_path: str = ""
+    # True 时 script_builder 需要为 Mooncake 写 client.env/master.env，即使所有脚本由 YAML 提供。
+    mooncake_env_files_required: bool = False
+    # True 时 script_builder 将当前 runtime 的随包脚本兜底资产复制到共享卷。
     mooncake_script_assets_required: bool = False
+    # Mooncake master 启动脚本的共享卷路径；空时由当前 runtime 的回退资产提供。
+    mooncake_master_script: str = ""
     # Mooncake master 分支段(early-exit 块的 shell 行)。仅 distributed_offload
     # 使用;由受控包代码合成,非 YAML 任意 shell。空 → script_builder 不渲染该段。
     mooncake_master_section: List[str] = field(default_factory=list)
@@ -388,10 +400,13 @@ class SmartAccelOutput:
     # 由 api.resolve_smart_accel_from_config 根据实际命中的 source_file 填写。
     pre_serve_trusted: Optional[bool] = None
     generated_files: List[GeneratedFile] = field(default_factory=list) # 已渲染、未写盘的文件计划;交由 wings-control 在非 dry-run 产物阶段写入
-    # Mooncake 部件来源(四部件 yaml/script_fallback + transfer_engine yaml/injected/disabled),
-    # 供审计和运行时日志使用。
-    mooncake_component_sources: Dict[str, str] = field(default_factory=dict)
-    mooncake_script_assets_required: bool = False # 是否需安装脚本兜底共享卷资产
+    mooncake_component_sources: Dict[str, str] = field(default_factory=dict) # Mooncake 部件来源(四部件 yaml/script_fallback + transfer_engine yaml/injected/disabled),供审计和运行时日志使用
+    mooncake_runtime: str = "" # Mooncake runtime:mooncake_cuda / mooncake_npu
+    mooncake_env_overrides: Dict[str, str] = field(default_factory=dict) # YAML 声明的 Mooncake env 覆盖
+    mooncake_config_path: str = "" # 仅 vLLM connector 消费的 Mooncake config 路径
+    mooncake_env_files_required: bool = False # 是否需渲染 client.env/master.env
+    mooncake_script_assets_required: bool = False # 是否需安装当前 runtime 的脚本兜底共享卷资产
+    mooncake_master_script: str = "" # Master 启动脚本的共享卷路径；空时使用 runtime 回退资产
     # Mooncake master 分支段(early-exit 块的 shell 行);空 → script_builder 不渲染该段。
     mooncake_master_section: List[str] = field(default_factory=list)
     # 传输引擎包("name:version"):distributed_offload 决策的注入/声明结果,供 wings-control

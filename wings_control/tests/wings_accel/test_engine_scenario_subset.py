@@ -35,6 +35,7 @@ ASSETS = [
     "vllm-ascend/v0.21.0rc/ascend-a2/models/DeepSeek-V3-0324/DeepSeek-V3-0324-w8a8-mtp-QuaRot.yaml",
     "vllm-ascend/v0.21.0rc/ascend-a3/models/Qwen3.6-35B-A3B/Qwen3.6-35B-A3B-bf16.yaml",
     "vllm-ascend/v0.23.0/ascend-a2/models/DeepSeek-V4-Flash/DeepSeek-V4-Flash-w8a8-mtp.yaml",
+    "vllm-ascend/v0.23.0/ascend-a2/models/DeepSeek-V4-Flash-0731/DeepSeek-V4-Flash-0731-w8a8.yaml",
     "vllm-ascend/v0.23.0/ascend-a3/models/DeepSeek-V4-Flash/DeepSeek-V4-Flash-w8a8-mtp.yaml",
     "vllm-ascend/v0.23.0/ascend-a2/models/GLM-5.1/GLM-5.1-w4a8.yaml",
     "vllm-ascend/v0.23.0/ascend-a2/models/GLM-5.1/GLM-5.1-w8a8.yaml",

@@ -83,6 +83,7 @@ function set_env() {
   # 传了 KV_DISK_OFFLOAD_SIZE 才启用 offload 相关容量配置，否则不配置
   if [ -n "$KV_DISK_OFFLOAD_SIZE" ]; then
     export MOONCAKE_OFFLOAD_TOTAL_SIZE_LIMIT_BYTES=$((KV_DISK_OFFLOAD_SIZE * 1024 * 1024 * 1024))
+    export MOONCAKE_OFFLOAD_BUCKET_MAX_TOTAL_SIZE=$((KV_DISK_OFFLOAD_SIZE * 1024 * 1024 * 1024))
     export MOONCAKE_OFFLOAD_LOCAL_BUFFER_SIZE_BYTES=$((12 * 1024 * 1024 * 1024))
     # 配置buffer_size 和心跳间隔
     export MOONCAKE_OFFLOAD_HEARTBEAT_INTERVAL_SECONDS=3
@@ -90,12 +91,15 @@ function set_env() {
     export MOONCAKE_OFFLOAD_SLICE_MIN_THRESHOLD=$((100 * 1024 * 1024))
   fi
 
-  # 启动存储服务前,先取本机对外地址
+
+  # 启动mooncake_store
   export RANK_IP=$(hostname -i | awk '{for(i=1;i<=NF;i++) if($i!="127.0.0.1") print $i; exit}')
-  # 卸载目录与存储端口固定,无需拼接
+
+  # offload路径固定为 /tmp/kvcacheoffload，无需拼接路径
   export MC_STORE_HTTP_PORT=9300
   export MOONCAKE_OFFLOAD_FILE_STORAGE_PATH="${OFFLOAD_CLEANUP_DIR}"
-  # 将内存容量换算为兆字节单位
+
+  # global-segment-size 单位转换为 MB (mooncake_store.py 期望单位为 MB，如 25GB -> 25600MB)
   export GLOBAL_SEGMENT_SIZE_MB=$((KV_MEM_OFFLOAD_SIZE * 1024))
   # 设置服务名称
   export SERVICE_NAME="mooncake-service-${SERVING_CONFIG_ID}"
@@ -175,13 +179,35 @@ function log_param() {
   log info "MOONCAKE_OFFLOAD_LOCAL_BUFFER_SIZE_BYTES=$MOONCAKE_OFFLOAD_LOCAL_BUFFER_SIZE_BYTES"
 }
 
+# 等待 mooncake master 就绪:store 依赖 master 的 RPC/metadata 服务,未就绪时启动会失败。
+# 探测 HTTP metadata 端口(任意 HTTP 响应即就绪;无 curl 时退化为 /dev/tcp 连通探测),
+# 超时(MOONCAKE_MASTER_WAIT_TIMEOUT,默认 300s)后退出。
+function wait_for_master() {
+  local port="${MOONCAKE_MASTER_HTTP_PORT:-10080}"
+  local timeout_s="${MOONCAKE_MASTER_WAIT_TIMEOUT:-300}"
+  local start_ts=$(date +%s)
+  log info "Waiting for mooncake master at http://${SERVICE_NAME}:${port}/ (timeout=${timeout_s}s)"
+  while true; do
+    if curl -s -o /dev/null --max-time 3 "http://${SERVICE_NAME}:${port}/" 2>/dev/null ||
+      timeout 3 bash -c 'exec 3<>/dev/tcp/$1/$2' _ "$SERVICE_NAME" "$port" 2>/dev/null; then
+      log info "Mooncake master is ready (elapsed $(($(date +%s) - start_ts))s)"
+      return 0
+    fi
+    if [ $(($(date +%s) - start_ts)) -ge "$timeout_s" ]; then
+      log error "Mooncake master not ready after ${timeout_s}s; aborting mooncake store startup"
+      exit 1
+    fi
+    sleep 5
+  done
+}
+
 function start_server() {
   # 服务启动：仅当传了 KV_DISK_OFFLOAD_SIZE 才带 --offload-dir，否则不启用卸载存储
   if [ -n "$KV_DISK_OFFLOAD_SIZE" ]; then
     python3 ${STORE_PY_FILE} \
       --local-host "$RANK_IP" \
       --protocol "$KV_PROTOCOL" \
-      --metadata-server "http://${SERVICE_NAME}:10080/metadata" \
+      --metadata-server "P2PHANDSHAKE" \
       --master-server "${SERVICE_NAME}:50051" \
       --global-segment-size "$GLOBAL_SEGMENT_SIZE_MB" \
       --device-name "" \
@@ -191,7 +217,7 @@ function start_server() {
     python3 ${STORE_PY_FILE} \
       --local-host "$RANK_IP" \
       --protocol "$KV_PROTOCOL" \
-      --metadata-server "http://${SERVICE_NAME}:10080/metadata" \
+      --metadata-server "P2PHANDSHAKE" \
       --master-server "${SERVICE_NAME}:50051" \
       --global-segment-size "$GLOBAL_SEGMENT_SIZE_MB" \
       --device-name "" \
@@ -205,8 +231,10 @@ function main() {
   set_env
   set_ascend_env
   log_param
+  wait_for_master
   start_server
   log info "================ Finish mooncake_store_ascend ================"
 }
+
 
 main

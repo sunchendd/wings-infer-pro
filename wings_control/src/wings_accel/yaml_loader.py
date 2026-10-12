@@ -450,6 +450,8 @@ def load_smart_accel_from_yaml(
     if (memory_on or distributed_memory_on) and memory_size_mode == "auto":
         est = estimate_offload_memory(
             container_memory_gb=flags.pod_available_memory_gb,
+            # ``LoadFlags.gpu_count`` 是当前 Pod 中可用设备数。既有 launcher 的
+            # worker 模型与它一一对应；TP×DP 仅作为未来非一一模型的显式扩展输入。
             worker_count=gpu_count,
             min_threshold_gb=flags.min_offload_threshold_gb,
         )
@@ -741,6 +743,10 @@ def load_smart_accel_from_config(
         return None
     smart_input = load_smart_accel_from_yaml(str(yaml_path), flags)
     if smart_input is not None:
+        # 调用方选择的 engine/version 是 SmartAccel 资产定位与 runtime 选择的权威上下文。
+        # 不能让模型 YAML 缺失 scenarios.engine_config 时回退 EngineConfig() 的 vllm 默认值，
+        # 否则 vllm-ascend 会错误选择 mooncake_cuda。
+        smart_input.engine_config = EngineConfig(name=engine, version=engine_version)
         # smart-accel 根目录供 files 条目 src 解析。
         smart_input.config_root = str(_resolve_smart_accel_root(config_root))
     return smart_input

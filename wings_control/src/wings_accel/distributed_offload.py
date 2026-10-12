@@ -1,19 +1,21 @@
-"""Mooncake standalone-store 分布式 KV 缓存渲染。
+"""Mooncake standalone-store 分布式 KV 缓存解析与交付计划。
 
-本模块与 ``offload.py`` 并列：本地 KV 卸载和 Mooncake standalone-store 都会
-写入 vLLM 的 ``kv_transfer_config``，因此不能共用同一个选择器或同时产出。
-Mooncake master 由部署侧管理；这里仅为每个 engine Pod 交付并启动 real client。
+本模块依据实际推理引擎选择受控 runtime：``vllm`` 使用 ``mooncake_cuda`` /
+``xcache_cuda``，``vllm-ascend`` 使用 ``mooncake_npu`` / ``xcache_npu``。硬件
+名称不参与 runtime 推断，避免 Ascend 硬件上的非 vLLM-Ascend 工作负载误装 NPU 包。
 
-KV_MEM_OFFLOAD_SIZE=auto 智能推荐与本地卸载同源:yaml_loader 复用
-memory_estimator 估算 store 可用内存(mooncake store 与 vLLM 同 pod,引擎自身
-开销模型同样成立);估算值经 wings-control 注入 client.env 的 KV_MEM_OFFLOAD_SIZE
-(覆盖原始 "auto" 字面量,脚本只见数值);估算不足阈值时由 loader 在与本地
-同一分支关闭特性(单 WARN、不阻断部署),本模块按 enabled=False 自然不产出。
+模型 YAML 始终负责声明 vLLM ``kv_transfer_config``。Mooncake 配置、环境和
+Store/Master 启动资产则可选择：受控 runtime 回退、完整 YAML 文件交付，或显式
+hybrid。YAML 只能提供受现有 ``files`` 计划机制约束的文件和结构化环境，不能注入
+任意 pre-serve shell。
 """
+
+from __future__ import annotations
 
 import logging
 import os
 import shlex
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -30,48 +32,68 @@ from wings_accel.render import (
 from wings_accel.schemas import (
     DistributedKVCacheConfig,
     EngineParams,
+    GeneratedFile,
     SmartAccelConfigurationError,
     _FeatureOutput,
 )
 
 logger = logging.getLogger(__name__)
 
-_CLIENT_SCRIPT = "start_mooncake_store.sh"
-_MASTER_SCRIPT = "start_mooncake_master.sh"
 _CONFIG_FILE = "mooncake.json"
-_ENGINE_ENV_FILE = "client.env"
+_STORE_SCRIPT = "start_mooncake_store.sh"
+_MASTER_SCRIPT = "start_mooncake_master.sh"
 _YAML_SOURCE = "yaml"
-_SCRIPT_FALLBACK_SOURCE = "script_fallback"
-
-# Mooncake transfer engine 经 install.py 安装的默认包(manifest 键 = wings-accel
-# packages/ 目录名;包名沿革 mooncake_non_cuda → xcache_non_cuda → xcache_cuda)。特性级
-# 前提依赖:任何模型开启分布式 KV 卸载都须安装,故在代码收口注入而非逐模型 YAML
-# 声明;YAML scheme 显式声明同名包时声明优先(可钉特殊版本)。版本本身不在此
-# 钉死 —— 由 accel-volume 镜像内容决定(见 _resolve_highest_package_version),
-# 升级只需重建 wings-accel 镜像。
-_TRANSFER_ENGINE_PACKAGE = "xcache_cuda"
-# wings-accel 工件在容器内的挂载路径(install.py / packages/ 所在);与
-# script_builder 生成 install.py 行的 /accel-volume 硬编码保持同源,测试经
-# 同名环境变量指向临时目录。
+_RUNTIME_FALLBACK_SOURCE = "runtime_fallback"
 _ACCEL_VOLUME_PATH_ENV = "ACCEL_VOLUME_PATH"
 _DEFAULT_ACCEL_VOLUME = "/accel-volume"
 
 
+@dataclass(frozen=True)
+class _MooncakeRuntime:
+    """一个受控 Mooncake runtime 的闭合定义。"""
+
+    runtime_id: str
+    package_name: str
+    supported_topologies: frozenset[str]
+    supported_protocols: frozenset[str]
+
+
+# 运行时只由实际 engine 名选择。不要按 hardware_family 判断，避免引擎/硬件耦合。
+_MOONCAKE_RUNTIMES = {
+    "vllm": _MooncakeRuntime(
+        runtime_id="mooncake_cuda",
+        package_name="xcache_cuda",
+        supported_topologies=frozenset({"standalone", "multi_node"}),
+        supported_protocols=frozenset({"rdma", "tcp"}),
+    ),
+    "vllm-ascend": _MooncakeRuntime(
+        runtime_id="mooncake_npu",
+        package_name="xcache_npu",
+        supported_topologies=frozenset({"standalone", "multi_node"}),
+        supported_protocols=frozenset({"ascend", "rdma", "tcp"}),
+    ),
+}
+
+
+def resolve_mooncake_runtime(engine_name: str) -> _MooncakeRuntime:
+    """按规范化引擎名返回 Mooncake runtime，未支持时确定性失败。"""
+    normalized = str(engine_name or "vllm").strip().lower().replace("_", "-")
+    runtime = _MOONCAKE_RUNTIMES.get(normalized)
+    if runtime is None:
+        raise SmartAccelConfigurationError(
+            "distributed_kv_offload supports only vllm (mooncake_cuda) and "
+            f"vllm-ascend (mooncake_npu), got engine={engine_name!r}"
+        )
+    return runtime
+
+
 def _resolve_highest_package_version(package_name: str) -> str:
-    """解析包在 accel-volume 工件中的最高版本(PEP 440 排序,返回目录名原样)。
-
-    版本以 wings-accel 镜像为单一真相源:packages/<name>/<version>/ 目录名即
-    install.py manifest 键。YAML 未钉版本时取最高版本,镜像升级后无需改代码。
-
-    Raises:
-        SmartAccelConfigurationError: 包目录缺失、或无任何合法版本目录
-            (fail-fast:mooncake 无法安装则特性必然失效,不让 pod 带到运行期才崩)。
-    """
+    """解析 accel-volume 中 package 的最高 PEP 440 版本目录。"""
     volume = Path(os.environ.get(_ACCEL_VOLUME_PATH_ENV, _DEFAULT_ACCEL_VOLUME))
     package_dir = volume / "packages" / package_name
     if not package_dir.is_dir():
         raise SmartAccelConfigurationError(
-            f"xcache transfer engine package not found in wings-accel artifact: "
+            "Mooncake transfer engine package not found in wings-accel artifact: "
             f"{package_dir} (set {_ACCEL_VOLUME_PATH_ENV} or rebuild the wings-accel image "
             f"with packages/{package_name}/)"
         )
@@ -82,18 +104,14 @@ def _resolve_highest_package_version(package_name: str) -> str:
         try:
             candidates.append((Version(child.name), child.name))
         except InvalidVersion:
-            logger.warning(
-                "skip non-PEP440 version directory %s under %s", child.name, package_dir
-            )
+            logger.warning("skip non-PEP440 version directory %s under %s", child.name, package_dir)
     if not candidates:
-        raise SmartAccelConfigurationError(
-            f"no valid version directory found under {package_dir}"
-        )
+        raise SmartAccelConfigurationError(f"no valid version directory found under {package_dir}")
     return max(candidates, key=lambda item: item[0])[1]
 
 
 def _require_client_settings(scheme: Dict[str, Any]) -> Dict[str, Any]:
-    """校验 YAML 中可审计的 Mooncake client 固定参数。"""
+    """校验模型 YAML 中可审计的 Mooncake 固定网络参数。"""
     client = scheme.get("client")
     if not isinstance(client, dict):
         raise SmartAccelConfigurationError("distributed_kv_offload scheme requires a client mapping")
@@ -105,23 +123,16 @@ def _require_client_settings(scheme: Dict[str, Any]) -> Dict[str, Any]:
                     f"distributed_kv_offload client.{name} must be an integer in 1..65535"
                 )
         elif not isinstance(value, str) or not value.startswith("/"):
-            raise SmartAccelConfigurationError(
-                "distributed_kv_offload client.metadata_path must start with '/'"
-            )
+            raise SmartAccelConfigurationError("distributed_kv_offload client.metadata_path must start with '/'")
     return client
 
 
 def _validate_input(cfg: DistributedKVCacheConfig) -> None:
-    """验证来自 MaaS 的分布式缓存输入，避免写入 shell/JSON 前才失败。
-
-    只校验跨层耦合字段（内存卸载开关/容量）；KV_PROTOCOL / SERVING_CONFIG_ID /
-    KV_LOCAL_BUFFER_SIZE 等由 env.yaml 默认值 + client.env 透传，脚本侧
-    （creat_mooncake_json.sh / start_mooncake_store.sh）自带校验。
-    """
+    """校验跨层输入，避免将不完整容量写入环境、JSON 或 shell。"""
     if not cfg.memory_offload_enabled or cfg.memory_capacity_gb <= 0:
         raise SmartAccelConfigurationError(
             "ENABLE_DISTRIBUTED_KV_OFFLOAD requires ENABLE_KV_MEM_OFFLOAD and a positive "
-            "KV_MEM_OFFLOAD_SIZE (numeric GB or \"auto\" resolved by the estimator)"
+            'KV_MEM_OFFLOAD_SIZE (numeric GB or "auto" resolved by the estimator)'
         )
     if cfg.disk_offload_enabled and (not cfg.disk_path or cfg.disk_capacity_gb <= 0):
         raise SmartAccelConfigurationError(
@@ -129,32 +140,194 @@ def _validate_input(cfg: DistributedKVCacheConfig) -> None:
         )
 
 
+def _normalize_topology(topology: Optional[str]) -> str:
+    return str(topology or "standalone").strip().lower() or "standalone"
+
+
+def _validate_runtime_scheme(
+    scheme: Dict[str, Any],
+    runtime: _MooncakeRuntime,
+    cfg: DistributedKVCacheConfig,
+    topology: Optional[str],
+) -> None:
+    """验证 engine/runtime/topology/protocol 是明确且兼容的组合。"""
+    declared_runtime = str(scheme.get("runtime") or "").strip()
+    if not declared_runtime:
+        # 仅存量 CUDA YAML 可省略 runtime；NPU YAML 必须显式防止误装 CUDA 包。
+        if runtime.runtime_id != "mooncake_cuda":
+            raise SmartAccelConfigurationError("vllm-ascend distributed_kv_offload requires runtime: mooncake_npu")
+    elif declared_runtime != runtime.runtime_id:
+        raise SmartAccelConfigurationError(
+            f"distributed_kv_offload runtime={declared_runtime!r} is incompatible with "
+            f"the selected engine runtime {runtime.runtime_id!r}"
+        )
+
+    current_topology = _normalize_topology(topology)
+    if current_topology not in runtime.supported_topologies:
+        raise SmartAccelConfigurationError(
+            f"{runtime.runtime_id} supports only {sorted(runtime.supported_topologies)}, "
+            f"got topology={current_topology!r}"
+        )
+    protocol = str(cfg.protocol or "").strip().lower()
+    if protocol and protocol not in runtime.supported_protocols:
+        raise SmartAccelConfigurationError(
+            f"{runtime.runtime_id} does not support KV_PROTOCOL={protocol!r}; "
+            f"allowed={sorted(runtime.supported_protocols)}"
+        )
+
+
+def _delivery_definition(scheme: Dict[str, Any], ctx: PlaceholderContext) -> tuple[str, dict[str, str], dict[str, str]]:
+    """规范化并校验 delivery，返回模式、组件来源和 Mooncake env 覆盖。
+
+    ``files`` 仍通过统一 GeneratedFile 机制交付；delivery 只决定每个组件是否必须
+    由 YAML 提供还是允许当前 runtime 的受控资产回退。
+    """
+    raw = scheme.get("delivery")
+    if raw is None:
+        # 对存量 GPU 资产保持兼容：已有文件使用 YAML，缺项按 runtime 资产回退。
+        return "legacy", {}, {}
+    if not isinstance(raw, dict):
+        raise SmartAccelConfigurationError("distributed_kv_offload delivery must be a mapping")
+
+    mode = str(raw.get("mode") or "").strip().lower()
+    if mode not in {"fallback", "full_yaml", "hybrid"}:
+        raise SmartAccelConfigurationError(
+            "distributed_kv_offload delivery.mode must be fallback, full_yaml, or hybrid"
+        )
+
+    envs = raw.get("envs", {})
+    if envs is None:
+        envs = {}
+    if not isinstance(envs, dict):
+        raise SmartAccelConfigurationError("distributed_kv_offload delivery.envs must be a mapping")
+    env_overrides = fill_envs(envs, ctx)
+
+    if mode == "fallback":
+        if raw.get("components") is not None:
+            raise SmartAccelConfigurationError("delivery.components is only valid for mode: hybrid")
+        return (
+            mode,
+            {
+                "env": _RUNTIME_FALLBACK_SOURCE,
+                "config": _RUNTIME_FALLBACK_SOURCE,
+                "store": _RUNTIME_FALLBACK_SOURCE,
+                "master": _RUNTIME_FALLBACK_SOURCE,
+            },
+            env_overrides,
+        )
+
+    if mode == "full_yaml":
+        if raw.get("components") is not None:
+            raise SmartAccelConfigurationError("delivery.components is only valid for mode: hybrid")
+        if not env_overrides:
+            raise SmartAccelConfigurationError("delivery.mode=full_yaml requires a non-empty delivery.envs mapping")
+        return (
+            mode,
+            {"env": _YAML_SOURCE, "config": _YAML_SOURCE, "store": _YAML_SOURCE, "master": _YAML_SOURCE},
+            env_overrides,
+        )
+
+    components = raw.get("components")
+    if not isinstance(components, dict):
+        raise SmartAccelConfigurationError("delivery.mode=hybrid requires a components mapping")
+    required = {"env", "config", "store", "master"}
+    if set(components) != required:
+        raise SmartAccelConfigurationError("delivery.components must contain exactly env, config, store, and master")
+    sources: dict[str, str] = {}
+    for name in sorted(required):
+        source = str(components[name] or "").strip().lower()
+        if source == "fallback":
+            sources[name] = _RUNTIME_FALLBACK_SOURCE
+        elif source == "yaml":
+            sources[name] = _YAML_SOURCE
+        else:
+            raise SmartAccelConfigurationError(f"delivery.components.{name} must be yaml or fallback")
+    if sources["env"] == _YAML_SOURCE and not env_overrides:
+        raise SmartAccelConfigurationError("delivery.components.env=yaml requires delivery.envs")
+    return mode, sources, env_overrides
+
+
+def _validate_yaml_components(
+    component_sources: dict[str, str],
+    files_by_name: dict[str, GeneratedFile],
+) -> None:
+    """确保 delivery 声明为 YAML 的每个文件组件真的被当前模型 YAML 交付。"""
+    required_files = {
+        "config": _CONFIG_FILE,
+        "store": _STORE_SCRIPT,
+        "master": _MASTER_SCRIPT,
+    }
+    for component, filename in required_files.items():
+        if component_sources[component] == _YAML_SOURCE and filename not in files_by_name:
+            raise SmartAccelConfigurationError(
+                f"delivery declares {component}=yaml but files does not provide {filename}"
+            )
+
+
+def _resolve_transfer_engine(
+    result: _FeatureOutput,
+    cfg: DistributedKVCacheConfig,
+    runtime: _MooncakeRuntime,
+    component_sources: dict[str, str],
+) -> None:
+    """选择 runtime 匹配的 xcache package；禁止 YAML pin 另一种 runtime。"""
+    xcache_requirements = [
+        req
+        for req in result.packages
+        if req.canonical_name in {canonicalize_name("xcache_cuda"), canonicalize_name("xcache_npu")}
+    ]
+    wrong = [
+        req.manifest for req in xcache_requirements if req.canonical_name != canonicalize_name(runtime.package_name)
+    ]
+    if wrong:
+        raise SmartAccelConfigurationError(
+            f"{runtime.runtime_id} requires {runtime.package_name}, incompatible xcache package(s): {wrong}"
+        )
+    declared = next(
+        (req for req in xcache_requirements if req.canonical_name == canonicalize_name(runtime.package_name)),
+        None,
+    )
+    if declared is not None:
+        component_sources["transfer_engine"] = _YAML_SOURCE
+        result.mooncake_transfer_engine_package = declared.manifest
+    elif cfg.install_transfer_engine:
+        version = _resolve_highest_package_version(runtime.package_name)
+        package_spec = f"{runtime.package_name}:{version}"
+        result.packages = list(result.packages) + extract_package_requirements({"packages": [package_spec]})
+        result.mooncake_transfer_engine_package = package_spec
+        component_sources["transfer_engine"] = "injected"
+        logger.info("injected %s transfer engine package: %s", runtime.runtime_id, package_spec)
+    else:
+        component_sources["transfer_engine"] = "disabled"
+        logger.warning(
+            "%s install disabled by ENABLE_XCACHE_INSTALL=false; assuming a compatible xcache "
+            "runtime is preinstalled in the engine image",
+            runtime.runtime_id,
+        )
+
+
 def smart_distributed_kv_offload_expander(
     cfg: DistributedKVCacheConfig,
     block: Any,
     ctx: PlaceholderContext,
+    *,
+    engine_name: str = "vllm",
+    topology: Optional[str] = None,
 ) -> Optional[_FeatureOutput]:
-    """选择并渲染 Mooncake standalone-store 方案。
-
-    YAML 决定 connector、固定端口、配置文件及启动脚本；运行时环境只提供开关、
-    容量、协议和实例 id。脚本由所有节点在 vLLM 前后台启动，master 不在此路径启动。
-
-    KV_MEM_OFFLOAD_SIZE=auto(智能推荐)由 loader 估算后填 memory_capacity_gb;
-    估算不足时 loader 已在与本地同一分支置 enabled=False(单 WARN、不阻断),
-    本函数按未启用自然返回 None,不设专门降级分支。
-    """
+    """选择并渲染 engine 对应的 Mooncake standalone-store YAML 方案。"""
     if not cfg.enabled:
         return None
     _validate_input(cfg)
-    # loader 存在性护栏已把「YAML 未声明」优雅关闭(enabled=False 提前返回);
-    # block 为 None 在此仅是防御分支,不影响脚本兜底对其余三部件的补齐。
     if block is None:
         return None
     if not isinstance(block, list) or len(block) != 1 or not isinstance(block[0], dict):
-        raise SmartAccelConfigurationError(
-            "distributed_kv_offload must contain exactly one standalone-store scheme"
-        )
+        raise SmartAccelConfigurationError("distributed_kv_offload must contain exactly one standalone-store scheme")
+
+    runtime = resolve_mooncake_runtime(engine_name)
     scheme = block[0]
+    _validate_runtime_scheme(scheme, runtime, cfg, topology)
+    _require_client_settings(scheme)
+
     files = plan_scheme_files(
         scheme.get("files") or [],
         ctx,
@@ -162,186 +335,185 @@ def smart_distributed_kv_offload_expander(
             f"{ctx.source_path}.distributed_kv_offload[0]" if ctx.source_path else "distributed_kv_offload[0]"
         ),
     )
-    by_name = {file.path.rsplit("/", 1)[-1]: file for file in files}
-    config = by_name.get(_CONFIG_FILE)
-    script = by_name.get(_CLIENT_SCRIPT)
-    if script is not None and script.scope != "all":
+    files_by_name = {file.path.rsplit("/", 1)[-1]: file for file in files}
+    _delivery_mode, component_sources, env_overrides = _delivery_definition(scheme, ctx)
+    if _delivery_mode in {"full_yaml", "hybrid"}:
+        shared_root = Path(os.environ.get("SHARED_VOLUME_PATH", "/shared-volume")).resolve()
+        runtime_root = shared_root / "distributed_offload" / runtime.runtime_id
+        for generated_file in files:
+            try:
+                generated_path = Path(generated_file.path).resolve(strict=False)
+            except OSError as exc:
+                raise SmartAccelConfigurationError(
+                    f"distributed_kv_offload file path is unresolvable: {generated_file.path!r}"
+                ) from exc
+            if not generated_path.is_relative_to(runtime_root):
+                raise SmartAccelConfigurationError(
+                    "runtime-aware distributed_kv_offload YAML files must stay under "
+                    f"{runtime_root}: {generated_file.path!r}"
+                )
+    if _delivery_mode == "legacy":
+        env_source = _YAML_SOURCE if scheme.get("envs") else _RUNTIME_FALLBACK_SOURCE
+        config_source = _YAML_SOURCE if _CONFIG_FILE in files_by_name else _RUNTIME_FALLBACK_SOURCE
+        store_source = _YAML_SOURCE if _STORE_SCRIPT in files_by_name else _RUNTIME_FALLBACK_SOURCE
+        component_sources = {
+            "env": env_source,
+            "config": config_source,
+            "store": store_source,
+            # 保留旧 CUDA 语义：只有所有 Engine 组件均 YAML 交付时，才不生成回退 Master 段。
+            "master": (
+                _YAML_SOURCE
+                if _MASTER_SCRIPT in files_by_name
+                else "legacy_absent"
+                if {env_source, config_source, store_source} == {_YAML_SOURCE}
+                else _RUNTIME_FALLBACK_SOURCE
+            ),
+        }
+        env_overrides = fill_envs(scheme.get("envs") or {}, ctx)
+    _validate_yaml_components(component_sources, files_by_name)
+
+    store_script = files_by_name.get(_STORE_SCRIPT)
+    if store_script is not None and store_script.scope != "all":
         raise SmartAccelConfigurationError("start_mooncake_store.sh must have scope: all")
+    master_script = files_by_name.get(_MASTER_SCRIPT)
+    if master_script is not None and master_script.scope != "master":
+        raise SmartAccelConfigurationError("start_mooncake_master.sh must have scope: master")
 
     envs = fill_envs(scheme.get("envs") or {}, ctx)
-    # YAML 提供 mooncake.json 时只 export MOONCAKE_CONFIG_PATH 指向实际落盘路径；
-    # 其余环境变量由 env.yaml → client.env 链路（脚本兜底）统一透传给 engine，
-    # 支持四个部件分别回退。
-    if config is not None:
-        _require_client_settings(scheme)
-        envs.update(
-            {
-                "MOONCAKE_CONFIG_PATH": config.path,
-            }
-        )
-        if cfg.disk_offload_enabled:
-            envs["MOONCAKE_OFFLOAD_FILE_STORAGE_PATH"] = cfg.disk_path
-            envs["MOONCAKE_OFFLOAD_TOTAL_SIZE_LIMIT_BYTES"] = str(cfg.disk_capacity_gb * 1024**3)
+    config = files_by_name.get(_CONFIG_FILE)
+    config_path = config.path if config is not None else ""
 
-    return _FeatureOutput(
+    # The standalone Store is the sole owner of Mooncake's SSD tier. Its
+    # MOONCAKE_OFFLOAD_* settings are derived from client.env inside
+    # start_mooncake_store.sh and must never enter the vLLM launcher env.
+    result = _FeatureOutput(
         scheme=str(scheme.get("name") or "mooncake_standalone_store"),
         engine_params=EngineParams(
             env=envs,
             engine_config=render_engine_config(scheme.get("cli_params") or {}, ctx),
         ),
         packages=extract_package_requirements(scheme),
-        pre_serve=[f"bash {shlex.quote(script.path)} &"] if script is not None else [],
+        pre_serve=[f"bash {shlex.quote(store_script.path)} &"] if store_script is not None else [],
         generated_files=files,
+        mooncake_runtime=runtime.runtime_id,
+        mooncake_env_overrides=env_overrides,
+        mooncake_config_path=config_path,
+        mooncake_env_files_required=True,
+        mooncake_script_assets_required=any(
+            source == _RUNTIME_FALLBACK_SOURCE for source in component_sources.values()
+        ),
+        mooncake_component_sources=component_sources,
+        mooncake_master_script=master_script.path if master_script is not None else "",
     )
+    return result
 
 
 def apply_mooncake_script_fallback(
     cfg: DistributedKVCacheConfig,
     yaml_feature: Optional[_FeatureOutput],
+    *,
+    engine_name: str = "vllm",
+    topology: Optional[str] = None,
 ) -> Optional[_FeatureOutput]:
-    """按部件将未由 YAML 产出的 Mooncake 配置回退到受控脚本。
-
-    新策略:``kv_transfer_config`` 是 smart-accel YAML 的**必填锚点**——scheme 已
-    声明但 cli_params 未带它时抛 ``SmartAccelConfigurationError``(确定性 YAML
-    编写错误,fail-fast)。模型 YAML **完全未声明** ``distributed_kv_offload``
-    的优雅关闭在 loader 存在性护栏完成(置 enabled=False,与本地同构),不会
-    走到本分支。其余三部件(mooncake.json / start_mooncake_store.sh / env)
-    缺失时逐项回退到受控脚本;已经由 YAML 提供的部件不会被覆盖。返回的命令均由
-    受控包代码合成,不接受 YAML 中的任意 shell 内容。
-
-    auto 估算不足降级由 loader 在与本地同一分支置 enabled=False,本函数按未启用
-    原样返回(expander 产出为 None → 不产出任何部件)。
-    """
+    """补齐当前 runtime 未由 YAML 交付的可信 Mooncake 资产并注入正确 package。"""
     if not cfg.enabled:
         return yaml_feature
     _validate_input(cfg)
-
-    result = yaml_feature or _FeatureOutput(
-        scheme="mooncake_standalone_store",
-        engine_params=EngineParams(),
-    )
-    files_by_name = {
-        file.path.rsplit("/", 1)[-1]: file
-        for file in result.generated_files
-    }
-    component_sources = {
-        "mooncake.json": _YAML_SOURCE if _CONFIG_FILE in files_by_name else _SCRIPT_FALLBACK_SOURCE,
-        "start_mooncake_store.sh": _YAML_SOURCE if _CLIENT_SCRIPT in files_by_name else _SCRIPT_FALLBACK_SOURCE,
-        "env": _YAML_SOURCE if "MOONCAKE_CONFIG_PATH" in result.engine_params.env else _SCRIPT_FALLBACK_SOURCE,
-        "transfer_config": (
-            _YAML_SOURCE if "kv_transfer_config" in result.engine_params.engine_config else _SCRIPT_FALLBACK_SOURCE
-        ),
-    }
-    if component_sources["transfer_config"] == _SCRIPT_FALLBACK_SOURCE:
-        # kv_transfer_config 必须由 YAML 声明:缺失是确定性配置错误,fail-fast。
+    if yaml_feature is None:
+        raise SmartAccelConfigurationError("distributed_kv_offload scheme requires kv_transfer_config in cli_params")
+    runtime = resolve_mooncake_runtime(engine_name)
+    if _normalize_topology(topology) not in runtime.supported_topologies:
         raise SmartAccelConfigurationError(
-            "distributed_kv_offload scheme requires kv_transfer_config in cli_params"
+            f"{runtime.runtime_id} does not support topology={_normalize_topology(topology)!r}"
         )
 
-    # transfer engine 默认包注入:YAML scheme 未声明同名包时,按 accel-volume 工件
-    # 的最高版本注入(install.py 段随之产出,卸载+安装由包内 install.sh 完成)。
-    # 声明优先:YAML 已钉版本 → 不注入、不解析(可借此锁定非默认版本)。
-    # ENABLE_XCACHE_INSTALL=false(cfg.install_transfer_engine)→ 跳过注入、不解析
-    # accel-volume,假定引擎镜像已预装 xcache(mooncake 脚本仍会执行,由调用方
-    # 保证预装);YAML 显式声明不受此开关影响(两层逃生门独立)。
-    transfer_engine_canonical = canonicalize_name(_TRANSFER_ENGINE_PACKAGE)
-    declared = next(
-        (req for req in result.packages if req.canonical_name == transfer_engine_canonical),
-        None,
+    result = yaml_feature
+    component_sources = dict(result.mooncake_component_sources)
+    if not component_sources:
+        # 兼容直接调用本函数的旧测试/调用方。
+        files_by_name = {file.path.rsplit("/", 1)[-1]: file for file in result.generated_files}
+        component_sources = {
+            "env": _RUNTIME_FALLBACK_SOURCE,
+            "config": _YAML_SOURCE if _CONFIG_FILE in files_by_name else _RUNTIME_FALLBACK_SOURCE,
+            "store": _YAML_SOURCE if _STORE_SCRIPT in files_by_name else _RUNTIME_FALLBACK_SOURCE,
+            "master": _YAML_SOURCE if _MASTER_SCRIPT in files_by_name else _RUNTIME_FALLBACK_SOURCE,
+        }
+    if "kv_transfer_config" not in result.engine_params.engine_config:
+        raise SmartAccelConfigurationError("distributed_kv_offload scheme requires kv_transfer_config in cli_params")
+
+    _resolve_transfer_engine(result, cfg, runtime, component_sources)
+    script_assets_required = any(
+        component_sources[name] == _RUNTIME_FALLBACK_SOURCE for name in ("env", "config", "store", "master")
     )
-    if declared is not None:
-        component_sources["transfer_engine"] = _YAML_SOURCE
-        result.mooncake_transfer_engine_package = declared.manifest
-    elif cfg.install_transfer_engine:
-        version = _resolve_highest_package_version(_TRANSFER_ENGINE_PACKAGE)
-        package_spec = f"{_TRANSFER_ENGINE_PACKAGE}:{version}"
-        result.packages = list(result.packages) + extract_package_requirements(
-            {"packages": [package_spec]}
-        )
-        result.mooncake_transfer_engine_package = package_spec
-        component_sources["transfer_engine"] = "injected"
-        logger.info(
-            "injected default xcache transfer engine package: %s:%s",
-            _TRANSFER_ENGINE_PACKAGE,
-            version,
-        )
+
+    result.pre_serve.append('export SHARED_VOLUME_PATH="${SHARED_VOLUME_PATH:-/shared-volume}"')
+    runtime_dir = f"$SHARED_VOLUME_PATH/distributed_offload/{runtime.runtime_id}"
+    # Runtime assets own their role-specific environment files. The launcher only
+    # exports the connector config path required by vLLM itself.
+    if component_sources["config"] == _RUNTIME_FALLBACK_SOURCE:
+        result.pre_serve.append(f'bash "{runtime_dir}/creat_mooncake_json.sh"')
+    if component_sources["store"] == _RUNTIME_FALLBACK_SOURCE:
+        result.pre_serve.append(f'bash "{runtime_dir}/start_mooncake_store.sh" &')
+    master_source = component_sources["master"]
+    if master_source == "legacy_absent":
+        # 完全 YAML 的旧 CUDA 路径此前不交付 Master 生命周期，保持其零影响语义。
+        result.mooncake_master_section = []
     else:
-        component_sources["transfer_engine"] = "disabled"
-        logger.warning(
-            "xcache transfer engine install disabled by ENABLE_XCACHE_INSTALL=false; "
-            "assuming xcache is preinstalled in the engine image"
-        )
-
-    script_assets_required = (
-        component_sources["mooncake.json"] == _SCRIPT_FALLBACK_SOURCE
-        or component_sources["start_mooncake_store.sh"] == _SCRIPT_FALLBACK_SOURCE
-        or component_sources["env"] == _SCRIPT_FALLBACK_SOURCE
-    )
-    if script_assets_required:
-        # 每个 engine 节点在 vLLM 前加载受控环境，再生成本节点的配置并后台启动 client。
-        result.pre_serve.extend(
-            [
-                'export SHARED_VOLUME_PATH="${SHARED_VOLUME_PATH:-/shared-volume}"',
-            ]
-        )
-        if component_sources["env"] == _SCRIPT_FALLBACK_SOURCE:
-            # YAML 提供 JSON、但未提供环境时，仍须让 env 文件使用 YAML 的实际落盘路径。
-            if component_sources["mooncake.json"] == _YAML_SOURCE:
-                result.pre_serve.append(
-                    "export MOONCAKE_SCRIPT_FALLBACK_CONFIG_PATH="
-                    f"{shlex.quote(files_by_name[_CONFIG_FILE].path)}"
-                )
-            result.pre_serve.append(
-                f'source "$SHARED_VOLUME_PATH/mooncake/{_ENGINE_ENV_FILE}"'
-            )
-        if component_sources["mooncake.json"] == _SCRIPT_FALLBACK_SOURCE:
-            result.pre_serve.append(
-                'bash "$SHARED_VOLUME_PATH/mooncake/creat_mooncake_json.sh"'
-            )
-        if component_sources["start_mooncake_store.sh"] == _SCRIPT_FALLBACK_SOURCE:
-            result.pre_serve.append(
-                'bash "$SHARED_VOLUME_PATH/mooncake/start_mooncake_store.sh" &'
-            )
-
+        master_script = result.mooncake_master_script or f"{runtime_dir}/start_mooncake_master.sh"
+        result.mooncake_master_section = _render_mooncake_master_section(master_script, runtime.runtime_id)
     result.pre_serve.append(
         'echo "Mooncake distributed KV component sources: '
-        f'mooncake.json={component_sources["mooncake.json"]}, '
-        f'start_mooncake_store.sh={component_sources["start_mooncake_store.sh"]}, '
-        f'env={component_sources["env"]}, transfer_config={component_sources["transfer_config"]}, '
-        f'transfer_engine={component_sources["transfer_engine"]}"'
+        f"runtime={runtime.runtime_id}, env={component_sources['env']}, "
+        f"mooncake.json={component_sources['config']}, "
+        f"start_mooncake_store.sh={component_sources['store']}, "
+        f"start_mooncake_master.sh={component_sources['master']}, "
+        f'transfer_config=yaml, transfer_engine={component_sources["transfer_engine"]}"'
     )
     result.pre_serve = list(dict.fromkeys(result.pre_serve))
-    result.mooncake_component_sources = component_sources
+    # 保持存量审计字段名，新增 runtime 与 Master 来源；内部 delivery 名称不泄漏到契约。
+    fallback_source = "script_fallback" if runtime.runtime_id == "mooncake_cuda" else _RUNTIME_FALLBACK_SOURCE
+
+    def audit_source(name: str) -> str:
+        source = component_sources[name]
+        return fallback_source if source == _RUNTIME_FALLBACK_SOURCE else source
+
+    if runtime.runtime_id == "mooncake_cuda":
+        # 存量 CUDA 审计契约保持不变；新 NPU/runtime-aware delivery 才增加 runtime/master 来源。
+        result.mooncake_component_sources = {
+            "mooncake.json": audit_source("config"),
+            "start_mooncake_store.sh": audit_source("store"),
+            "env": audit_source("env"),
+            "transfer_config": _YAML_SOURCE,
+            "transfer_engine": component_sources["transfer_engine"],
+        }
+    else:
+        result.mooncake_component_sources = {
+            "runtime": runtime.runtime_id,
+            "env": audit_source("env"),
+            "mooncake.json": audit_source("config"),
+            "start_mooncake_store.sh": audit_source("store"),
+            "start_mooncake_master.sh": audit_source("master"),
+            "transfer_config": _YAML_SOURCE,
+            "transfer_engine": component_sources["transfer_engine"],
+        }
+    result.mooncake_runtime = runtime.runtime_id
+    result.mooncake_env_files_required = True
     result.mooncake_script_assets_required = script_assets_required
-    result.mooncake_master_section = _render_mooncake_master_section()
     return result
 
 
-def _render_mooncake_master_section() -> list[str]:
-    """合成 Mooncake master 分支段(early-exit 块的 shell 行)。
-
-    master Pod 由环境变量 ``IS_MOONCAKE_MASTER`` 标记(TRUE/true/1/True),命中时
-    只拉起 ``mooncake_master``、不执行 vllm serve / mooncake_client。该判别独立于
-    下方 RANK_IP==MASTER_IP(vllm 推理侧 master/client),后者保持原样。
-
-    段内命令由受控包代码合成(常量模板 + shlex.quote),不来自 YAML 任意 shell;
-    master.env 由 script_builder 另行渲染落盘。
-    """
-    master_env_line = 'source "$SHARED_VOLUME_PATH/mooncake/master.env"'
-    log_dir = "/var/log/wings"
-    master_start = 'bash "$SHARED_VOLUME_PATH/mooncake/start_mooncake_master.sh"'
+def _render_mooncake_master_section(master_script: str, runtime: str) -> list[str]:
+    """生成 Master 专属 Pod early-exit 段；脚本路径来自可信 files 或 runtime assets。"""
+    master_start = (
+        f"bash {shlex.quote(master_script)}" if not master_script.startswith("$") else f'bash "{master_script}"'
+    )
     return [
         "# ─── Mooncake master branch (IS_MOONCAKE_MASTER) ───",
-        "# master Pod: 只拉起 mooncake_master, 不执行 vllm serve / mooncake_client。",
-        "# 本判别独立于下方 RANK_IP==MASTER_IP (vllm 推理侧 master/client), 后者保持原样。",
+        "# master Pod: only starts mooncake_master and never executes vllm serve.",
         'export SHARED_VOLUME_PATH="${SHARED_VOLUME_PATH:-/shared-volume}"',
         'if [ "${IS_MOONCAKE_MASTER:-}" = "TRUE" ] || [ "${IS_MOONCAKE_MASTER:-}" = "true" ] || \\',
         '   [ "${IS_MOONCAKE_MASTER:-}" = "1" ] || [ "${IS_MOONCAKE_MASTER:-}" = "True" ]; then',
-        f"    {master_env_line}",
-        f"    mkdir -p {shlex.quote(log_dir)}",
-        # 不做输出重定向:start_mooncake_master.sh 自带日志处理(log() 落
-        # mooncake_master_setup.log,glog --log_dir);stdout/stderr 保持流向
-        # start_command.sh 的 exec tee(engine.log / 容器 stdout),便于采集。
+        "    mkdir -p /var/log/wings",
         f"    {master_start} &",
         "    MASTER_PID=$!",
         '    _wings_log INFO "mooncake master started, PID=$MASTER_PID"',

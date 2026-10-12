@@ -9,6 +9,13 @@
 #   KV_MEM_OFFLOAD_SIZE / KV_PROTOCOL / SERVING_CONFIG_ID
 set -euo pipefail
 
+CUR_PATH=$(cd "$(dirname "$0")" && pwd)
+if [ ! -f "${CUR_PATH}/client.env" ]; then
+    echo "Mooncake client environment is missing: ${CUR_PATH}/client.env" >&2
+    exit 1
+fi
+source "${CUR_PATH}/client.env"
+
 : "${SERVING_CONFIG_ID:?SERVING_CONFIG_ID is required for Mooncake script fallback}"
 : "${KV_PROTOCOL:?KV_PROTOCOL is required for Mooncake script fallback}"
 : "${KV_MEM_OFFLOAD_SIZE:?KV_MEM_OFFLOAD_SIZE is required for Mooncake script fallback}"
@@ -27,7 +34,7 @@ case "$KV_PROTOCOL" in
         ;;
 esac
 
-output_dir="$SHARED_VOLUME_PATH/mooncake"
+output_dir="$SHARED_VOLUME_PATH/distributed_offload/mooncake_cuda"
 output_path="$output_dir/mooncake.json"
 mkdir -p "$output_dir"
 tmp_path="$(mktemp "$output_dir/.mooncake.json.XXXXXX")"
