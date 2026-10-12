@@ -1,0 +1,587 @@
+[
+  {
+    "rule_id": "802",
+    "title": "if条件分支检查",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:该if分支对同一变量做了4次以上判断,可以考虑采用Map方式处理",
+    "fix_suggestion": "在 if / else if 语句中对同一个变量做4次以上的判断会导致代码冗长不利于阅读,建议优化设计予以避免",
+    "code": "DC.G.CTL.01"
+  },
+  {
+    "rule_id": "803",
+    "title": "空条件语句内容检测",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:条件语句中xxx行为空语句,无有效代码",
+    "fix_suggestion": "应合理设计条件语句,避免使用空条件语句,以使代码更简洁",
+    "code": "DC.G.CTL.02"
+  },
+  {
+    "rule_id": "804",
+    "title": "禁止使用{}作为比较表达式左右值",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:使用了{}作为比较表达式左右值",
+    "fix_suggestion": "禁止使用{}作为比较表达式左右值",
+    "code": "DC.G.EXP.01"
+  },
+  {
+    "rule_id": "805",
+    "title": "多值赋值语句中左值右值个数不匹配",
+    "language": "Lua",
+    "level": "一般",
+    "description": "行号:xxx,列号:xxx:赋值语句xxx中,左右值个数不相等,右值个数为xxx",
+    "fix_suggestion": "多赋值语句中左值和右值个数必须相匹配",
+    "code": "DC.G.EXP.02"
+  },
+  {
+    "rule_id": "806",
+    "title": "禁止使用不同语言版本间不兼容的函数",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:禁止使用存在语言版本不兼容函数xxx",
+    "fix_suggestion": "数通当前使用的是Lua5.3和luajit两个版本,当产品存在Lua5.3和luajit版本混用的场景时,使用以下Lua5.3新增但在luajit上不存在的函数会存在兼容性问题,因此禁止在混用场景下使用。\nmath.fmod\ntable.move\ntable.pack\ntable.unpack\nstring.pack\nstring.unpack\nstring.packsize",
+    "code": "DC.G.FUN.01"
+  },
+  {
+    "rule_id": "807",
+    "title": "函数调用实参个数大于需要的参数个数",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:实参个数太多:函数\"xxx\"需要xx个参数,而实参个数为xx",
+    "fix_suggestion": "多于函数形参个数的实参会被忽略,这很可能是编码疏忽而非有意设计,进而隐藏着非预期的功能错误,因此应确保函数调用实参个数不大于形参个数。",
+    "code": "DC.G.FUN.02"
+  },
+  {
+    "rule_id": "808",
+    "title": "检查未使用的函数参数",
+    "language": "Lua",
+    "level": "一般",
+    "description": "行号:xxx,列号:xxx:参数“xxx”未使用,可以删除",
+    "fix_suggestion": "未被使用的参数往往是因为设计发生了变动造成的,它可能导致传参时出现不正确的参数匹配",
+    "code": "DC.G.FUN.03"
+  },
+  {
+    "rule_id": "809",
+    "title": "函数返回值数量少于多值赋值接受者数量",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:多值赋值语句xxx中左值右值个数不匹配",
+    "fix_suggestion": "多值赋值接受者个数不应多于函数返回值个数",
+    "code": "DC.G.FUN.04"
+  },
+  {
+    "rule_id": "810",
+    "title": "模块名和文件名必须相同",
+    "language": "Lua",
+    "level": "严重",
+    "description": "模块名和文件名不一致",
+    "fix_suggestion": "模块名和文件名要相同",
+    "code": "DC.G.MOD.01"
+  },
+  {
+    "rule_id": "811",
+    "title": "检查模块名是否和内置模块名重名",
+    "language": "Lua",
+    "level": "严重",
+    "description": "模块名不建议使用内置模块名“xxx”",
+    "fix_suggestion": "数据通信产品开发场景下,通常不需要覆盖原有语言的内置实现。据此推断,如果出现自定义模块名和语言内置模块名重名,这很可能是编码疏忽而非有意设计,进而导致非预期功能错误,因此须确保模块名与语言内置模块名不重名。\n常见的语言内置模块名如下:\ncoroutine\ndebug\nfile\nio\nmath\nos\npackage\nstring\ntable\nutf8",
+    "code": "DC.G.MOD.02"
+  },
+  {
+    "rule_id": "812",
+    "title": "文件的第一个语句必须为module调用(模块定义)",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:文件的第一个语句必须为module调用(模块定义)",
+    "fix_suggestion": "如果该文件调用了module,则module函数的作用是把其后面的方法加入全局表中。当文件的第一个语句为module调用时,可以将文件所有方法纳入该module,以实现require文件后可以直接使用module名访问该文件所有函数的通常做法。",
+    "code": "DC.G.MOD.03"
+  },
+  {
+    "rule_id": "813",
+    "title": "不支持老化的脚本文件,禁止require其他文件(id.lua文件除外)",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:文件“xxx”属于不支持老化的脚本文件,禁止require其他文件(id.lua文件除外",
+    "fix_suggestion": "被不支持老化的文件require的文件也会常驻内存,这将产生不合理的文件驻留,导致不必要的内存资源占用。",
+    "code": "DC.G.MOD.04"
+  },
+  {
+    "rule_id": "814",
+    "title": "检查变量/函数是否在间接require的文件中定义",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:变量/函数:“xxx”是在间接require的文件:“xxx”中定义的,请直接require该文件",
+    "fix_suggestion": "使用模块的方法必须直接require该模块,而不应通过第三方模块间接require该模块",
+    "code": "DC.G.MOD.05"
+  },
+  {
+    "rule_id": "815",
+    "title": "中文字符使用检查",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:使用了中文字符",
+    "fix_suggestion": "除代码注释外,代码行中不允许出现宽字符(比如中文、日文、韩文等字符),即使是字符串中也不允许出现宽字符。",
+    "code": "DC.G.OTH.01"
+  },
+  {
+    "rule_id": "816",
+    "title": "handle泄露检查",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:代码块结束前没有释放句柄:“xxx”(存在资源泄露的风险)",
+    "fix_suggestion": "申请的资源使用完成后应及时释放,避免造成资源泄露。",
+    "code": "DC.G.PRM.01-01"
+  },
+  {
+    "rule_id": "817",
+    "title": "spt相关函数资源释放检查",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:函数“xxx”后未使用函数xxx释放handle",
+    "fix_suggestion": "申请的资源使用完成后应及时释放,避免造成资源泄露。",
+    "code": "DC.G.PRM.01-02"
+  },
+  {
+    "rule_id": "818",
+    "title": "for循环中不变部分检查",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:“xxx”该部分跟for循环无关,可以挪到循环外去",
+    "fix_suggestion": "在循环体中进行与循环无关的操作会影响循环效率,因此应避免在循环体中进行与循环无关的操作",
+    "code": "DC.G.PRM.02"
+  },
+  {
+    "rule_id": "819",
+    "title": "函数使用的变量可以直接使用函数参数检查",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:“xxx”调用的入参可以直接使用函数体定义的传入参数,请调整",
+    "fix_suggestion": "定义函数中无意义的变量赋值会带来不必要的开销,因此应避免定义冗余的函数入参副本",
+    "code": "DC.G.PRM.03"
+  },
+  {
+    "rule_id": "820",
+    "title": "参数避免过多使用..检查(超过6次)",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:参数中连接符..使用超过6次,请调整",
+    "fix_suggestion": "用“..”循环拼接字符串时,每次操作将生成一个新的字符串来保存拼接过程结果,在循环中拼接会影响效率,因此应避免使用“..”循环拼接字符串。",
+    "code": "DC.G.PRM.04"
+  },
+  {
+    "rule_id": "821",
+    "title": "表成员变量初始化检查",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:“xxx”表成员变量的初始化,建议放在xxx行的{}内",
+    "fix_suggestion": "在定义表时就完成初始化可以避免表内部冗余的内存扩充动作,使性能更为高效",
+    "code": "DC.G.PRM.05"
+  },
+  {
+    "rule_id": "822",
+    "title": "使用不安全函数检查",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:禁止使用不安全函数xxx",
+    "fix_suggestion": "以下函数在《华为Lua语言编程规范2.0》的“P.06 对不可信数据校验后使用”中描述了相应的安全风险,且在数通产品绝大部分开发场景下可以避免使用,因此禁止使用这些函数。\ndofile\nload\nloadstring (lua 5.2 已经删除)\nloadfile\npackage.searchpath\npackage.loadlib\nos.execute\nio.popen",
+    "code": "DC.G.SEC.01"
+  },
+  {
+    "rule_id": "823",
+    "title": "禁止require参数的文件名包含目录路径",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:require的参数必须是文件基名(不含路径/后缀):\"xxx\"",
+    "fix_suggestion": "数通产品对运行于设备上的Lua文件的存放目录进行了统一规划,参数中使用目录路径不仅没有必要,而且还会增加不安全文件的注入风险,因此禁止require参数的文件名包含目录路径",
+    "code": "DC.G.SEC.02"
+  },
+  {
+    "rule_id": "824",
+    "title": "全局变量必须是只读的",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:全局变量xxx必须是只读的. 定义在文件 “xxx” 的第xx行、第xx列",
+    "fix_suggestion": "此处全局的变量指没有local修饰的变量,不管是跨模块的,还是本模块的,都不可以修改",
+    "code": "DC.G.VAR.01"
+  },
+  {
+    "rule_id": "825",
+    "title": "文件内全局变量是否只读检查",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:文件内的全局变量:“xxx”必须只读,定义在第xx行、第xx列",
+    "fix_suggestion": "文件内全局变量不要修改",
+    "code": "DC.G.VAR.02"
+  },
+  {
+    "rule_id": "826",
+    "title": "检查局部变量和全局变量重名",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:局部变量“xxx”和全局变量重名,该全局变量位于文件<xxx>的第xx行、第xx列",
+    "fix_suggestion": "局部变量a不要跟全局的变量a重名",
+    "code": "DC.G.VAR.03"
+  },
+  {
+    "rule_id": "827",
+    "title": "检查局部变量重定义",
+    "language": "Lua",
+    "level": "严重",
+    "description": "代码中不能定义两个一模一样的局部变量",
+    "fix_suggestion": "局部变量不进行重复定义",
+    "code": "DC.G.VAR.04"
+  },
+  {
+    "rule_id": "828",
+    "title": "检查同名局部变量定义隐藏",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:局部变量“xxx”定义隐藏了第xx行的同名符号定义",
+    "fix_suggestion": "局部变量不要与上层作用域中变量同名",
+    "code": "DC.G.VAR.05"
+  },
+  {
+    "rule_id": "829",
+    "title": "禁止在函数中定义全局变量",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:函数“xxx”中违规定义了全局变量“xxx”,禁止在函数中定义全局变量",
+    "fix_suggestion": "禁止在函数中定义全局变量",
+    "code": "DC.G.VAR.06"
+  },
+  {
+    "rule_id": "830",
+    "title": "禁止持久缓存其他模块的外部可见符号",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:变量“xxx”不是在该文件中定义的,不能赋值给非局部变量(会影响打补丁的效果)",
+    "fix_suggestion": "m.func只能赋值给局部变量",
+    "code": "DC.G.VAR.07"
+  },
+  {
+    "rule_id": "831",
+    "title": "局部变量使用前是否多次赋值检查",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:局部变量:“xxx”在第一次使用前多次赋值,上一次赋值在第xx行",
+    "fix_suggestion": "在读取前对局部变量多次赋值属于冗余赋值,应予以避免。",
+    "code": "DC.G.VAR.08"
+  },
+  {
+    "rule_id": "832",
+    "title": "禁止未经赋值的变量做为右值",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:访问了未初始化的局部变量xxx",
+    "fix_suggestion": "禁止未经赋值的变量做为右值",
+    "code": "DC.G.VAR.09"
+  },
+  {
+    "rule_id": "833",
+    "title": "布尔变量不要与true/false比较",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:布尔值“xxx”不能参与xxx运算",
+    "fix_suggestion": "布尔变量不用跟true/false比较",
+    "code": "G.CHK.02"
+  },
+  {
+    "rule_id": "834",
+    "title": "比较时常量放右",
+    "language": "Lua",
+    "level": "严重",
+    "description": "代码中在进行比较操作时,常量需要放在右边",
+    "fix_suggestion": "在进行比较时常量需要放右边",
+    "code": "G.CHK.03"
+  },
+  {
+    "rule_id": "835",
+    "title": "不可到达代码检测",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:文件中xxx行之后为不可到达的无效代码,请删除",
+    "fix_suggestion": "良好的代码不应包含执行无效或永远执行不到的代码,否则会导致非预期结果或维护成本增加。",
+    "code": "G.CHK.05"
+  },
+  {
+    "rule_id": "836",
+    "title": "注释禁止使用连续三个或者更多'-'",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:注释禁止使用连续三个或者更多的'-'",
+    "fix_suggestion": "注释禁止使用连续三个或者更多'-'",
+    "code": "G.CMT.01-02"
+  },
+  {
+    "rule_id": "837",
+    "title": "注释行与下方代码没有保持相同缩进",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:置于代码上方的注释行应与下方代码缩进相同,置于代码行右侧的注释换行时应保持'--'对齐",
+    "fix_suggestion": "注释行与下方代码保持相同缩进",
+    "code": "G.CMT.02"
+  },
+  {
+    "rule_id": "838",
+    "title": "文件头注释没有从文件顶头开始",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:文件头注释没有从文件顶头开始,顶头是“关键资产说明”除外\"",
+    "fix_suggestion": "文件头注释要从文件第一行开始",
+    "code": "G.CMT.05-01"
+  },
+  {
+    "rule_id": "839",
+    "title": "文件头注释空有格式无内容(冒号后面无内容)",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:文件头注释空有格式没有内容,冒号后面的内容为空",
+    "fix_suggestion": "注释行不要以:结尾,没有具体内容",
+    "code": "G.CMT.05-02"
+  },
+  {
+    "rule_id": "840",
+    "title": "魔鬼数字检测",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx: 使用了魔鬼数字xxx",
+    "fix_suggestion": "魔鬼数字即看不懂、难以理解的数字",
+    "code": "G.CNS.01"
+  },
+  {
+    "rule_id": "841",
+    "title": "一行只写一条语句的检查",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:使用了分割语句的分号,一行应只写一条语句",
+    "fix_suggestion": "简单来说,编码时避免使用分号(;)",
+    "code": "G.FMT.01"
+  },
+  {
+    "rule_id": "842",
+    "title": "缩进风格检查",
+    "language": "Lua",
+    "level": "一般",
+    "description": "行号:xxx,列号:xxx:不允许使用tab键缩进",
+    "fix_suggestion": "缩进使用 4 空格而不是TAB,请设置你的编辑器自动扩展 TAB 键为 4 空格。",
+    "code": "G.FMT.02"
+  },
+  {
+    "rule_id": "843",
+    "title": "行宽禁止超过120个字符",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:行宽%1超过了120个字符",
+    "fix_suggestion": "对行宽进行限制,是为了更好的可读性。\n不要因为有高分辨率的显示器,而忽略代码可读性。",
+    "code": "G.FMT.03"
+  },
+  {
+    "rule_id": "844",
+    "title": "语句换行时使用左右括号格式检查",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:语句换行时,应该左括号在行末,右括号在行首,“xxx”位置不对",
+    "fix_suggestion": "如果左括号留在行末,则对应右括号需另起一行\n如果左括号被内容跟随,则右括号也应跟随内容",
+    "code": "G.FMT.04-01"
+  },
+  {
+    "rule_id": "845",
+    "title": "左括号单独占一行检查告警",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:语句换行时,左括号“xxx”不可以单独占一行",
+    "fix_suggestion": "左括号不要单独占一行",
+    "code": "G.FMT.04-02"
+  },
+  {
+    "rule_id": "846",
+    "title": "行首或行尾是.或者in检查",
+    "language": "Lua",
+    "level": "一般",
+    "description": "行号:xxx,列号:xxx:'.'或者'in'不可以出现在行首或行尾",
+    "fix_suggestion": "不要以.或in开始或者结尾一行",
+    "code": "G.FMT.04-03"
+  },
+  {
+    "rule_id": "847",
+    "title": "行首关键字操作符检查",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:关键字或操作符出现在行首",
+    "fix_suggestion": "行不要以关键字then and or + * % ^ / // > < >= <= == ~= , ; .. -开头",
+    "code": "G.FMT.04-04"
+  },
+  {
+    "rule_id": "848",
+    "title": "行末关键字操作符检查",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:关键字或操作符出现在行末",
+    "fix_suggestion": "行不要以关键字local function if elseif while until for not #结尾",
+    "code": "G.FMT.04-05"
+  },
+  {
+    "rule_id": "849",
+    "title": "每行代码尾部不可以加空格",
+    "language": "Lua",
+    "level": "严重",
+    "description": "每行代码尾部不可以加空格",
+    "fix_suggestion": "每行代码尾部不加空格",
+    "code": "G.FMT.05-01"
+  },
+  {
+    "rule_id": "850",
+    "title": "大括号内部两端有无空格前后不一致",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:大括号{}内部两端有无空格前后不一致",
+    "fix_suggestion": "大括号内部两端有无空格要一致",
+    "code": "G.FMT.05-02"
+  },
+  {
+    "rule_id": "851",
+    "title": "水平空格要突出关键字和重要信息",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:注释符与注释内容间要有空格",
+    "fix_suggestion": "逗号(,),分号(;) 紧跟前方内容,后跟空格",
+    "code": "G.FMT.05-03"
+  },
+  {
+    "rule_id": "852",
+    "title": "禁止连续3个或更多的空行",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:禁止连续3个或更多的空行",
+    "fix_suggestion": "根据代码行间的相关性,增加空行,禁止连续3个或更多空行。\n至于增加 1 行还是 2 行,由代码段之间相关性决定；尽量做到整个模块空行的使用标准统一。",
+    "code": "G.FMT.06"
+  },
+  {
+    "rule_id": "853",
+    "title": "条件表达式最外层带有括号",
+    "language": "Lua",
+    "level": "严重",
+    "description": "条件表达式中,最外层不可以带有括号",
+    "fix_suggestion": "条件表达式中,最外层不带括号",
+    "code": "G.FMT.08"
+  },
+  {
+    "rule_id": "854",
+    "title": "函数规模必须小于等于:50",
+    "language": "Lua",
+    "level": "一般",
+    "description": "行号:xxx 函数 xxx 的规模为 xxx,按规范要求必须小于等于:50",
+    "fix_suggestion": "建议将超过50行的超大函数中的功能提取成单独的函数",
+    "code": "G.FUN.01-01"
+  },
+  {
+    "rule_id": "855",
+    "title": " 函数参数个数必须小于等于:5",
+    "language": "Lua",
+    "level": "一般",
+    "description": "行号:xxx 函数 xxx 的参数个数为 xx,按规范要求必须小于等于:8",
+    "fix_suggestion": "函数的参数个数。建议不超过 5 个",
+    "code": "G.FUN.01-02"
+  },
+  {
+    "rule_id": "856",
+    "title": "函数最大代码嵌套深度必须小于等于:4",
+    "language": "Lua",
+    "level": "一般",
+    "description": "行号:xxx 函数 xxx 的最大代码嵌套深度为 xx,按规范要求必须小于等于:5",
+    "fix_suggestion": "函数最大代码块嵌套深度。建议不超过 4 层",
+    "code": "G.FUN.01-03"
+  },
+  {
+    "rule_id": "857",
+    "title": "模块(文件)禁止循环引用",
+    "language": "Lua",
+    "level": "严重",
+    "description": "存在以下文件循环包含关系(省略了后缀名):xxx",
+    "fix_suggestion": "模块间如发产生循环引用,请考虑重新设计代码架构",
+    "code": "G.MOD.01"
+  },
+  {
+    "rule_id": "858",
+    "title": "模块(文件)禁止引用不需要的模块",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:无效的require “xxx”",
+    "fix_suggestion": "引用不需要的模块,虽没有功能问题,但可能浪费系统资源",
+    "code": "G.MOD.02"
+  },
+  {
+    "rule_id": "859",
+    "title": "命名风格检查",
+    "language": "Lua",
+    "level": "一般",
+    "description": "行号:xxx,列号:xxx:“xxx”命名不符合规范,函数名必须以小写字母开头",
+    "fix_suggestion": "所谓 snake_case,即 lower_case_with_underscores,用下划线来分割多个全小写单词",
+    "code": "G.NAM.01"
+  },
+  {
+    "rule_id": "860",
+    "title": "表内成员重复表名",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:表内部变量“xxx”重复表名",
+    "fix_suggestion": "通过表访问其内部变量(包括函数)时,表信息是已知的, 不需要包含,命名应尽量简洁",
+    "code": "G.NAM.02-01"
+  },
+  {
+    "rule_id": "861",
+    "title": "文件对外导出接口(非local),是否重复文件名或module名检查",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:文件对外导出接口“xxx”的命名与其module名或文件名重复,文件名为xxx,module名为xxx",
+    "fix_suggestion": "对外函数,前缀冗余！命名成 add 即可",
+    "code": "G.NAM.02-02"
+  },
+  {
+    "rule_id": "862",
+    "title": "文件内部变量(local, 包括函数),是否重复文件名或module名检查",
+    "language": "Lua",
+    "level": "一般",
+    "description": "行号:xxx,列号:xxx:局部变量/函数“xxx”的命名与其module名或文件名重复,文件名为xxx,module名为xxx",
+    "fix_suggestion": "内部函数,外部不可见,前缀同样冗余",
+    "code": "G.NAM.02-03"
+  },
+  {
+    "rule_id": "863",
+    "title": "禁止对不连续的数组表求长度",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:非法的表长度计算“xxx”,该表含有值为nil的成员",
+    "fix_suggestion": "t表不连续,有nil成员,不要进行#求表长操作",
+    "code": "G.TBL.01"
+  },
+  {
+    "rule_id": "864",
+    "title": "禁止冗余的变量初始化和变量赋值",
+    "language": "Lua",
+    "level": "严重",
+    "description": "进行冗余变量初始化和变量赋值",
+    "fix_suggestion": "不要进行冗余变量初始化和变量赋值",
+    "code": "G.VAR.02-01"
+  },
+  {
+    "rule_id": "865",
+    "title": "禁止无效的变量初始化和变量赋值",
+    "language": "Lua",
+    "level": "严重",
+    "description": "行号:xxx,列号:xxx:变量\"xxx\"在\"xxx\"行赋值后,作用域结束前,在所有分支都无人读取",
+    "fix_suggestion": "函数即将返回,value此处的赋值是无效的",
+    "code": "G.VAR.02-02"
+  },
+  {
+    "rule_id": "866",
+    "title": "多变量赋值语句,最后一个变量不可以是哑变量",
+    "language": "Lua",
+    "level": "一般",
+    "description": "行号:xxx,列号:xxx: 多变量赋值语句xxx最后一个变量不可以是哑变量",
+    "fix_suggestion": "不需要处理返回值,直接忽略即可。\n例:\nf1()            -- Good: 忽略返回值\nf2()            -- Good: 忽略返回值",
+    "code": "G.VAR.04"
+  }
+]

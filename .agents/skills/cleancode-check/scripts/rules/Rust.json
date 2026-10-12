@@ -1,0 +1,1298 @@
+[
+  {
+    "rule_id": "1014",
+    "title": "在 async 块/函数中调用 async 函数/闭包请不要忘记添加.await-试行",
+    "language": "Rust",
+    "level": "严重",
+    "description": "",
+    "fix_suggestion": "",
+    "code": "G.ASY.01"
+  },
+  {
+    "rule_id": "1015",
+    "title": "在跨await 调用中持有同步锁需要进行处理-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "同步互斥锁本来就不是为异步上下文跨 await 调用而设计的,在这种场景中使用同步互斥锁容易造成死锁。当同步互斥锁被跨 await 时,有可能很长时间都不会返回这个调用点,在其他任务中再次用到这个互斥锁的时候,容易造成死锁。\n\n这里有三种解决方案:\n\n使用异步互斥锁。但是异步互斥锁的开销要大于同步互斥锁。\n确保同步互斥锁在调用 await 之前已经释放。",
+    "fix_suggestion": "",
+    "code": "G.ASY.02"
+  },
+  {
+    "rule_id": "1016",
+    "title": "在跨await 调用持有RefCell的引用需要进行处理-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "跟不要在异步上下文中跨 await 使用 同步互斥锁类似,使用 RefCell 的独占(可变)借用会导致 Panic。因为 RefCell 是运行时检查独占的可变访问,如果 跨 await 持有一个可变引用则可能会因为共享的可变引用而引起 Panic。\n\n这种共享可变在编译期是无法被检查出来的。",
+    "fix_suggestion": "",
+    "code": "G.ASY.03"
+  },
+  {
+    "rule_id": "1017",
+    "title": "避免定义不必要的异步函数-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "如果一个异步函数内部没有任何异步代码,相比一个同步函数,它会产生额外的调用成本。",
+    "fix_suggestion": "",
+    "code": "G.ASY.04"
+  },
+  {
+    "rule_id": "1018",
+    "title": "Crate 的 Cargo.toml 中应该包含必要的元信息-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "在 Cargo.toml 中应该包含必要的元信息,以便使用者知道它的作用。",
+    "fix_suggestion": "",
+    "code": "G.CAR.02"
+  },
+  {
+    "rule_id": "1019",
+    "title": "Feature 命名应该避免否定式或多余的前后缀-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "Feature 命名应该避免出现 no- 或 not- 之类的否定前缀,或诸如 use-,with- 前缀或 -support后缀。Feature 的目的是正向的,可选的特性,使用否定式命名和它的目的背道而驰。",
+    "fix_suggestion": "",
+    "code": "G.CAR.03"
+  },
+  {
+    "rule_id": "1020",
+    "title": "Cargo.toml 中依赖包版本不要使用通配符-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "依赖的包必须指定具体的语义版本。关于语义版本说明参见: The Cargo book: SemVer Compatibility 。",
+    "fix_suggestion": "",
+    "code": "G.CAR.04"
+  },
+  {
+    "rule_id": "1021",
+    "title": "非必要情况下,不宜使用LinkedList,而用Vec或VecDeque代替-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "一般情况下,有 Vec和VecDeque 性能更好。LinkedList 存在内存浪费,缓存局部性(Cache Locality)比较差,无法更好地利用CPU 缓存机制,性能很差。\n\n只有在有大量的 列表 拆分 和 合并 操作时,才真正需要链表,因为链表允许你只需操作指针而非复制数据来完成这些操作。",
+    "fix_suggestion": "",
+    "code": "G.CLT.01"
+  },
+  {
+    "rule_id": "1022",
+    "title": "公开的 API 需要文档注释",
+    "language": "Rust",
+    "level": "提示",
+    "description": "1. 公开 API 如需返回 `Result` 类型的函数,则相应文档中需增加 `Error` 注释\n\n    解释什么场景下会返回什么样的错误类型,便于调用者处理错误。\n\n2. 公开 API 如有发生 `Panic` 的可能,则相应文档中需增加 `Panic` 注释\n\n    解释在什么条件下会发生 `Panic`,便于调用者进行预处理。\n\n3. 公开 API 中的 `Unsafe` 函数或 `trait`,文档中需添加 `Safety` 注释和相关说明\n\n    解释该函数接口的安全边界,便于调用者安全地使用。\n\n    在函数内部的 unsafe 代码块(即 `unsafe {...}`)上方,不统一要求,但是建议添加 `SAFETY` 注释,提升代码的可维护性。\n\n    `Safety` 文档注释建议包含以下内容(如果适用):\n\n    - 前提条件(例如,参数的有效状态是什么？)\n    - 失败处理(例如,什么值应该被释放？)\n    - 成功处理(例如,什么值被创建或消耗？)",
+    "fix_suggestion": "- 公开 API 如需返回 `Result` 类型的函数,则相应文档中需增加 `Error` 注释\n  解释什么场景下会返回什么样的错误类型,便于调用者处理错误。\n- 公开 API 如有发生 `Panic` 的可能,则相应文档中需增加 `Panic` 注释\n  解释在什么条件下会发生 `Panic`,便于调用者进行预处理。\n- 公开 API 中的 `Unsafe` 函数或 `trait`,文档中需添加 `Safety` 注释和相关说明\n  解释该函数接口的安全边界,便于调用者安全地使用。\n  在函数内部的 unsafe 代码块(即 `unsafe {...}`)上方,不统一要求,但是建议添加 `SAFETY` 注释,提升代码的可维护性。\n  `Safety` 文档注释建议包含以下内容(如果适用):\n  - 前提条件(例如,参数的有效状态是什么？)\n  - 失败处理(例如,什么值应该被释放？)\n  - 成功处理(例如,什么值被创建或消耗？)",
+    "code": "G.CMT.01"
+  },
+  {
+    "rule_id": "1023",
+    "title": "在公开的返回Result类型返回的函数文档中增加 # Error 注释-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "在公开(pub)的返回Result类型函数文档中,建议增加 # Error 注释来解释该函数返回的错误类型,方便用户处理错误。\n说明: 该规则通过 cargo clippy 来检测。默认不会警告。",
+    "fix_suggestion": "",
+    "code": "G.CMT.01"
+  },
+  {
+    "rule_id": "1024",
+    "title": "如果公开的API在某些情况下会发生 Panic,则相应文档中需增加 # Panic 注释-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "在公开(pub)函数文档中,建议增加 # Panic 注释来解释该函数在什么条件下会 Panic,便于使用者进行预处理。\n\n说明: 该规则通过 cargo clippy 来检测。默认不会警告。",
+    "fix_suggestion": "",
+    "code": "G.CMT.02"
+  },
+  {
+    "rule_id": "1025",
+    "title": "在 文档注释中要使用 空格代替 tab-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "Rust 代码风格中提倡使用空格代替tab,在文档注释中也应该统一使用空格。",
+    "fix_suggestion": "",
+    "code": "G.CMT.03"
+  },
+  {
+    "rule_id": "1026",
+    "title": "对于科学计算中涉及浮点数近视值的常量要尽量使用预定义常量-试行",
+    "language": "Rust",
+    "level": "严重",
+    "description": "Rust标准库中已经提供了一些特殊常量的定义,其精确度通常会比开发者自行定义的高,所以若考虑数值精确度时则宜使用标准库已定义的特殊常量。\n\n这些特殊常量都可以在标准库中找到,比如 std::f32::consts",
+    "fix_suggestion": "",
+    "code": "G.CNS.01"
+  },
+  {
+    "rule_id": "1027",
+    "title": "常量类型不应具有内部可变性",
+    "language": "Rust",
+    "level": "一般",
+    "description": "内部可变性类型包括:atomics, Cell, RefCell, UnsafeCell, Mutex, RwLock, OnceLock 等,对 const 变量的修改是无效的,有可能跟程序语义预期结果不符",
+    "fix_suggestion": "内部可变性类型包括:`atomics`, `Cell`, `RefCell`, `UnsafeCell`, `Mutex`, `RwLock`, `OnceLock` 等,对 const 变量的修改是无效的,有可能跟程序语义预期结果不符",
+    "code": "G.CNS.01"
+  },
+  {
+    "rule_id": "1028",
+    "title": "不要断言常量布尔类型-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "此类语句会被编译器优化掉。最好直接使用 panic! 或 unreachable!代替。",
+    "fix_suggestion": "",
+    "code": "G.CNS.02"
+  },
+  {
+    "rule_id": "1029",
+    "title": "宜使用标准库中的预定义常量",
+    "language": "Rust",
+    "level": "提示",
+    "description": "Rust标准库中已经提供了一些特殊常量的定义,其精确度通常会比开发者自行定义的高,所以若考虑数值精确度时则宜使用标准库已定义的特殊常量。\n\n这些特殊常量都可以在标准库中找到,比如 std::f32::consts",
+    "fix_suggestion": "Rust 中提供了一些特殊常量的定义(例如 std::f32::consts),其精确度通常会比开发者自行定义的高,所以若考虑数值精确度时,宜使用标准库预定义的特殊常量。",
+    "code": "G.CNS.02"
+  },
+  {
+    "rule_id": "1030",
+    "title": "不应将内部可变性容器声明为常量-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "由于常量会到处内联的特性。\n若将一个内容可变容器声明为常量,那么在引用它的时候同样会新建一个实例,这样会破坏内容可变容器的使用目的,\n所以需要将它的值存储为静态(static)或者直接将其定义为静态。",
+    "fix_suggestion": "",
+    "code": "G.CNS.03"
+  },
+  {
+    "rule_id": "1031",
+    "title": "不应在常量定义中增加显式的 'static 生命周期-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "在常量和静态变量声明时已经默认含有隐式的'static生命周期,所以不需要额外增加显式'static声明周期。",
+    "fix_suggestion": "",
+    "code": "G.CNS.04"
+  },
+  {
+    "rule_id": "1032",
+    "title": "对于适用 const fn 的函数或方法宜尽可能地使用 const fn-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "函数或方法缺失const关键词时无法被指派给常量。\n但是要注意不是所有函数都能使用const fn,因为相比一般函数或方法,const fn在使用时会有限制,一些功能将无法在const fn内使用,例如迭代器。",
+    "fix_suggestion": "",
+    "code": "G.CNS.05"
+  },
+  {
+    "rule_id": "1033",
+    "title": "当需要通过多个if判断来比较大小来区分不同情况时,优先使用match和cmp来代替if表达式-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "在使用多个if-else来对不同情况进行区分时,使用 match 和 cmp 代替 if 的好处是语义更加明确,而且也能帮助开发者穷尽所有可能性。\n但是这里需要注意这里使用 match 和 cmp 的性能要低于 if表达式,因为 一般的 > 或 < 等比较操作是内联的,而 cmp方法没有内联。\n\n根据实际情况来选择是否设置 comparison_chain 为 allow。",
+    "fix_suggestion": "",
+    "code": "G.CTF.01"
+  },
+  {
+    "rule_id": "1034",
+    "title": "if条件表达式分支中如果包含了else if分支也应该包含else分支-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "",
+    "fix_suggestion": "",
+    "code": "G.CTF.02"
+  },
+  {
+    "rule_id": "1035",
+    "title": "如果要通过 if 条件表达式来判断是否panic,请优先使用断言-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "如果要通过 if 条件表达式来判断是否panic,请优先使用断言",
+    "fix_suggestion": "如果要通过 if 条件表达式来判断是否panic,请优先使用断言",
+    "code": "G.CTF.03"
+  },
+  {
+    "rule_id": "1036",
+    "title": "循环或递归必须安全退出",
+    "language": "Rust",
+    "level": "提示",
+    "description": "循环或递归必须安全退出",
+    "fix_suggestion": "循环或递归必须安全退出",
+    "code": "G.CTF.03"
+  },
+  {
+    "rule_id": "1037",
+    "title": "在处理 Option<T> 和 Result<T, E> 类型时,不要随便使用 unwrap-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "当 Option<T> 和 Result<T, E>类型的值分别是 None 或 Err 时,直接对其 unwrap() 会导致程序 Panic！",
+    "fix_suggestion": "",
+    "code": "G.ERR.01"
+  },
+  {
+    "rule_id": "1038",
+    "title": "应正确处理返回类型 Option 和 Result",
+    "language": "Rust",
+    "level": "提示",
+    "description": "当 Option<T> 和 Result<T, E>类型的值分别是 None 或 Err 时,直接对其 unwrap() 会导致程序 Panic！",
+    "fix_suggestion": "对于返回类型为 `Option` 或 `Result` 的函数,应使用不会导致 panic 的方法显示处理返回的 `None` / `Err` 错误值。\n处理方法包括:\n- 使用 `match` 语句\n- 使用 `unwrap_or` / `unwrap_or_else` / `unwrap_or_default` 等函数\n例外:如下两种场景可直接调用 `unwrap` / `expect`:\n- 调用返回 `Option` / `Result` 函数之前通过输入参数的提前校验,可以保证返回值一定不会是 `None` / `Err`。\n- 业务模块的设计要求对于返回 `None` / `Err` 的情况 panic,依赖更高层的可靠性机制检测故障并实现故障恢复。",
+    "code": "G.ERR.01"
+  },
+  {
+    "rule_id": "1039",
+    "title": "不要滥用 expect,请考虑用 unwrap_or_ 系列方法代替-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "使用 expect 的时候请遵循 expect 的语义,不要滥用。参考 : P.ERR.05 。\n\n但是对于一些存在“副作用”的函数,在 遇到 None 或 Err 时,可能需要返回一些指定的值。这个时候用 expect 就不太符合语义。\n\n如果你的用法完全符合 expect 语义,那么可以设置 #![allow(clippy::expect_fun_call]",
+    "fix_suggestion": "",
+    "code": "G.ERR.02"
+  },
+  {
+    "rule_id": "1040",
+    "title": "当需要对表达式求值之后重新赋值时,宜使用复合赋值模式-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "",
+    "fix_suggestion": "",
+    "code": "G.EXP.01"
+  },
+  {
+    "rule_id": "1041",
+    "title": "避免复合条件表达式永远为 true 或 false",
+    "language": "Rust",
+    "level": "提示",
+    "description": "代码中使用了不兼容的位掩码,通常是代码编写错误导致的",
+    "fix_suggestion": "检查是否为拼写错误,例如将 `&&` 写成 `&`. `||` 写成 `|`",
+    "code": "G.EXP.01"
+  },
+  {
+    "rule_id": "1042",
+    "title": "不宜在比较中使用不兼容的位掩码-试行",
+    "language": "Rust",
+    "level": "严重",
+    "description": "可以对照下面表格进行检查。\n\nComparison Bit Op  Example   is always Formula\n== or !=   &      x & 2 == 3   false    c & m != c\n< or >=    &      x & 2 < 3    true     m < c\n> or <=    &      x & 1 > 1    false    m <= c\n== or !=                        x       1 == 0\n< or >=                         x       1 < 1\n<= or >                         x       1 > 0",
+    "fix_suggestion": "",
+    "code": "G.EXP.02"
+  },
+  {
+    "rule_id": "1043",
+    "title": "用括号明确表达式的操作顺序,避免过分依赖默认优先级",
+    "language": "Rust",
+    "level": "提示",
+    "description": "并不是每个人都能记得住优先级,所以最好使用括号把优先级顺序区分出来,增加可读性。",
+    "fix_suggestion": "宜使用括号强调表达式的优先级顺序,增加可读性,防止开发者因不熟悉默认的优先级而导致错误。",
+    "code": "G.EXP.02"
+  },
+  {
+    "rule_id": "1044",
+    "title": "不要利用数组表达式的边界检查来 Panic,而应该用断言-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "这样会影响代码可读性。",
+    "fix_suggestion": "",
+    "code": "G.EXP.03"
+  },
+  {
+    "rule_id": "1045",
+    "title": "自增/自减运算使用 +=/-=-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "C/Cpp 等编程语言常用的自增自减操作,如 ++i 、i++ 、i-- 等不是合法的 Rust 表达式, --i 虽然是合法的 Rust 表达式,但是表达对i取反两次,而不是自减语义。",
+    "fix_suggestion": "",
+    "code": "G.EXP.04"
+  },
+  {
+    "rule_id": "1046",
+    "title": "表达式操作最好使用括号来表达清楚优先级顺序-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "并不是每个人都能记得住优先级,所以最好使用括号把优先级顺序区分出来,增加可读性。",
+    "fix_suggestion": "",
+    "code": "G.EXP.05"
+  },
+  {
+    "rule_id": "1047",
+    "title": "避免在比较中添加无用的掩码操作-试行",
+    "language": "Rust",
+    "level": "严重",
+    "description": "检查比较中的无用位掩码操作,可以在不改变结果的情况下删除该位掩码操作。\n\n请对照下面表格进行检查。",
+    "fix_suggestion": "",
+    "code": "G.EXP.06"
+  },
+  {
+    "rule_id": "1048",
+    "title": "extern 外部函数应显式指定 ABI 标识",
+    "language": "Rust",
+    "level": "一般",
+    "description": "当使用 extern 指定外部函数时,应显式指定 ABI 标识,否则默认为 C-ABI。\n\n显式指定 ABI 标识是 Rust 语言的一种约定俗成,有利于代码健壮性。",
+    "fix_suggestion": "",
+    "code": "G.FMT.01"
+  },
+  {
+    "rule_id": "1049",
+    "title": "内存拷贝代价大的参数应按地址传递",
+    "language": "Rust",
+    "level": "提示",
+    "description": "通过值传递的参数可能会导致不必要的 memcpy 拷贝,这可能会造成性能损失。",
+    "fix_suggestion": "Rust 中的所有权转移也意味着一次栈内存的拷贝,因此所有非引用和指针类型的参数传递都是值传递,需要考虑内存拷贝的代价,设计合理的参数类型:\n- 对于输入参数,拷贝代价小的类型使用值传递,拷贝代价大的类型传递只读引用。\n- 对于返回类型,如果拷贝代价大,宜设计传递可写借用参数并返回它。",
+    "code": "G.FUD.01"
+  },
+  {
+    "rule_id": "1050",
+    "title": "函数参数最长不要超过五 个-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "为了提升代码可读性,函数的参数最长不宜超过五个。",
+    "fix_suggestion": "",
+    "code": "G.FUD.01"
+  },
+  {
+    "rule_id": "1051",
+    "title": "宜合理使用 Result 类型或 must_use 修饰,保证用户有效处理返回值",
+    "language": "Rust",
+    "level": "提示",
+    "description": "RUST 中有以下方法可以在用户忽略函数返回值的时候出现编译告警:\n\n- 返回值类型是 Result\n- 函数定义增加 #[must_use] 修饰\n- 函数返回的专有数据类型增加 #[must_use] 修饰",
+    "fix_suggestion": "- RUST 中有以下方法可以在用户忽略函数返回值的时候出现编译告警:\n  - 返回值类型是 `Result`\n  - 函数定义增加 #[must_use] 修饰\n  - 函数返回的专有数据类型增加 #[must_use] 修饰",
+    "code": "G.FUD.02"
+  },
+  {
+    "rule_id": "1052",
+    "title": "当函数参数实现了 Copy,并且是按值传入,如果值可能会太大,则宜考虑按引用传递-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "通过值传递的参数可能会导致不必要的 memcpy 拷贝,这可能会造成性能损失。",
+    "fix_suggestion": "",
+    "code": "G.FUD.02"
+  },
+  {
+    "rule_id": "1053",
+    "title": "当函数参数出现太多 bool 类型的参数时,应该考虑将其封装为自定义的结构体或枚举-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "布尔类型的参数过多,很难让人记住,容易出错。将其封装为枚举或结构体,可以更好地利用类型系统的检查而避免出错。\n\n其他类型参数过多时,也可以考虑是否可以用自定义结构体或枚举进行封装。",
+    "fix_suggestion": "",
+    "code": "G.FUD.03"
+  },
+  {
+    "rule_id": "1054",
+    "title": "当Copy 类型的足够小的值作为函数参数时,应该按值(by-value)传入,而不是引用(by-ref)-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "在函数参数为 Copy 类型 且 其值足够小的时候,一般情况下,会避免传引用。因为对于这种小的值,性能上和按引用传递是一样快的,并且在代码更容易编写和可读。包括一些小的 结构体,也推荐按值传递,但要注意【例外】示例所示的情况。\n\n注:足够小一般是指尺寸小于 四字节(32位)。",
+    "fix_suggestion": "",
+    "code": "G.FUD.04"
+  },
+  {
+    "rule_id": "1055",
+    "title": "不宜为函数指定 inline(always)-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "inline 虽然可以提升性能,但也会增加编译时间和编译大小。Rust 中性能、编译时间和编译大小之间需要权衡。\n\n不宜过早优化。",
+    "fix_suggestion": "",
+    "code": "G.FUD.05"
+  },
+  {
+    "rule_id": "1056",
+    "title": "不要在泛型位置上使用内建类型-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "这样做虽然会导致编译错误,但是这种错误会使开发者感到困惑,反而无法找到问题所在。",
+    "fix_suggestion": "",
+    "code": "G.GEN.01"
+  },
+  {
+    "rule_id": "1057",
+    "title": "使用 Rust 标准库中某些方法,要注意避免使用其泛型默认实现,而应该使用具体类型的实现-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "Rust 标准库内部某些类型使用了 泛型特化(未稳定特性),比如 ToString trait。\n\n该 trait 有一个泛型默认实现, 并且一些具体类型也实现了它,比如 char/ str / u8/ i8 等。\n\n在实际代码中,应该选择去调用具体类型实现的 to_string() 方法,而非调用泛型的默认实现。\n\n这一规则要求开发者对 Rust 标准库的一些方法实现有一定了解。",
+    "fix_suggestion": "",
+    "code": "G.GEN.02"
+  },
+  {
+    "rule_id": "1058",
+    "title": "dbg!() 宏只应该用于调试代码-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "dbg!() 宏是 Rust 内置的宏,其目的是用于调试代码,仅用于 Debug 模式。不要将含有 dbg! 宏的代码加入到版本控制下。\n\n将其用在 Release 模式下,调试信息也会被打印出来,不安全。",
+    "fix_suggestion": "",
+    "code": "G.MAC.01"
+  },
+  {
+    "rule_id": "1059",
+    "title": "不应通过宏将 unsafe 代码伪装为 safe 代码",
+    "language": "Rust",
+    "level": "一般",
+    "description": "不应通过过程宏将 unsafe 代码包装为 safe 代码",
+    "fix_suggestion": "不应通过过程宏将 unsafe 代码包装为 safe 代码",
+    "code": "G.MAC.01"
+  },
+  {
+    "rule_id": "1060",
+    "title": "不应通过过程宏将 unsafe 代码包装为 safe 代码",
+    "language": "Rust",
+    "level": "一般",
+    "description": "不要通过过程宏将 unsafe 代码包装为 safe 代码,以此来规避 Rust 静态分析检查。",
+    "fix_suggestion": "",
+    "code": "G.MAC.PRO.01"
+  },
+  {
+    "rule_id": "1061",
+    "title": "一般情况下,不要直接对 Box<T> 进行借用-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "通常 &T 比 &Box<T> 更常用。",
+    "fix_suggestion": "",
+    "code": "G.MEM.BOX.01"
+  },
+  {
+    "rule_id": "1062",
+    "title": "一般情况下,不要直接对已经在堆上分配内存的类型进行 Box 装箱-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "像 Vec<T> / String 这样的类型,已经在堆上分配了内存。就没有必要再使用 Box<T> 对其进行装箱操作,这样没有任何好处。当然也存在例外情况。",
+    "fix_suggestion": "",
+    "code": "G.MEM.BOX.02"
+  },
+  {
+    "rule_id": "1063",
+    "title": "一般情况下,不要直接对不需要堆内存分配就可以正常工作的类型进行 Box 装箱-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "",
+    "fix_suggestion": "",
+    "code": "G.MEM.BOX.03"
+  },
+  {
+    "rule_id": "1064",
+    "title": "导入模块中的类型或函数时,应避免直接使用通配符",
+    "language": "Rust",
+    "level": "提示",
+    "description": "使用通配符导入会污染命名空间,比如导入相同命名的函数或类型。",
+    "fix_suggestion": "使用通配符导入会污染命名空间,比如导入相同命名的函数或类型。为了避免这种情况,使用导入的类型或函数时需要带模块名前缀。有个例外,当一个 crate 提供了 prelude 时,可以用 `prelude::*`。\n对于标准库中,很多人都熟知的类型 ,比如 `Arc/ Rc/ Cell/ HashMap` 等 , 可以导入它们直接使用。\n但是对于可能引起困惑的函数,比如 `std::ptr::replace` 和 `std::mem::replace` ,在使用它们的时候,就必须得带上模块前缀。\n使用一些第三方库中定义的类型或函数,也建议带上 crate 或模块前缀。如果太长的话,可以考虑使用 `as` 或 `type` 来定义别名。\n以上考虑都是为了增强代码的可读性、可维护性。",
+    "code": "G.MOD.01"
+  },
+  {
+    "rule_id": "1065",
+    "title": "导入模块不要随便使用 通配符*-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "使用通配符导入会污染命名空间,比如导入相同命名的函数或类型。",
+    "fix_suggestion": "",
+    "code": "G.MOD.03"
+  },
+  {
+    "rule_id": "1066",
+    "title": "一个项目中应该避免使用不同的模块布局风格-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "Rust 支持两种模块布局,文件夹内使用 mod.rs 或者是使用跟文件夹同名的文件名,来组织模块。\n\n但是项目里如果混合这两种模块布局,是比较让人困惑的,最好统一为同一种风格。\n\n上面两种lint,选择其中一种用于检查是否存在不同的模块布局。",
+    "fix_suggestion": "",
+    "code": "G.MOD.04"
+  },
+  {
+    "rule_id": "1067",
+    "title": "不要在私有模块中 设置其内部类型或函数方法 为 pub(crate)-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "如果在私有模块中设置 pub(crate) 可能会让使用者产生误解。建议用 pub 代替。",
+    "fix_suggestion": "",
+    "code": "G.MOD.05"
+  },
+  {
+    "rule_id": "1068",
+    "title": "对布尔或引用并发访问宜使用原子类型而非互斥锁-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "使用原子类型性能更好。但要注意指定合理的内存顺序。",
+    "fix_suggestion": "",
+    "code": "G.MTH.LOK.01"
+  },
+  {
+    "rule_id": "1069",
+    "title": "建议使用 Arc<str> / Arc<[T]> 来代替 Arc<String> / Arc<Vec<T>>-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "Arc<str>/ Arc<[T]> 的性能比 Arc<String> / Arc<Vec<T>> 更好。\n\n因为 :\n\nArc<String> / Arc<Vec<T>> 有一层中间层: arc -> String len/Vec<T> len -> text/data ,它是一个 薄指针(thin pointer) 。\nArc<str>/ Arc<[T]> 则没有中间层: arc & string len / [T] len -> text/data, 它是一个胖指针(fat pointer)。",
+    "fix_suggestion": "",
+    "code": "G.MTH.LOK.02"
+  },
+  {
+    "rule_id": "1070",
+    "title": "应使用统一的命名风格",
+    "language": "Rust",
+    "level": "提示",
+    "description": "应在代码中遵循统一的 Rust 命名风格。",
+    "fix_suggestion": "",
+    "code": "G.NAM.01"
+  },
+  {
+    "rule_id": "1071",
+    "title": "类型转换函数命名宜遵循所有权语义",
+    "language": "Rust",
+    "level": "提示",
+    "description": "以 as_ 和 into_ 作为前缀的类型转换通常是 降低抽象层次 ,要么是查看背后的数据 ( as ) ,要么是分解 (deconstructe) 背后的数据 ( into ) 。\n相对来说,以 to_ 作为前缀的类型转换处于同一个抽象层次,但是做了更多的工作。\n\n当一个类型用更高级别的语义 (higher-level semantics) 封装 (wraps) 一个与之有关的值时,应该使用 into_inner() 方法名来取出被封装的值。\n\n这适用于以下封装器:\n\n读取缓存 (BufReader) 、编码或解码 (GzDecoder) 、取出原子 (AtomicBool) 、\n或者任何相似的语义 (BufWriter)。",
+    "fix_suggestion": "as_ 命名的方法参数一般使用 &self 或 &mut self\nto_ 命名的方法参数一般使用 &mut self, &self (非 Copy 类型) 或 self (Copy 类型)\ninto_ 命名的方法参数一般使用 self",
+    "code": "G.NAM.02"
+  },
+  {
+    "rule_id": "1072",
+    "title": "类型转换函数命名需要遵循所有权语义-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "以 as_ 和 into_ 作为前缀的类型转换通常是 降低抽象层次 ,要么是查看背后的数据 ( as ) ,要么是分解 (deconstructe) 背后的数据 ( into ) 。\n相对来说,以 to_ 作为前缀的类型转换处于同一个抽象层次,但是做了更多的工作。\n\n当一个类型用更高级别的语义 (higher-level semantics) 封装 (wraps) 一个与之有关的值时,应该使用 into_inner() 方法名来取出被封装的值。\n\n这适用于以下封装器:\n\n读取缓存 (BufReader) 、编码或解码 (GzDecoder) 、取出原子 (AtomicBool) 、\n或者任何相似的语义 (BufWriter)。",
+    "fix_suggestion": "",
+    "code": "G.NAM.02"
+  },
+  {
+    "rule_id": "1073",
+    "title": "对于某些场景下不建议使用的方法可以通过配置 clippy.toml 来拒绝-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "有些场合可能需要拒绝使用一些容易出错的方法或函数,可以在 clippy.toml 中通过配置 disallowed_method 来满足这个需求。",
+    "fix_suggestion": "",
+    "code": "G.OTH.01"
+  },
+  {
+    "rule_id": "1074",
+    "title": "使用标准库中对应的方法计算秒级、毫秒级、微秒级的时间-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "",
+    "fix_suggestion": "",
+    "code": "G.OTH.02"
+  },
+  {
+    "rule_id": "1075",
+    "title": "避免在异步处理过程中包含阻塞操作",
+    "language": "Rust",
+    "level": "提示",
+    "description": "避免在异步处理过程中包含阻塞操作",
+    "fix_suggestion": "避免在异步处理过程中包含阻塞操作",
+    "code": "G.SAF.ASY.01"
+  },
+  {
+    "rule_id": "1076",
+    "title": "FFI 边界应确保字符串参数正确传递和使用",
+    "language": "Rust",
+    "level": "一般",
+    "description": "FFI 边界应确保字符串参数正确传递和使用",
+    "fix_suggestion": "Rust标准库提供了两种与 C 语言字符串兼容的字符串类型:CString 和 CStr。从 Rust 向 C 函数传递字符串时应当向将字符串转换为 CString 类型,再用 .as_ptr() 方法获取 C 字符串指针。而在 Rust 中读取 C 函数返回的字符串指针,应该通过 CStr::from_ptr() 函数将其转换为 CStr 类型再读取。",
+    "code": "G.SAF.FFI.01"
+  },
+  {
+    "rule_id": "1077",
+    "title": "在 FFI 调用的场景下,应确保跨边界数据的内存布局兼容",
+    "language": "Rust",
+    "level": "一般",
+    "description": "在 FFI 调用的场景下,应确保跨边界数据的内存布局兼容",
+    "fix_suggestion": "FFI 函数传递的任何数据类型,需要保证内存布局一致。对于结构体、枚举和联合体,应该通过添加 #[repr(C)] 属性,来避免字段顺序重排,以保证内存布局的兼容。",
+    "code": "G.SAF.FFI.02"
+  },
+  {
+    "rule_id": "1078",
+    "title": "禁止调用 C 不可重入函数",
+    "language": "Rust",
+    "level": "一般",
+    "description": "禁止调用 C 不可重入函数",
+    "fix_suggestion": "在多线程条件下调用外部不可重入函数时,有可能会因竞争条件而导致意外的系统状态和不可预测的结果,或导致拒绝服务和任意代码执行等内存安全问题。一般情况下,开发者可将这些函数替换为其可重入版本,否则需要根据情况解决或预防因竞争而产生的问题。",
+    "code": "G.SAF.FFI.03"
+  },
+  {
+    "rule_id": "1079",
+    "title": "禁止使用外部内存不安全函数",
+    "language": "Rust",
+    "level": "一般",
+    "description": "禁止使用外部内存不安全函数",
+    "fix_suggestion": "对于这些不安全函数,在 Rust 中,一般有功能相同的安全函数可供使用。如对于内存拷贝和初始化,可以使用 std::mem 模块提供的函数进行处理。",
+    "code": "G.SAF.FFI.04"
+  },
+  {
+    "rule_id": "1080",
+    "title": "extern 外部函数应显式指定 ABI 标识",
+    "language": "Rust",
+    "level": "一般",
+    "description": "extern 外部函数应显式指定 ABI 标识",
+    "fix_suggestion": "extern 外部函数应显式指定 ABI 标识",
+    "code": "G.SAF.FFI.05"
+  },
+  {
+    "rule_id": "1081",
+    "title": "应校验内存申请函数的输入参数和返回值",
+    "language": "Rust",
+    "level": "一般",
+    "description": "应校验内存申请函数的输入参数和返回值",
+    "fix_suggestion": "应校验内存申请函数的输入参数和返回值",
+    "code": "G.SAF.MEM.01"
+  },
+  {
+    "rule_id": "1082",
+    "title": "Unsafe 模式下,使用指针及内存地址时应确保有效性",
+    "language": "Rust",
+    "level": "一般",
+    "description": "在 Unsafe Rust 中,通过裸指针方式申请分配内存应注意:\n\n- **指针解引用前应确保指向的内存已初始化**\n \n    访问未初始化内存会导致未定义行为。\n\n- **FFI函数调用返回的指针应先检查是否为空再使用**\n \n    解引用空指针会导致程序崩溃。\n\n- **不应将局部变量的栈地址返回到作用域之外**\n \n    栈内存会在函数返回后被回收,访问会导致未定义行为。\n\n- **指针指向的内存释放后禁止继续访问**\n\n    指针指向的内存释放后,继续通过指针访问会导致未定义行为。",
+    "fix_suggestion": "",
+    "code": "G.SAF.MEM.02"
+  },
+  {
+    "rule_id": "1083",
+    "title": "Unsafe 模式下,应正确释放申请的内存",
+    "language": "Rust",
+    "level": "一般",
+    "description": "当动态分配内存不再使用时应予以释放,否则会发生内存泄漏。如果攻击者可以有意触发该漏洞,则内存资源可能被耗尽,造成拒绝服务。",
+    "fix_suggestion": "优先推荐使用 RAII 模式进行内存释放,避免内存泄漏和重复释放的风险。\n内存释放后,对应的指针变成悬空指针,建议重置为空指针,一旦错误访问,可以立即得到反馈,避免悬空指针的未定义行为(内存可能被其他业务模块重新分配,悬空指针的使用可能无意间修改了其他业务模块的数据)。",
+    "code": "G.SAF.MEM.03"
+  },
+  {
+    "rule_id": "1084",
+    "title": "多线程场景下,对于共享的标量类型数据,宜使用对应的原子类型",
+    "language": "Rust",
+    "level": "提示",
+    "description": "在多线程场景下,对于需要共享的类型数据,如布尔、整型和指针类型,建议使用原子类型,而非使用互斥锁进行封装。使用原子类型性能更好。",
+    "fix_suggestion": "在多线程场景下,对于需要共享的类型数据,如布尔、整型和指针类型,建议使用原子类型,而非使用互斥锁进行封装。使用原子类型性能更好。",
+    "code": "G.SAF.MTH.01"
+  },
+  {
+    "rule_id": "1085",
+    "title": "禁止将外部可控数据作为加载动态库的参数",
+    "language": "Rust",
+    "level": "一般",
+    "description": "禁止将从外部获取的数据作为加载动态库的参数,否则可能加载攻击者事先预制的模块。",
+    "fix_suggestion": "",
+    "code": "G.SAF.UNS.01"
+  },
+  {
+    "rule_id": "1086",
+    "title": "禁止将外部数据作为加载动态库的参数",
+    "language": "Rust",
+    "level": "一般",
+    "description": "禁止将从外部获取的数据作为加载动态库的参数,否则可能加载攻击者事先预制的模块。",
+    "fix_suggestion": "使用白名单机制,确保加载函数的参数不受任何外来数据的影响。",
+    "code": "G.SAF.UNS.01"
+  },
+  {
+    "rule_id": "1087",
+    "title": "定义函数签名时,当输入参数全部为不可变借用时,输出不宜包含可变借用",
+    "language": "Rust",
+    "level": "提示",
+    "description": "将某个包含 Unsafe 代码的函数安全抽象为 Safe 函数的时候,要注意符合规则中描述的签名约定:不能输入一个不可变借用,返回一个可变的,这是违反 Rust 安全准则的。\n\n在相关的需求场景下,可以使用 Safe Rust 提供的 Cell/RefCell 来实现。",
+    "fix_suggestion": "参数与返回值中其引用的可变性要一致,在相关的需求场景下,可以使用 Safe Rust 提供的 Cell/RefCell 来实现。",
+    "code": "G.SAF.UNS.02"
+  },
+  {
+    "rule_id": "1088",
+    "title": "当函数参数是不可变引用时,返回值不应是可变引用",
+    "language": "Rust",
+    "level": "提示",
+    "description": "将某个包含 Unsafe 代码的函数安全抽象为 Safe 函数的时候,要注意符合规则中描述的签名约定:不能输入一个不可变借用,返回一个可变的,这是违反 Rust 安全准则的。\n\n在相关的需求场景下,可以使用 Safe Rust 提供的 Cell/RefCell 来实现。",
+    "fix_suggestion": "",
+    "code": "G.SAF.UNS.02"
+  },
+  {
+    "rule_id": "1089",
+    "title": "代码中不要出现非法 Unicode 字符,也要防范非法 Unicode 字符-试行",
+    "language": "Rust",
+    "level": "严重",
+    "description": "非法 Unicode 字符可能引起安全问题。安全问题参见: Rust 编译器安全公告(CVE-2021-42574)\n\n禁止的 Unicode 字符类别为:\n\n隐藏的 Unicode 字符\n双向 Unicode 字符文本\n同形 Unicode 字符\nClippy Lint 目前只可以检测代码中出现的隐藏 Unicode 字符。\n\n在 Rust 1.56.1 之后 新增两个 lint 拒绝代码中出现可以更改显示顺序的 Unicode 码点出现。并且特别禁止 \\u{202A},\\u{202B},\\u{202D},\\u{202E},\\u{2066}, \\u{2067},\\u{2068},\\u{202C}和\\u{2069} 这几个特殊的 Unicode 码点。\n\nRust 的 mixed_script_confusables 和 confusable_idents 可以识别 同形字符。\n\n写代码的时候需要注意,尤其是开源代码,需要防范上述非法 Unicode 字符。",
+    "fix_suggestion": "",
+    "code": "G.SEC.01"
+  },
+  {
+    "rule_id": "1090",
+    "title": "在实现Displaytrait 时不要调用to_string()方法-试行",
+    "language": "Rust",
+    "level": "严重",
+    "description": "因为 to_string 是间接通过 Display 来实现的,如果实现 Display 的时候再使用 to_tring 的话,将会无限递归。",
+    "fix_suggestion": "",
+    "code": "G.STR.01"
+  },
+  {
+    "rule_id": "1091",
+    "title": "在追加字符串时使用push_str方法可读性更强-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "与+=相比,可读性更好。",
+    "fix_suggestion": "",
+    "code": "G.STR.02"
+  },
+  {
+    "rule_id": "1092",
+    "title": "将只包含 ASCII字符的字符串字面量转为字节序列可以直接使用b\"str\" 语法代替调用as_bytes方法-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "",
+    "fix_suggestion": "",
+    "code": "G.STR.03"
+  },
+  {
+    "rule_id": "1093",
+    "title": "需要判断字符串以哪个字符开头或结尾时,不要按字符迭代比较-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "",
+    "fix_suggestion": "",
+    "code": "G.STR.04"
+  },
+  {
+    "rule_id": "1094",
+    "title": "对字符串按指定位置进行切片的时候需要小心破坏其 UTF-8 编码-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "字符串默认是合法的 UTF-8字节序列,如果通过指定索引位置来对字符串进行切片,有可能破坏其合法 UTF-8 编码,除非这个位置是确定的,比如按 char_indices 方法来定位是合法的。",
+    "fix_suggestion": "对字符串按指定位置进行切片的时候需要小心破坏其 UTF-8 编码",
+    "code": "G.STR.05"
+  },
+  {
+    "rule_id": "1095",
+    "title": "在实现相等性、排序和散列类 trait 时,应保证一致性",
+    "language": "Rust",
+    "level": "一般",
+    "description": "在手动实现 Hash 和 PartialEq/Eq 时必须要满足等式 (k1 == k2) == (hash(k1) == hash(k2)),即当k1 和 k2 相等时,hash(k1) 也应该和 hash(k2) 相等。\n\n在手动实现 PartialOrd 和 Ord 时则必须要满足等式 k1.cmp(&k2) == k1.partial_cmp(&k2).unwrap()。\n\n若类型实现了 Borrow trait,也应保证上述等式对借用后的类型同样成立,即:\nhash(k1) == hash(k2) 等效于 hash(k1.borrow()) == hash(k2.borrow()), 且\nk1.borrow().cmp(&k2.borrow()) 等效于 k1.borrow().partial_cmp(&k2.borrow()).unwrap();\n\n通常情况下,可以通过 derive 属性宏来自动实现这些 traits。但相等性,排序和散列在不同应用场景可能存在不同的定义,又或是因为依赖的某种类型未实现其中一个 trait 而不能使用 derive 时,就需要开发者手动实现以上 traits,这时就要注意保持一致性。\n\n一旦不一致,可能导致出现非预期的函数行为。",
+    "fix_suggestion": "使用 `derive` 宏同时自动实现 `Hash` 及 `PartialEq`;\n或手动实现 `Hash` 及 `PartialEq`。",
+    "code": "G.TRA.01"
+  },
+  {
+    "rule_id": "1096",
+    "title": "宜实现 From 而不是 Into",
+    "language": "Rust",
+    "level": "提示",
+    "description": "优先为类型实现 From 而非 Into。因为实现了 From,Into 也会被自动实现。并且在错误处理的时候,? 操作符会通过调用 From 实现自动进行错误类型转换。\n\n但是在泛型限定上,优先 Into 。\n\n当然,也存在例外。",
+    "fix_suggestion": "优先为类型实现 `From` 而非 `Into`。因为实现了 `From`,`Into` 也会被自动实现。并且在错误处理的时候,`?` 操作符会通过调用 `From` 实现自动进行错误类型转换。",
+    "code": "G.TRA.02"
+  },
+  {
+    "rule_id": "1097",
+    "title": "宜使用具体类型的 default() 方法代替  Default::default() 调用-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "为了增强可读性。",
+    "fix_suggestion": "",
+    "code": "G.TRA.BLN.01"
+  },
+  {
+    "rule_id": "1098",
+    "title": "不要为迭代器实现Copy trait-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "在 Rust 中,迭代器是不能实现 Copy 的。因为在需要迭代修改的场景,因为 Copy 的存在,而失去效果。",
+    "fix_suggestion": "",
+    "code": "G.TRA.BLN.02"
+  },
+  {
+    "rule_id": "1099",
+    "title": "能使用derive 自动实现Default trait 就不要用手工实现-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "手工实现 Default,代码不精炼。",
+    "fix_suggestion": "",
+    "code": "G.TRA.BLN.03"
+  },
+  {
+    "rule_id": "1100",
+    "title": "在使用#[derive(Hash)] 的时候,避免再手工实现 PartialEq-试行",
+    "language": "Rust",
+    "level": "严重",
+    "description": "实现 Hash 和 Eq 必须要满足下面一个等式:\n\nk1 == k2  -> hash(k1) == hash(k2)\n即,当k1 和 k2 相等时,hash(k1)也应该和 hash(k2) 相等。 所以要求 PartialEq / Eq / Hash 的实现必须保持一致。\n\n如果用 #[derive(Hash)] 的时候,搭配了一个手工实现的 PartialEq 就很可能出现不一致的情况。\n\n但也有例外。",
+    "fix_suggestion": "",
+    "code": "G.TRA.BLN.04"
+  },
+  {
+    "rule_id": "1101",
+    "title": "在使用#[derive(Ord)] 的时候,避免再手工实现 PartialOrd-试行",
+    "language": "Rust",
+    "level": "严重",
+    "description": "跟实现 Hash 和 Eq 的要求类似,对于实现 Ord 的类型来说,必须要满足下面一个等式:\n\nk1.cmp(&k2) == k1.partial_cmp(&k2).unwrap()\n所以要求与 PartialOrd 的实现必须保持一致,并确保max、min和clamp与cmp一致。\n\n通过#[derive(Ord)] 并手动实现PartialOrd,很容易意外地使cmp和partial_cmp不一致。\n\n但也有例外。",
+    "fix_suggestion": "",
+    "code": "G.TRA.BLN.05"
+  },
+  {
+    "rule_id": "1102",
+    "title": "不要对实现 Copy 或引用的类型调用 std::mem::drop 和 std::mem::forgot-试行",
+    "language": "Rust",
+    "level": "严重",
+    "description": "std::mem::drop 函数只是利用 Rust 所有权的一个技巧,对于 实现了 Copy 的类型 或引用,是无效的。如果使用它,对导致代码可读方便产生误导作用。\n\n另外std::mem::drop 也无法 Drop 掉 ManuallyDrop 类型。\n\nstd::mem::forgot 同理。\n\n但是也存在例外的情况。",
+    "fix_suggestion": "",
+    "code": "G.TRA.BLN.06"
+  },
+  {
+    "rule_id": "1103",
+    "title": "对实现 Copy 的可迭代类型来说,要通过迭代器拷贝其所有元素时,应该使用 copied方法,而非cloned-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "copied 方法在语义层面,是针对实现 Copy 的类型,所以应该使用 copied 来增加代码可读性。",
+    "fix_suggestion": "",
+    "code": "G.TRA.BLN.07"
+  },
+  {
+    "rule_id": "1104",
+    "title": "实现 From 而不是 Into-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "优先为类型实现 From 而非 Into。因为实现了 From,Into 也会被自动实现。并且在错误处理的时候,? 操作符会通过调用 From 实现自动进行错误类型转换。\n\n但是在泛型限定上,优先 Into 。\n\n当然,也存在例外。",
+    "fix_suggestion": "",
+    "code": "G.TRA.BLN.08"
+  },
+  {
+    "rule_id": "1105",
+    "title": "一般情况下不要给 Copy 类型手工实现 Clone-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "手工为 Copy 类型实现 Clone ,并不能改变 Copy 类型的行为。除非你显式地去调用 clone()方法。",
+    "fix_suggestion": "",
+    "code": "G.TRA.BLN.09"
+  },
+  {
+    "rule_id": "1106",
+    "title": "定义局部变量初始化为数值字面量时,应添加明确的类型标识",
+    "language": "Rust",
+    "level": "一般",
+    "description": "如果数值字面量没有被指定具体类型,那么单靠类型推导,整数类型会被默认绑定为 i32 类型,而浮点数则默认绑定为 f64 类型。这可能导致某些运行时的意外,比如因为类型预期错误,导致应该在编译期发现的问题遗留到运行时,比如导致数据计算溢出等问题。",
+    "fix_suggestion": "数值字面量要添加明确的类型标识",
+    "code": "G.TYP.01"
+  },
+  {
+    "rule_id": "1107",
+    "title": "数值字面量要添加明确的类型标识",
+    "language": "Rust",
+    "level": "一般",
+    "description": "如果数值字面量没有被指定具体类型,那么单靠类型推导,整数类型会被默认绑定为 i32 类型,而浮点数则默认绑定为 f64 类型。这可能导致某些运行时的意外,比如因为类型预期错误,导致应该在编译期发现的问题遗留到运行时,比如导致数据计算溢出等问题。",
+    "fix_suggestion": "",
+    "code": "G.TYP.01"
+  },
+  {
+    "rule_id": "1108",
+    "title": "类型转换尽可能使用安全的转换函数代替 as-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "Rust 的 as 转换包含了「静默的有损转换(lossy conversion)」。诸如 i32::from 之类的转换函数只会执行无损转换(lossless conversion)。 如果输入表达式的类型发生变化,使用转换函数可以防止转换变成无声的有损转换,并使阅读代码的人更容易知道转换是无损的。",
+    "fix_suggestion": "",
+    "code": "G.TYP.01"
+  },
+  {
+    "rule_id": "1109",
+    "title": "数字字面量在使用的时候应该明确标注好类型-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "如果数字字面量没有被指定具体类型,那么单靠类型推导,整数类型会被默认绑定为 i32 类型,而浮点数则默认绑定为 f64类型。这可能导致某些运行时的意外。",
+    "fix_suggestion": "",
+    "code": "G.TYP.02"
+  },
+  {
+    "rule_id": "1110",
+    "title": "不要用数字类型边界值去判断能否安全转换,而应该使用 try_from 相关方法-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "在 Rust 中 From 代表不能失败的转换,而 TryFrom 则允许返回错误。\n\n一般在数字类型转换的时候,不需要防御式地去判断数字大小边界,那样可读性比较差,应该使用 try_from 方法,在无法转换的时候处理错误即可。",
+    "fix_suggestion": "",
+    "code": "G.TYP.03"
+  },
+  {
+    "rule_id": "1111",
+    "title": "创建大全局数组时宜使用静态变量而非常量-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "因为常量会内联,对于大的数组,使用静态变量定义更好。\n\n相关规则:G.CNS.03",
+    "fix_suggestion": "",
+    "code": "G.TYP.ARR.01"
+  },
+  {
+    "rule_id": "1112",
+    "title": "使用数组索引时禁止越界访问-试行",
+    "language": "Rust",
+    "level": "严重",
+    "description": "越界访问在运行时会 Panic！",
+    "fix_suggestion": "",
+    "code": "G.TYP.ARR.02"
+  },
+  {
+    "rule_id": "1113",
+    "title": "当数组元素为原生数据类型(Primitive),排序时宜使用非稳定排序-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "稳定排序会消耗更多的内存和 CPU 周期,相对而言,非稳定排序性能更佳。\n\n当然,在必须要稳定排序的场合,不应该使用非稳定排序。\n\n注: Vec<T> 动态数组也适用此规则。",
+    "fix_suggestion": "",
+    "code": "G.TYP.ARR.03"
+  },
+  {
+    "rule_id": "1114",
+    "title": "不宜使用块表达式作为控制表达式",
+    "language": "Rust",
+    "level": "一般",
+    "description": "使用块表达式作为控制表达式,易引入带副作用的函数调用,导致程序运行逻辑和预期不符,代码的可读性也同步变差。\n\nRust中的控制表达式包括:\n\n- if语句\n- while语句\n- match语句",
+    "fix_suggestion": "考虑将作为条件式的代码块提取为函数,再将函数调用作为if表达式的条件语句",
+    "code": "G.TYP.BOL.01"
+  },
+  {
+    "rule_id": "1115",
+    "title": "返回为布尔值的表达式或函数值不需要和布尔字面量进行比较-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "在 Rust 中,返回为布尔值的表达式或函数值可以直接当作布尔值使用。\n\n总之,使用布尔表达式的时候,要尽可能地简洁明了。",
+    "fix_suggestion": "",
+    "code": "G.TYP.BOL.01"
+  },
+  {
+    "rule_id": "1116",
+    "title": "不宜将布尔变量和布尔字面量进行比较",
+    "language": "Rust",
+    "level": "提示",
+    "description": "条件表达式中类似 x == true, x != true, x < true, x > false 等是非必要的表达方式,宜直接使用布尔变量, 如 x, !x。",
+    "fix_suggestion": "条件表达式中类似 `x == true`, `x != true`, `x < true`, `x > false` 等是非必要的表达方式,宜直接使用布尔变量, 如 `x`, `!x`。",
+    "code": "G.TYP.BOL.02"
+  },
+  {
+    "rule_id": "1117",
+    "title": "如果 match 匹配表达式为布尔类型,应使用 if 表达式来代替-试行",
+    "language": "Rust",
+    "level": "严重",
+    "description": "对于布尔表达式更倾向于使用 if ... else ...,相比较 match 模式匹配更有利于代码可读性。",
+    "fix_suggestion": "",
+    "code": "G.TYP.BOL.02"
+  },
+  {
+    "rule_id": "1118",
+    "title": "不应将数字类型转换为布尔值-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "这可能会让布尔值在内存中的表示无效。",
+    "fix_suggestion": "",
+    "code": "G.TYP.BOL.03"
+  },
+  {
+    "rule_id": "1119",
+    "title": "禁止在if表达式条件中使用块(block)结构-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "为了增加可读性。",
+    "fix_suggestion": "",
+    "code": "G.TYP.BOL.04"
+  },
+  {
+    "rule_id": "1120",
+    "title": "非必要时,布尔运算应使用逻辑运算符( &&/||)而非位运算符 (&/|)-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "位运算不支持短路(short-circuiting),所以会影响性能。逻辑运算符则支持短路。",
+    "fix_suggestion": "",
+    "code": "G.TYP.BOL.05"
+  },
+  {
+    "rule_id": "1121",
+    "title": "不应使用数字来代替布尔值-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "Rust 中布尔值就是 true 和 false。 不要试图使用数字 1 和 0 来代替布尔值。\n\n虽然 布尔值 可以强转为 对应的数字,但是反之则不行。\n\n不要通过判断数字来代替 布尔值,除非是 FFi 场景通过 C-ABI 和其他语言打交道。",
+    "fix_suggestion": "",
+    "code": "G.TYP.BOL.06"
+  },
+  {
+    "rule_id": "1122",
+    "title": "不宜将字符字面量强制转换为 u8-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "应该使用 字节字面量 去代替 将 字符字面量强转为 u8。",
+    "fix_suggestion": "",
+    "code": "G.TYP.CHR.01"
+  },
+  {
+    "rule_id": "1123",
+    "title": "整数到字符的类型转换应注意有效范围",
+    "language": "Rust",
+    "level": "提示",
+    "description": "整数到字符的类型转换应注意有效范围",
+    "fix_suggestion": "整数到字符的类型转换应注意有效范围",
+    "code": "G.TYP.CHR.01"
+  },
+  {
+    "rule_id": "1124",
+    "title": "字符串方法中如果需要单个字符的值作为参数,宜使用字符而非字符串-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "使用 字符 比 用字符串性能更好一些。",
+    "fix_suggestion": "",
+    "code": "G.TYP.CHR.02"
+  },
+  {
+    "rule_id": "1125",
+    "title": "当需要将整数转换为字符时,请使用安全转换函数,而非 transmute-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "并非每个整数都对应一个合法的 Unicode 标量值,使用 transmute 转换会有未定义行为。",
+    "fix_suggestion": "",
+    "code": "G.TYP.CHR.03"
+  },
+  {
+    "rule_id": "1126",
+    "title": "合理选择map和and_then-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "在标准库中内置的一些 Enum 类型中提供了一些方便的组合算子,比如 map 和 and_than 等。\n\nmap ,函数签名是 fn map<U, F>(self, f: F) -> Option<U> where F: FnOnce(T) -> U  。\nand_than,函数签名是 fn and_then<U, F>(self, f: F) -> Option<U> where F: FnOnce(T) -> Option<U> 。\nResult 中实现的 map/and_than 函数签名也和 Option 一致。 这两个方法之间的区别在于传入的闭包参数的返回值类型不同。\n\n这意味着:\n\n当你通过 F 对 U 进行 map 转换的时候,意味着这个转换是一定会成功的。\n当你通过 F 对 U 进行 map 转换的时候,意味着这个转换是不一定会成功的,需要在 F调用之后对其结果 Option<U>/Result<U> 进行处理。\n在合适的场景中选择合适的组合算子,可以让代码更加简洁,提升可读性和可维护性。",
+    "fix_suggestion": "",
+    "code": "G.TYP.ENM.01"
+  },
+  {
+    "rule_id": "1127",
+    "title": "非必要时不应自行创建空枚举-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "在 Rust 中 只有 never 类型(!)才是唯一合法表达 无法被实例化类型 的类型。但目前 never 类型还未稳定,只能在 Nightly 下使用。",
+    "fix_suggestion": "",
+    "code": "G.TYP.ENM.02"
+  },
+  {
+    "rule_id": "1128",
+    "title": "在使用类似 C 语言的枚举写法且使用repr(isize/usize) 布局时要注意 32位架构上截断的问题-试行",
+    "language": "Rust",
+    "level": "严重",
+    "description": "在使用类似 C 语言的枚举写法且使用repr(isize/usize) 布局时,在32位架构上会截断变体值,但在64位上工作正常。\n\n但是没有这种风险的时候,可以正常使用。",
+    "fix_suggestion": "",
+    "code": "G.TYP.ENM.03"
+  },
+  {
+    "rule_id": "1129",
+    "title": "不宜在use语句中引入Enum的全部变体(variants)-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "使用 Enum 的类型前缀可以使代码更加可读。",
+    "fix_suggestion": "",
+    "code": "G.TYP.ENM.04"
+  },
+  {
+    "rule_id": "1130",
+    "title": "对外导出的公开Enum,宜添加#[non_exhaustive]属性-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "作为对外公开的 Enum,为了保持稳定性,应该使用 #[non_exhaustive]属性,避免因为将来Enum 枚举变体的变化而影响到下游的使用。",
+    "fix_suggestion": "",
+    "code": "G.TYP.ENM.05"
+  },
+  {
+    "rule_id": "1131",
+    "title": "Enum内变体的大小差异不宜过大-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "要注意 Enum 内变体的大小差异不要过大,因为 Enum 内存布局是以最大的变体进行对齐。根据场景,如果该Enum 实例中小尺寸变体的实例使用很多的话,内存就会有所浪费。如果小尺寸变体的实例使用很少,则影响不大。\n\n解决办法就是把大尺寸变体包到 Box<T>中。",
+    "fix_suggestion": "",
+    "code": "G.TYP.Enum.06"
+  },
+  {
+    "rule_id": "1132",
+    "title": "使用f32字面量时,避免被Rust编译器截断-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "当指定超过 f32 精度的字面量值时,Rust 会默认截断该值。",
+    "fix_suggestion": "",
+    "code": "G.TYP.FLT.01"
+  },
+  {
+    "rule_id": "1133",
+    "title": "从任何数字类型转换为f64类型时注意避免损失精度-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "这种转换可能会有值的舍入错误发生。在某些对于精度要求比较高的场景需要注意。\n\n开发者需要了解可能发生精度损失的位置,对于精度要求精确的地方更加有好处。",
+    "fix_suggestion": "",
+    "code": "G.TYP.FLT.02"
+  },
+  {
+    "rule_id": "1134",
+    "title": " 对精度高要求的场景下,不应直接使用浮点数进行运算和比较-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "浮点数计算通常都是不精确的,直接对浮点数进行运算和比较可能造成数据错误。 如何更好地处理浮点数,可以参阅 浮点数指南 。\n\n但是对精度要求不高的场合,比如机器学习中某些场景,对此不作要求。",
+    "fix_suggestion": "",
+    "code": "G.TYP.FLT.03"
+  },
+  {
+    "rule_id": "1135",
+    "title": "宜使用Rust内置方法处理浮点数计算-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "内置方法会牺牲一定性能,但可以提升准确性。",
+    "fix_suggestion": "",
+    "code": "G.TYP.FLT.04"
+  },
+  {
+    "rule_id": "1136",
+    "title": "禁止在浮点数和整数相互转换时使用 transmute-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "使用transmute转换是非常容易出错的,建议使用 to_bites 这样转换更加安全。",
+    "fix_suggestion": "",
+    "code": "G.TYP.FLT.05"
+  },
+  {
+    "rule_id": "1137",
+    "title": "在用整数计算的时候需要考虑整数溢出、回绕和截断的风险-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "需要结合场景和业务来考虑如果发生溢出、回绕或截断的时候,是否会引起严重的问题。\n\n比如,对于时间要求精准的系统,如果在计算时间发生整数溢出,或者去计算某个数组的索引等,那可能会发生严重问题。但如果你只是一个简单的计算器,不会被用到具体的业务场合,那溢出也没有关系,因为你只需要在合理的数字范围内计算性能最好。",
+    "fix_suggestion": "",
+    "code": "G.TYP.INT.01"
+  },
+  {
+    "rule_id": "1138",
+    "title": "整数类型的算数运算,宜使用 checked_, saturating_, overflowing_, wrapping_ 为前缀的方法",
+    "language": "Rust",
+    "level": "提示",
+    "description": "使用整数计算时需结合场景和业务考虑,如发生溢出、回绕或截断时,是否会产生未定义行为或不符合预期的结果,比如在计算时间或数组索引时发生整数溢出会导致错误结果或 Panic。",
+    "fix_suggestion": "在 Rust 标准库中,提供 `add` / `checked_add` / ` saturating_add` / `overflowing_add` / `wrapping_add` 等系列方法,可结合场合选择合适的方法:\n- `checked_*` 系列函数返回 `Option`,一旦发生溢出则返回 None。\n- `saturating_*` 系列函数返回类型是整数,如果溢出,则给出该类型可表示范围的“最大/最小”值。\n- `wrapping_*` 系列函数则是直接抛弃已经溢出的最高位,将剩下的部分返回。即返回二进制补码结果。\n- `overflowing_*` 系列函数返回二进制补码结果以及指示是否发生溢出的布尔值。",
+    "code": "G.TYP.INT.01"
+  },
+  {
+    "rule_id": "1139",
+    "title": "避免将有符号整数和无符号整数之间强制转换-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "当有符号整数被强制转换为无符号整数时,负值会发生回绕,变成更大的正值,这在实际应用时有可能助长缓冲区溢出风险。",
+    "fix_suggestion": "",
+    "code": "G.TYP.INT.02"
+  },
+  {
+    "rule_id": "1140",
+    "title": "对负数取模计算的时候不应使用%-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "Rust 当前的这个 %形式是余数运算符,它的行为与C或Java等语言中相同符号的运算符相同。它也类似于Python或Haskell等语言中的模(modulo)运算符,只是它对 负数 的行为不同:余数是基于截断除法,而模运算是基于向下取整(floor)除法。",
+    "fix_suggestion": "",
+    "code": "G.TYP.INT.03"
+  },
+  {
+    "rule_id": "1141",
+    "title": "Rc、Arc、Box 不应相互嵌套使用",
+    "language": "Rust",
+    "level": "提示",
+    "description": "不合理的智能指针嵌套使用容易造成多级指针引用,导致内存访问效率不佳。",
+    "fix_suggestion": "建议使用 Rc<T> 和 Arc<T> 来替代 Rc<Box<T>> 和 Arc<Box<T>> 类型。",
+    "code": "G.TYP.PTR.01"
+  },
+  {
+    "rule_id": "1142",
+    "title": "对外导出的公开的 Struct,宜添加#[non_exhaustive]属性-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "作为对外公开的 结构体,为了保持稳定性,应该使用 #[non_exhaustive]属性,避免因为将来结构体字段发生变化而影响到下游的使用。主要涉及命名结构体和元组结构体。",
+    "fix_suggestion": "",
+    "code": "G.TYP.SCT.01"
+  },
+  {
+    "rule_id": "1143",
+    "title": "当结构体中有超过三个在逻辑上相关的布尔类型的字段,宜将其独立为一个枚举-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "这样有助于提升 代码可读性和 API 。",
+    "fix_suggestion": "",
+    "code": "G.TYP.SCT.02"
+  },
+  {
+    "rule_id": "1144",
+    "title": "宜使用结构体功能更新语法来提升代码可读性-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "",
+    "fix_suggestion": "",
+    "code": "G.TYP.SCT.03"
+  },
+  {
+    "rule_id": "1145",
+    "title": "宜使用迭代器而非下标遍历切片和数组",
+    "language": "Rust",
+    "level": "提示",
+    "description": "在 for 循环中使用索引下标访问有可能导致边界错误。",
+    "fix_suggestion": "遍历切片和数组时,宜使用迭代器来避免索引访问。",
+    "code": "G.TYP.SLC.01"
+  },
+  {
+    "rule_id": "1146",
+    "title": "应保证数组索引在有效范围内",
+    "language": "Rust",
+    "level": "一般",
+    "description": "RUST 的数组/切片越界访问不会出现内存被越界读写的后果,但会导致 panic。使用索引访问数组的时候需要保证索引值在有效范围。",
+    "fix_suggestion": "使用索引访问时需校验索引有效性,或使用安全的 `get` 方法",
+    "code": "G.TYP.SLC.02"
+  },
+  {
+    "rule_id": "1147",
+    "title": "在实现 Display trait 时不应调用 to_string() 方法",
+    "language": "Rust",
+    "level": "一般",
+    "description": "对某一类型实现 Display trait 的同时会自动为其实现 ToString trait。此时若调用 to_string 的话,将会造成无限递归以及栈溢出。",
+    "fix_suggestion": "不应在 Display 特质的实现中调用 sellf.to_string()",
+    "code": "G.TYP.STR.01"
+  },
+  {
+    "rule_id": "1148",
+    "title": "禁止访问未初始化的数组-试行",
+    "language": "Rust",
+    "level": "严重",
+    "description": "访问未初始化数组的内存会导致 未定义行为。",
+    "fix_suggestion": "",
+    "code": "G.TYP.Vec.01"
+  },
+  {
+    "rule_id": "1149",
+    "title": "不宜为 带有 unsafe命名的 类型或方法创建别名-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "Rust 里 unsafe 字样用于提醒开发者在编写代码的时候注意保证安全。如果修改别名,隐藏了这种提醒,不利于展示这种信息。\n\n不利于开发者去保证安全。",
+    "fix_suggestion": "",
+    "code": "G.UNS.01"
+  },
+  {
+    "rule_id": "1150",
+    "title": "使用 MaybeUninit<T> 来处理未初始化的内存-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "Rust 编译器要求变量要根据其类型正确初始化。\n\n比如引用类型的变量必须对齐且非空。这是一个必须始终坚持的不变量,即使在 Unsafe 代码中也是如此。因此,零初始化引用类型的变量会导致立即未定义行为,无论该引用是否访问过内存。\n\n编译器利用这一点,进行各种优化,并且可以省略运行时检查。\n\n使用前请仔细查看 MaybeUninit<T> 相关文档。",
+    "fix_suggestion": "",
+    "code": "G.UNS.MEM.01"
+  },
+  {
+    "rule_id": "1151",
+    "title": "当指针类型被强转为和当前内存对齐不一致的指针类型时,禁止对其解引用-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "该 Lint 会检查是否出现 指针类型被强转为和当前内存对齐不一致的指针类型 的情况,要注意不要对这类强转后的指针进行解引用操作,否则会有未定义行为。",
+    "fix_suggestion": "",
+    "code": "G.UNS.PTR.01"
+  },
+  {
+    "rule_id": "1152",
+    "title": "禁止将不可变指针手工转换为可变指针-试行",
+    "language": "Rust",
+    "level": "严重",
+    "description": "因为将不可变指针手工转换为可变指针可能会引发未定义行为。通常有这种需求,合法的手段是使用 UnsafeCell<T>。",
+    "fix_suggestion": "",
+    "code": "G.UNS.PTR.02"
+  },
+  {
+    "rule_id": "1153",
+    "title": "尽量使用 pointer::cast 来代替 as 强转指针-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "使用 pointer::cast 方法转换更加安全,它不会意外地改变指针的可变性,也不会将指针转换为其他类型。",
+    "fix_suggestion": "",
+    "code": "G.UNS.PTR.03"
+  },
+  {
+    "rule_id": "1154",
+    "title": "在 公开的 unsafe 函数的文档中必须增加 # Safety 注释-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "在公开(pub)的 unsafe 函数文档中,必须增加 # Safety 注释来解释该函数的安全边界,这样使用该函数的用户才可以安全地使用它。\n\n说明: 该规则通过 cargo clippy 来检测。默认会发出警告。",
+    "fix_suggestion": "",
+    "code": "G.UNS.SAS.01"
+  },
+  {
+    "rule_id": "1155",
+    "title": "在 Unafe 函数中应该使用 assert! 而非 debug_assert! 去校验边界条件-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "assert! 宏 在 Release 和 Debug 模式下都会被检查,并且不能被禁用。它通常用来在 unsafe 函数中判断传入的参数是否满足某种边界条件,以此来防止不合法的参数传入导致未定义行为。\n\n但是 debug_assert! 则可以通过配置 -C debug-assertions 来禁用它, 而且 debug_assert! 在 Release 模式下也会被编译器优化。所以,一旦使用了 debug_assert! 在 unsafe 函数中用来防范不合法参数,那有可能会失效。",
+    "fix_suggestion": "",
+    "code": "G.UNS.SAS.02"
+  },
+  {
+    "rule_id": "1156",
+    "title": "使用解构元组方式定义多个变量时不要使用太多单个字符来命名变量-试行",
+    "language": "Rust",
+    "level": "一般",
+    "description": "在解构元组的方式定义多个变量时,有时候变量命名可能是无特别语义的,比如临时值,可以用简单的单个字符来定义变量名,但是不宜太多。",
+    "fix_suggestion": "",
+    "code": "G.VAR.01"
+  },
+  {
+    "rule_id": "1157",
+    "title": "在某些场合下不宜使用变量遮蔽功能-试行",
+    "language": "Rust",
+    "level": "提示",
+    "description": "应该合理使用变量遮蔽功能。\n\n变量遮蔽功能在功能上属于一种继承式可变。它会覆盖之前的变量绑定,而创建一个新的同名的变量绑定。\n\n在同一个作用域中,非必要时不宜通过新变量声明遮蔽旧变量声明的方式来修改变量。\n在子作用域内修改“哨兵变量”时,应该避免使用变量遮蔽功能,防止引起逻辑Bug。\n如果使用变量遮蔽,禁止用不同类型的变量遮蔽前一个变量,如果实现同一个trait的可以例外。",
+    "fix_suggestion": "",
+    "code": "G.VAR.03"
+  }
+]

@@ -1,0 +1,42 @@
+# G.LOG.02 及时删除使用完的临时文件
+
+- **规则ID**：bdb482fb-ef08-45c5-b998-95de061c8cb9
+- **更新时间**：2026-04-07 04:30:01
+
+---
+
+**【问题级别】**
+
+严重
+
+**【描述】**
+
+1. Shell脚本中通常会将临时文件存放在/tmp目录下，而/tmp默认对所有人可读写，如果将一些敏感信息保存在/tmp下的临时文件，该临时文件容易被监控、查看及攻击，导致临时文件攻击。
+
+2. 使用mktemp创建只有脚本作者能访问的临时目录，并用trap命令在脚本退出时删除整个临时目录。
+
+**【正确示例】**
+
+```
+```shell
+#!/bin/bash
+trap 'test -n "${temp_dir}" && rm -rf "${temp_dir}"' EXIT
+temp_dir=$(mktemp -d "/export/home/oss_data/tmp/tmp.log")
+```
+
+```
+**【错误示例】**
+
+```
+```shell
+#!/bin/bash
+# 不符合：没有使用trap命令在退出时删除临时目录
+temp_dir=$(mktemp -d "/export/home/oss_data/tmp/tmp.log")
+```
+
+```
+**【修复建议】**
+
+1. 临时文件不能创建在/tmp目录下。
+
+2. 用 trap 命令在脚本退出时删除整个临时目录。

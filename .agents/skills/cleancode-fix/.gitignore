@@ -1,0 +1,8 @@
+# 本地凭据与运行时产物，禁止提交
+config.json
+results.json
+issues.json
+open_issues.json
+deferred_*.json
+references.zip
+.skillhub/

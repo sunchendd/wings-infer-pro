@@ -1,0 +1,1010 @@
+[
+  {
+    "rule_id": "1236",
+    "title": "禁止使用 eval()",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "使用eval()不仅会使程序的可读性变差,而且,当 eval() 里面包含用户输入的话存在安全风险。在不可信的代码里使用 eval() 有可能使程序受到不同的注入攻击。",
+    "fix_suggestion": "移除eval()函数,建议用其它更佳、更清晰、更安全的方式写代码,比如,使用JSON的parse方法来分析JSON字符串。",
+    "code": "G.AOD.01"
+  },
+  {
+    "rule_id": "1237",
+    "title": "禁止使用隐式的 eval()",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "setTimeout()、setInterval() 或者 execScript() (仅限IE浏览器)可以把一个javaScript字符串解析为javaScript代码来执行,当javaScript字符串中包含用户不可信输入时,则可能会使程序受到注入攻击。",
+    "fix_suggestion": "setTimeout()、setInterval() 或者 execScript() 的第一个参数不直接使用JavaScript 字符串代码,建议封装成函数。",
+    "code": "G.AOD.02"
+  },
+  {
+    "rule_id": "1238",
+    "title": "尽量避免使用console",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "在 JavaScript,虽然console 被设计为在浏览器中执行的,但避免使用 console 的方法被认为是一种最佳实践。这样的消息被认为是用于调试的,因此不适合输出到客户端。通常,在发布正式交付的产品之前尽量删除不必要 \n 的 console 调用。",
+    "fix_suggestion": "尽量避免使用console。",
+    "code": "G.AOD.03"
+  },
+  {
+    "rule_id": "1239",
+    "title": "禁止使用 alert",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "JavaScript 的 alert、confirm 和 prompt 被广泛认为是突兀的 UI 元素,应该被一个更合适的自定义的 UI 界面代替。此外,alert 经常被用于调试代码,部署到生产环境之前应该全部删除。",
+    "fix_suggestion": "禁止使用 alert。",
+    "code": "G.AOD.04"
+  },
+  {
+    "rule_id": "1240",
+    "title": "禁止使用 debugger",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "debugger 语句用于告诉 JavaScript 执行环境停止执行并在代码的当前位置启动调试器。随着现代调试和开发工具的出现,使用调试器已不是最佳实践。部署到生产环境之前应该删除。",
+    "fix_suggestion": "禁止使用 debugger。",
+    "code": "G.AOD.05"
+  },
+  {
+    "rule_id": "1241",
+    "title": "建议不要使用非空断言",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "非空断言将忽略空值检查,可能导致运行时出现空值异常,建议尽量不要使用该特性。",
+    "fix_suggestion": "将!.修改为?. 不要使用 ! 后缀运算符进行非空断言。",
+    "code": "G.AST.01-TS"
+  },
+  {
+    "rule_id": "1242",
+    "title": "使用??进行空值合并",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "在明确需要空值检测时,应当使用??运算符,避免使用||做假值检测来替代；??在变量为undefined 或 null的时候才使用默认值,||则在变量为假值(undefined、null、''、0等)时也会使用默认值。",
+    "fix_suggestion": "使用??进行空值合并",
+    "code": "G.AST.02-TS"
+  },
+  {
+    "rule_id": "1243",
+    "title": "使用可选链操作符?.替代非空判断",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "TypeScript 3.7 开始支持可选链操作符`?.`,该操作符能支持在前置对象非空的时候才取下一级属性的值,能够安全地引用潜在为 `null` 或 `undefined` 的变量。",
+    "fix_suggestion": "使用可选链操作符`?.`替代非空判断。",
+    "code": "G.AST.03-TS"
+  },
+  {
+    "rule_id": "1244",
+    "title": "当方法返回值是this,返回值的类型也应该是this",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "方法链是 面向对象编程里一个常见的模式,即方法的返回值还是类本身,可以继续调用下去。如果方法需要返回自身,返回类型应该声明为this,否则会出现获取不到父类的子方法。",
+    "fix_suggestion": "当方法返回值是this,返回值的类型也应该是this。",
+    "code": "G.CLS.01-TS"
+  },
+  {
+    "rule_id": "1245",
+    "title": "代码注释置于对应代码的上方或右边",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "针对代码的注释,应该置于对应代码的上方或右边。\n代码上方的注释:与代码行间无空行,保持与代码一样的缩进。\n代码右边的注释:与代码之间,至少留有一个空格。\n通常右边的注释内容不宜过多,当注释超过行宽时,考虑将注释置于代码上方。",
+    "fix_suggestion": "代码注释置于对应代码的上方或右边",
+    "code": "G.CMT.01"
+  },
+  {
+    "rule_id": "1246",
+    "title": "使用// @ts-<directive>注释时必须添加说明",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "TS语法支持下面4种抑制错误的语法,要求使用下面语法时必须在指令后面增加说明。\n\n // @ts-expect-error\n // @ts-ignore\n // @ts-nocheck\n // @ts-check",
+    "fix_suggestion": "使用// @ts-<directive>注释时必须添加说明。",
+    "code": "G.CMT.01-TS"
+  },
+  {
+    "rule_id": "1247",
+    "title": "注释符和注释内容之间留有一个空格",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "注释符(`//`和`/*  */`)与注释内容之间留有一个空格,这会让注释看起来清晰美观。",
+    "fix_suggestion": "1、**使用 `/* */ `**注释时,注释符要和注释内容之间有一个空格\n```javascript\n/* 单行注释 */\n```\n```javascript\n/*\n * 多行注释\n * 第二行\n */\n```\n2、**使用`//`**注释时,注释符要和注释内容之间有一个空格\n```javascript\n// 单行注释  \n```\n```javascript\n// 多行注释\n// 第二行\n```",
+    "code": "G.CMT.02"
+  },
+  {
+    "rule_id": "1248",
+    "title": "建议使用// @ts-expect-error代替// @ts-ignore忽略错误检查",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "推荐使用// @ts-expect-error 代替// @ts-ignore,// @ts-expect-error当且仅当代码存在错误时起作用,// @ts-expect-error注释下的代码无错误时,会出现Unused '@ts-expect-error' directive.提示,而// @ts-ignore \n 则不会有任何提示。",
+    "fix_suggestion": "建议使用// @ts-expect-error代替// @ts-ignore忽略错误检查。",
+    "code": "G.CMT.02-TS"
+  },
+  {
+    "rule_id": "1249",
+    "title": "正式交付给客户的代码不应包含 TODO/FIXME 注释",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "TODO注释一般用来描述已知待改进、待补充的修改点。FIXME注释一般用来描述已知缺陷。在版本开发阶段可以使用这两类标签标注一些待处理的问题。\n\n对于版本交付的代码中不应存在这两类标签,否则可能会被误解为代码中存在未实现的功能或已知的缺陷。",
+    "fix_suggestion": "正式交付的代码中,排查所有的TODO、FIXME注释,保证功能是完整的,已知缺陷都已经被修复,并将所有的TODO、FIXME注释删除。",
+    "code": "G.CMT.03"
+  },
+  {
+    "rule_id": "1250",
+    "title": "使用postMessage方法实现跨域时,应严格校验Origin",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "HTML5增加了window.postMessage(message,targetOrigin,[transfer])方法,该方法可以实现跨域通信,以允许不同来源的Window对象之间进行消息交换。因为任何窗口都可以从其他窗口发送/接收消息,所以验证发送者/接收者的来源很重要,如果目标来源设置的过于宽松,恶意脚本就能趁机采用不当方式与受害者窗口进行通信,从而导致发送欺骗、数据被盗、转发及其他攻击。\n\n因此,无论是作为消息的发送方还是接受方,都应该对目标源进行最小化校验,推荐使用白名单的方式,禁止使用indexOf()来校验目标源。",
+    "fix_suggestion": "使用postMessage方法实现跨域时,应严格校验Origin",
+    "code": "G.CORS.01"
+  },
+  {
+    "rule_id": "1251",
+    "title": "每个 switch 语句都应包含一个 default 分支",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "开发人员可能会忘记定义默认分支而导致程序发生错误,所以在 每个switch 语句中都应包含一个 default 分支。或者也可以在最后一个 case 分支下,使用 // no default 来表明此处不需要 default 分支。注释可以任何形式出现,比如 // No Default。",
+    "fix_suggestion": "每个 switch 语句都应包含一个 default 分支。",
+    "code": "G.CTL.01"
+  },
+  {
+    "rule_id": "1252",
+    "title": "在 switch 语句的每一个有内容的 case 中都应放置一条 break 语句",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "在 switch 语句的每一个有内容的 case 中都应放置一条 break 语句,遗漏break,可能导致程序误入下一个case分支,执行了预期之外的代码,导致异常。而且,不推荐做出有意不写break的设计。",
+    "fix_suggestion": "switch 语句的每一个有内容的 case 中都应放置一条 break 语句。",
+    "code": "G.CTL.02"
+  },
+  {
+    "rule_id": "1253",
+    "title": "case 语句中需要词法声明时, 大括号{}不能省略",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "词法声明在整个 switch 语句块中是可见的,但是它只有在运行到它定义的 case 语句时,才会进行初始化操作。为了保证词法声明语句只在当前 case 语句中有效,应该将语句包裹在块中。",
+    "fix_suggestion": "case 语句中需要词法声明时, 大括号{}不能省略。",
+    "code": "G.CTL.03"
+  },
+  {
+    "rule_id": "1254",
+    "title": "含else if分支的条件判断应在最后加一个else分支",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "多个else if条件组合的判断逻辑,往往会出现开发人员忽略的分支,需要设置else默认操作(类似中switch-case语句要有default分支) 。",
+    "fix_suggestion": "if-else if(有多个 else if)类型的条件判断,最后应包含一个 else分支",
+    "code": "G.CTL.04"
+  },
+  {
+    "rule_id": "1255",
+    "title": "不要用逻辑运算符代替控制语句",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "使用逻辑运算符的特性,来达到控制语句的目的,是非常不利于读者理解的。因此,不要用逻辑运算符代替控制语句。",
+    "fix_suggestion": "不要用逻辑运算符代替控制语句",
+    "code": "G.CTL.05"
+  },
+  {
+    "rule_id": "1256",
+    "title": "不要在控制性条件表达式中执行赋值操作",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "控制性条件表达式常用于if、while、for、?:等条件判断中。\n在控制性条件表达式中执行赋值,常常导致意料之外的行为,且代码的可读性非常差。",
+    "fix_suggestion": "不要在控制性条件表达式中执行赋值操作。",
+    "code": "G.CTL.06"
+  },
+  {
+    "rule_id": "1257",
+    "title": "避免在条件/循环控制语句中包含过多的条件",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "控制性条件表达式if语句中如果包含过多的条件,会对阅读者造成理解与记忆上的困难,也会在修改时更容易出错。\n因此,建议在if语句中的表达式尽量清晰直接,避免陷入具体的条件判断细节。条件判断细节可以在使用if条件判断之前用bool变量代替或封装函数/方法。\n\nif语句中的表达式应清晰直接,并且建议不超过3个,可以根据具体逻辑决定。",
+    "fix_suggestion": "避免在条件/循环控制语句中包含过多的条件",
+    "code": "G.CTL.07"
+  },
+  {
+    "rule_id": "1258",
+    "title": "声明变量时要求使用 const 或 let 而不是 var(ECMAScript 6)",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "var声明的变量,会被提升到该作用域的顶端。与var不同,let和const是块级作用域,它们声明的变量不会被提升到作用域顶端,这可以帮助程序员避免错误。",
+    "fix_suggestion": "在 ECMAScript 6中,只读变量用const定义,其他变量用let定义。",
+    "code": "G.DCL.01"
+  },
+  {
+    "rule_id": "1259",
+    "title": "每个语句只声明一个变量",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "一个语句声明多个多变量时,在添加新变量时,还需要将`;`变成`,`,比较容易引入错误；另外,这种声明方式也不利于使用debugger逐行调试,会一次跳过这些变量。",
+    "fix_suggestion": "每个语句的变量声明都应只声明一个变量。",
+    "code": "G.DCL.03"
+  },
+  {
+    "rule_id": "1260",
+    "title": "禁止连续赋值",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "对变量连续赋值可能会创建隐藏的全局变量,从而导致意想不到的结果。",
+    "fix_suggestion": "一条语句只对一个变量赋值。",
+    "code": "G.DCL.04"
+  },
+  {
+    "rule_id": "1261",
+    "title": "不要使用 undefined 初始化变量",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "在 JavaScript 中,声明一个变量但未初始化,变量会自动获得 undefined 作为初始值。因此,初始化变量值为 undefined 是多余的。",
+    "fix_suggestion": "不使用 undefined 初始化变量。",
+    "code": "G.DCL.05"
+  },
+  {
+    "rule_id": "1262",
+    "title": "使用字面量风格的声明",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "java采用公共安全组件执行命令",
+    "fix_suggestion": "参考WIKI,使用CBB组件提供的公共方法执行命令/脚本。",
+    "code": "G.DCL.06"
+  },
+  {
+    "rule_id": "1263",
+    "title": "避免当前作用域中的变量覆盖更外层作用域的变量",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "当前作用域中的变量覆盖了更外层作用域的变量时,这不仅会给阅读者带来困扰,还会导致无法获取和使用外出作用域的变量。",
+    "fix_suggestion": "应当避免当前作用域中的变量覆盖更外层作用域的变量。",
+    "code": "G.DCL.07"
+  },
+  {
+    "rule_id": "1264",
+    "title": "尽量避免使用装饰器",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "通常情况下,尽量避免使用装饰器,这是由于装饰器是一个实验性功能,仍然处于 TC39 委员会的提案阶段,且目前存在已知的无法被修复的 Bug；\n如需使用装饰器时,建议使用@为装饰器前缀；\n避免定义新的装饰器,只是用框架中已定义的装饰器。",
+    "fix_suggestion": "尽量避免使用装饰器",
+    "code": "G.DEC.01-TS"
+  },
+  {
+    "rule_id": "1265",
+    "title": "枚举属性名使用大写字母",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "建议统一风格,推荐枚举属性名使用大写字母,单词之间使用下划线。",
+    "fix_suggestion": "枚举属性名使用大写字母",
+    "code": "G.ENU.01-TS"
+  },
+  {
+    "rule_id": "1266",
+    "title": "应该显式定义枚举属性值",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "枚举值的默认值是根据定义顺序排序的,如果在后期附加枚举值定义,则很可能破坏原有语义,建议显式定义枚举的值。\n 只定义了枚举对象,默认不赋值,当前枚举对象的第一个值从0开始递增。\n 枚举对象的成员值递增只会根据当前值的前一个枚举成员是否有值,有值的话后面依次递增,与第一个枚举成员的值无关。\n 字符串的枚举值没有值递增。",
+    "fix_suggestion": "应该显式定义枚举属性值。",
+    "code": "G.ENU.02-TS"
+  },
+  {
+    "rule_id": "1267",
+    "title": "枚举值应该使用字面量而非变量",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "枚举值一般具有确定性,如果在枚举值定义时使用变量,在运行时的变量取值具有不确定性,可能会导致问题。",
+    "fix_suggestion": "枚举值应该使用字面量而非变量。",
+    "code": "G.ENU.03-TS"
+  },
+  {
+    "rule_id": "1268",
+    "title": "合理使用异常",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "抛出的异常应该是Error错误或Error的子类,建议不要抛出字符串或其他对象。构造异常时应始终使用new。\n\n自定义异常是在函数中传递附加错误信息的好方法,应在默认异常的错误类型不满足的情况下使用自定义异常。\n\n有时候捕获了异常,什么也不做是正确的,但是应该增加注释说明原因。",
+    "fix_suggestion": "合理使用异常",
+    "code": "G.ERR.01"
+  },
+  {
+    "rule_id": "1269",
+    "title": "应使用 Error 对象作为 Promise 拒绝的原因",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "在 Promise 中只传递内置的 Error 对象实例给 reject() 函数作为自定义错误,被认为是个很好的实践。Error 对象会自动存储堆栈跟踪,在调试时,通过它可以用来确定错误是从哪里来的。如果 Promise 使用了非 Error 的值 \n 作为拒绝原因,那么就很难确定 reject 在哪里产生。",
+    "fix_suggestion": "应使用 Error 对象作为 Promise 拒绝的原因。",
+    "code": "G.ERR.02"
+  },
+  {
+    "rule_id": "1270",
+    "title": "不要使用return、break、continue或抛出异常使finally块非正常结束",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "在finally代码块中,直接使用return、break、continue、throw语句,会导致finally代码块无法正常结束。非正常结束的finally代码块会影响try或catch代码块中异常的抛出,也可能会影响方法的返回值。",
+    "fix_suggestion": "移除finally块中的return、break、continue、throw语句。",
+    "code": "G.ERR.03"
+  },
+  {
+    "rule_id": "1271",
+    "title": "表达式的比较,倾向于不变的值应该置于右侧",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "当变量或方法调用与常量比较时,如果常量放左边,如 if (MAX == v) 不符合阅读习惯,而 if (MAX > v) 更是难于理解。应该按人的正常阅读、表达习惯,将常量放右边。",
+    "fix_suggestion": "表达式的比较,倾向于不变的值应该置于右侧",
+    "code": "G.EXP.01"
+  },
+  {
+    "rule_id": "1272",
+    "title": "表达式的比较,应该遵循左侧倾向于变化、右侧倾向于不变的原则",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "当变量或方法调用与常量比较时,如果常量放左边,如 if (MAX == v) 不符合阅读习惯,而 if (MAX > v) 更是难于理解。应该按人的正常阅读、表达习惯,将常量放右边。",
+    "fix_suggestion": "表达式的比较,倾向于不变的值应该置于右侧。",
+    "code": "G.EXP.01"
+  },
+  {
+    "rule_id": "1273",
+    "title": "判断相等时应使用 === 和 !== ,而不是 == 和 !=",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "JavaScript 中使用双等 == 做相等判断时会自动做类型转换,如:[] == false、[] == ![]、3 == '03’都是true,当类型确定时使用全等 === 做比较可以提高效率。",
+    "fix_suggestion": "判断相等时应使用 === 和 !== ,而不是 == 和 !=。",
+    "code": "G.EXP.02"
+  },
+  {
+    "rule_id": "1274",
+    "title": "禁止使用嵌套的三元表达式",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "嵌套的三元表达式使代码更加难以理解。因此,应使用条件语句来代替嵌套的三元表达式。",
+    "fix_suggestion": "使用条件语句来代替嵌套的三元表达式。",
+    "code": "G.EXP.03"
+  },
+  {
+    "rule_id": "1275",
+    "title": "在混合使用不同的操作符时,采用括号明确运算的优先级",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "在混合使用不同的操作符中,使用括号说明优先级,以方便阅读和理解。即使代码优先级正确,也应该考虑到后续阅读或者修改这段代码的其他人员的方便,最好加上括号。",
+    "fix_suggestion": "在混合使用不同的操作符时,采用括号明确运算的优先级。",
+    "code": "G.EXP.04"
+  },
+  {
+    "rule_id": "1276",
+    "title": "正则表达式字面量中,应显式指出重复的空白字符个数",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "在使用正则表达式时, 如果使用了多个重复的空白字符,会很容易出错,且不易阅读。因此,在正则表达式字面量中,应显式指出重复的空白字符个数。",
+    "fix_suggestion": "正则表达式字面量中,应显式指出重复的空白字符个数。",
+    "code": "G.EXP.05"
+  },
+  {
+    "rule_id": "1277",
+    "title": "建议在正则表达式中使用命名捕获组",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "随着 ECMAScript 2018 的发布,命名捕获组可以用于正则表达式中,这可以提高正则表达式的可读性。",
+    "fix_suggestion": "建议在正则表达式中使用命名捕获组。",
+    "code": "G.EXP.06"
+  },
+  {
+    "rule_id": "1278",
+    "title": "行宽不宜过长",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "代码行宽不宜过长,否则不利于阅读。建议每行字符数不要超过 160个；除非超过 160 能显著增加可读性,并且不会隐藏信息。",
+    "fix_suggestion": "较长的语句、表达式或参数以及注释行(大于160个字符)要进行换行处理。",
+    "code": "G.FMT.02"
+  },
+  {
+    "rule_id": "1279",
+    "title": "换行时将操作符留在行末",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "当语句过长,或者可读性不佳时,需要在合适的地方换行。换行时将操作符放在行末,表示“未结束,后续还有”,保持与常用的格式化工具的默认配置一致。",
+    "fix_suggestion": "换行时将操作符放在行末,保持与常用的格式化工具的默认配置一致。",
+    "code": "G.FMT.03"
+  },
+  {
+    "rule_id": "1280",
+    "title": "对象字面量属性超过 4 个, 需要都换行",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "对象字面量要么每个属性都换行, 要么所有属性都在同一行。当对象字面量属性超过4个的时候,建议统一换行。",
+    "fix_suggestion": "对象字面量属性超过 4 个, 需要都换行",
+    "code": "G.FMT.04"
+  },
+  {
+    "rule_id": "1281",
+    "title": "链式调用对象方法时,一行最多调用 4 次,否则需要换行",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "链式调用对象方法时,一行最多调用 4 次,否则需要换行。换行的时候,需要按照缩进章节的要求进行缩进,并且在前面加点. 强调这是方法调用而不是新语句。",
+    "fix_suggestion": "1、链式调用对象方法时,当方法个数没有超过4个时,要么每个方法单独一行,要么所有方法在同一行。\n2、链式调用对象方法时,当方法个数超过4个时,建议换行,每个方法单独一行,并且换行时,需要按照缩进章节的要求进行缩进,并且在前面加点`.` 。",
+    "code": "G.FMT.05"
+  },
+  {
+    "rule_id": "1282",
+    "title": "把 else/catch 放在 if/try 代码块关闭括号的同一行",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "在写条件语句时,建议把 else 放在 if 代码块关闭括号的同一行。同样 ,在写异常处理语句时,建议把catch 也放在 try 代码块关闭括号的同一行。",
+    "fix_suggestion": "在写条件语句时,建议把 else 放在 if 代码块关闭括号的同一行。同样 ,在写异常处理语句时,建议把catch 也放在 try 代码块关闭括号的同一行。",
+    "code": "G.FMT.06"
+  },
+  {
+    "rule_id": "1283",
+    "title": "合理安排空行",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "使用空行可以凸显出代码块的相关程度,能提升代码的可读性。",
+    "fix_suggestion": "使用空行可以凸显出代码块的相关程度,能提升代码的可读性。",
+    "code": "G.FMT.07"
+  },
+  {
+    "rule_id": "1284",
+    "title": "用空格突出关键字和重要信息",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "空格应该突出关键字和重要信息。",
+    "fix_suggestion": "空格应该突出关键字和重要信息。",
+    "code": "G.FMT.08"
+  },
+  {
+    "rule_id": "1285",
+    "title": "建议 if、for、do、while 等语句的执行体加大括号 {}",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "在if、for、do、while 等语句的执行体加大括号 {}是一种最佳实践,因为省略大括号容易导致错误,并且降低代码的清晰度。",
+    "fix_suggestion": "建议 if、for、do、while 等语句的执行体加大括号 {}。",
+    "code": "G.FMT.09"
+  },
+  {
+    "rule_id": "1286",
+    "title": "大括号 { 和语句在同一行",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "大括号 { 和语句在同一行",
+    "fix_suggestion": "大括号 { 和语句在同一行",
+    "code": "G.FMT.10"
+  },
+  {
+    "rule_id": "1287",
+    "title": "使用拖尾逗号",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "最终元素和结束括号之间存在换行符时,应包含尾后逗号。在上一行已经使用了尾后逗号的情况下,如果要添加新的属性,可以仅仅添加新的一行,而不需要修改上一行。另一个支持拖尾逗号的原因是,当对象或数组添加或删除元素时,它提高了代码差异的清晰度。",
+    "fix_suggestion": "定义数组或对象时,最后一个元素与结束括号之间存在换行符时,应在最后一个元素后面加上拖尾逗号。",
+    "code": "G.FMT.11"
+  },
+  {
+    "rule_id": "1288",
+    "title": "每句代码后加分号",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "建议任何时候都不要省略它。",
+    "fix_suggestion": "建议任何时候都不要省略它。",
+    "code": "G.FMT.12"
+  },
+  {
+    "rule_id": "1289",
+    "title": "建议显式声明函数及类方法的返回值类型",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "显式声明返回类型,这可确保返回值被分配给正确类型的变量；或者在没有返回值的情况下,调用代码不会尝试把undefined分配给变量。",
+    "fix_suggestion": "建议显式声明函数及类方法的返回值类型。",
+    "code": "G.FUN.01-TS"
+  },
+  {
+    "rule_id": "1290",
+    "title": "在type和interface中的方法声明使用属性声明方式",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "建议统一风格,在type和interface中的方法声明使用属性声明方式。",
+    "fix_suggestion": "在type和interface中的方法声明使用属性声明方式。",
+    "code": "G.FUN.02-TS"
+  },
+  {
+    "rule_id": "1291",
+    "title": "统一使用 import type 导入类型",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "在导入类型时,加上type的标志,有利于区分仅导入“类型”还是导入实体,使用 import type ,只会引入类型本身,不会执行模块全局代码,如果需要初始化模块,需要显式使用import '...' 。当仅导入类型时,在编译成 JavaScript 时会被消除,从而避免引入不必要的文件。",
+    "fix_suggestion": "统一使用 import type 导入类型",
+    "code": "G.MDL.01-TS"
+  },
+  {
+    "rule_id": "1292",
+    "title": "使用 import/export 代替 modules 和 namespace",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "标准化模块声明的定义,目前 module 和 namespace 语法已经被认为是过时的,且不利于 Tree shaking 优化,建议使用 ES6 模块。",
+    "fix_suggestion": "使用 import/export 代替 modules 和 namespace。",
+    "code": "G.MDL.02-TS"
+  },
+  {
+    "rule_id": "1293",
+    "title": "函数长度不宜过长",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "简短的函数易理解、易维护、易扩展、易测试。函数长度建议不超过100行,函数内的业务逻辑处理建议最好不超过50行(非空非注释)(即:尽量让一个函数能在一个电脑屏幕内看完)。",
+    "fix_suggestion": "函数长度不宜过长",
+    "code": "G.MET.01"
+  },
+  {
+    "rule_id": "1294",
+    "title": "圈复杂度不超过 20",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "圈复杂度数量上表现为覆盖所有代码的独立现行路径条数。为了代码的可读性,圈复杂度建议不要超过20。",
+    "fix_suggestion": "圈复杂度不超过 20",
+    "code": "G.MET.02"
+  },
+  {
+    "rule_id": "1295",
+    "title": "块语句的最大可嵌套深度不要超过 4 层",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "很多开发者认为如果块语句嵌套深度超过某个值,代码就很难阅读。建议块语句的最大可嵌套深度不超过4层,以达到降低代码复杂性的目的。",
+    "fix_suggestion": "块语句的最大可嵌套深度不要超过 4 层。",
+    "code": "G.MET.03"
+  },
+  {
+    "rule_id": "1296",
+    "title": "回调函数嵌套的层数不超过 4 层",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "很多 JavaScript 类库是使用回调模式处理异步操作。一个最常见的隐患就是嵌套的回调,代码嵌套层级越深越难以阅读。",
+    "fix_suggestion": "回调函数嵌套的层数不超过 4 层。",
+    "code": "G.MET.04"
+  },
+  {
+    "rule_id": "1297",
+    "title": "函数的参数个数不建议超过 5 个",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "如果参数超过5个,则维护的难度很大,建议减少参数个数。",
+    "fix_suggestion": "函数的参数个数不建议超过 5 个",
+    "code": "G.MET.05"
+  },
+  {
+    "rule_id": "1298",
+    "title": "始终将默认参数放在最后",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "将默认参数放在最后,在调用函数时,若默认参数没有值,就可以不传入这个参数,让调用代码更简单。",
+    "fix_suggestion": "当函数有多个参数时,应将默认参数放在最后。",
+    "code": "G.MET.06"
+  },
+  {
+    "rule_id": "1299",
+    "title": "建议使用一致的 return 语句",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "函数内,应使用一致的return语句。",
+    "fix_suggestion": "必须使用一致的 return 语句",
+    "code": "G.MET.07"
+  },
+  {
+    "rule_id": "1300",
+    "title": "不要动态创建函数",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "采用函数声明、Function构造函数和函数表达式定义函数时,它们都是Function对象的实例,并将继承Function对象所有默认或自定义的方法和属性。以函数构造器创建函数的方式类似于函数eval(),可以接受任何字符串形式作为它的函数体,这就会有安全漏洞的风险。",
+    "fix_suggestion": "使用函数声明或函数表达式的方式来创建函数。",
+    "code": "G.MET.08"
+  },
+  {
+    "rule_id": "1301",
+    "title": "不要给函数的入参重新赋值",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "对函数参数中的变量重新赋值可能会误导读者,导致混乱,也会改变 arguments 对象。",
+    "fix_suggestion": "不要给函数的入参重新赋值。",
+    "code": "G.MET.09"
+  },
+  {
+    "rule_id": "1302",
+    "title": "不要使用 arguments,可以选择 rest 语法替代",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "rest 参数是一个真正的数组,也就是说能够在它上面直接使用所有的数组方法,比如 sort,map,forEach或pop,而 arguments 是一个类数组。因此,应选择使用rest语法替代arguments。另外,rest参数必须是列表中的最后一个参数。",
+    "fix_suggestion": "不要使用 arguments,可以选择 rest 语法替代。",
+    "code": "G.MET.10"
+  },
+  {
+    "rule_id": "1303",
+    "title": "用到匿名函数时优先使用箭头函数,替代保存this引用的方式",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "箭头函数提供了更简洁的语法,并且箭头函数中的this对象指向是不变的,this绑定到定义时所在的对象,有更好的代码可读性。而保存this引用的方式,容易让开发人员搞混。",
+    "fix_suggestion": "用到匿名函数时优先使用箭头函数。",
+    "code": "G.MET.12"
+  },
+  {
+    "rule_id": "1304",
+    "title": "需要导出的变量必须是不可变的类型",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "不要导出var或let变量,如果避免不了的话,应该导出对该变量进行读和写的函数。",
+    "fix_suggestion": "需要导出的变量必须是不可变的类型",
+    "code": "G.MOD.01"
+  },
+  {
+    "rule_id": "1305",
+    "title": "构造器函数、类应采用大驼峰风格命名",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "构造器函数、类采用首字母大写的驼峰命名法。\n\n构造器函数、类名通常是名词或名词短语,例如 Person 、 Student 、 Worker。不应使用动词,也应该避免类似Data、Info这样的模糊词。",
+    "fix_suggestion": "构造器函数、类采用首字母大写的驼峰命名法。",
+    "code": "G.NAM.01"
+  },
+  {
+    "rule_id": "1306",
+    "title": "函数应采用小驼峰风格命名",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "函数的命名通常是动词或动词短语,采用小驼峰命名",
+    "fix_suggestion": "函数的命名通常是动词或动词短语,采用小驼峰命名",
+    "code": "G.NAM.02"
+  },
+  {
+    "rule_id": "1307",
+    "title": "变量应采用小驼峰风格命名",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "变量的名字通常是名词或名词短语,应采用小驼峰命名,以便于理解其含义。\n\n该建议也适用于函数参数。",
+    "fix_suggestion": "变量的名字通常是名词或名词短语,应采用小驼峰命名",
+    "code": "G.NAM.03"
+  },
+  {
+    "rule_id": "1308",
+    "title": "避免使用否定的布尔变量名",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "布尔型的局部变量建议加上表达是非意义的前缀,比如is,也可以是has、can、should等。但是,当使用逻辑非运算符,并出现双重否定时,会出现理解问题,比如 !isNotError,意味着什么,不是很好理解。因此,应避免定义否定的布尔变量名。",
+    "fix_suggestion": "避免定义否定的布尔变量名。",
+    "code": "G.NAM.04"
+  },
+  {
+    "rule_id": "1309",
+    "title": "不要用保留字做为变量名,可使用保留字的同义词",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "保留字在某种意思上是为将来的关键字而保留的单词,因此,不要使用保留字,请用保留字的同义词。",
+    "fix_suggestion": "不要使用保留字,请用保留字的同义词。",
+    "code": "G.NAM.05"
+  },
+  {
+    "rule_id": "1310",
+    "title": "使用统一的文件命名风格,文件扩展名应小写",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "使用统一的文件命名风格,文件扩展名应小写",
+    "fix_suggestion": "文件扩展名小写",
+    "code": "G.NAM.07"
+  },
+  {
+    "rule_id": "1311",
+    "title": "解压文件必须进行安全检查",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "攻击者有可能上传一个很小的zip文件,但是完全解压缩之后达到几百万GB甚至更多,消耗完磁盘空间导致系统或程序无法正常运行。因此在解压缩文件时需要限制所使用的磁盘空间。\n\n因此,在解压前最少进行以下几点基础安全检查:\n1.文件个数是否超出业务预期个数；\n2.文件大小是否超出业务预期大小。",
+    "fix_suggestion": "解压文件必须进行安全检查",
+    "code": "G.NOD.04"
+  },
+  {
+    "rule_id": "1312",
+    "title": "禁止日志泄露敏感信息",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "禁止在日志中记录系统的敏感数据(例如用户密码、秘钥、敏感异常等),防止产生敏感信息泄露风险。",
+    "fix_suggestion": "禁止日志泄露敏感信息",
+    "code": "G.NOD.05"
+  },
+  {
+    "rule_id": "1313",
+    "title": "通过 new 调用构造函数时,应始终使用圆括号",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "通过 new 调用构造函数时,如果不带参数,可以省略后面的圆括号。但这样会造成与整体的代码风格不一致,建议团队约定使用圆括号。",
+    "fix_suggestion": "通过 new 调用构造函数时,应始终使用圆括号。",
+    "code": "G.OBJ.01"
+  },
+  {
+    "rule_id": "1314",
+    "title": "对象字面量的属性名称使用标识符",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "对象字面量的属性名称建议使用标识符,一般来说,标识符号在主观上更容易阅读。它改进了语法突出显示,并且更容易被许多JavaScript引擎优化。\n\n不要混合使用标识符和字符串,除非必须使用引号,如:属性名中使用非标识符的字符,或者这属性中间有一个空格,像 “one-two”、“one two” 这样。",
+    "fix_suggestion": "1、对象字面量的属性名称建议使用标识符。\n2、若属性名中使用非标识符的字符,或者这属性中间有一个空格,像 “one-two”、“one two” 这样,则必须使用引号。",
+    "code": "G.OBJ.02"
+  },
+  {
+    "rule_id": "1315",
+    "title": "优先使用点号来访问对象的属性,只有计算属性使用 []",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "访问对象属性时,点号通常是首选,因为它更加易读,简洁,也更适于 JavaScript 压缩。",
+    "fix_suggestion": "使用点号来访问对象的属性,只有计算属性使用 []。",
+    "code": "G.OBJ.04"
+  },
+  {
+    "rule_id": "1316",
+    "title": "使用点号来访问对象的属性,只有计算属性使用 []",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "在 JavaScript 中,可以使用点号 (foo.bar) 或者方括号 (foo['bar'])来访问属性。然而,点号通常是首选,因为它更加易读,简洁,也更适于 JavaScript 压缩。",
+    "fix_suggestion": "使用点号来访问对象的属性,只有计算属性使用 []",
+    "code": "G.OBJ.04"
+  },
+  {
+    "rule_id": "1317",
+    "title": "禁止在对象实例上直接使用 hasOwnProperty、isPrototypeOf、propertyIsEnumerable方法",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "对象实例可以具有属性,这些属性可以将 Object.prototype 的内建函数隐藏,可能导致意外行为或拒绝服务安全漏洞。例如,web 服务器解析来自客户机的 JSON 输入并直接在结果对象上调用 hasOwnProperty 是不安全的,因为恶意客户机可能发送一个JSON值,如 { hasOwnProperty: 1 },并导致服务器崩溃。因此,禁止在对象实例上直接使用 hasOwnProperty、isPrototypeOf、propertyIsEnumerable方法。",
+    "fix_suggestion": "不在对象实例上直接使用 hasOwnProperty、isPrototypeOf、propertyIsEnumerable方法,使用Object.prototype.hasOwnProperty.call,Object.prototype.isPrototypeOf.call,Object.prototype.propertyIsEnumerable.call来代替。",
+    "code": "G.OBJ.05"
+  },
+  {
+    "rule_id": "1318",
+    "title": "需要约束 for-in",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "在使用 for-in 遍历对象时,会把从原型链继承来的属性也包括进来。这样会导致意想不到的项出现。",
+    "fix_suggestion": "应该在 for-in 循环中使用Object.prototype.hasOwnProperty来排除不需要的原型属性。也可以使用Object.keys()替代for-in进行遍历。",
+    "code": "G.OBJ.06"
+  },
+  {
+    "rule_id": "1319",
+    "title": "不要修改内置对象的原型,或向原型添加方法",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "修改内置对象的原型,可能会破坏接口语义,引入意想不到的问题。",
+    "fix_suggestion": "永远不要修改内置对象的原型,或向原型添加方法。",
+    "code": "G.OBJ.07"
+  },
+  {
+    "rule_id": "1320",
+    "title": "安全场景下必须使用密码学意义上的安全随机数",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "不安全的随机数可能被部分或全部预测到,导致系统存在安全隐患,安全场景下使用的随机数必须是密码学意义上的安全随机数。\n在javascript中经常使用Math.Random()函数来产生随机数,但该函数依赖于弱伪随机数生成器,其不具有真正的随机性,而且加密性也不够强,因此在对安全性要求较高的场景中,不应使用Math.Random()函数来产生随机数,应使用加密性较强的crypto库来生成随机数。",
+    "fix_suggestion": "安全场景下必须使用密码学意义上的安全随机数",
+    "code": "G.OTH.01"
+  },
+  {
+    "rule_id": "1321",
+    "title": "不用的代码段直接删除,不要注释掉",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "被注释掉的代码,无法被正常维护；当企图恢复使用这段代码时,极有可能引入易被忽略的缺陷。\n\n无效或永不执行的代码(即无效代码或无法访问的代码)通常是编程错误的结果,并且可能导致意外行为。\n\n正确的做法是,不需要的代码直接删除掉。若再需要时,考虑移植或重写这段代码。无效或永不执行的代码应及时识别,删除或修正。",
+    "fix_suggestion": "不用的代码段直接删除,不要注释掉",
+    "code": "G.OTH.03"
+  },
+  {
+    "rule_id": "1322",
+    "title": "正式发布的代码及注释内容不应包含开发者个人信息",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "JavaScript属于解释性语言,正式发布的代码及注释内容如果包含开发者个人信息,可能会泄露具体的开发人员信息,存在引发社会工程学方面的风险。因此应从正式发布的版本中删除开发者个人信息,比如工号、姓名、部门、邮箱、问题单号等。",
+    "fix_suggestion": "正式发布的代码及注释内容不应包含开发者个人信息",
+    "code": "G.OTH.04"
+  },
+  {
+    "rule_id": "1323",
+    "title": "禁止代码中包含公网地址",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "代码或脚本中包含用户不可见,不可知的公网地址,可能会引起客户质疑。",
+    "fix_suggestion": "禁止代码中包含公网地址",
+    "code": "G.OTH.05"
+  },
+  {
+    "rule_id": "1324",
+    "title": "源文件编码格式(包括注释)应该是 UTF-8",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "对于源文件,应统一采用UTF-8进行编码。",
+    "fix_suggestion": "对于源文件,应统一采用UTF-8进行编码。",
+    "code": "G.PRJ.01"
+  },
+  {
+    "rule_id": "1325",
+    "title": "控制文件的长度,最好不要超过 2000 行",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "过长的文件往往意味着文件(模块)功能不单一,过于复杂。很多开源项目都表明,文件长度越短,越容易理解和维护。",
+    "fix_suggestion": "控制文件的长度,最好不要超过 2000 行",
+    "code": "G.PRJ.03"
+  },
+  {
+    "rule_id": "1326",
+    "title": "禁止使用 with() {}",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "使用with让代码在语义上变得不清晰,因为with的对象,可能会与局部变量产生冲突,从而改变程序原本的用义。",
+    "fix_suggestion": "禁止使用with()。",
+    "code": "G.SCO.02"
+  },
+  {
+    "rule_id": "1327",
+    "title": "禁止省略浮点数小数点前后的 0",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "省略浮点数小数点前后的 0,虽然不是一个语法错误,但这种格式的数字使真正的小数和点操作符变的难以区分。因此,必须在小数点前面和后面有一个数字,以明确表明是要创建一个小数。",
+    "fix_suggestion": "不要省略浮点数小数点前后的 0,必须在小数点前面和后面有一个数字,以明确表明是要创建一个小数。",
+    "code": "G.TYP.01"
+  },
+  {
+    "rule_id": "1328",
+    "title": "使用一致的类型定义写法",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "使用TypeScript定义变量的时候,一般都需要指定类型,建议应该使用小写基础类型来保持一致性。",
+    "fix_suggestion": "1. 应该使用小写基础类型来保持一致性。\n2. 避免使用Function类型,原因如下:\n   - Function只要求是函数类型,对类型的限制比较宽泛,没有起到很好的类型检查目的。\n   - 当传入class时,虽然满足Function的类型要求,但是调用会失败,因为会在没有new关键字的情况下调用class。\n3. 避免使用{}类型,因为它们意味着“任何非空值”,而不是“任何对象类型”的意思。",
+    "code": "G.TYP.01-TS"
+  },
+  {
+    "rule_id": "1329",
+    "title": "判断变量是否为NaN时必须使用 isNaN() 方法",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "因为在 JavaScript 中 NaN 独特之处在于它不等于任何值,包括它本身,与 NaN 进行比较的结果是令人困惑:NaN !== NaN or NaN != NaN 的值都是 true。\n因此,必须使用 Number.isNaN() 或 全局的 isNaN() 函数来测试一个值是否是 NaN。",
+    "fix_suggestion": "使用 Number.isNaN() 或 全局的 isNaN() 函数来测试一个值是否是 NaN。",
+    "code": "G.TYP.02"
+  },
+  {
+    "rule_id": "1330",
+    "title": "接口、类中的成员声明应该有一致的顺序",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "一致的成员声明顺序可以使接口、类更易于阅读和编辑。",
+    "fix_suggestion": "推荐的成员声明顺序是:\n1. Signature \n2. Field \n    2.1 Static Field\n    2.2 Decorated Field\n    2.3 Instance Field\n    2.4 Abstract Field\n    2.5 Field(无任何修饰)\n3. Constructor \n4. Method\n    4.1 Static Method\n    4.2 Decorated Method\n    4.3 Instance Method\n    4.4 Abstract Method\n    4.5 Method(无任何修饰)\n其中每种成员都遵循 public -> protected -> private 的顺序。\n示例:\n```ts\nabstract class ExampleOrder {\n  // 索引签名(signature)\n  [key: string]: any;\n  // 字段(Fields)---------------------------------------------------------------\n  // 静态字段(Static Fields)\n  public static staticPublicField: string; // 公共静态字段\n  protected static staticProtectedField: string; // 受保护的静态字段\n  private static staticPrivateField: string; // 私有静态字段\n  // 装饰字段(Decorated Fields)\n  @Log() public decoratedPublicField: string; // 公共装饰字段\n  @Log() protected decoratedProtectedField: string; // 受保护的装饰字段\n  @Log() private decoratedPrivateField: string; // 私有装饰字段\n  // 实例字段(Instance Fields)\n  public instancePublicField: string; // 公共实例字段\n  protected instanceProtectedField: string; // 受保护的实例字段\n  private instancePrivateField: string; // 私有实例字段\n  // 抽象字段(Abstract Fields)\n  public abstract abstractPublicField: string; // 公共抽象字段\n  protected abstract abstractProtectedField: string; // 受保护的抽象字段\n  // 通用字段分类(General Field Categories)\n  public publicField: string; // 公共字段(由 public-instance-field 覆盖)\n  static staticField: string; // 静态字段(由 public-static-field 覆盖)\n  private privateField: string; // 私有字段(由 private-instance-field 覆盖)\n  // 构造函数(Constructors)-----------------------------------------------------\n  public constructor() {} // 公共构造函数\n  protected protectedConstructor() {} // 受保护的构造函数\n  private privateConstructor() {} // 私有构造函数\n  // 方法(Methods)-------------------------------------------------------------\n  // 静态方法(Static Methods)\n  public static staticPublicMethod() {} // 公共静态方法\n  protected static staticProtectedMethod() {} // 受保护的静态方法\n  private static staticPrivateMethod() {} // 私有静态方法\n  // 装饰方法(Decorated Methods)\n  @Log() public decoratedPublicMethod() {} // 公共装饰方法\n  @Log() protected decoratedProtectedMethod() {} // 受保护的装饰方法\n  @Log() private decoratedPrivateMethod() {} // 私有装饰方法\n  // 实例方法(Instance Methods)\n  public instancePublicMethod() {} // 公共实例方法\n  protected instanceProtectedMethod() {} // 受保护的实例方法\n  private instancePrivateMethod() {} // 私有实例方法\n  // 抽象方法(Abstract Methods)\n  public abstract abstractPublicMethod(): void; // 公共抽象方法\n  protected abstract abstractProtectedMethod(): void; // 受保护的抽象方法\n  // 通用方法分类(General Method Categories)\n  public publicMethod() {} // 公共方法(由 public-instance-method 覆盖)\n  static staticMethod() {} // 静态方法(由 public-static-method 覆盖)\n  private privateMethod() {} // 私有方法(由 private-instance-method 覆盖)\n}\n```",
+    "code": "G.TYP.02-TS"
+  },
+  {
+    "rule_id": "1331",
+    "title": "浮点型数据判断相等不要直接使用== 或===",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "由于浮点数在计算机表示中存在精度的问题,数学上相等的数字,经过运算后,其浮点数表示可能不再相等,因而不能使用相等运算符== 或===判断浮点数是否相等。",
+    "fix_suggestion": "浮点型数据判断相等不要直接使用== 或===",
+    "code": "G.TYP.03"
+  },
+  {
+    "rule_id": "1332",
+    "title": "接口、类、类型别名的声明使用 ; 分隔符号",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "当接口、类、类型别名的声明包含多行时,建议使用分号隔开,有利于提高可读性。",
+    "fix_suggestion": "1. 接口、类、类型别名的声明使用 `;` 分隔符号。\n2. 单行最后一个成员不需要分隔符,多行则需要。",
+    "code": "G.TYP.03-TS"
+  },
+  {
+    "rule_id": "1333",
+    "title": "建议字符串使用单引号",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "单引号优于双引号,比如,当创建一个包含 HTML 代码的字符串时可以避免转义字符串中的双引号。",
+    "fix_suggestion": "建议字符串使用单引号。",
+    "code": "G.TYP.04"
+  },
+  {
+    "rule_id": "1334",
+    "title": "使用接口来声明对象类型",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "声明对象类型时,接口和类型别名几乎等价的,为了项目统一,这里推荐优先选用接口。",
+    "fix_suggestion": "1.能用接口实现,就优先使用接口。\n 2.对于基本类型、联合类型、元组,只能使用类型别名。",
+    "code": "G.TYP.04-TS"
+  },
+  {
+    "rule_id": "1335",
+    "title": "使用模板字符串(`)实现字符串拼接",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "在ECMAScript 6中,动态构建字符串时建议使用模板字符串而不是使用+拼接,主要是因为模板字符串有可读性强,语法明确,换行合理和字符串插值的特点。",
+    "fix_suggestion": "动态构建字符串时建议使用模板字符串而不是使用+拼接。",
+    "code": "G.TYP.05"
+  },
+  {
+    "rule_id": "1336",
+    "title": "复杂的数组类型使用Array<T>声明",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "复杂的数组类型(联合类型、交叉类型、对象类型、函数类型等)使用Array<T>。",
+    "fix_suggestion": "复杂的数组类型使用Array<T>声明",
+    "code": "G.TYP.05-TS"
+  },
+  {
+    "rule_id": "1337",
+    "title": "不应使用字符串的行连续符号",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "使用反斜杠作为连续符号时,如果在反斜杠之后还有空格,则会导致错误,并且该错误不容易被发现。",
+    "fix_suggestion": "不要使用反斜杠作为连续符号,建议使用+作为字符串的连接符号。",
+    "code": "G.TYP.06"
+  },
+  {
+    "rule_id": "1338",
+    "title": "不要通过undefined去定义可选成员或参数",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "对于可选成员或可选参数,在声明中使用可选符?标识即可替代undefined。对于类型别名,声明时不应该包括undefined,而是在使用类型别名时再联合undefined。",
+    "fix_suggestion": "不要通过undefined去定义可选成员或参数",
+    "code": "G.TYP.06-TS"
+  },
+  {
+    "rule_id": "1339",
+    "title": "不要在数组上定义或使用非数字属性(length 除外)",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "在JavaScript中,数组也是对象,可以往数组上添加属性,但为了处理方便和避免出错,数组只应该用来存储有序(即索引连续)的一组数据。必须要添加属性时,考虑用Map或者Object替代。",
+    "fix_suggestion": "不要在数组上定义或使用非数字属性(length 除外)",
+    "code": "G.TYP.07"
+  },
+  {
+    "rule_id": "1340",
+    "title": "数组遍历优先使用 Array 对象方法",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "对于数组的遍历处理,应该优先使用Array对象方法",
+    "fix_suggestion": "数组遍历优先使用 Array 对象方法",
+    "code": "G.TYP.08"
+  },
+  {
+    "rule_id": "1341",
+    "title": "不要在数组遍历中对其进行元素的 remove/add 操作",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "在forEach循环中删除、增加元素,会破坏原本的遍历顺序,可能导致意料之外的结果。",
+    "fix_suggestion": "不要在数组遍历中进行元素的 remove/add 操作",
+    "code": "G.TYP.09"
+  },
+  {
+    "rule_id": "1342",
+    "title": "使用展开语法 … 或concat复制数组",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "展开语法可以通过减少赋值语句的使用,或者减少通过下标访问数组或对象的方式,使代码更加简洁优雅,可读性更佳。",
+    "fix_suggestion": "使用展开语法 ... 复制数组",
+    "code": "G.TYP.11"
+  },
+  {
+    "rule_id": "1343",
+    "title": "使用显式的类型转换",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "在JavaScript中,有许多不同的方式进行类型转换。其中有些可能难于阅读和理解,因此,应该使用显式的类型转换。",
+    "fix_suggestion": "使用显式的类型转换。",
+    "code": "G.TYP.14"
+  },
+  {
+    "rule_id": "1344",
+    "title": "其它类型转化为数字使用Number(),并且应显式检查返回值是否为NaN",
+    "language": "TypeScript",
+    "level": "提示",
+    "description": "不推荐使用parseInt函数来做转换数字的操作,因为parseInt只处理字符串的前缀数字,这可能与预期不一致。其他类型转化为数字建议使用Number(),紧接着应该显式检查返回值是否为NaN。",
+    "fix_suggestion": "Number() 将其它类型转换为数字的规则如下:\n - boolean值,true和false被转换为1和0；\n- 数值,不变(会识别十进制/八进制-0开头/十六进制-0x开头)\n- null,返回0\n- undefined,返回NaN\n- 字符串 :\n    1. 如果字符串中只包含数字(包括正负号),转换为十进制数值,数值前面有0的会去掉0;\n    2. 浮点数,转换为相应的浮点数,但是后面小数位只含0的会去掉0;\n    3. 十六进制格式‘0x’,转换为有效的十进制值(Number()会自动把字符串形式的十进制数和十六进制数都转换为十进制,但是不识别八进制,会被当做十进制数处理。);\n    4. 字符串为空或空白符,转换为0;\n    5. 包含除上述之外的字符,转换为NaN;\n    \n按上述规则转换后,要显式检查返回值是否为NaN。",
+    "code": "G.TYP.15"
+  },
+  {
+    "rule_id": "1345",
+    "title": "禁止在 Web SQL database和Indexed database数据库中存储敏感数据",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "Web SQL database和Indexed database存储的数据是明文的,客户端上有本地访问权限的操作系统用户都能访问,容易泄露。而且,利用XSS漏洞,攻击者可以构造脚本对Web SQL database和Indexed database数据库进行操纵,数据容易被窃取,即使对敏感数据加密,一旦密钥泄露,也将导致敏感数据泄露。因此,禁止在WebSQL database和Indexed database数据库中存储敏感数据。",
+    "fix_suggestion": "禁止在 Web SQL database和Indexed database数据库中存储敏感数据",
+    "code": "G.WSQ.01"
+  },
+  {
+    "rule_id": "1346",
+    "title": "禁止在 localStorage和sessionStorage中存储敏感数据",
+    "language": "TypeScript",
+    "level": "严重",
+    "description": "localStorage和sessionStorage本身无防XSS的机制,数据容易被窃取,即使对敏感数据加密,一旦密钥泄露,也将导致敏感数据泄露。",
+    "fix_suggestion": "禁止在 localStorage和sessionStorage中存储敏感数据",
+    "code": "G.WST.01"
+  },
+  {
+    "rule_id": "1347",
+    "title": "如果数据仅需要临时存储在客户端,使用非持久性会话cookie或者sessionStorage而不是localStorage",
+    "language": "TypeScript",
+    "level": "一般",
+    "description": "localStorage是持久性(没有时间限制)的数据存储,数据永远不会过期的,除非主动删除数据,不应该用于存储临时数据,否则会导致数据长期存留,增加数据泄露的风险,同时,浪费客户端的磁盘空间。而存储于非持久性会话cookie或sessionStorage中的数据会被及时清除。",
+    "fix_suggestion": "如果数据仅需要临时存储在客户端,使用非持久性会话cookie或者sessionStorage而不是localStorage",
+    "code": "G.WST.02"
+  }
+]

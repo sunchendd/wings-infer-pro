@@ -1,0 +1,704 @@
+[
+  {
+    "rule_id": "1158",
+    "title": "合理使用exec 命令(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "exec命令执行不会创建新子进程,执行完毕后会直接退出当前进程,不会执行后续的命令。",
+    "fix_suggestion": "不使用exec执行命令  \n【例外】  \n如果需要执行出错后就退出,可以使用exec命令。   \n与句柄组合操作,可以实现一些特定功能,如下实例可以将脚本标准输出重定向到日志文件中。",
+    "code": "G.CMD.01"
+  },
+  {
+    "rule_id": "1159",
+    "title": "合理使用exec命令",
+    "language": "Shell",
+    "level": "严重",
+    "description": "exec命令执行不会创建新子进程,执行完毕后会直接退出当前进程,不会执行后续的命令。",
+    "fix_suggestion": "不使用exec执行命令 。\n例外:\n如果需要执行出错后就退出,可以使用exec命令。   \n与句柄组合操作,可以实现一些特定功能,如下实例可以将脚本标准输出重定向到日志文件中。",
+    "code": "G.CMD.01"
+  },
+  {
+    "rule_id": "1160",
+    "title": "正确使用find命令exec参数",
+    "language": "Shell",
+    "level": "严重",
+    "description": "1. exec参数后面跟command执行命令,以; 为结束标志。且在; 前最好增加\\ 避免被Shell扩展。\n2. 如果需要执行Shell组合操作命令,比如 cat {} | wc -l ,需要指定sh或者bash,后接-c参数,将命令用引号包起来。\n3. 如果有多个匹配条件且是逻辑或的关系(-o选项)时,需要使用\"\\( \\)\"格式包含匹配条件,如果是逻辑与的关系不需要\"\\( \\)\" 格式。",
+    "fix_suggestion": "1. exec参数后面跟command执行命令,使用\";\"作为结束标志。\n2. 执行Shell组合操作命令,使用sh/bash -c进行执行。\n3. 如果有多个匹配条件且是逻辑或的关系(-o选项)时,使用\"\\( \\)\" 格式包含匹配条件。",
+    "code": "G.CMD.02"
+  },
+  {
+    "rule_id": "1161",
+    "title": "正确使用find命令exec参数(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "* exec参数后面跟command执行命令,以; 为结束标志。且在; 前最好增加\\ 避免被Shell扩展。    \n* 如果需要执行Shell组合操作命令,比如 cat {} | wc -l ,需要指定sh或者bash,后接-c参数,将命令用引号包起来。  \n* 如果有多个匹配条件且是逻辑或的关系(-o选项)时,需要使用\"\\\\( \\\\)\"格式包含匹配条件,如果是逻辑与的关系不需要\"\\\\( \\\\)\" 格式。",
+    "fix_suggestion": "* exec参数后面跟command执行命令,使用\"\\;\"作为结束标志\n* 执行Shell组合操作命令,使用sh/bash -c进行执行\n* 如果有多个匹配条件且是逻辑或的关系(-o选项)时,使用\"\\\\( \\\\)\" 格式包含匹配条件",
+    "code": "G.CMD.02"
+  },
+  {
+    "rule_id": "1162",
+    "title": "使用bc或者awk进行小数计算",
+    "language": "Shell",
+    "level": "严重",
+    "description": "1. ((...)) 方式不支持小数计算,bc或者awk支持小数计算。  \n2. 比较运算符不支持小数,使用bc或者awk进行小数比较。",
+    "fix_suggestion": "使用bc或者awk支持小数计算或比较。",
+    "code": "G.CMD.05"
+  },
+  {
+    "rule_id": "1163",
+    "title": "使用bc或者awk进行小数计算(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "((...)) 方式不支持小数计算,bc或者awk支持小数计算。  \n比较运算符不支持小数,使用bc或者awk进行小数比较",
+    "fix_suggestion": "使用bc或者awk支持小数计算或比较",
+    "code": "G.CMD.05"
+  },
+  {
+    "rule_id": "1164",
+    "title": " 使用while逐行读取文件并执行ssh操作时,ssh命令需增加-n参数(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "while在逐行读取文件时,一般需要将文件内容重定向到标准输入,但是ssh命令默认会将标准输入中的\n所有内容全部读取出来,因此会造成while循环只执行一次就退出的问题。",
+    "fix_suggestion": "使用while逐行读取文件并执行ssh操作时,ssh命令需增加-n参数",
+    "code": "G.CTL.01"
+  },
+  {
+    "rule_id": "1165",
+    "title": "使用while逐行读取文件并执行ssh操作时,ssh命令需增加-n参数",
+    "language": "Shell",
+    "level": "严重",
+    "description": "while在逐行读取文件时,一般需要将文件内容重定向到标准输入,但是ssh命令默认会将标准输入中的所有内容全部读取出来,因此会造成while循环只执行一次就退出的问题。",
+    "fix_suggestion": "使用while逐行读取文件并执行ssh操作时,ssh命令需增加-n参数。",
+    "code": "G.CTL.01"
+  },
+  {
+    "rule_id": "1166",
+    "title": "在case语句中,变量需要使用双引号包围",
+    "language": "Shell",
+    "level": "严重",
+    "description": "如果在case语句中,变量不使用双引号包围,在有些情况下会被解释成列表,可能出现不能匹配的情况。",
+    "fix_suggestion": "在case语句中,如果分支匹配语句是变量取值,需要添加双引号。",
+    "code": "G.CTL.03"
+  },
+  {
+    "rule_id": "1167",
+    "title": "在case语句中,变量需要使用双引号包围(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "如果在case语句中,变量不使用双引号包围,在有些情况下会被解释成列表,可能出现不能匹配的情况。",
+    "fix_suggestion": "在case语句中,如果分支匹配语句是变量取值,需要添加双引号",
+    "code": "G.CTL.03"
+  },
+  {
+    "rule_id": "1168",
+    "title": "使用ln创建软链接文件时,需要先判断文件是否存在",
+    "language": "Shell",
+    "level": "严重",
+    "description": "当链接文件已存在时,且指向的目标类型为目录时,通过ln命令新建链接,命令返回成功,但实际没有达到目的,而是在原目标目录内产生了一个链接文件。",
+    "fix_suggestion": "在使用ln命令前,判断并移除需要创建的文件。",
+    "code": "G.EDV.01"
+  },
+  {
+    "rule_id": "1169",
+    "title": "使用ln创建软链接文件时,需要先判断文件是否存在(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "当链接文件已存在时,且指向的目标类型为目录时,通过ln命令新建链接,命令返回成功,但实际没有\n达到目的,而是在原目标目录内产生了一个链接文件。",
+    "fix_suggestion": "在使用ln命令前,判断并移除需要创建的文件",
+    "code": "G.EDV.01"
+  },
+  {
+    "rule_id": "1170",
+    "title": "禁止直接使用不可信数据来拼接SQL语句",
+    "language": "Shell",
+    "level": "严重",
+    "description": "SQL注入是指原始SQL操作被动态更改成一个与程序预期完全不同的操作。执行更改后SQL可能导致信息泄露或数据被篡改。防止SQL注入主要需对不可信数据进行校验。推荐对不可信数据做如下校验以防止SQL注入:\n1. 对于字符型字段,需对输入数据做转义。\n    1.1 将单引号替换为斜杠+单引号。\n    1.2 如果字符型输入数据作为SQL语句中like部分,需参考《Shell语言编程规范V2.0》附录A做转义。\n    1.3 系统根据具体业务场景,确定需要校验的特殊字符,特殊字符可以参考《Shell语言编程规范V2.0》 附录A和附录B。\n2.  对于整型字段,需对输入数据进行类型检测,拒绝传入不合法数字。",
+    "fix_suggestion": "在拼接sql语句时需对外部输入的数据进行校验。",
+    "code": "G.EDV.04"
+  },
+  {
+    "rule_id": "1171",
+    "title": "禁止直接使用不可信数据来拼接SQL语句(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "SQL注入是指原始SQL操作被动态更改成一个与程序预期完全不同的操作。执行更改后SQL可能导致信\n息泄露或数据被篡改。防止SQL注入主要需对不可信数据进行校验。推荐对不可信数据做如下校验以防\n止SQL注入:\n- 对于字符型字段,需对输入数据做转义\n  - 将单引号替换为斜杠+单引号。\n  - 如果字符型输入数据作为SQL语句中like部分,需参考《Shell语言编程规范V2.0(试行)》附录A做转义\n  - 系统根据具体业务场景,确定需要校验的特殊字符,特殊字符可以参考《Shell语言编程规范V2.0(试行)》 附录A和附录B。\n-  对于整型字段,需对输入数据进行类型检测,拒绝传入不合法数字",
+    "fix_suggestion": "在拼接sql语句时需对外部输入的数据进行校验",
+    "code": "G.EDV.04"
+  },
+  {
+    "rule_id": "1172",
+    "title": "禁止在if判断中使用-e对含通配符的文件或路径进行判断",
+    "language": "Shell",
+    "level": "严重",
+    "description": "-e参数并不能有效判断通配符,当通配符扩展后的文件超过1个时,会导致代码出错。",
+    "fix_suggestion": "1. 使用通配符号检查文件,可以使用 for 循环对所有文件判断。\n2. 使用单双引号将文件名括起来,将直接匹配字符意义上的文件。",
+    "code": "G.EDV.06"
+  },
+  {
+    "rule_id": "1173",
+    "title": "禁止在if判断中使用-e对含通配符的文件或路径进行判断(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "-e参数并不能有效判断通配符,当通配符扩展后的文件超过1个时,会导致代码出错。",
+    "fix_suggestion": "- 使用通配符号检查文件,可以使用 for 循环对所有文件判断\n- 使用单双引号将文件名括起来,将直接匹配字符意义上的文件",
+    "code": "G.EDV.06"
+  },
+  {
+    "rule_id": "1174",
+    "title": "禁止捕获SIGKILL和SIGSTOP信号",
+    "language": "Shell",
+    "level": "严重",
+    "description": "SIGKILL和SIGSTOP信号不能被捕获。",
+    "fix_suggestion": "禁止trap命令捕获SIGKILL和SIGSTOP信号。",
+    "code": "G.ERR.01"
+  },
+  {
+    "rule_id": "1175",
+    "title": "禁止捕获SIGKILL和SIGSTOP信号(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "SIGKILL和SIGSTOP信号不能被捕获",
+    "fix_suggestion": "禁止trap命令捕获SIGKILL和SIGSTOP信号",
+    "code": "G.ERR.01"
+  },
+  {
+    "rule_id": "1176",
+    "title": "捕获信号使用信号的名字而不是信号的值",
+    "language": "Shell",
+    "level": "严重",
+    "description": "脚本中存在捕获信号的情况,具体捕获的信号使用信号名而不是信号值。 信号编号可能因平台而异。首选信号名称,它是固定的。",
+    "fix_suggestion": "使用信号名代替信号值。",
+    "code": "G.ERR.02"
+  },
+  {
+    "rule_id": "1177",
+    "title": "捕获信号使用信号的名字而不是信号的值(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "脚本中存在捕获信号的情况,具体捕获的信号使用信号名而不是信号值。 信号编号可能因平台而异。首\n选信号名称,它是固定的",
+    "fix_suggestion": "使用信号名代替信号值",
+    "code": "G.ERR.02"
+  },
+  {
+    "rule_id": "1178",
+    "title": "信号处理命令应使用单引号而不是双引号",
+    "language": "Shell",
+    "level": "严重",
+    "description": "如果采用双引号书写信号处理操作,那么双引号中的变量值会在当前Shell环境中进行展开而不是等到信号处理时再展开。",
+    "fix_suggestion": "信号处理命令使用单引号包裹。",
+    "code": "G.ERR.03"
+  },
+  {
+    "rule_id": "1179",
+    "title": "信号处理命令应使用单引号而不是双引号(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "如果采用双引号书写信号处理操作,那么双引号中的变量值会在当前Shell环境中进行展开而不是等到信\n号处理时再展开。",
+    "fix_suggestion": "信号处理命令使用单引号包裹",
+    "code": "G.ERR.03"
+  },
+  {
+    "rule_id": "1180",
+    "title": "正确使用双方括号和方括号",
+    "language": "Shell",
+    "level": "严重",
+    "description": "1. 在 [[ 和 ]] 之间不会有路径名称扩展或单词分割发生,所以使用 [[ ... ]] 能够减少错误。\n2. [[ ... ]] 允许正则表达式匹配,而 [ ... ] 不允许,因此在需要进行正则表达式匹配时请使用[[ ... ]]。\n3. Shell中使用=~判断某字符串是否包含特定模式,如下实例。右侧规则不要用引号包含。如果包含引号,正则表达式规则不会展开,执行会异常。",
+    "fix_suggestion": "在 [[ 和 ]] 之间不会有路径名称扩展或单词分割发生,所以使用 [[ ... ]] 能够减少错误。另外,[[ ... ]]允许正则表达式匹配,而 [ ... ] 不允许,因此在需要进行正则表达式匹配时请使用[[ ... ]]。",
+    "code": "G.EXP.04"
+  },
+  {
+    "rule_id": "1181",
+    "title": "正确使用双方括号和方括号(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "在 [[ 和 ]] 之间不会有路径名称扩展或单词分割发生,所以使用 [[ ... ]] 能够减少错误。\n另外,[[ ... ]] 允许正则表达式匹配,而 [ ... ] 不允许,因此在需要进行正则表达式匹配时请使用[[ ... ]]。\nShell中使用=~判断某字符串是否包含特定模式,如下实例。右侧规则不要用引号包含。如果包含引号,正则表达式规则不会展开,执行会异常。",
+    "fix_suggestion": "在 [[ 和 ]] 之间不会有路径名称扩展或单词分割发生,所以使用 [[ ... ]] 能够减少错误。另外,[[ ... ]]\n允许正则表达式匹配,而 [ ... ] 不允许,因此在需要进行正则表达式匹配时请使用[[ ... ]]。",
+    "code": "G.EXP.04"
+  },
+  {
+    "rule_id": "1182",
+    "title": "重定向操作会覆盖输出流,在管道有后续操作时需使用tee代替(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "如果在管道中间使用重定向操作,后续操作会接收空的输入。",
+    "fix_suggestion": "- 在管道有后续操作时需使用tee命令",
+    "code": "G.EXP.05"
+  },
+  {
+    "rule_id": "1183",
+    "title": "正确对变量进行赋值",
+    "language": "Shell",
+    "level": "严重",
+    "description": "1. 等号左侧要求:不要使用${}对应的变量作为赋值操作的左值, 对于位置参数赋值,使用命令set -- first second。\n2. 等号右侧要求:建议使用 $((..)) 、 $(..) 、 \"...\"、整数 作为等号右侧数据。",
+    "fix_suggestion": "1. 左侧不能是变量,对于位置参数赋值,使用命令set -- first second。\n2. 右侧为字符串请使用引号括起来。\n3. 右侧为算术表达式,需要使用$((...))括起来。\n4. 右侧想获取命令执行的标准输出使用$(...)括起来。",
+    "code": "G.EXP.06"
+  },
+  {
+    "rule_id": "1184",
+    "title": "正确对变量进行赋值(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "- 等号左侧要求:不要使用${}对应的变量作为赋值操作的左值, 对于位置参数赋值,使用set -- first second ..\n- 等号右侧要求:建议使用 $((..)) 、 $(..) 、 \"...\"、整数 作为等号右侧数据",
+    "fix_suggestion": "- 左侧不能是变量,对于位置参数赋值,使用set -- first second ..\n- 右侧为字符串请使用引号括起来\n- 右侧为算术表达式,需要使用$((...))括起来\n- 右侧想获取命令执行的标准输出使用$(...)括起来",
+    "code": "G.EXP.06"
+  },
+  {
+    "rule_id": "1185",
+    "title": "比较表达式需要增加空格隔开",
+    "language": "Shell",
+    "level": "严重",
+    "description": "比较表达式需要增加空格区分开参数和比较符号；字符串比较和数值比较都适用。",
+    "fix_suggestion": "比较表达式需要增加空格区分开参数和比较符号。",
+    "code": "G.EXP.07"
+  },
+  {
+    "rule_id": "1186",
+    "title": "比较表达式需要增加空格隔开(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "比较表达式需要增加空格区分开参数和比较符号。字符串比较和数值比较都适用。",
+    "fix_suggestion": "比较表达式需要增加空格区分开参数和比较符号",
+    "code": "G.EXP.07"
+  },
+  {
+    "rule_id": "1187",
+    "title": "行首单词避免使用特殊符号",
+    "language": "Shell",
+    "level": "严重",
+    "description": "1. 避免管道符和逻辑运算符出现在行首。  \n2. 避免空字符串作为行首字符。",
+    "fix_suggestion": "1. 避免管道符和逻辑运算符出现在行首。如果一行容得下整个管道操作,那么请将整个管道操作写在同一行。否则,应该将整个管道操作分割成每行一个管道,管道操作的下一部分应该将管道符放在新行。这适用于使用管道符| 的合并命令链以及使用|| 和&& 的逻辑运算链。\n2. 避免空字符串作为行首字符。",
+    "code": "G.EXP.13"
+  },
+  {
+    "rule_id": "1188",
+    "title": "行首单词避免使用特殊符号(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "* 避免管道符和逻辑运算符出现在行首  \n* 避免空字符串作为行首字符",
+    "fix_suggestion": "* 避免管道符和逻辑运算符出现在行首  \n如果一行容得下整个管道操作,那么请将整个管道操作写在同一行。否则,应该将整个管道操作分割成\n每行一个管道,管道操作的下一部分应该将管道符放在新行。\n这适用于使用管道符| 的合并命令链以及使用|| 和&& 的逻辑运算链  \n* 避免空字符串作为行首字符",
+    "code": "G.EXP.13"
+  },
+  {
+    "rule_id": "1189",
+    "title": "+=、=操作前后不能有空格",
+    "language": "Shell",
+    "level": "严重",
+    "description": "如果+=、=操作前后出现空格,会被当做单独的命令执行。",
+    "fix_suggestion": "+=、=操作前后去掉空格。",
+    "code": "G.EXP.14"
+  },
+  {
+    "rule_id": "1190",
+    "title": "+=、=操作前后不能有空格(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "如果+=、=操作前后出现空格,会被当做单独的命令执行",
+    "fix_suggestion": "+=、=操作前后去掉空格",
+    "code": "G.EXP.14"
+  },
+  {
+    "rule_id": "1191",
+    "title": "合理使用管道进行命令组合",
+    "language": "Shell",
+    "level": "严重",
+    "description": "有一些命令是不会从stdin中读取信息的(比如echo、ls、rm、cp、true命令),这些命令无法使用管道进行组合。",
+    "fix_suggestion": "1. 在进行管道组合时,使用支持读取标准输入的命令如awk,cat,grep等。\n2. 如果命令不支持读取标准输入,需要使用xargs传递。",
+    "code": "G.FIO.03"
+  },
+  {
+    "rule_id": "1192",
+    "title": "合理使用管道进行命令组合(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "有一些命令是不会从stdin中读取信息的(比如echo、ls、rm、cp、true命令),这些命令无法使用管道进行组合。",
+    "fix_suggestion": "- 在进行管道组合时,使用支持读取标准输入的命令如awk,cat,grep等\n- 如果命令不支持读取标准输入,需要使用xargs传递",
+    "code": "G.FIO.03"
+  },
+  {
+    "rule_id": "1193",
+    "title": "流合并操作需放在行尾",
+    "language": "Shell",
+    "level": "严重",
+    "description": "流合并操作 2>&1 如果放在一行的中间部分,是无法达到预期效果的,必须放在行尾。2>&1表示将错误输出合并到标准输出；当然也可以将标准输出合并到错误输出,例如1>&2或>&2,但一般不常用。",
+    "fix_suggestion": "将流合并操作(2>&1,1>&2,>&2)放在语句的末尾。",
+    "code": "G.FIO.04"
+  },
+  {
+    "rule_id": "1194",
+    "title": "流合并操作需放在行尾(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "流合并操作 2>&1 如果放在一行的中间部分,是无法达到预期效果的,必须放在行尾。\n2>&1表示将错误输出合并到标准输出；当然也可以将标准输出合并到错误输出,例如1>&2或>&2,但一般不常用",
+    "fix_suggestion": "- 将流合并操作(2>&1,1>&2,>&2)放在语句的末尾",
+    "code": "G.FIO.04"
+  },
+  {
+    "rule_id": "1195",
+    "title": "重定向操作会覆盖输出流,在管道有后续操作时需使用tee代替",
+    "language": "Shell",
+    "level": "严重",
+    "description": "如果在管道中间使用重定向操作,后续操作会接收空的输入。",
+    "fix_suggestion": "在管道有后续操作时需使用tee命令。",
+    "code": "G.FIO.05"
+  },
+  {
+    "rule_id": "1196",
+    "title": "禁止在日志中保存口令、密钥和其他敏感信息",
+    "language": "Shell",
+    "level": "严重",
+    "description": "用户在读取日志时,发现“passwd”、“password” 或“*”字样很容易联想到是密码信息,用户可能会怀疑是敏感信息的暴露,造成用户安全感知不理想。",
+    "fix_suggestion": "1. 在日志中不能保存口令和密钥,其中的口令包括明文口令和密文口令。\n2. 代码中不能打印敏感信息(如:密码明文和密文,密钥和License等)到控制台和日志。\n3. 代码所产生运行日志不能包含“passwd”, “password”, “pvalue”, “secret”, “pwd”, “token”, “secrete”, “key”密码相关的变量名称(不区分大小写),且密码、敏感信息不能使用“*”来代替。",
+    "code": "G.LOG.01"
+  },
+  {
+    "rule_id": "1197",
+    "title": "禁止在日志中保存口令、密钥和其他敏感信息(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "在日志中不能保存口令和密钥,其中的口令包括明文口令和密文口令。\n代码中不能打印敏感信息(如:密码明文和密文,密钥和License等)到界面和日志。\n代码所产生运行日志不能包含\"passwd\", \"password\", \"pvalue\", \"secret\", \"pwd\", \"token\",\"secrete\", \"key\"密码相关的变量名称(不区分大小写),且密码、敏感信息不能使用“*”来代替。\n用户在读取日志时,发现“passwd”、“password” 或“*”字样很容易联想到是密码信息,用户可能会怀疑是敏感信息的暴露,造成用户安全感知不理想。",
+    "fix_suggestion": "请取消口令、密钥及其他敏感信息在日志和控制台的输入、输出操作。",
+    "code": "G.LOG.01"
+  },
+  {
+    "rule_id": "1198",
+    "title": "及时删除使用完的临时文件",
+    "language": "Shell",
+    "level": "严重",
+    "description": "1. Shell脚本中通常会将临时文件存放在/tmp目录下,而/tmp默认对所有人可读写,如果将一些敏感信息保存在/tmp下的临时文件,该临时文件容易被监控、查看及攻击,导致临时文件攻击。\n2. 使用mktemp创建只有脚本作者能访问的临时目录,并用trap命令在脚本退出时删除整个临时目录。",
+    "fix_suggestion": "1. 临时文件不能创建在/tmp目录下。\n2. 用 trap 命令在脚本退出时删除整个临时目录。",
+    "code": "G.LOG.02"
+  },
+  {
+    "rule_id": "1199",
+    "title": "及时删除使用完的临时文件(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "- Shell脚本中通常会将临时文件存放在/tmp目录下,而/tmp默认对所有人可读写,如果将一些敏感信息保存在/tmp下的临时文件,该临时文件容易被监控、查看及攻击,导致临时文件攻击。\n- 使用mktemp创建只有脚本作者能访问的临时目录,并用trap命令在脚本退出时删除整个临时目录。",
+    "fix_suggestion": "- 临时文件不能创建在/tmp目录下\n- 用 trap 命令在脚本退出时删除整个临时目录",
+    "code": "G.LOG.02"
+  },
+  {
+    "rule_id": "1200",
+    "title": "确保临时文件目录名称随机且只有创建者能访问",
+    "language": "Shell",
+    "level": "严重",
+    "description": "1. 创建临时文件时使用umask设置初始权限,取消同组和其他用户的读取/写入/执行权限。\n2. 使用命令mktemp创建临时文件目录,且只有创建者可以访问。",
+    "fix_suggestion": "创建临时文件时使用umask=077设置初始权限,需取消同组和其他用户的读取/写入/执行权限。",
+    "code": "G.LOG.03"
+  },
+  {
+    "rule_id": "1201",
+    "title": "确保临时文件目录名称随机且只有创建者能访问(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "Shell脚本中通常会将临时文件存放在/tmp目录下,而/tmp默认对所有人可读写,如果将一些敏感信息保存在/tmp下的临时文件,该临时文件容易被监控、查看及攻击,导致临时文件攻击。",
+    "fix_suggestion": "",
+    "code": "G.LOG.03"
+  },
+  {
+    "rule_id": "1202",
+    "title": "函数的返回值必须为整数,大小在0~255之间",
+    "language": "Shell",
+    "level": "严重",
+    "description": "Shell 函数返回值只能是整形数值,一般是用来表示函数执行成功与否的,0表示成功,其他值表示失败。并且返回值的范围为0~255,超出此范围的整数会被截断。",
+    "fix_suggestion": "1. 返回值必须是整型,并且返回值的范围为0~255。\n2. 如果函数想输出字符串,请使用标准输入输出。",
+    "code": "G.MET.04"
+  },
+  {
+    "rule_id": "1203",
+    "title": "函数的返回值必须为整数,大小在0~255之间(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "Shell 函数返回值只能是整形数值,一般是用来表示函数执行成功与否的,0表示成功,其他值表示失\n败。并且返回值的范围为0~255,超出此范围的整数会被截断。",
+    "fix_suggestion": "- 返回值必须是整型,并且返回值的范围为0~255\n- 如果函数想输出字符串,请使用标准输入输出",
+    "code": "G.MET.04"
+  },
+  {
+    "rule_id": "1204",
+    "title": "禁止向exit传递0~255之外的参数",
+    "language": "Shell",
+    "level": "严重",
+    "description": "exit 只能用于表示成功或失败(0 = 成功,1-255 = 失败)。不能用于返回字符串数据,也不能用于打印错误信息。字符串数据应写入标准输出,然后 exit 0 才能成功退出。",
+    "fix_suggestion": "1. exit值必须是整型,并且范围为0~255。\n2. exit 只能用于表示成功或失败(0 = 成功,1-255 = 失败)。",
+    "code": "G.MET.05"
+  },
+  {
+    "rule_id": "1205",
+    "title": "禁止向exit传递0~255之外的参数(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "exit 只能用于表示成功或失败(0 = 成功,1-255 = 失败)。不能用于返回字符串数据,也不能用于打印错误信息。\n字符串数据应写入标准输出,然后 exit 0 才能成功退出。",
+    "fix_suggestion": "- exit值必须是整型,并且范围为0~255\n- exit 只能用于表示成功或失败(0 = 成功,1-255 = 失败)",
+    "code": "G.MET.05"
+  },
+  {
+    "rule_id": "1206",
+    "title": "脚本中不能使用~作为当前用户路径,需使用$HOME变量",
+    "language": "Shell",
+    "level": "严重",
+    "description": "脚本中不能使用~作为当前用户路径,需使用$HOME变量。",
+    "fix_suggestion": "1. 使用$HOME变量代替引号中的~/。\n2. ~/放到引号外。",
+    "code": "G.PRJ.01"
+  },
+  {
+    "rule_id": "1207",
+    "title": "脚本中不能使用~作为当前用户路径,需使用$HOME变量(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "脚本中不能使用~作为当前用户路径,需使用$HOME变量",
+    "fix_suggestion": "- 使用$HOME变量代替引号中的~/\n- ~/放到引号外",
+    "code": "G.PRJ.01"
+  },
+  {
+    "rule_id": "1208",
+    "title": "不用的代码段直接删除,不要注释掉",
+    "language": "Shell",
+    "level": "严重",
+    "description": "1. 被注释掉的代码,无法被正常维护；当企图恢复使用这段代码时,极有可能引入易被忽略的缺陷。\n2. 正确的做法是,不需要的代码直接删除掉。若再需要时,考虑移植或重写这段代码。",
+    "fix_suggestion": "删除注释掉的代码。",
+    "code": "G.PRJ.02"
+  },
+  {
+    "rule_id": "1209",
+    "title": "不用的代码段直接删除,不要注释掉(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "被注释掉的代码,无法被正常维护；当企图恢复使用这段代码时,极有可能引入易被忽略的缺陷。\n\n正确的做法是,不需要的代码直接删除掉。若再需要时,考虑移植或重写这段代码。",
+    "fix_suggestion": "- 删除注释掉的代码",
+    "code": "G.PRJ.02"
+  },
+  {
+    "rule_id": "1210",
+    "title": "Shell脚本第一行必须通过Shebang指定Shell解释器",
+    "language": "Shell",
+    "level": "严重",
+    "description": "Shell脚本第一行必须通过Shebang指定Shell解释器；建议使用bash作为Shell解释器。",
+    "fix_suggestion": "1. Shell脚本第一行必须通过Shebang指定Shell解释器。\n2. 建议使用bash作为Shell解释器。\n3. Shell解释器要使用绝对路径。\n4. Shebang不能指向一个目录。\n5. shebang中需要移除\"#\"号前的空格。\n6. shebang中需要移除\"#\"和\"!\"之间的空格。",
+    "code": "G.PRJ.03"
+  },
+  {
+    "rule_id": "1211",
+    "title": "Shell脚本第一行必须通过Shebang指定Shell解释器(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "Shell脚本第一行必须通过Shebang指定Shell解释器。建议使用bash作为Shell解释器。",
+    "fix_suggestion": "- Shell脚本第一行必须通过Shebang指定Shell解释器。\n- 建议使用bash作为Shell解释器\n- Shell解释器要使用绝对路径\n- Shebang不能指向一个目录\n- shebang中需要移除\"#\"号前的空格\n- shebang中需要移除\"#\"和\"!\"之间的空格",
+    "code": "G.PRJ.03"
+  },
+  {
+    "rule_id": "1212",
+    "title": "禁止使用私有或者弱加密算法,同时Shell里面不要实现具体加密算法",
+    "language": "Shell",
+    "level": "严重",
+    "description": "禁止使用私有算法或者弱加密算法(比如DES,SHA1等)。应该使用经过验证的、安全的、公开的加密算法。有关如何选择和使用加密算法的更多信息,请参考《华为密码算法应用规范》。",
+    "fix_suggestion": "1. openssl dgst命令使用安全的加密算法(‘-sha256’, ‘-sha384’, ‘-sha512’, ‘-sha512-256’, ‘-sha3-256’, ‘-sha3-384’, ‘-sha3-512’)。\n2. openssl enc命令使用安全的加密算法(’-aes-128-ctr‘, ’-aes-128-ofb‘, ’-aes-192-ctr‘, ’-aes-192-ofb‘, ’-aes-256-ctr‘, ’-aes-256-ofb‘, ’-chacha20‘)。\n3. 不要使用私有加密算法。\n4. 使用加密算法参考《华为密码算法应用规范》。",
+    "code": "G.SEC.01"
+  },
+  {
+    "rule_id": "1213",
+    "title": "禁止使用私有或者弱加密算法,同时Shell里面不要实现具体加密算法(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "禁止使用私有算法或者弱加密算法(比如DES,SHA1等)。应该使用经过验证的、安全的、公开的加密算法。\n有关如何选择和使用加密算法的更多信息,请参考《华为密码算法应用规范》。",
+    "fix_suggestion": "- openssl dgst命令使用安全的加密算法('-sha256', '-sha384', '-sha512', '-sha512-256', '-sha3-256', '-sha3-384', '-sha3-512')\n- openssl enc命令使用安全的加密算法('-aes-128-ctr', '-aes-128-ofb', '-aes-192-ctr', '-aes-192-ofb', '-aes-256-ctr', '-aes-256-ofb', '-chacha20')\n- 不要使用私有加密算法\n- 使用加密算法参考《华为密码算法应用规范》。",
+    "code": "G.SEC.01"
+  },
+  {
+    "rule_id": "1214",
+    "title": "Shell执行过程中涉及手工输入用户名和密码的场景,要求用户显式输入用户名和密码,禁止提供默认值,并禁止密码明文回显",
+    "language": "Shell",
+    "level": "严重",
+    "description": "Shell执行过程中涉及手工输入用户名和密码的场景,要求用户显式输入用户名和密码；如果不关闭密码明文回显,会导致密码明文可见,存在密码隐私泄漏的风险。",
+    "fix_suggestion": "使用read命令输入密码时加上-s参数防止密码回显。",
+    "code": "G.SEC.02"
+  },
+  {
+    "rule_id": "1215",
+    "title": "Shell执行过程中涉及手工输入用户名和密码的场景,要求用户显式输入用户名和密码,禁止提供默认值,并禁止密码明文回显(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "Shell执行过程中涉及手工输入用户名和密码的场景,要求用户显式输入用户名和密码,如果不关闭密码明文回显,会导致密码明文可见,存在密码隐私泄漏的风险。",
+    "fix_suggestion": "- 使用read命令输入密码时加上-s参数防止密码回显",
+    "code": "G.SEC.02"
+  },
+  {
+    "rule_id": "1216",
+    "title": "禁止将用于敏感数据传输加密的密钥硬编码在代码中",
+    "language": "Shell",
+    "level": "严重",
+    "description": "如果传输加密密钥是硬编码的,当数据密文在网络上(尤其是跨越非可信网络)传输时,由于密文数据暴露在传输过程中,密钥遭暴力破解的可能性大大增加。一旦密钥被黑客获取并公布,华为在全球不同地区运行的此类设备都存在被破解/攻击的可能。因此必须保证用户对传输加密密钥的控制。",
+    "fix_suggestion": "Shell脚本里禁止硬编码密码等敏感信息,需要密码时通过手工输入。",
+    "code": "G.SEC.03"
+  },
+  {
+    "rule_id": "1217",
+    "title": "禁止将用于敏感数据传输加密的密钥硬编码在代码中(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "如果传输加密密钥是硬编码的,当数据密文在网络上(尤其是跨越非可信网络)传输时,由于密文数据暴露在传输过程中,密钥遭暴力破解的可能性大大增加。一旦密钥被黑客获取并公布,华为在全球不同地区运行的此类设备都存在被破解/攻击的可能。因此必须保证用户对传输加密密钥的控制。",
+    "fix_suggestion": "",
+    "code": "G.SEC.03"
+  },
+  {
+    "rule_id": "1218",
+    "title": "禁止使用调试方式执行Shell脚本",
+    "language": "Shell",
+    "level": "严重",
+    "description": "1. 当使用调试方式执行包含敏感信息变量的代码时会把敏感信息明文显示出来,造成敏感信息泄漏。\n2. 含义敏感信息处理的Shell脚本需要在脚本中显示set +x关闭调试模式。",
+    "fix_suggestion": "1. bash、sh命令执行脚本时,去掉-x参数。\n2. set命令去掉-x参数。\n3. shebang解释器中去掉-x参数。\n4. 在脚本中使用set +x关闭调试回响模式。",
+    "code": "G.SEC.04"
+  },
+  {
+    "rule_id": "1219",
+    "title": "禁止使用调试模式执行shell(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "当使用调试方式执行包含敏感信息变量的代码时会把敏感信息明文显示出来,造成敏感信息泄漏。\n含义敏感信息处理的Shell脚本需要在脚本中显示set +x关闭调试模式。",
+    "fix_suggestion": "",
+    "code": "G.SEC.04"
+  },
+  {
+    "rule_id": "1220",
+    "title": "代码中禁止执行set、env、declare及export、typeset命令输出环境变量到日志及界面",
+    "language": "Shell",
+    "level": "严重",
+    "description": "set、env、declare及export、typeset命令会把操作系统的环境变量显示出来,如果其中存在敏感信息,则易造成敏感信息泄漏。",
+    "fix_suggestion": "1. 不要无参使用set、env、declare及export、typeset命令。\n2. env 命令在只有参数-i, --ignore-environment, -C, --chdir=DIR, --help, --version时不会打印。\n3. declare、typeset命令无参数或使用-f -p参数时会把操作系统的环境变量显示出来。\n4. export命令无参数或使用-n -p参数(不带其他参数)时会把操作系统的环境变量显示出来,易造成敏感信息泄漏。",
+    "code": "G.SEC.05"
+  },
+  {
+    "rule_id": "1221",
+    "title": "代码中禁止执行set、env、declare及export、typeset命令输出环境变量到日志及界面(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "set、env、declare及export、typeset命令会把操作系统的环境变量显示出来,如果其中存在敏感信息,则易造成敏感信息泄漏。",
+    "fix_suggestion": "- 不要无参使用set、env、declare及export、typeset命令\n- env 命令在只有参数-i, --ignore-environment, -C, --chdir=DIR, --help, --version时不会打印\n- declare、typeset命令无参数或使用-f -p参数时会把操作系统的环境变量显示出来\n- export命令无参数或使用-n -p参数(不带其他参数)时会把操作系统的环境变量显示出来,易造成敏感信息泄漏",
+    "code": "G.SEC.05"
+  },
+  {
+    "rule_id": "1222",
+    "title": "禁止在代码中的PATH环境变量中添加相对路径",
+    "language": "Shell",
+    "level": "严重",
+    "description": "不使用相对或绝对路径的方式执行,该命令就会从系统当前 PATH 中去寻找,如果 PATH 包含“.”和“..”,则当用户不小心进入了一个恶意目录,就有可能执行到恶意目录下的命令,导致权限提升,造成安全隐患。比如攻击者在一个目录下埋藏了一些与系统命令同名的木马、病毒程序,如果 PATH 设置不当,在用户执行系统命令的时候,就有可能会执行这些恶意程序。",
+    "fix_suggestion": "在脚本中修改PATH环境变量时必须使用绝对路径。",
+    "code": "G.SEC.06"
+  },
+  {
+    "rule_id": "1223",
+    "title": "禁止在代码中的PATH环境变量中添加相对路径(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "不使用相对或绝对路径的方式执行,该命令就会从系统当前 PATH 中去寻找,如果 PATH 包含“.”和“..”,则当用户不小心进入了一个恶意目录,就有可能执行到恶意目录下的命令,导致权限提升,造成安全隐患。比如攻击者在一个目录下埋藏了一些与系统命令同名的木马、病毒程序,如果 PATH 设置不当,在用户执行系统命令的时候,就有可能会执行这些恶意程序。",
+    "fix_suggestion": "- 在脚本中修改PATH环境变量时必须使用绝对路径。",
+    "code": "G.SEC.06"
+  },
+  {
+    "rule_id": "1224",
+    "title": "创建文件和修改文件权限请遵循最小权限原则(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "程序在运行时可能需要不同的权限,但对于某一种权限不需要始终保留。例如,一个网络程序可能需要超级用户权限来捕获原始网络数据包,但是在执行数据报分析等其它任务时,则可能不需要相同的权限。因此程序在运行时只分配能完成其任务的最小权限。过高的权限可能会被攻击者利用并进行进一步的攻击。",
+    "fix_suggestion": "",
+    "code": "G.SEC.08"
+  },
+  {
+    "rule_id": "1225",
+    "title": "遵循最小权限原则",
+    "language": "Shell",
+    "level": "严重",
+    "description": "程序在运行时可能需要不同的权限,但对于某一种权限不需要始终保留。例如,一个网络程序可能需要超级用户权限来捕获原始网络数据包,但是在执行数据报分析等其它任务时,则可能不需要相同的权限。因此程序在运行时只分配能完成其任务的最小权限。过高的权限可能会被攻击者利用并进行进一步的攻击。创建和修改文件或目录应遵循如下最小权限原则。",
+    "fix_suggestion": "创建和修改文件或目录应遵循最小权限原则。",
+    "code": "G.SEC.08"
+  },
+  {
+    "rule_id": "1226",
+    "title": "禁止在Shell脚本中保留敏感信息",
+    "language": "Shell",
+    "level": "严重",
+    "description": "禁止在Shell脚本中保留敏感信息,包括密码、姓名、工号、联系方式、地址等公司信息,以及可能造成误解的描述,例如攻击、破解等。",
+    "fix_suggestion": "脚本注释中移除敏感信息,以及可能造成误解的描述。",
+    "code": "G.SEC.09"
+  },
+  {
+    "rule_id": "1227",
+    "title": "禁止在Shell脚本中保留敏感信息(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "禁止在Shell脚本中保留敏感信息,包括密码、姓名、工号、联系方式、地址等公司信息,以及可能造成误解的描述,例如攻击、破解等。",
+    "fix_suggestion": "",
+    "code": "G.SEC.09"
+  },
+  {
+    "rule_id": "1228",
+    "title": "正确使用Shell语法",
+    "language": "Shell",
+    "level": "严重",
+    "description": "编写语法正确的、能被解释器正确解析的脚本。 避免语法错误导致程序运行异常。  \n例如()、[]、do\\done、EOF、if\\fi的成对出现,空格的正确使用等。  \n此规则仅覆盖解析语法树异常的场景",
+    "fix_suggestion": "使用正确的shell语法编写脚本",
+    "code": "G.SYN.01"
+  },
+  {
+    "rule_id": "1229",
+    "title": "正确使用Shell语法(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "编写语法正确的、能被解释器正确解析的脚本。 避免语法错误导致程序运行异常。  \n例如()、[]、do\\done、EOF、if\\fi的成对出现,空格的正确使用等。  \n此规则仅覆盖解析语法树异常的场景",
+    "fix_suggestion": "使用正确的shell语法编写脚本",
+    "code": "G.SYN.01"
+  },
+  {
+    "rule_id": "1230",
+    "title": "确保除法运算和模运算中的除数不为0",
+    "language": "Shell",
+    "level": "严重",
+    "description": "确保除法运算和模运算中的除数不为0。",
+    "fix_suggestion": "1. 获取运算表达式除数的值,判断运算表达式节点中除数是否为0。\n2. 若运算表达式中除数为0,则判断运算表达式外层的测试语句中是否对除数变量0值判断。\n3. 如果运算表达式在函数体内,若函数内层未判断除数是否为0,则需要判断函数调用处是否有判断。",
+    "code": "G.TYP.01"
+  },
+  {
+    "rule_id": "1231",
+    "title": "确保除法运算和模运算中的除数不为0(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "避免除零错误,需要判断除数是否为0。",
+    "fix_suggestion": "1. 在除法或模运算前判断除数是否为0。\n2. 若除法或模运算在函数体内且函数体内未判断除数是否为0,也可以在函数调用处做判断。",
+    "code": "G.TYP.01"
+  },
+  {
+    "rule_id": "1232",
+    "title": "敏感信息使用完毕后应立即清空",
+    "language": "Shell",
+    "level": "严重",
+    "description": "shell中保存敏感信息的变量在使用后应立即使用unset命名清除。",
+    "fix_suggestion": "保存敏感信息的变量在使用后使用unset命令清除。",
+    "code": "G.TYP.02"
+  },
+  {
+    "rule_id": "1233",
+    "title": "敏感信息使用完毕后应立即清空(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "敏感信息使用完毕后应立即清空。",
+    "fix_suggestion": "请使用unset命令清除已使用过的敏感信息变量。",
+    "code": "G.TYP.02"
+  },
+  {
+    "rule_id": "1234",
+    "title": "正确使用数组",
+    "language": "Shell",
+    "level": "严重",
+    "description": "1. Shell中数组定义的语法:array_name=(value1 value2 ... valuen)。\n2. 关联数组使用declare命令来声明,语法格式:declare -A array_name。  \n3. 读取数组元素值的一般格式为:${array_name[index]}。",
+    "fix_suggestion": "数组定义:使用空格分隔数组的元素 array=(\"what\" \"is\" \"your\" \"name\") ；数组下标不能为空字符。\n数组访问:数组先定义在访问；访问数组时请使用大括号 ${sentence[n]}。",
+    "code": "G.TYP.04"
+  },
+  {
+    "rule_id": "1235",
+    "title": "正确使用数组(试点)",
+    "language": "Shell",
+    "level": "严重",
+    "description": "Shell中数组定义的语法:array_name=(value1 value2 ... valuen)  \n关联数组使用declare命令来声明,语法格式:declare -A array_name  \n读取数组元素值的一般格式为:${array_name[index]}",
+    "fix_suggestion": "数组定义:使用空格分隔数组的元素 array=(\"what\" \"is\" \"your\" \"name\") ；数组下标不能为空字符  \n数组访问:数组先定义在访问；访问数组时请使用大括号 ${sentence[n]}；",
+    "code": "G.TYP.04"
+  }
+]

@@ -1,0 +1,65 @@
+# G.MTH.LOK.02 建议使用 Arc<str> / Arc<[T]> 来代替 Arc<String> / Arc<Vec<T>>-试行
+
+- **规则ID**：95ef6189-26e9-4e89-9fd1-906d19862727
+- **更新时间**：2025-06-05 04:40:03
+
+---
+
+**【问题级别】**
+
+提示
+
+**【描述】**
+
+Arc<str>/ Arc<[T]> 的性能比 Arc<String> / Arc<Vec<T>> 更好。
+
+
+
+因为 ：
+
+
+
+Arc<String> / Arc<Vec<T>> 有一层中间层： arc -> String len/Vec<T> len -> text/data ，它是一个 薄指针（thin pointer） 。
+
+Arc<str>/ Arc<[T]> 则没有中间层： arc & string len / [T] len -> text/data， 它是一个胖指针（fat pointer）。
+
+**【正确示例】**
+
+```
+use std::rc::Rc;
+use std::sync::Arc;
+fn main() {
+    let a: &str = "hello world";
+    let b: Rc<str> = Rc::from(a);
+    println!("{}", b);
+    // or equivalently:
+    let b: Rc<str> = a.into();
+    println!("{}", b);
+    // we can also do this for Arc,
+    let a: &str = "hello world";
+    let b: Arc<str> = Arc::from(a);
+    println!("{}", b);
+}
+
+```
+**【错误示例】**
+
+```
+use std::rc::Rc;
+use std::sync::Arc;
+fn main() {
+    let a = "hello world".to_string();
+    let b: Rc<String> = Rc::from(a);
+    println!("{}", b);
+    // or equivalently:
+    let a = "hello world".to_string();
+    let b: Rc<String> = a.into();
+    println!("{}", b);
+    // we can also do this for Arc,
+    let a = "hello world".to_string();
+    let b: Arc<String> = Arc::from(a);
+    println!("{}", b);
+}
+
+```
+**【修复建议】**

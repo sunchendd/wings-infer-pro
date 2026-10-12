@@ -1,0 +1,1802 @@
+[
+  {
+    "rule_id": "509",
+    "title": "public或protected修饰的元素应添加Javadoc注释",
+    "language": "Java",
+    "level": "提示",
+    "description": "最低限度要为每个public或protected修饰的类、接口、枚举、类方法和类属性添加注释,这些注释的格式应该采用Javadoc注释格式(即使用`/** */`进行注释),除此之外按需添加Javadoc注释。实现接口方法时,其Javadoc允许使用{@inheritDoc}。",
+    "fix_suggestion": "为public或protected修饰的元素应添加Javadoc注释。\n推荐使用Huawei CodeCheck插件[https://3ms.huawei.com/km/groups/3946724/blogs/details/15159305]的自动修复/一键格式化功能,详细使用说明见。",
+    "code": "G.CMT.01"
+  },
+  {
+    "rule_id": "510",
+    "title": "顶层public类的Javadoc应该包含功能说明和创建日期/版本信息",
+    "language": "Java",
+    "level": "提示",
+    "description": "顶层public类的Javadoc中应该有功能说明、`@since`信息。日期格式为Java 8 time包中的[ISO_DATE](https://docs.oracle.com/javase/8/docs/api/java/time/format/DateTimeFormatter.html#ISO_DATE),例如“2011-12-03”或者“2011-12-03+01:00”。\n编写文件头或顶层类头注释应注意:\n- 禁止空有格式,无内容。\n- 业界Java源码中一般没有History信息,History在配置库里面可以查询,不建议在Java源码的注释中包含History。\n- 顶层public类头中创建日期的`@since`标签中的年份应该与版权中的起始年份相同。",
+    "fix_suggestion": "在Javadoc中添加功能说明、添加@since注解,并在后面添加时间,例如:@since 2023-08-29\n推荐使用Huawei CodeCheck插件[https://3ms.huawei.com/km/groups/3946724/blogs/details/15159305]的自动修复/一键格式化功能,详细使用说明见。",
+    "code": "G.CMT.02"
+  },
+  {
+    "rule_id": "511",
+    "title": "方法的Javadoc中应该包含功能说明,根据实际需要按顺序使用@param、@return、@throws标签对参数、返回值、异常进行注释",
+    "language": "Java",
+    "level": "提示",
+    "description": "方法的Javadoc中应该包含功能说明,根据实际需要按顺序使用@param、@return、@throws标签对参数、返回值、异常进行注释\n工具检查场景:\n- 检查方法的Javadoc是否有功能说明；如果没有Javadoc,这条规则不告警,会在G.CMT.01中告警\n- 检查方法的Javadoc的功能描述与标签之间是否只空1行,没有空行和多余空行都会告警\n- 如果方法有参数,检查Javadoc中是否对每个参数都有@param标签\n- 如果方法有返回值,检查Javadoc中是否有@return标签\n- 如果方法有抛异常,检查Javadoc中是否对每个异常都有@throws标签\n- 检查标签是否按照@param、@return、@throws的顺序排列\n- 检查Javadoc第一行或最后一行不能有注释内容\n- 例外场景:\n  - 不检查继承的Javadoc( @inheritDoc)\n  - 不检查隐藏的Javadoc(@hide)",
+    "fix_suggestion": "增加功能说明和相应标签",
+    "code": "G.CMT.03"
+  },
+  {
+    "rule_id": "512",
+    "title": "不写空有格式的方法头注释",
+    "language": "Java",
+    "level": "提示",
+    "description": "对于不需要添加注释的方法无需添加空有格式的注释,这样代码更整洁。",
+    "fix_suggestion": "注释中对方法的描述信息不能为空,且应该使用@param、@return、@throws注解分别对方法的参数、返回值、抛出的异常信息做描述。\n对于不需要添加注释的方法,将空有格式的javadoc注释删除。\n推荐使用Huawei CodeCheck插件[https://3ms.huawei.com/km/groups/3946724/blogs/details/15159305]的自动修复/一键格式化功能,详细使用说明见。",
+    "code": "G.CMT.04"
+  },
+  {
+    "rule_id": "513",
+    "title": "注释与代码之间应该有空行或空格,注释符与注释内容之间应该有空格",
+    "language": "Java",
+    "level": "提示",
+    "description": "注释与代码之间、注释符与注释信息之间应该合理通过空行、空格进行分隔,这样可保持代码格式更加清晰。\n-  类级成员(一般是类或接口中的属性、方法,嵌套类/内部类依此类推),注释与上面的代码之间加一个空行,但是如果上面已经是本范围(一般是个大括号),则不用加空行。\n- 非public非protected的方法,命名无法表达的信息,应该加注释辅助说明,方法头注释统一放在方法声明或定义上方。\n- 在方法内部(语句级),注释与上面的代码之间可以考虑加一个空行,以便更加清晰,也可以不用加空行。",
+    "fix_suggestion": "推荐使用工具自动对代码进行格式化处理,建议使用[HiCode的codecheck插件](https://hicode.huawei.com/#/docs/IDE%E6%8F%92%E4%BB%B6/CodeCheck)的检查和修复功能,或使用开源项目[EasyCode](https://openx.huawei.com/EasyCode/overview)中的代码格式化模板对代码进行格式化处理。",
+    "code": "G.CMT.06"
+  },
+  {
+    "rule_id": "514",
+    "title": "正式交付给客户的代码不应包含TODO/FIXME注释",
+    "language": "Java",
+    "level": "提示",
+    "description": "TODO注释一般用来描述已知待改进、待补充的修改点。FIXME注释一般用来描述已知缺陷。在版本开发阶段可以使用这两类标签标注一些待处理的问题。\n对于版本交付的代码中不应存在这两类标签,否则可能会被误解为代码中存在未实现的功能或已知的缺陷。",
+    "fix_suggestion": "正式交付的代码中,排查所有的TODO、FIXME注释,保证功能是完整的,已知缺陷都已经被修复,并将所有的TODO、FIXME注释删除。\n推荐使用Huawei CodeCheck插件[https://3ms.huawei.com/km/groups/3946724/blogs/details/15159305]的自动修复/一键格式化功能,详细使用说明见。",
+    "code": "G.CMT.07"
+  },
+  {
+    "rule_id": "515",
+    "title": "优先使用泛型集合,而不是数组",
+    "language": "Java",
+    "level": "一般",
+    "description": "泛型是不可变的,数组是协变的。当向数组中添加类型不匹配的元素时,在运行期才会发生错误,而对于集合,在编译期就会报错。另外,由于类型不安全无法创建泛型数组。\n泛型与数组不能很好地混合使用,如果需要使用一个“泛型化的数组”,更好地选择是使用集合。",
+    "fix_suggestion": "相对于数组,推荐优先使用泛型集合。",
+    "code": "G.COL.02"
+  },
+  {
+    "rule_id": "516",
+    "title": "声明一个泛型类通过限定符限制可用的泛型类型",
+    "language": "Java",
+    "level": "一般",
+    "description": "Java的泛型可按PECS(Producer Extends,Consumer Super)原则来设计上界和下界类型。声明一个带\n泛型的类或接口的时候,建议通过extends关键字限制可以用的泛型类型,避免接口使用者乱用。",
+    "fix_suggestion": "泛型参数配合extends使用",
+    "code": "G.COL.03"
+  },
+  {
+    "rule_id": "517",
+    "title": "不要在foreach循环中通过remove()/add()方法更改集合",
+    "language": "Java",
+    "level": "严重",
+    "description": "java.util.concurrent包之外的(非concurrent)集合在foreach循环中不要更改,否则可能会导致ConcurrentModificationException。当需要遍历集合并删除部分元素时,可采用removeIf()方法或Iterator的remove()方法。个别集合(例如CopyOnWriteArrayList)的Iterator中remove()方法会抛出UnsupportedOperationException。",
+    "fix_suggestion": "在遍历集合中的元素时,如果需要对集合进行更改,应该使用迭代器。",
+    "code": "G.COL.04"
+  },
+  {
+    "rule_id": "518",
+    "title": "对共享变量做同步访问控制时需避开同步陷阱",
+    "language": "Java",
+    "level": "致命",
+    "description": "用作锁的对象声明时,必须添加final修饰符,防止进行多线程同步期间由于被指向其他对象导致无法正确实现同步。",
+    "fix_suggestion": "锁对象必须使用final修饰。",
+    "code": "G.CON.01"
+  },
+  {
+    "rule_id": "519",
+    "title": "在异常条件下,保证释放已持有的锁",
+    "language": "Java",
+    "level": "严重",
+    "description": "锁对象如果不能正确释放,可能会导致阻塞或死锁问题。为了保证锁被正确释放,建议在finally中释放锁。\n对于加锁操作应在try代码块外部实现,避免因为加锁操作出现异常导致加锁失败,进而导致在finally中释放锁时发生异常。",
+    "fix_suggestion": "释放锁操作在finally代码块中实现。",
+    "code": "G.CON.02"
+  },
+  {
+    "rule_id": "520",
+    "title": "避免在持有锁时执行耗时或阻塞性的操作",
+    "language": "Java",
+    "level": "一般",
+    "description": "持有锁时执行耗时或阻塞性操作会严重降低系统性能,且可能导致线程饥饿。此外可能会导致依赖本线程的其它线程无限期阻塞。阻塞性操作包括网络、文件、控制台I/O和对象序列化等,线程无限期的等待也属于阻塞性的操作。",
+    "fix_suggestion": "对共享变量做同步访问控制时需避开同步陷阱",
+    "code": "G.CON.03"
+  },
+  {
+    "rule_id": "521",
+    "title": "避免使用不正确形式的双重检查锁",
+    "language": "Java",
+    "level": "一般",
+    "description": "在使用使用双重检查锁时,不正确的使用双重检查锁,可能会导致线程发布一个未初始化或部分初始化的对象给另外的线程使用,存在延迟初始化的Java优化问题隐患。因此在产品使用时需要避免使用不正确形式的双重检查锁。",
+    "fix_suggestion": "将双重检查锁涉及的单例类对象设置为volatile 。",
+    "code": "G.CON.04"
+  },
+  {
+    "rule_id": "522",
+    "title": "禁止使用非线程安全的方法来覆写线程安全的方法",
+    "language": "Java",
+    "level": "一般",
+    "description": "对于线程安全的方法被子类覆写为非线程安全时,可能会因为数据竞争(不正确的同步)导致难以定位的问题产生。",
+    "fix_suggestion": "子类覆写父类方法,父类方法需要进行线程同步保护时,子类中的方法也要保持同步。",
+    "code": "G.CON.05"
+  },
+  {
+    "rule_id": "523",
+    "title": "使用新并发工具代替wait()和notify()",
+    "language": "Java",
+    "level": "一般",
+    "description": "Java 5开始提供了更高级的并发工具,这些工具可以有效替代wait()和notify()。新开发的代码应该优先使用这些并发工具。\n这些高级的并发工具主要位于java.util.concurrent中,包括:\nExecutor Framework:可参考G.CON.12 避免不加控制地创建新线程,应该使用线程池来管控资源;\n并发集合(Concurrent Collection):提供了高性能的并发实现的集合接口,在其内部实现了同步管理,不需要额外加锁,常用的并发集合包括ConcurrentHashMap、ConcurrentSkipListSet、ConcurrentLinkedQueue等；\n同步器(Synchronizer):为每种特定的同步需求提供了解决方案,常用的同步器包括Phaser、CountDownLatch、Semaphore等。",
+    "fix_suggestion": "新开发的代码应避免使用wait()和notify()方法。",
+    "code": "G.CON.06"
+  },
+  {
+    "rule_id": "524",
+    "title": "创建新线程时必须指定线程名",
+    "language": "Java",
+    "level": "一般",
+    "description": "指定线程名可以给问题定位带来很多方便。日志或者dump文件中会包含线程的名字,但缺省的线程名Thread-n无法区分出是哪个线程,不便于问题定位。",
+    "fix_suggestion": "创建线程时为线程指定具体的名称。",
+    "code": "G.CON.07"
+  },
+  {
+    "rule_id": "525",
+    "title": "使用Thread对象的setUncaughtExceptionHandler方法注册未捕获异常处理者",
+    "language": "Java",
+    "level": "严重",
+    "description": "Java多线程程序中,所有线程都不允许抛出未捕获的checked exception,也就是说各个线程需要自己把自己的checked exception处理掉。但是无法避免未捕获的RuntimeException。当子线程抛出异常时,子线程会结束,但主线程不会知道,因为主线程通过try-catch是无法捕获子线程异常的。\nThread对象提供了setUncaughtExceptionHandler方法用来获取线程中产生的异常。还可以使用Thread.setDefaultUncaughtExceptionHandler,为所有线程设置默认异常处理方法。\n应注意的是,在执行周期性任务例如ScheduledExecutorService时,为了程序的健壮性,可考虑在提交的Runnable的run方法内捕获高层级的异常。\nScheduledExecutorService的各种schedule方法,可以通过其返回的ScheduledFuture对象获取其异常。",
+    "fix_suggestion": "创建线程时设置异常处理方法,保证线程抛出的异常可以被正确处理。",
+    "code": "G.CON.08"
+  },
+  {
+    "rule_id": "526",
+    "title": "不要依赖线程调度器、线程优先级和yield()方法",
+    "language": "Java",
+    "level": "一般",
+    "description": "Java中的线程调度,是基于操作系统以及JVM的实现,在不同的操作系统中,或者不同厂商的JVM(如Oracle、IBM等),即使是同一套代码,其多线程的调度机制也是不一样的。因此,在多线程的程序中,不要依赖于系统的线程调度器来决定程序的逻辑运作,如果程序依赖于线程调度器来达到正确性或者性能要求,会导致不可移植。\n线程的优先级是高度依赖于系统的。当虚拟机依赖于系统的线程实现机制时,Java线程的优先级会被映射到系统的线程优先级上,Java线程优先级的数量会发生变化,甚至可能被忽略。所以程序功能的正确性不能依赖于线程的优先级。\n而Thread.yield()对线程调度器仅仅是个提示,不保证确定的效果,因此代码也不能依赖Thread.yield()方法。",
+    "fix_suggestion": "线程的运行应避免依赖通过setPriority()、Thread.yield()等方法设置的线程优先级。",
+    "code": "G.CON.09"
+  },
+  {
+    "rule_id": "527",
+    "title": "线程中断由业务代码来协作完成,慎用Thread.interrupt方法",
+    "language": "Java",
+    "level": "一般",
+    "description": "线程中断由业务代码来协作完成,**慎用Thread.interrupt方法,它依赖执行线程对interrupted status的处理逻辑**。在使用Thread.interrupt()方法请求目标线程中止时,仅仅是在目标线程上将interrupted status标记为true,目标线程本身需用Thread.interrupted()方法检查该标记,当状态为true时,应主动执行清理,并抛出InterruptedException。\n在编写需要中止的多线程程序时,必须选用能够响应interrupt的标准库或第三方库。Java标准库中的会阻塞的方法(如Thread.sleep()或者SocketChannel.write())一般会在interrupt之后抛出InterruptedException。但有些方法则不理会interrupt,如Socket.write(),必须回避这些方法。",
+    "fix_suggestion": "1、优先使用协作式的线程同步机制来通知一个线程中止作业,如java.util.concurrent包中的各种synchronizer,加锁的共享变量、volatile共享变量等。\n2、如果需要一个线程让另一个线程中止执行,Java API推荐的方式是,让被中止的线程在运行中周期性地查询自己是否被中止。如果发现自己被中止,则应该主动清理状态并中止执行,而不是忽略请求继续执行。",
+    "code": "G.CON.10"
+  },
+  {
+    "rule_id": "528",
+    "title": "禁止使用Thread.stop()来终止线程 ",
+    "language": "Java",
+    "level": "一般",
+    "description": "Thread.stop() 已经被标记为@Deprecated,该方法是不安全的,调用 Thread.stop() 来终止线程 会使其释放它所持有的所有锁,可能会导致这些锁保护的对象处于不一致的状态",
+    "fix_suggestion": "禁止调用Thread.stop()",
+    "code": "G.CON.11"
+  },
+  {
+    "rule_id": "529",
+    "title": "避免不加控制地创建新线程,应该使用线程池来管控资源",
+    "language": "Java",
+    "level": "一般",
+    "description": "Java虚拟机能够管理的线程数量有限,不加控制的创建新线程可能会导致Java虚拟机崩溃。\n推荐使用Java 5之后提供的线程池ThreadPoolExecutor来管理线程资源,这样可以更加明确线程池的运行规则,避免资源耗尽的风险。另外,线程池要合理规划,避免任意重复创建。\n不推荐使用Executors创建线程池,因为存在以下问题:\n1)Executors.newFixedThreadPool()和Executors.newSingleThreadExecutor()允许请求队列的最大长度为Integer.MAX_VALUE,可能会因为堆积大量的请求导致OOM。\n2)Executors.newCachedThreadPool()允许创建线程的最大数量为Integer.MAX_VALUE,可能会因为创建大量的线程导致OOM。Executors.newScheduledThreadPool()会自动增长工作队列大小。Executors.newWorkStealingPool()实际的工作窃取线程数量会动态地增减。",
+    "fix_suggestion": "避免单独创建线程,尽量使用线程池来复用线程。线程池的从创建推荐使用ThreadPoolExecutor。",
+    "code": "G.CON.12"
+  },
+  {
+    "rule_id": "530",
+    "title": "线程池中的任务结束后必须清理其自定义的ThreadLocal变量",
+    "language": "Java",
+    "level": "一般",
+    "description": "`ThreadLocal`基于弱引用实现,如果线程栈随着线程一起被JVM回收,`ThreadLocal`中存放的值也会在之后的GC被回收。而线程池技术则会重复使用线程以减少线程创建开销。这种线程的复用,导致`ThreadLocal`变量的使用存在以下两类问题:\n- 脏数据问题:当前任务未正确初始化`ThreadLocal`变量,导致`ThreadLocal`变量取到该线程之前执行的某一个任务中设置的未清除的值；\n- 内存泄露问题:任务中没有主动清理`ThreadLocal`中存放的值,且该线程池中的核心线程持有了`ThreadLocal`的引用,使得`ThreadLocal`中的值对象不会被JVM主动释放,最终造成这部分内存无法被回收导致内存泄露。\n因此必须保证线程池中每个任务使用的`ThreadLocal`变量在任务结束后被主动清理。\n一些常见的涉及线程池的场景包括但不限于:\n1. 使用JDK或第三方线程池工具类提交异步任务:`ThreadPoolExecutor`、`ForkJoinPool`、来自`Guava`的增强线程池(通常继承自`ListeningExecutorService`)、来自`Spring`的异步线程池`org.springframework.core.task.TaskExecutor`等；\n2. 基于线程池进行任务执行的框架或工具:JDK中的`java.util.Collection#parallelStream`(该接口默认复用`ForkJoinPool.commonPool()`)、Netty的`io.netty.channel.ChannelPipeline`中的`addAfter`和`addFirst`(使用线程池提交handler)、以及Tomcat/Jetty中的请求处理线程池等；",
+    "fix_suggestion": "必须保证线程池中每个任务使用的`ThreadLocal`变量在任务结束后被主动清理(可以利用`finally`来实现)。",
+    "code": "G.CON.13"
+  },
+  {
+    "rule_id": "531",
+    "title": "不要在控制性条件表达式中执行赋值操作或执行复杂的条件判断",
+    "language": "Java",
+    "level": "一般",
+    "description": "控制性条件表达式常用于if、while、for、?:等条件判断中。\n在控制性条件表达式中执行赋值或执行复杂的条件判断,常常导致意料之外的行为,且代码的可读性非常差。\n复杂的条件判断是指在一个条件表达式中boolean运算符数量超过3。对于复杂的条件判断建议封装到一个独立的方法中,通过具有描述性的方法名让代码阅读者更容易理解复杂判断的目的,另外也方便对独立方法中的复杂条件判断逐步进行优化,最终使代码主流程和判断逻辑更加清晰可读。",
+    "fix_suggestion": "1、对于boolean型变量,在if判断中避免重复与true/false进行比较；\n2、在条件判断中不要进行赋值操作；\n3、对于复杂条件判断,建议结合业务场景进行合理的优化,比如:结合业务逻辑进行合理拆分、封装独立方法等,具体可参考代码示例中的场景3。",
+    "code": "G.CTL.01"
+  },
+  {
+    "rule_id": "532",
+    "title": "含else if分支的条件判断应在最后加一个else分支",
+    "language": "Java",
+    "level": "提示",
+    "description": "含多个else if条件组合的判断逻辑,往往会出现被遗漏的分支,在最后设置一个else分支可对遗漏场景进行处理(类似于switch-case语句要有default分支)。\n最后的else分支如果没有明确的处理场景,可以记录一条日志或抛出异常等,如:`log(\"unknown condition\")`、`throw new IllegalStateException(\"non-exhaustive cases\")`等。",
+    "fix_suggestion": "在含多个else if条件组合的判断逻辑最后增加else分支。",
+    "code": "G.CTL.02"
+  },
+  {
+    "rule_id": "533",
+    "title": "switch语句要有default分支",
+    "language": "Java",
+    "level": "一般",
+    "description": "每个switch语句都应该包含一个default分支,即使default分支没有业务逻辑代码。default分支中没有业务逻辑代码时,可以记录一条日志或抛出异常等,如:`log(\"unknown condition\")`、`throw new IllegalStateException(\"non-exhaustive cases\")`等。",
+    "fix_suggestion": "switch语句中增加default分支。",
+    "code": "G.CTL.03"
+  },
+  {
+    "rule_id": "534",
+    "title": "循环必须保证可正确终止",
+    "language": "Java",
+    "level": "严重",
+    "description": "`while(true)`循环语句中如果缺少break,可能会导致循环无法终止。\n另外,代码中更不应该出现空的无限循环,编写一个空的循环体,不会完成具体功能,反倒可能会消耗CPU；另一方面,如果刻意编写空循环来消耗CPU,却又可能被编译器或者JIT优化而消除。\n例外场景:在线程的run方法里使用无限循环。",
+    "fix_suggestion": "要为循环语句设置合理的终止条件,或添加合理终止循环的语句。",
+    "code": "G.CTL.04"
+  },
+  {
+    "rule_id": "535",
+    "title": "避免在循环体中修改循环控制变量",
+    "language": "Java",
+    "level": "提示",
+    "description": "如果在循环体的操作中异向地修改循环控制参数的数值,可能导致循环退出条件永远达不到(死循环)或者循环执行次数不符合预期。",
+    "fix_suggestion": "避免在循环体中修改循环变量。",
+    "code": "G.CTL.05"
+  },
+  {
+    "rule_id": "536",
+    "title": "禁止switch语句中直接嵌套switch",
+    "language": "Java",
+    "level": "严重",
+    "description": "switch语句中直接嵌套switch语句,会增加代码的复杂度,代码的可读性也会变差。",
+    "fix_suggestion": "将嵌套的switch抽取成一个单独的方法。",
+    "code": "G.CTL.06"
+  },
+  {
+    "rule_id": "537",
+    "title": "每行声明一个变量",
+    "language": "Java",
+    "level": "一般",
+    "description": "每行的变量声明(类属性或局部变量)都只声明一个变量。",
+    "fix_suggestion": "每个变量声明都单独占一行。\n推荐使用Huawei CodeCheck插件[https://3ms.huawei.com/km/groups/3946724/blogs/details/15159305]的自动修复/一键格式化功能,详细使用说明见。",
+    "code": "G.DCL.01"
+  },
+  {
+    "rule_id": "538",
+    "title": "局部变量被声明在接近它们首次使用的行",
+    "language": "Java",
+    "level": "提示",
+    "description": "局部变量被声明为接近它们首次使用的点,以最小化它们的范围。\n局部变量声明通常具有初始化,或在声明后立即初始化,无需为局部变量设置无效的null值。\n类的成员字段要集中声明。\n工具检查场景:\n- 检查是否存在如下场景:局部变量声明未初始化,且该变量最近的一个赋值语句和该声明在同一个作用域\n- 检查是否存在如下场景:局部变量的首次使用与它的声明在同一个作用域,且与声明语句间相隔超过10行(非空,非注释)",
+    "fix_suggestion": "合并声明和首次赋值位置",
+    "code": "G.DCL.02"
+  },
+  {
+    "rule_id": "539",
+    "title": "禁止C风格的数组声明",
+    "language": "Java",
+    "level": "一般",
+    "description": "数组类型由数据元素类型紧跟中括号([])组成,数组声明格式应该是`String[] nonEmptyArray`,而不是`String nonEmptyArray[]`。\n初始化数组时,数组中的最后一个元素后不要添加**逗号**,例如`String[] nonEmptyArray = {\"these\", \"can\", \"change\",};`。",
+    "fix_suggestion": "使用类似`String[] array`风格的数组声明方式；\n数组初始化时,删除数组中最后一个元素后多余的逗号。\n推荐使用Huawei CodeCheck插件[https://3ms.huawei.com/km/groups/3946724/blogs/details/15159305]的自动修复/一键格式化功能,详细使用说明见。",
+    "code": "G.DCL.03"
+  },
+  {
+    "rule_id": "540",
+    "title": "避免枚举常量序号的产生依赖于ordinal()方法",
+    "language": "Java",
+    "level": "一般",
+    "description": "Java枚举类型通过`ordinal()`方法返回枚举常量的排列序号。默认情况下,序号是根据声明顺序从0开始累加,但某些情况下会希望指定某些枚举常量为某个固定值以代表特殊意义(例如,键盘某个按键的具体编码),返回该固定值的方法不应基于`ordinal()`方法来实现。",
+    "fix_suggestion": "为枚举常量赋固定的值,消除对ordinal()方法的依赖。",
+    "code": "G.DCL.04"
+  },
+  {
+    "rule_id": "541",
+    "title": "禁止将mutable对象声明为public static final",
+    "language": "Java",
+    "level": "一般",
+    "description": "使用public static final的意图是定义一个常量。如果用其修饰一个mutable(可变)对象,极易产生不当使用,造成功能异常。",
+    "fix_suggestion": "对于`public static final`修饰的mutable对象,应该使用小驼峰命名,或者是将mutable对象修改为immutable对象,并使用大写字母命名。",
+    "code": "G.DCL.05"
+  },
+  {
+    "rule_id": "542",
+    "title": "禁止直接使用外部数据来拼接SQL语句",
+    "language": "Java",
+    "level": "严重",
+    "description": "secBrella告警清理指导链接:http://dfx.huawei.com/itembased/doc?ibid=SPE1000000989&navid=NVI1000072710\nSQL injection 错误在以下情况下发生:1)数据从一个不可信赖的数据源进入程序；2)数据用于动态地构造一个 SQL 查询。",
+    "fix_suggestion": "请查看告警清理指导:http://dfx.huawei.com/itembased/doc?ibid=SPE1000000989&amp&navid=NVI1000072714",
+    "code": "G.EDV.01"
+  },
+  {
+    "rule_id": "543",
+    "title": "禁止直接使用外部数据构造格式化字符串",
+    "language": "Java",
+    "level": "严重",
+    "description": "外部数据的定义请参考**【编程规范】**:外部数据的范围包括但不限于:网络、用户输入(包括命令行、界面)、命令行、文件(包括程序的配置文件)、环境变量、进程间通信(包括管道、消息、共享内存、socket等、RPC)、跨信任域方法参数(对于API)等。\nJava中的Format可以将对象按指定的格式转为某种格式的字符串,格式化字符串可以控制最终字符串的长度、内容、样式,当格式化字符串中指定的格式与格式对象不匹配时还可能会抛出异常。当攻击者可以直接控制格式化字符串时,可能导致多种安全问题:\n- 信息泄露:攻击者可能通过构造的格式化字符串获取系统内部信息或敏感数据；\n- 拒绝服务(DoS):恶意构造的字符串可能导致格式化操作失败,从而引发异常,影响系统服务的可用性；\n- 功能异常:格式化字符串语法错误可能导致程序行为异常,影响系统正常功能。",
+    "fix_suggestion": "1、在实际开发代码过程中,应避免直接使用外部数据构造正则或直接使用外部数据作为正则使用\n2、如果确实需要使用的时候,需要对外部数据进行校验过滤,防止外部攻击",
+    "code": "G.EDV.02"
+  },
+  {
+    "rule_id": "544",
+    "title": "禁止直接向Runtime.exec() 方法或java.lang.ProcessBuilder 类传递外部数据",
+    "language": "Java",
+    "level": "严重",
+    "description": "外部数据的定义请参考**【编程规范】**:外部数据的范围包括但不限于:网络、用户输入(包括命令行、界面)、命令行、文件(包括程序的配置文件)、环境变量、进程间通信(包括管道、消息、共享内存、socket等、RPC)、跨信任域方法参数(对于API)等。\n直接使用外部数据构造命令行时,恶意用户可向命令行中注入额外的命令语句(命令注入)或向命名语句中注入额外的参数(参数注入)。",
+    "fix_suggestion": "针对命令注入问题,常用的防护措施包括:\n- **对外部数据进行校验**:外部数据用于拼接命令行时,可使用白名单方式对外部数据进行校验,保证外部数据中不含注入风险的特殊字符；\n- **对外部数据中存在命令注入风险的特殊字符进行转义**:在执行命令行时,如果输入校验不能禁止有风险的特殊字符,需先外部输入进行转义处理,转义后的字段拼接命令行可有效防止命令注入的产生。对于转义的API,推荐使用Huawei WSF安全框架中的API,另外也可以使用业界开源组件esapi中的API。",
+    "code": "G.EDV.03"
+  },
+  {
+    "rule_id": "545",
+    "title": "禁止直接使用外部数据来拼接XML",
+    "language": "Java",
+    "level": "严重",
+    "description": "直接使用外部数据来构造XML,恶意用户可以向XML中注入额外的节点、节点属性,也可以通过注释对XML格式进行删减、恶意篡改等。",
+    "fix_suggestion": "依据产品业务场景,对外部数据进行校验或转义处理。",
+    "code": "G.EDV.04"
+  },
+  {
+    "rule_id": "546",
+    "title": "防止解析来自外部的XML导致的外部实体(XML External Entity)攻击",
+    "language": "Java",
+    "level": "严重",
+    "description": "XML Entity Expansion injection 也称为 XML Bombs,属于 DoS 攻击,利用格式工整的有效 XML 块,它们在耗尽服务器分配的资源之前不断呈指数式扩张。XML 允许定义作为字符串替代宏的自定义实体。通过嵌套复发性实体解析,攻击者可以轻松使服务器资源崩溃。",
+    "fix_suggestion": "为了避免 XXE 注入,应对 XML 解析器进行安全配置。",
+    "code": "G.EDV.05"
+  },
+  {
+    "rule_id": "547",
+    "title": "防止解析来自外部的XML导致的内部实体扩展(XML Entity Expansion)攻击",
+    "language": "Java",
+    "level": "严重",
+    "description": "由于在解析XML时,`JAXB Unmarshaller` 并且不支持任何用于禁用XXE的标志,因此必须首先通过可配置的安全解析器解析不受信任的XML,从而生成源对象,并将源对象传递给Unmarshaller。例如:javax.xml.bind.Unmarshaller。\n`javax.xml.xpath.XPathExpression` XPathExpression不能单独安全地配置,因此必须首先通过另一个安全的XML解析器解析不受信任的数据。",
+    "fix_suggestion": "1. `JAXB Unmarshaller`首先通过可配置的安全解析器解析不受信任的XML,从而生成源对象,并将源对象传递给Unmarshaller。\n2. `XPathExpression`首先通过另一个安全的XML解析器解析不受信任的数据。",
+    "code": "G.EDV.06"
+  },
+  {
+    "rule_id": "548",
+    "title": "禁止使用不安全的XSLT转换XML文件",
+    "language": "Java",
+    "level": "一般",
+    "description": "XSLT是一种样式转换标记语言,可以将XML数据档转换为另外的XML或其它格式,如HTML网页,纯文字。因为XSLT的功能十分强大,可以导致任意代码执行,当使用TransformerFactory转换XML格式数据的时候,需要添加安全策略禁止不安全的XSLT代码执行。\n如果直接使用外部数据来构造XSLT模板,可能导致任意代码执行风险。",
+    "fix_suggestion": "- 避免使用外部数据来动态构造XSLT模板；\n- 如果需要使用外部数据来动态构造XSLT模板时,应该对外部数据进行白名单校验,仅允许使用无风险的白名单字符。",
+    "code": "G.EDV.07"
+  },
+  {
+    "rule_id": "549",
+    "title": "正则表达式要尽量简单,防止ReDos攻击",
+    "language": "Java",
+    "level": "严重",
+    "description": "ReDos(Regular Expression Denial of Service)攻击是一种针对正则表达式引擎的拒绝服务攻击。攻击者通过构造精心设计的输入字符串,利用正则表达式引擎在处理这些字符串时的资源消耗特性,导致匹配过程异常缓慢或者进入无限循环,从而耗尽服务器的计算资源,影响正常服务的运行。\n当正则表达式中含有自我重复的重复分组(`^(\\d+)*$`、`^(\\d+|\\s+)*$`)或替换的重复分组(`^(\\d|\\d|\\d)+$`、`^(\\d|\\d?)+$`)时,容易发生Redos问题。发生Redos风险的原因是:Java中的正则匹配使用的是NFA引擎,NFA引擎的回溯机制,导致当字符串文本与正则表达式不匹配时,所花费的时间要比匹配时多,即要确定匹配失败,需要与所有可能的路径进行对比匹配,证明都不匹配时,才返回匹配失败。\n当使用外部数据构造正则或直接用作正则时,恶意用户可能会向系统中注入存在Redos风险的正则。正确的做法是先验证和清理外部数据,以确保正则的安全性。",
+    "fix_suggestion": "对外部数据使用前进行校验,保证最终构造出来的正则表达式中不存在Redos风险(即保证正则表达式中不存在重复分组)。\n对于代码中硬编码的正则表达式,要对正则表达式进行简化,去除正则表达式中的重复分组。例如`Email格式验证`的正则\n`^([0-9a-zA-Z]([-.\\w]*[0-9a-zA-Z])*@(([0-9a-zA-Z])+([-\\w]*[0-9a-zA-Z])*\\.)+[a-zA-Z]{2,9})$`中的`(([-\\w]*[0-9a-zA-Z])*\\.)+`存在redos问题,可以修改为`([-\\w]*\\.)+`。",
+    "code": "G.EDV.08"
+  },
+  {
+    "rule_id": "550",
+    "title": "禁止直接使用外部数据作为反射操作中的类名/方法名",
+    "language": "Java",
+    "level": "严重",
+    "description": "外部数据的定义请参考**【编程规范】**:外部数据的范围包括但不限于:网络、用户输入(包括命令行、界面)、命令行、文件(包括程序的配置文件)、环境变量、进程间通信(包括管道、消息、共享内存、socket等、RPC)、跨信任域方法参数(对于API)等。\n反射操作中直接使用外部数据作为类名或方法名,会导致系统执行非预期的逻辑流程(Unsafe Reflection)。这可被恶意用户利用来绕过安全检查或执行任意代码。当反射操作需要使用外部数据时,必须对外部数据进行白名单校验,明确允许访问的类或方法列表；另外也可以通过让用户在指定范围内选择的方式进行防护。",
+    "fix_suggestion": "避免将外部数据直接用作反射操作的数据源:创建一个规定用户使用的合法名称列表,并仅允许用户从中进行选择。\n如果必须使用外部数据用作反射操作的数据源,必须对外部数据进行白名单校验,明确允许访问的类或方法列表。",
+    "code": "G.EDV.09"
+  },
+  {
+    "rule_id": "551",
+    "title": "不要通过一个空的catch块忽略异常",
+    "language": "Java",
+    "level": "一般",
+    "description": "异常表示程序运行发生了错误,发生异常会中断程序的正常处理流程。不应该使用空的catch块会忽略发生的异常,发生异常要么在catch块中对异常情况进行处理,要么将异常抛出,交由上层调用方进行处理。",
+    "fix_suggestion": "代码中避免出现空的catch块,确实需要空catch块,建议添加注释,解释为什么可以忽略该异常。",
+    "code": "G.ERR.01"
+  },
+  {
+    "rule_id": "552",
+    "title": "不要直接捕获异常的基类Throwable、Exception、RuntimeException",
+    "language": "Java",
+    "level": "一般",
+    "description": "捕获异常的目的是为了将程序从异常状态恢复或对异常进行针对性处理,而如果不加区分的直接捕获基类异常,则会忽略程序抛出的异常类型,无法对各类异常进行有针对性地恢复处理,另外不利于代码的可读性、可维护性。\n当程序中的多种异常使用同一逻辑进行处理时,可以用并语法(ExceptionType1 | ... | ExceptionTypeN 变量)来减少重复代码。",
+    "fix_suggestion": "捕获具体的子异常类型,使用语法`(ExceptionType1 | ... | ExceptionTypeN 变量)`合并处理逻辑相同的异常。",
+    "code": "G.ERR.02"
+  },
+  {
+    "rule_id": "553",
+    "title": "不要直接捕获可通过预检查进行处理的RuntimeException ,如NullPointerException 、IndexOutOfBoundsException 等",
+    "language": "Java",
+    "level": "一般",
+    "description": "可通过预检查的方式进行消除的RuntimeException,这类异常一般表示程序逻辑错误,不应该通过try...catch的方式进行处理(这也可能会影响代码的可读性及系统的运行效率)。推荐通过预检查方式进行消除,该类运行期异常包括:NullPointerException、IndexOutOfBoundsException等。对于NumberFormatException、IllegalArgumentException、IllegalStateException等可通过try...catch方式处理。",
+    "fix_suggestion": "通过**预检查的方式**消除NullPointerException、IndexOutOfBoundsException等异常。",
+    "code": "G.ERR.03"
+  },
+  {
+    "rule_id": "554",
+    "title": "方法抛出的异常,应该与本身的抽象层次相对应",
+    "language": "Java",
+    "level": "一般",
+    "description": "方法抛出异常时,应该避免直接抛出RuntimeException,更不应该直接抛出Exception或Throwable,因为这些父类异常无法与异常发生的场景相关联,直接抛出父类异常会降低代码可读性。方法抛出的异常应该与方法本身的抽象层次相对应,这些异常可以是JDK中定义的标准异常,也可以是业务层自定义的异常。另外,抛出的异常中应该包含理解该异常产生原因的所有信息。",
+    "fix_suggestion": "方法抛出的异常应该是含有明确异常产生原因的具体异常类型(非基类异常)。",
+    "code": "G.ERR.05"
+  },
+  {
+    "rule_id": "555",
+    "title": "在catch块中抛出新异常时,避免丢失原始异常信息",
+    "language": "Java",
+    "level": "一般",
+    "description": "在catch代码块中更改异常类型时,如果只是使用原始异常中的message(originalException.getMessage())或使用新的错误描述信息构造新异常,可能会导致原始异常中的有价值的信息丢失,例如异常类型、调用堆栈等信息,增加问题定位的难度。\n为了保证不丢失异常信息,可以采取以下策略:\n1. **包含原始异常信息**:在构造新异常时,将原始异常作为构造函数的参数传递,如 `throw new CustomException(\"新的错误描述\", originalException);`。这样,新异常会包含原始异常的堆栈跟踪,便于追踪问题源头。\n2. **记录原始异常到日志**:在抛出新异常之前,先将原始异常的详细信息记录到日志中。例如 `LOG.error(\"新错误描述\", originalException);`。这样即使新异常中不包含全部原始异常信息,也可以通过日志获取。\n3. **处理敏感信息**:如果原始异常包含敏感信息,应在记录日志或传递给新异常之前进行匿名化或脱敏处理,以保护信息安全。\n遵循这些做法,可以在保证异常处理逻辑清晰的同时,也保留了足够的调试信息。",
+    "fix_suggestion": "修复方法1:新异常中要包含原始异常中的所有信息(敏感信息可先进行匿名化处理)；\n修复方法2:原始异常先记录到日志(敏感信息先脱敏处理)中,再抛出新构造的异常(仅包含部分原始异常信息)。",
+    "code": "G.ERR.06"
+  },
+  {
+    "rule_id": "556",
+    "title": "一个方法不应抛出超过5个异常,并在Javadoc的@throws标签中记录每个抛出的异常及其条件",
+    "language": "Java",
+    "level": "提示",
+    "description": "方法抛出过多的异常,会增加上层调用方法中的异常处理的工作,同时也表明方法承担了过多的职责,推荐一个方法最多抛出maxThrowNum(默认值为5,支持动态配置)类异常,包括受检异常和运行时异常。方法抛出的异常中应该避免存在继承关系,存在继承关系时,仅保留父类异常。",
+    "fix_suggestion": "方法抛出异常的类型超过maxThrowNum时,建议对方法进行合理拆分或对异常进行封装。",
+    "code": "G.ERR.07"
+  },
+  {
+    "rule_id": "557",
+    "title": "不要使用return、break、continue或抛出异常使finally块非正常结束",
+    "language": "Java",
+    "level": "一般",
+    "description": "在finally代码块中,直接使用return、break、continue、throw语句,或由于调用方法的异常未处理, 会导致finally代码块无法正常结束。非正常结束的finally代码块会影响try或catch代码块中异常的抛出, 也可能会影响方法的返回值。所以要保证finally代码块正常结束。",
+    "fix_suggestion": "将返回指令移到 finally 块之外。如果必须要 finally 块返回一个值,可以简单地将该返回值赋给一个本地变量,然后在 finally 块执行完毕后返回该变量",
+    "code": "G.ERR.08"
+  },
+  {
+    "rule_id": "558",
+    "title": "不要调用System.exit()终止JVM",
+    "language": "Java",
+    "level": "一般",
+    "description": "让 Web 应用程序试图关闭自身的容器并不是什么好主意。调用终止方法的操作可能包含在遗忘调试代码中,或者包含在从非 J2EE 应用程序导入的代码中。",
+    "fix_suggestion": "不要在 Web 应用程序中调用终止方法。",
+    "code": "G.ERR.09"
+  },
+  {
+    "rule_id": "559",
+    "title": "尽量消除非受检的异常,不应该在整个类上使用SuppressWarning",
+    "language": "Java",
+    "level": "一般",
+    "description": "在源代码中通过@SuppressWarning(\"unchecked\")屏蔽告警,是个坏的实践。它丢失了类型安全和描述性的好处。\n然而有些Java API,是用Object obj来存储数据对象的,当数据被取出来用时,不得不转换为用户数据对象。这时可能会有强制类型转换的告警,例如:[unchecked] unchecked method invocation。\n非受检警告很重要,不要轻易忽略它们。应该始终在最小的范围内使用@SuppressWarning注解,一般是在变量声明,简短的语句或方法上。",
+    "fix_suggestion": "如果需要使用@SuppressWarning注解来抑制告警信息,@SuppressWarning注解的应用范围应该最小化,避免直接为Class、Enum添加@SuppressWarning注解。",
+    "code": "G.ERR.10"
+  },
+  {
+    "rule_id": "560",
+    "title": "对于GeneralSecurityException及其子类异常应记录日志",
+    "language": "Java",
+    "level": "提示",
+    "description": "GeneralSecurityException是一个一般安全异常类,其子类定义了各种跟安全相关的异常,比如加解密操作相关异常、证书验证相关异常。当系统中抛出这些异常时,表示系统中的一些安全相关的功能出现问题或遇到一些非预期的场景。所以对于这些异常建议在日志中进行详细记录,方便后续进行问题分析定位及对系统的安全性进行优化完善。这些异常中如果含有秘钥、口令等敏感信息时,记录日志前应该对这些敏感信息进行过滤。",
+    "fix_suggestion": "对于GeneralSecurityException及其子类异常应记录日志",
+    "code": "G.ERR.11"
+  },
+  {
+    "rule_id": "561",
+    "title": "不要在单个表达式中对相同的变量赋值超过一次",
+    "language": "Java",
+    "level": "严重",
+    "description": "对相同的变量进行多次赋值的表达式会产生混淆,并且容易产生非预期的行为。清晰的变量赋值会使代码更易懂,也更能保证程序按预期运行。",
+    "fix_suggestion": "不要在单个表达式中对相同的变量赋值超过一次",
+    "code": "G.EXP.01"
+  },
+  {
+    "rule_id": "562",
+    "title": "用括号明确表达式的操作顺序,避免过分依赖默认优先级",
+    "language": "Java",
+    "level": "提示",
+    "description": "涉及多种操作符混合使用并且优先级容易混淆的场景,建议使用括号明确表达式操作顺序。\n```java\nfoo = a + b + c;    // 运算符相同,不需要括号\nif (a && b && c)    // 运算符相同,不需要括号\nfoo = 1 << (2 + 3); // 运算符不同,优先级易混淆,需要括号\n```",
+    "fix_suggestion": "用括号明确表达式的操作顺序,避免过分依赖默认优先级",
+    "code": "G.EXP.02"
+  },
+  {
+    "rule_id": "563",
+    "title": "条件表达式?:的第2和第3个操作数应使用相同的类型",
+    "language": "Java",
+    "level": "一般",
+    "description": "条件运算符?:使用第1个操作数的布尔值决定后续表达式哪个被执行。但是Java语言有相当复杂的规则去判定表达式的结果类型,不一致的操作数类型,可能导致意料之外的类型转换。如第2和第3个操作数在类型对齐时,可能会因为自动拆箱导致NullPointerException。",
+    "fix_suggestion": "三目运算符(`?:`)的第2和第3个操作数类型要保持一致。",
+    "code": "G.EXP.03"
+  },
+  {
+    "rule_id": "564",
+    "title": "表达式的比较,应该遵循左侧倾向于变化、右侧倾向于不变的原则",
+    "language": "Java",
+    "level": "提示",
+    "description": "当变量或方法调用与常量比较时,如果常量放左边,如`if (MAX == v)`不符合阅读习惯,而`if (MAX > v)`更是难于理解。\n应该按人的正常阅读、表达习惯,将常量放右边。由于现代IDE都有较为强大的NullPointerException检测能力,可以考虑显式地注解`@NotNull`。\n1. 对于`==`,变量放在左边,null或常量放在右边;\n2. 如果变量明显不会为null,例如new、单例、非空注解后,可用`obj.equals(\"foo\")`；如果必须使用null,或者这个变量有可能是null,应该使用`Objects.equals(variable, \"foo\")`或者显式用if判断或`\"foo\".equals(obj)`;\n3. 描述区间时,前半段表达式常量在左,也是允许的,如`if (MIN < bar && bar < MAX)`。",
+    "fix_suggestion": "应该把常量放在比较表达式的右边",
+    "code": "G.EXP.04"
+  },
+  {
+    "rule_id": "565",
+    "title": "禁止直接使用可能为null的对象,防止出现空指针引用",
+    "language": "Java",
+    "level": "严重",
+    "description": "在Java中,禁止直接使用可能为null的对象是为了避免空指针异常(NullPointerException)。当程序试图访问一个空对象的属性、调用其方法或操作其字段时,就会抛出这种异常。这通常表示程序逻辑中存在错误,因为预期该对象应该是已初始化且非空的。\n常见涉及空指针引用包括但不限于以下场景:\n1、声明为null的变量在返回前存在else分支未对变量进行初始化或赋值。\n2、声明为null的变量在try-catch中赋值,发生异常后,仅记录了日志而未进一步抛出异常,导致变量未正确赋值。",
+    "fix_suggestion": "通过预检查(即在操作对象之前检查其是否为null),我们可以提前发现并处理这种潜在的错误,而不是依赖于运行时的异常处理机制。预检查可以通过简单的条件语句实现,如** if (object != null) { ... } **。这样可以确保只有当对象确实存在时,才会执行后续的操作,从而避免了空指针异常,提高了代码的健壮性和可靠性。",
+    "code": "G.EXP.05"
+  },
+  {
+    "rule_id": "566",
+    "title": "代码中不应使用断言(assert)",
+    "language": "Java",
+    "level": "一般",
+    "description": "使用assert断言语是对代码进行诊断测试的方便机制。当使用有副作用的断言表达式时,assert语句的行为取决于运行时属性的状态,启用时,assert语句会计算表达式的值,如果值为false时抛出AssertionError异常；禁用时,assert语句不执行",
+    "fix_suggestion": "不要在断言中使用有副作用的表达式",
+    "code": "G.EXP.06"
+  },
+  {
+    "rule_id": "567",
+    "title": "使用外部数据构造的文件路径前必须进行校验,校验前必须对文件路径进行规范化处理",
+    "language": "Java",
+    "level": "一般",
+    "description": "文件路径来自外部数据时,必须对其合法性进行校验,否则可能会产生路径遍历(Path Traversal)漏洞。文件路径有多种表现形式,如绝对路径、相对路径,路径中可能会含各种链接、快捷方式、影子文件 等,这些都会对文件路径的校验产生影响,所以在文件路径校验前要对文件路径进行规范化处理,使用 规范化的文件路径进行校验。对文件路径的规范化处理必须使用 getCanonicalPath() ,禁止使用 getAbsolutePath() (该方法无法保证在所有的平台上对文件路径进行正确的规范化处理)",
+    "fix_suggestion": "在文件验证之前,使用getCanonicalPath()而非getAbsolutePath()获取文件路径",
+    "code": "G.FIO.01"
+  },
+  {
+    "rule_id": "568",
+    "title": "对于从流中读取一个字符或字节的方法,使用int类型的返回值",
+    "language": "Java",
+    "level": "致命",
+    "description": "Java代码中常用的抽象方法Reader.read()方法用于从流中读取一个字节或字符,该方法会读取一个字节,返回值的范围为0～65535。 这个方法会返回一个32位的-1表示读取到流的末尾,流中已经没有可用数据。这个方法使用int来保存流结束标志及最大字节。",
+    "fix_suggestion": "使用int类型的变量来保存read()的返回值,并使用该返回值判断是否读取到流的末尾,流未读完时,\n将读取的内容转换为char类型。",
+    "code": "G.FIO.03"
+  },
+  {
+    "rule_id": "569",
+    "title": "防止外部进程阻塞在输入输出流上",
+    "language": "Java",
+    "level": "一般",
+    "description": "执行Process.waitFor()、exitValue()操作之前要处理输入流和错误流",
+    "fix_suggestion": "在运行一个外部进程时,如果此进程往其输出流发送任何数据,则必须将其\n输出流清空。类似的,如果进程会往其错误流发送数据,其错误流也必须被清空。",
+    "code": "G.FIO.04"
+  },
+  {
+    "rule_id": "570",
+    "title": "临时文件使用完毕必须及时删除",
+    "language": "Java",
+    "level": "一般",
+    "description": "程序中有很多使用临时文件的场景,比如用于进程间的数据共享,缓存内存数据,动态构造的类文件,动态连接库文件等。临时文件可能创建于操作系统的共享临时文件目录,例如,POSIX系统下的/tmp与/var/tmp目录,Windows系统下的C:\\TEMP目录,这类目录中的文件可能会被定期清理。创建在其他路径下的临时文件不会被自动清理。如果文件未被安全地创建或者用完后还是可访问的,具备本地文件系统访问权限的恶意用户便可以利用共享目录中的文件进行恶意操作,另外,临时文件不清理也可能会导致大量垃圾文件占用磁盘的存储空间。删除已经不再需要的临时文件有助于对文件名和其他资源进行回收利用。每一个程序在正常运行过程中都有责任确保已使用完毕的临时文件被删除。",
+    "fix_suggestion": "临时文件在使用结束后必须删除。",
+    "code": "G.FIO.05"
+  },
+  {
+    "rule_id": "571",
+    "title": "源文件编码格式(包括注释)应该是UTF-8",
+    "language": "Java",
+    "level": "提示",
+    "description": "对于源文件,应统一采用UTF-8进行编码。另外,对于资源文件(如xml、yml、properties等配置文件)等也应该采用UTF-8进行编码。",
+    "fix_suggestion": "将源文件、资源文件统一使用UTF-8编码格式进行保存。",
+    "code": "G.FMT.01"
+  },
+  {
+    "rule_id": "572",
+    "title": "一个源文件按顺序包含版权、package、import、顶层类,且用空行分隔",
+    "language": "Java",
+    "level": "提示",
+    "description": "一个源文件中应按顺序包含以下信息:\n1. 许可证或版权信息；\n2. package语句,且语句内不换行；\n3. import语句,且语句内不换行,不能用通配符*；\n4. 顶级类(只有一个),所在.java源文件与它同名。\n以上每个部分之间用一个空行隔开。",
+    "fix_suggestion": "推荐使用Huawei CodeCheck插件[https://3ms.huawei.com/km/groups/3946724/blogs/details/15159305]的自动修复/一键格式化功能,详细使用说明见。",
+    "code": "G.FMT.02"
+  },
+  {
+    "rule_id": "573",
+    "title": "一个类或接口的声明部分应该按照类变量、静态初始化块、实例变量、实例初始化块、构造器、方法的顺序出现,且用空行分隔",
+    "language": "Java",
+    "level": "提示",
+    "description": "一个类或接口的声明部分应该按照以下顺序排列:\n- 类(静态)变量\n- 静态初始化块\n- 实例变量\n- 实例初始化块\n- 构造器\n- 方法或嵌套类,嵌套类可以与成员方法根据业务逻辑交替出现,把概念上相近的放在一起,无需把所有嵌套类都下移至文件底部\n- 类(静态)变量、实例变量、构造器,均按访问修饰符从大到小排列:public、protected、package(default)、private\n**说明:**\n1. 对于自注释成员变量之间可以不加空行；\n2. 非自注释成员变量应该加注释且成员变量间以空行分隔。",
+    "fix_suggestion": "推荐使用Huawei CodeCheck插件[https://3ms.huawei.com/km/groups/3946724/blogs/details/15159305]的自动修复/一键格式化功能,详细使用说明见。",
+    "code": "G.FMT.04"
+  },
+  {
+    "rule_id": "574",
+    "title": "在条件语句和循环块中应该使用大括号",
+    "language": "Java",
+    "level": "提示",
+    "description": "在 `if`, `else`, `switch`, `for`,`do`和 `while`等语句中,即使程序体是空的或只包含一个语句,也应该使用大括号。对`switch`里面的`case`和`default`,大括号是可选的。",
+    "fix_suggestion": "推荐使用Huawei CodeCheck插件[https://3ms.huawei.com/km/groups/3946724/blogs/details/15159305]的自动修复/一键格式化功能,详细使用说明见。",
+    "code": "G.FMT.05"
+  },
+  {
+    "rule_id": "575",
+    "title": "对于非空块状结构,左大括号应该放在行尾,右大括号应该另起一行",
+    "language": "Java",
+    "level": "提示",
+    "description": "对于非空块状结构(含初始化块),大括号应该遵循K&R风格:\n- 左大括号不换行；\n- 右大括号自己单独一行；\n- 右大括号后,可以跟逗号、分号等,也可以跟随 `else`、 `catch`、`finally`等关键字语句。",
+    "fix_suggestion": "推荐使用Huawei CodeCheck插件[https://3ms.huawei.com/km/groups/3946724/blogs/details/15159305]的自动修复/一键格式化功能,详细使用说明见。",
+    "code": "G.FMT.06"
+  },
+  {
+    "rule_id": "576",
+    "title": "应该避免空块,必须使用空块时,应采用统一的大括号换行风格",
+    "language": "Java",
+    "level": "提示",
+    "description": "程序中应避免空块,但对于工具自动生成的、用于被覆盖的场景(例如UI监听器),可能需要定义空的方法体；忽略异常时也可能使用空的catch块。",
+    "fix_suggestion": "建议将代码中的无效空块删除。",
+    "code": "G.FMT.07"
+  },
+  {
+    "rule_id": "577",
+    "title": "使用空格进行缩进,每次缩进4个空格",
+    "language": "Java",
+    "level": "提示",
+    "description": "只允许使用空格(space)进行缩进,每次缩进为**4**个空格。不允许插入制表符tab、换页符等。\n当前几乎所有的集成开发环境(IDE)和代码编辑器都支持配置将Tab键自动扩展为**4**空格输入,应在代码编辑器中配置使用空格进行缩进。",
+    "fix_suggestion": "推荐使用Huawei CodeCheck插件[https://3ms.huawei.com/km/groups/3946724/blogs/details/15159305]的自动修复/一键格式化功能,详细使用说明见。",
+    "code": "G.FMT.08"
+  },
+  {
+    "rule_id": "578",
+    "title": "每行不超过一个语句",
+    "language": "Java",
+    "level": "提示",
+    "description": "一行应只写一条语句。",
+    "fix_suggestion": "推荐使用Huawei CodeCheck插件[https://3ms.huawei.com/km/groups/3946724/blogs/details/15159305]的自动修复/一键格式化功能,详细使用说明见。",
+    "code": "G.FMT.09"
+  },
+  {
+    "rule_id": "579",
+    "title": "行宽不超过120个窄字符",
+    "language": "Java",
+    "level": "提示",
+    "description": "建议代码每行不超过maxLineLength(默认值为120,支持动态配置)个窄字符,保证在屏幕中可以呈现完整代码行,不需要拖动横向滚动条来查看完整代码。\n对于宽字符,实际在IDE中的呈现宽度可通过cnCharLength参数进行设置,该参数的默认值值为1(结合IntelliJ IDEA的实际呈现效果约为1.5)。",
+    "fix_suggestion": "代码行宽超过maxLineLength个窄字符时,在合理的位置进行换行处理。",
+    "code": "G.FMT.10"
+  },
+  {
+    "rule_id": "580",
+    "title": "建议换行起点在操作符之前",
+    "language": "Java",
+    "level": "提示",
+    "description": "当语句过长,或者可读性不佳时,需要在合适的地方换行。换行时建议将操作符、连接符放在新的一行。",
+    "fix_suggestion": "推荐使用Huawei CodeCheck插件[https://3ms.huawei.com/km/groups/3946724/blogs/details/15159305]的自动修复/一键格式化功能,详细使用说明见。",
+    "code": "G.FMT.11"
+  },
+  {
+    "rule_id": "581",
+    "title": "减少不必要的空行,保持代码紧凑",
+    "language": "Java",
+    "level": "提示",
+    "description": "减少不必要的空行,可以显示更多的代码,方便代码阅读。建议:\n- 根据上下内容的相关程度,合理安排空行:空行出现在属性,构造方法,方法,嵌套类,静态初始化块之间；\n- 方法内部、类型定义内部、初始化表达式内部,不使用**连续**空行；\n- 不使用**连续3个**或更多空行；\n- 大括号内的代码块**行首之前和行尾之后不要加空行**,包括类型和方法定义、语句代码块。",
+    "fix_suggestion": "推荐使用Huawei CodeCheck插件[https://3ms.huawei.com/km/groups/3946724/blogs/details/15159305]的自动修复/一键格式化功能,详细使用说明见。",
+    "code": "G.FMT.12"
+  },
+  {
+    "rule_id": "582",
+    "title": "用空格突出关键字和重要信息",
+    "language": "Java",
+    "level": "提示",
+    "description": "水平空格应该突出关键字和重要信息。单个空格应该分隔关键字与其后的左括号、与其前面的右大括号,出现在任何二元/三元运算符/类似运算符的两侧,`,:;`或类型转换结束括号`)`之后使用空格。行尾和空行不应有空格space。总体规则如下:\n**必须**加空格的场景:\n- (包括复合)赋值运算符前后,例如`=`、`*= `等；\n- 逗号`,`、非for-in的冒号`:`、for循环等分隔的`;`符号之后加空格；\n- 二元运算符、类型并交的`|`和`&`符号、for-in的冒号`:`的前后两侧,例如`base + offset`；\n- lambda表达式中的箭头前后,例如`str -> str.length()`；\n- 方法声明、条件判断语句、循环语句等场景下的`)`与`{`之间加空格,例如:`void func() {...}`。\n**禁止**加空格的场景:\n- `super`、`this`等少数关键字之后(多数关键字之后自然地须加空格)；\n- 成员访问操作符前后,例如`instance.member`；\n- 圆括号、方括号、注解或数组等非换行的大括号内两侧；\n- 一元运算符前后,例如`cnt++`；\n- 方法声明或者方法调用的左括号之前。",
+    "fix_suggestion": "推荐使用Huawei CodeCheck插件[https://3ms.huawei.com/km/groups/3946724/blogs/details/15159305]的自动修复/一键格式化功能,详细使用说明见。",
+    "code": "G.FMT.13"
+  },
+  {
+    "rule_id": "583",
+    "title": "不应插入多余空格使代码垂直对齐",
+    "language": "Java",
+    "level": "提示",
+    "description": "代码中的JavaDoc注释性描述内容前,不应该通过空格的方式使注释垂直对齐。\n如果描述长短差异较大,无规律插入的空白呈凹凸状,并不美观；\n另外对后续的维护者可能会困扰是否在有必要刻意追求对齐",
+    "fix_suggestion": "推荐使用HiCode的codecheck插件的检查和修复功能,或使用开源项目EasyCode中的代码格式化模板对代码进行格式化处理。",
+    "code": "G.FMT.14"
+  },
+  {
+    "rule_id": "584",
+    "title": "枚举常量间用逗号隔开, 换行可选",
+    "language": "Java",
+    "level": "提示",
+    "description": "枚举常量间使用逗号分隔,逗号之后的换行符可选。当枚举常量间通过换行分隔时,应避免使用多个空行。",
+    "fix_suggestion": "推荐使用Huawei CodeCheck插件[https://3ms.huawei.com/km/groups/3946724/blogs/details/15159305]的自动修复/一键格式化功能,详细使用说明见。",
+    "code": "G.FMT.15"
+  },
+  {
+    "rule_id": "585",
+    "title": "case语句块结束时如果不加break,需要有注释说明(fall-through)",
+    "language": "Java",
+    "level": "提示",
+    "description": "switch语句中,当没有终止语句(`break`,`return`或抛出异常)时会执行到switch语句的结束处。当case语句块中没有终止语句时,需要添加注释,表明会继续执行到下一个case语句块。任何符合fall-through概念的注释都可以(通常是`// $FALL-THROUGH$`)。\nEclipse和IntelliJ IDEA支持`$FALL-THROUGH$`这种特殊的注释来suppress缺少`break`的告警。尽管这不是Java的标准,但它被主流的IDE支持,推荐优先使用。\n**注意**:\n- 当javac开启 `-Xlint:fallthrough`选项编译时 ,加与不加`$FALL-THROUGH$`,可能都会告警；修复此告警可以考虑改用`if else if`写法替代`switch case`。\n- continue不能单独用于switch中,可用于循环中的switch中,continue的作用是跳出本次循环,所以case语句中使用continue时,还会影响循环代码块中后续代码的执行。\n如果`case`语句是空语句,则可以不用加注释特别说明。",
+    "fix_suggestion": "建议为每个case语句添加break,如果确实不需要添加break时,需要添加`$FALL-THROUGH$`注释。\n推荐使用Huawei CodeCheck插件[https://3ms.huawei.com/km/groups/3946724/blogs/details/15159305]的自动修复/一键格式化功能,详细使用说明见。",
+    "code": "G.FMT.16"
+  },
+  {
+    "rule_id": "586",
+    "title": "应用于类、方法、类属性的每个注解独占一行",
+    "language": "Java",
+    "level": "提示",
+    "description": "应用于类、方法(含构造方法)、类属性的注解应在其上部,且每个注解独占一行。",
+    "fix_suggestion": "推荐使用[HiCode的codecheck插件](https://hicode.huawei.com/#/docs/IDE%E6%8F%92%E4%BB%B6/CodeCheck)的检查和修复功能,或使用开源项目[EasyCode](https://openx.huawei.com/EasyCode/overview)中的代码格式化模板对代码进行格式化处理。",
+    "code": "G.FMT.17"
+  },
+  {
+    "rule_id": "587",
+    "title": "块注释的缩进级别应与上下文代码相同",
+    "language": "Java",
+    "level": "提示",
+    "description": "块注释的缩进级别应该与被注释代码相同。可以采用单行注释(`// ...`)风格或多行注释(`/* ... */`)风格,对于多行注释风格,每行注释要以`*`开头且保持前后对齐",
+    "fix_suggestion": "推荐使用Huawei CodeCheck插件[https://3ms.huawei.com/km/groups/3946724/blogs/details/15159305]的自动修复/一键格式化功能,详细使用说明见。",
+    "code": "G.FMT.18"
+  },
+  {
+    "rule_id": "588",
+    "title": "类和成员修饰符(如果存在)按Java语言规范建议的顺序显示",
+    "language": "Java",
+    "level": "提示",
+    "description": "类和成员修饰符(如果存在)按推荐的顺序显示(如果存在):\n```java\npublic protected private abstract default static final transient volatile synchronized native strictfp\n```",
+    "fix_suggestion": "推荐使用Huawei CodeCheck插件[https://3ms.huawei.com/km/groups/3946724/blogs/details/15159305]的自动修复/一键格式化功能,详细使用说明见。",
+    "code": "G.FMT.19"
+  },
+  {
+    "rule_id": "589",
+    "title": "数字字面量应该设置合适的后缀,long类型应该使用L作为后缀",
+    "language": "Java",
+    "level": "提示",
+    "description": "`long`值必须使用`L`后缀,不能使用`l`做后缀。例如,使用`500000L`而不是`500000l`。\nfloat、double类型也要添加对应的后缀,d、f后缀不易引起混淆的,不强制采用大写字母。\nJava 10增加了局部类型推断LVTI,一些字面量如果不加后缀,类型推断时可能与预期不符。为了形成良好的习惯,写出更健壮的代码,应参考LVTI的[Style Guidelines](https://openjdk.java.net/projects/amber/LVTIstyle.html)。如果不加后缀,数值推断为`int`,`float`可能会推断为`double`。因此,应该在字面量后面加上后缀。",
+    "fix_suggestion": "推荐使用Huawei CodeCheck插件[https://3ms.huawei.com/km/groups/3946724/blogs/details/15159305]的自动修复/一键格式化功能,详细使用说明见。",
+    "code": "G.FMT.20"
+  },
+  {
+    "rule_id": "590",
+    "title": "记录日志应该使用Facade模式的日志框架",
+    "language": "Java",
+    "level": "一般",
+    "description": "专用日志工具与控制台打印(System.out、System.err)相比,提供了更丰富的日志记录功能,且使用更加简单。日志打印推荐使用Facade模式的日志框架,如第三方slf4j、产品自研日志框架等,不要使用System.out与System.err进行控制台打印。",
+    "fix_suggestion": "将System.out与System.err等方法替换为专用日志工具。",
+    "code": "G.LOG.01"
+  },
+  {
+    "rule_id": "591",
+    "title": "日志工具Logger类的实例必须声明为private static final或者private final",
+    "language": "Java",
+    "level": "一般",
+    "description": "对于工具类的实例,如果声明时并进行了初始化,应该声明为private static final,如果只是声明但未初始化,则应声明为private final。\n- 声明为private是出于访问封装的考虑,防止Logger类的实例对象被其他类非法使用；\n- 声明为static是为了防止重复new出Logger类的实例,造成资源的浪费,同时防止实例被序列化,造成安全风险(精心设计的library除外)；\n- 声明为final是因为在类的生命周期内无需变更Logger类的实例。",
+    "fix_suggestion": "日志工具实例,应该声明为`private static final`或`private final`。",
+    "code": "G.LOG.02"
+  },
+  {
+    "rule_id": "592",
+    "title": "日志必须分等级",
+    "language": "Java",
+    "level": "一般",
+    "description": "如果日志不分等级,则定位问题时,无法快速有效屏蔽大量低级别信息,给快速定位带来难度。\n日志可分为以下级别:trace(有的也叫verbose)、debug、info、warning、error、fatal。",
+    "fix_suggestion": "推荐与具体实现有关的日志记录trace或debug级,一般的业务处理日志用info级,不影响业务进行的错误用warning级,例如用户输入参数错误。而error或fatal级,只记录系统逻辑出错、异常或者重要的错误信息,常常向运维系统报警。\n建议生产环境不输出trace或debug日志；有选择地输出info日志；输出warning、error、fatal日志。\n对info及以下级别的日志,应使用条件形式或占位符的方式进行输出。",
+    "code": "G.LOG.03"
+  },
+  {
+    "rule_id": "593",
+    "title": "非仅限于中文区销售产品禁止用中文打印日志",
+    "language": "Java",
+    "level": "一般",
+    "description": "建议日志内容统一只用英文字符,避免使用中文字符,尤其是注意中文标点符号。统一日志的字符集,有利于对日志的自动化分析处理。",
+    "fix_suggestion": "将日志中的中文字符、标点等替换为英文。",
+    "code": "G.LOG.04"
+  },
+  {
+    "rule_id": "594",
+    "title": "禁止直接使用外部数据记录日志",
+    "language": "Java",
+    "level": "严重",
+    "description": "secBrella告警清理指导链接:http://dfx.huawei.com/itembased/doc?ibid=SPE1000000989&navid=NVI1000072710\n将官方规则中已知的告警点规则重写,要求带有污染标识HW_CSPL_JAVA_LOG_FORGING且不带有校验后的标识VALIDATED_HW_CSPL_JAVA_LOG_FORGING则告警。 产品可以更具自身需要,定制污染源规则和清理规则。",
+    "fix_suggestion": "请查看告警清理指导:http://dfx.huawei.com/itembased/doc?ibid=SPE1000000989&amp&navid=NVI1000072714",
+    "code": "G.LOG.05"
+  },
+  {
+    "rule_id": "595",
+    "title": "方法要简短",
+    "language": "Java",
+    "level": "提示",
+    "description": "方法的参数过多,会使得该方法易于受外部(其他部分的代码)变化的影响,从而影响维护工作,同时也会增大测试的工作量。\n建议方法参数不超过5个(默认值,支持动态配置)\n当方法参数过多时,应进行合理抽象分层,使用合理的手段重构,以增加代码可读性、可维护性,如下方法可供参考:\n1. 对方法进行抽象或重构；\n2. 将相关参数合在一起,定义成类,用对象封装；\n3. 当构造方法含有多个参数时,尝试建造者(Builder)或工厂模式,JDK源码中有很多示例可供参考,例如Calendar.Builder,HttpClient.Builder。",
+    "fix_suggestion": "当方法参数过多时,应进行合理抽象分层,使用合理的手段重构,以增加代码可读性、可维护性,如下方法可供参考:\n1. 对方法进行抽象或重构；\n2. 将相关参数合在一起,定义成类,用对象封装；\n3. 当构造方法含有多个参数时,尝试建造者(Builder)或工厂模式,JDK源码中有很多示例可供参考,例如Calendar.Builder,HttpClient.Builder。",
+    "code": "G.MET.01"
+  },
+  {
+    "rule_id": "596",
+    "title": "不要使用已标注为@Deprecated的方法、类、类的属性等",
+    "language": "Java",
+    "level": "一般",
+    "description": "标注为@Deprecated的方法、类、类的属性等,是由于各种原因被废弃的,为了保持兼容性而没有删除。新写的代码应避免继续使用这些方法、类等,而应该使用推荐的代替实现。",
+    "fix_suggestion": "不要使用已标注为@Deprecated的方法、类、类的属性等",
+    "code": "G.MET.02"
+  },
+  {
+    "rule_id": "597",
+    "title": "不应把方法的参数当做临时变量",
+    "language": "Java",
+    "level": "提示",
+    "description": "不应把方法的参数当做临时变量,因为每个变量/参数都有自己独特的功用,让一个变量承担多个职责,变量名将无法清晰表达其功能,会使程序难以理解。",
+    "fix_suggestion": "在方法体中,应该避免对方法参数进行修改,包括重新赋值、自增/自减运算。如果需要,可以定义一个新的临时变量替代方法参数。",
+    "code": "G.MET.03"
+  },
+  {
+    "rule_id": "598",
+    "title": "谨慎使用可变数量参数",
+    "language": "Java",
+    "level": "一般",
+    "description": "在Java 5版本中初次引入可变数量参数(variable number of arguments)特性,该特性支持方法接受指定类型的零个到多个参数。使用可变数量参数时,要注意如下两类问题:\n1. 不建议使用可变数据参数方法重写使用一个固定长度数组作为参数的方法,这样会导致代码可读性变差；\n2. 可变类型参数的类型要明确,避免使用Object等模糊类型,方便Java编译器对参数类型进行检查。",
+    "fix_suggestion": "1. 删除对可变数量参数方法进行重载的方法(参考场景1)。\n2. 明确可变类型参数的类型,避免使用Object等模糊类型(参考场景2)。",
+    "code": "G.MET.04"
+  },
+  {
+    "rule_id": "599",
+    "title": "对于返回数组或者容器的方法,应返回长度为0的数组或者容器,代替返回null",
+    "language": "Java",
+    "level": "提示",
+    "description": "在方法返回值中,用长度为`0`的数组或者容器,来代替返回`null`,则上层调用代码在使用此返回的数组或者容器前,无需再判断是否为空,业务逻辑一气呵成,代码更简洁。\n同时,也避免了程序员因为忘记了对返回值进行空指针检查,而导致的NullPointerException。",
+    "fix_suggestion": "用长度为`0`的数组或者容器,来代替返回`null`,或者通过@Nullable标明返回值可以为`null`",
+    "code": "G.MET.05"
+  },
+  {
+    "rule_id": "600",
+    "title": "使用Optional代替null作为返回值或者可能的缺失值；禁止对Optional对象赋值为null",
+    "language": "Java",
+    "level": "一般",
+    "description": "使用`Optional`代替`null`作为返回值或者可能的缺失值；禁止对`Optional`对象赋值为`null`\n工具检查场景:\n- 检查是否将`null`赋值给`Optional`对象\n- 检查是否将`Optional`对象和`null`进行比较(==或!=)\n- 检查方法返回类型是否为`Optional<Integer>`、`Optional<Long>`或`Optional<Double>`\n- 检查方法返回类型是否为`Optional<集合或数组>`",
+    "fix_suggestion": "**禁止对Optional对象赋值/返回为null,或与null比较**,例如: `Optional<Foo> foo = null;`；\n不应该返回`Optional<Integer>`、`Optional<Long>`、`Optional<Double>`,而应该使用`OptionalInt`、`OptionalLong`、`OptionalDouble` ；\n一般不应该返回`Optional<集合或数组>`,而用空集合或空数组替代。",
+    "code": "G.MET.06"
+  },
+  {
+    "rule_id": "601",
+    "title": "不要忽略方法的返回值",
+    "language": "Java",
+    "level": "一般",
+    "description": "方法调用者应该对方法的返回值进行合理的处理,否则可能因为忽略方法返回值导致安全风险。 资源操作类方法会通过返回值来指示本次操作是否成功(例如File.delete()),这类方法调用后必须根据返回值对资源操作失败的场景进行防护处理。",
+    "fix_suggestion": "1. 资源操作类方法(例如File.delete())调用后必须根据返回值对资源操作失败的场景进行防护处理。\n2. Java中的String是不可变类型,对于字符串的修改要赋值给新的String变量。",
+    "code": "G.MET.07"
+  },
+  {
+    "rule_id": "602",
+    "title": "使用StringUtils替换原生String的substring、replace、concat",
+    "language": "Java",
+    "level": "一般",
+    "description": "使用StringUtils替换原生String的substring、replace、concat",
+    "fix_suggestion": "使用StringUtils",
+    "code": "G.MUSIC.1"
+  },
+  {
+    "rule_id": "603",
+    "title": "使用安全工具类SafeReceiverRegister 替换原生的 registerReceiver方法",
+    "language": "Java",
+    "level": "一般",
+    "description": "使用安全工具类SafeReceiverRegister 替换原生的 registerReceiver方法",
+    "fix_suggestion": "使用SafeReceiverRegister",
+    "code": "G.MUSIC.2"
+  },
+  {
+    "rule_id": "604",
+    "title": "使用ActivityUtils.startActivity 替换原生的 startActivity",
+    "language": "Java",
+    "level": "一般",
+    "description": "使用ActivityUtils.startActivity 替换原生的 startActivity",
+    "fix_suggestion": "使用ActivityUtils",
+    "code": "G.MUSIC.3"
+  },
+  {
+    "rule_id": "605",
+    "title": "使用MathUtils 替换原生的Integer.parseInt Long.parseLong Double.parseDouble Float.parseFloat Short.parseShort Long.decode Integer.decode Short.decode Integer.valueOf Long.valueOf Double.valueOf Float.valueOf Short.valueOf等不安全的数字转换方法",
+    "language": "Java",
+    "level": "一般",
+    "description": "使用项目工程中已经封装的工具类MathUtils",
+    "fix_suggestion": "使用安全的数字转换方法",
+    "code": "G.MUSIC.4"
+  },
+  {
+    "rule_id": "606",
+    "title": "标识符应由不超过64字符的字母、数字和下划线组成",
+    "language": "Java",
+    "level": "提示",
+    "description": "变量名应该只以字母数字下划线组成,且长度在[1,maxLength]之间。maxLength的默认值是64,可动态配置(上限是64)。",
+    "fix_suggestion": "删除变量名称中的不合规字符或缩短变量名长度。",
+    "code": "G.NAM.01"
+  },
+  {
+    "rule_id": "607",
+    "title": "包名中的字母应小写,包名以点号分隔层级",
+    "language": "Java",
+    "level": "提示",
+    "description": "包名仅能使用小写字母、数字、下划线,下划线只能在一些特殊情况使用,如包名以数字开头或是java中保留关键字时,如:int_.example、com.example._123name。一层包路径可以是多个单词的简单连接(不用下划线连接)。",
+    "fix_suggestion": "包名修改为仅使用小写字母、数字、下划线组成。",
+    "code": "G.NAM.02"
+  },
+  {
+    "rule_id": "608",
+    "title": "类、枚举和接口名应采用大驼峰命名",
+    "language": "Java",
+    "level": "提示",
+    "description": "类名、接口名通常是名词或名词短语,接口名还可以是形容词或形容词短语,都应采用**大驼峰命名**,例如:ArrayList(类)、Collection(接口)、Comparable(接口)等。",
+    "fix_suggestion": "类、枚举和接口名应采用大驼峰命名。",
+    "code": "G.NAM.03"
+  },
+  {
+    "rule_id": "609",
+    "title": "方法名应采用小驼峰命名",
+    "language": "Java",
+    "level": "提示",
+    "description": "方法名通常是动词或动词短语,采用**小驼峰命名**。",
+    "fix_suggestion": "方法名采用小驼峰命名。",
+    "code": "G.NAM.04"
+  },
+  {
+    "rule_id": "610",
+    "title": "常量名采用全大写单词,单词间以下划线分隔",
+    "language": "Java",
+    "level": "提示",
+    "description": "java规范中的常量是指不可被修改静态的field和枚举常量。“不可被修改”需要同时满足以下两个条件:\n- field的值/对象不可被修改为其他的值/对象；\n- field为对象类型时,对象在初始化完成后其属性不能被修改。\n常量定义的一般格式为:`[访问修饰符] static final 类型 常量名 = 常量值;`。\n常量命名应该由**全大写单词与下划线**组成,单词间用下划线分隔,如CONSTANT_CASE。常量命名要尽量表达完整的语义。\n不要使用魔鬼数字(难以理解的数字或字符串),用有意义的常量代替。SQL或日志的字符串,不应视为魔鬼数字,不需定义为字符串常量；",
+    "fix_suggestion": "对于常量,应该采用全大写单词与下划线进行命名。\n对于魔鬼数字,可采用如下方法进行优化:\n- 如果有现成的API,不要定义数字,比如判断集合内元素是否为空时,不应该使用size() == 0,应使用isEmpty()方法；比如时间的比较判断,用java.time中的API；\n- 有命名模式的可以用枚举类型。",
+    "code": "G.NAM.05"
+  },
+  {
+    "rule_id": "611",
+    "title": "变量采用小驼峰命名",
+    "language": "Java",
+    "level": "提示",
+    "description": "变量的名字通常是名词或名词短语,应采用**小驼峰命名**。\n即使局部变量是final或不可改变(immutable)的,也不应该把它视为常量,应采用小驼峰命名。\n**常量定义**:java规范中的常量是指不可被修改静态的field和枚举常量。“不可被修改”需要同时满足以下两个条件:\n- field的值/对象不可被修改为其他的值/对象；\n- ield为对象类型时,对象在初始化完成后其属性不能被修改",
+    "fix_suggestion": "变量名采用小驼峰命名。",
+    "code": "G.NAM.06"
+  },
+  {
+    "rule_id": "612",
+    "title": "避免使用具有否定含义布尔变量名",
+    "language": "Java",
+    "level": "提示",
+    "description": "布尔型变量使用否定含义的变量名,会增加代码理解的难度,尤其是再对该变量进行逻辑非运算,如`!isNotError`。",
+    "fix_suggestion": "修改变量名,去除否定含义的单词。",
+    "code": "G.NAM.07"
+  },
+  {
+    "rule_id": "613",
+    "title": "布尔型变量建议以表达是非意义的动词开头",
+    "language": "Java",
+    "level": "提示",
+    "description": "布尔型变量建议以表达是非意义的动词开头\n工具检查场景:\n- 检查布尔变量名是否以是非意义的动词(is, has, can, should)开头",
+    "fix_suggestion": "修改变量名,增加是非意义的动词",
+    "code": "G.NAM.08"
+  },
+  {
+    "rule_id": "614",
+    "title": "应避免定义public且非final的类属性",
+    "language": "Java",
+    "level": "提示",
+    "description": "应避免定义public且非final的类属性。将类的属性设置为私有(private)的理由是:不希望类的外部代码依赖这个属性,依赖类内部的实现细节。这样,当内部实现需要变更时,影响面就比较小,变更的成本就比较低。",
+    "fix_suggestion": "将public类型的属性更改为private或设置为final。",
+    "code": "G.OBJ.01"
+  },
+  {
+    "rule_id": "615",
+    "title": "不要在父类的构造方法中调用可能被子类覆写的方法",
+    "language": "Java",
+    "level": "一般",
+    "description": "当在父类的构造方法中调用可能被子类覆写的方法时,构造方法的表现是不可预知的,很可能会导致异常。而问题出现后,往往难以快速定位。\n这是由于在Java中,当子类初始化时,会调用父类的构造方法,当父类构造方法调用了被子类覆写的方法,往往会由于子类的初始化未完成而导致异常。",
+    "fix_suggestion": "1. 将需要调用的方法修改为private修饰(构造方法中调用private方法)\n2. 将需要调用的方法修改为final修饰(构造方法中调用final方法)\n3. 将类修改为final类",
+    "code": "G.OBJ.02"
+  },
+  {
+    "rule_id": "616",
+    "title": "构造方法如果有多个,尽量重用",
+    "language": "Java",
+    "level": "一般",
+    "description": "由于可选参数导致的存在多个构造方法时,参数少的构造方法可以重用参数更多的构造方法,这样可以是代码更加简洁。",
+    "fix_suggestion": "由于可选参数导致的存在多个构造方法时,参数少的构造方法重用参数更多的构造方法。",
+    "code": "G.OBJ.03"
+  },
+  {
+    "rule_id": "617",
+    "title": "避免在无关的变量或无关的概念之间重用名字,避免隐藏(hide)、遮蔽(shadow)和遮掩(obscure)",
+    "language": "Java",
+    "level": "严重",
+    "description": "一个变量、方法或类可以分别遮蔽(shadow)在类内部具有相同名字的变量、方法或类。如果一个实体被遮蔽了,那么就无法用简单名引用到它。\n对于以下场景工具不会告警:\n- 构造器参数变量\n- setter方法参数变量",
+    "fix_suggestion": "对于方法中的临时变量,避免与类的属性重名。",
+    "code": "G.OBJ.04"
+  },
+  {
+    "rule_id": "618",
+    "title": "避免基本类型与其包装类型的同名重载方法",
+    "language": "Java",
+    "level": "一般",
+    "description": "方法的重载特性允许声明名字相同、参数不同的方法(含构造方法),编译器在每次调用时都会去探查与调用参数相匹配的方法。但在自动装箱和泛型场景下,可能会导致各个重载方法之间的边界变得模糊,增加代码维护的难度,弄不清楚实际调用的是哪个方法。",
+    "fix_suggestion": "对于重载方法,方法的参数类型要清晰明确,避免出现参数类型差别为封装类型与基本类型的重载方法。当方法的参数类型确实仅存在封装类型与基本类型的差别时,建议通过方法名进行区分。",
+    "code": "G.OBJ.05"
+  },
+  {
+    "rule_id": "619",
+    "title": "覆写equals方法时,要同时覆写hashCode方法",
+    "language": "Java",
+    "level": "严重",
+    "description": "当对象需要进行逻辑相等的比较时(比如判断String、Integer对象中的值是否相同),应对Object的equals()方法进行覆写,实现具体的判断逻辑。覆写equals()方法时,要同步覆写hashCode()方法。Java对象在存放到基于Hash的集合(如HashMap、HashTable等)时,会使用其Hash码进行索引,如果只覆写了equals()方法,而没有正确覆写hashCode()方法,则会导致效率低下甚至出错。Java对象的hashCode()方法有如下约定:\n- 同一次运行中,同一个对象如果equals方法中用到的信息没有改变,多次调用其hashCode方法返回值必须相同；\n- 如果对两个对象调用equals方法时相等,则这两个对象的hashCode方法,也必须返回相同的值；\n- 如果对两个对象调用equals方法时不相等,则对这两个对象的hashCode方法,不要求其返回值不同,但是出于减少哈希碰撞的性能考虑,最好能不同。",
+    "fix_suggestion": "覆写`equals()`方法时,需要同步覆写`hashCode()`方法。",
+    "code": "G.OBJ.06"
+  },
+  {
+    "rule_id": "620",
+    "title": "子类覆写父类方法或实现接口时必须加上@Override注解",
+    "language": "Java",
+    "level": "一般",
+    "description": "加上`@Override`注解的好处是,如果覆写时因为疏忽,导致子类方法的参数同父类不一致,编译时会报错,使问题在编译期就被发现；如果父类修改了方法定义造成子类不再覆写父类方法,也能使问题在编译期尽早被发现。",
+    "fix_suggestion": "子类重载的父类方法,要添加@Override注解注解。\n推荐使用Huawei CodeCheck插件[https://3ms.huawei.com/km/groups/3946724/blogs/details/15159305]的自动修复/一键格式化功能,详细使用说明见。",
+    "code": "G.OBJ.07"
+  },
+  {
+    "rule_id": "621",
+    "title": "正确实现单例模式",
+    "language": "Java",
+    "level": "提示",
+    "description": "单例模式(Singleton Pattern)属于创建型模式,它确保在同一个进程内,单例类只有一个对象,并且该对象对所有其他对象提供访问,常见的如Windows系统下的资源管理器、Spring Bean等都会采用这种方式。",
+    "fix_suggestion": "可通过如下方式保证正确实现单例模式:\n- 将其构造方法设为私有；\n- 防止对象在初始化被多个线程同时运行；\n- 确保该对象不可序列化；\n- 确保该对象无法克隆。",
+    "code": "G.OBJ.08"
+  },
+  {
+    "rule_id": "622",
+    "title": "使用类名调用静态方法,而不要使用实例或表达式来调用",
+    "language": "Java",
+    "level": "严重",
+    "description": "明确地使用类名调用静态方法不容易造成混淆。使用实例调用静态方法时,调用的静态方法是声明类型的静态方法,与实例的实际类型无关,可能会导致与预期的结果不一致。当父类和子类有同名静态方法时,声明父类变量引用子类实例,使用该实例调用同名的静态方法调用的是父类的静态方法,而非子类的静态方法。类的静态属性也要使用类名进行调用。",
+    "fix_suggestion": "使用类名来调用静态方法或静态变量。",
+    "code": "G.OBJ.09"
+  },
+  {
+    "rule_id": "623",
+    "title": "接口定义中去掉多余的修饰词",
+    "language": "Java",
+    "level": "一般",
+    "description": "在接口定义中,属性缺省具有public static final修饰词,非默认方法缺省具有public abstract修饰词。代码中不需要再次提供这些修饰词。",
+    "fix_suggestion": "删除接口中的属性与非默认方法的缺省修饰符。\n通过类名调用",
+    "code": "G.OBJ.10"
+  },
+  {
+    "rule_id": "624",
+    "title": "安全场景下必须使用密码学意义上的安全随机数",
+    "language": "Java",
+    "level": "一般",
+    "description": "不安全的随机数可能被部分或全部预测到,导致系统存在安全隐患,安全场景下使用的随机数必须是密码学意义上的安全随机数。密码学意义上的安全随机数分为两类:\n- 真随机数产生器产生的随机数；\n- 以真随机数产生器产生的少量随机数作为种子的密码学安全的伪随机数产生器产生的大量随机数。\n已知的可供产品使用的密码学安全的非物理真随机数产生器有:Linux操作系统的/dev/random设备接口(存在阻塞问题)和Windows操作系统的CryptGenRandom()接口。\nJava中的SecureRandom是一种密码学安全的伪随机数产生器,对于使用非真随机数产生器产生随机数时,要使用少量真随机数作为种子。\n常见安全场景包括但不限于以下场景:\n- 用于密码算法用途,如生成IV、盐值、密钥等；\n- 会话标识(sessionId)的生成；\n- 挑战算法中的随机数生成；\n- 验证码的随机数生成；",
+    "fix_suggestion": "参考华为Java语言编程规范 V5.x:https://openx.huawei.com/communityWikiDetails/?communityId=41&ibid=SPE1000000181&navid=NVI1000013186&token=eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiJnMzAwNDI4MzAiLCJjcmVhdGVkIjoxNjgxODczODA0MTAwLCJJUCI6IjEwLjE3My45OS4xODciLCJleHAiOjE2ODQ0NjU4MDR9.HutZV2G3zpdbq8KVGsdni3Ujd6KWkAYCVj_P97NTmKt-zRDJ1odSQcC1u_6KIpYc9GmM1CiHz07FIJm67L0Q_Q",
+    "code": "G.OTH.01"
+  },
+  {
+    "rule_id": "625",
+    "title": "必须使用SSLSocket代替Socket来进行安全数据交互",
+    "language": "Java",
+    "level": "严重",
+    "description": "只有在与比较陈旧的系统进行通信时,J2EE 标准才允许 use of sockets,因为此时没有较高高级别的协议可用。",
+    "fix_suggestion": "当网络通信中涉及明文的敏感信息时,需要使用SSLSocket而不是Socket。",
+    "code": "G.OTH.02"
+  },
+  {
+    "rule_id": "626",
+    "title": "不用的代码段包括import,直接删除,不要注释掉",
+    "language": "Java",
+    "level": "一般",
+    "description": "不用的import,增加了代码的耦合度,不利于维护。\n被注释掉的代码,无法被正常维护；当企图恢复使用这段代码时,极有可能引入易被忽略的缺陷。 \n正确的做法是,不需要的代码直接删除掉。若再需要时,考虑移植或重写这段代码。\n这里说的注释掉代码,包括用 /** */, /* */ 和 // 等等。\n工具检查场景:\n- 检查是否有无用的import语句\n- 检查是否有注释掉的代码",
+    "fix_suggestion": "删除注释或无用import语句",
+    "code": "G.OTH.03"
+  },
+  {
+    "rule_id": "627",
+    "title": "禁止代码中包含公网地址",
+    "language": "Java",
+    "level": "严重",
+    "description": "secBrella告警清理指导链接:http://dfx.huawei.com/itembased/doc?ibid=SPE1000000989&navid=NVI1000072710\nIP地址硬编码",
+    "fix_suggestion": "请查看告警清理指导:http://dfx.huawei.com/itembased/doc?ibid=SPE1000000989&amp&navid=NVI1000072714",
+    "code": "G.OTH.04"
+  },
+  {
+    "rule_id": "628",
+    "title": "删除无效或永不执行的代码",
+    "language": "Java",
+    "level": "提示",
+    "description": "变量在使用前,被多次重复赋值,冗余的赋值可能是代码逻辑错误(应给其他变量赋值)或是无效的代码。",
+    "fix_suggestion": "删除不需要的重复赋值操作(如修复示例2),对都需要后续使用的数据,分别赋值给不同变量(如修复示例1)。",
+    "code": "G.OTH.05"
+  },
+  {
+    "rule_id": "629",
+    "title": "安全随机数生成器尽量复用",
+    "language": "Java",
+    "level": "提示",
+    "description": "Java中的SecureRandom是一种密码学安全的伪随机数产生器,对于使用非真随机数产生器产生随机数时,要使用少量真随机数作为种子。为了提升真随机数种子的利用效率,应避免每次创建的SecureRandom对象仅生成一次安全随机数:\n很多情况下,频繁获取真随机数会导致阻塞,所以应该充分利用每次获取的真随机数作为种子,尽量多的产生安全随机数；\n使用SecureRandom对象生成一次安全随机数,新生成的安全随机数的量可能小于其种子的量,伪随机数产生器完全失去其应有的价值。",
+    "fix_suggestion": "建议对安全随机数进行复用",
+    "code": "G.OTH.07"
+  },
+  {
+    "rule_id": "630",
+    "title": "将集合转为数组时使用Collection<T>.toArray(T[])方法；Java 11后使用Collection<T>.toArray(IntFunction<T[]>)",
+    "language": "Java",
+    "level": "一般",
+    "description": "对于将集合转为数组操作,Java 11引入了`Collection<T>.toArray(IntFunction<T[]> generator)`,它更好的原因是不需要创建临时数组,一方面节省空间,另一方面这样就不用去考虑`toArray(T[])`里的参数长度对方法行为以及结果的影响。\n另外,java.util.stream中各Stream的`toArray()`、`toArray(IntFunction<A[]>)`也是常用的。\nJava 11前`toArray(T[] a)`的参数应采用**零长度的数组**,这样可保证有更好的性能。数组容量大小产生的影响如下:\n- 等于0,动态创建与size相同的数组,性能最好；\n- 大于0但小于size,重新创建大小等于size的数组,增加GC负担；\n- 等于size,在高并发情况下,数组创建完成之后,size正在变大的情况下,负面影响与上相同；\n- 大于size,空间浪费,且在size处插入null值,存在NullPointerException隐患。",
+    "fix_suggestion": "将集合转为数组时推荐使用`Collection<T>.toArray(T[])`方法,参数应采用**零长度的数组**；Java 11后使用`Collection<T>.toArray(IntFunction<T[]>)`",
+    "code": "G.PRM.01"
+  },
+  {
+    "rule_id": "631",
+    "title": "使用System.arraycopy()或Arrays.copyOf()进行数组复制",
+    "language": "Java",
+    "level": "一般",
+    "description": "在将一个数组对象复制成另外一个数组对象时,不要自己使用循环复制,可以使用Java提供的`System.arraycopy()`功能来复制数据对象,这样做可以避免出错,而且效率会更高。`java.util.Arrays.copyOf()`是对`System.arraycopy()`便利化封装。数组复制有如下特性:\n- 对于一维数组,且数组元素为基本类型或String类型时,数组复制属于深复制,即复制后的数组与原始数组的元素互不影响；\n- 对于多维数组,或一维数组中的元素是引用类型时,数组复制属于浅复制,即复制后的数组与原始数组的元素引用指向的是同一个对象。",
+    "fix_suggestion": "使用`System.arraycopy()`或`Arrays.copyOf()`进行数组复制。",
+    "code": "G.PRM.02"
+  },
+  {
+    "rule_id": "632",
+    "title": "不要对正则表达式进行频繁重复预编译",
+    "language": "Java",
+    "level": "一般",
+    "description": "在频繁调用的场景(例如在方法体内或循环语句中)中,定义Pattern会导致重复预编译正则表达式,降低程序执行效率。另外,对于JDK中的某些API会接受字符串格式的正则表达式作为参数,如`String.replaceAll`、`String.split`等,对于这些API的使用也要考虑性能问题。",
+    "fix_suggestion": "扩大Pattern的作用域,如用类属性的方式,避免正则表达式从重复编译。",
+    "code": "G.PRM.04"
+  },
+  {
+    "rule_id": "633",
+    "title": "禁止创建不必要的对象",
+    "language": "Java",
+    "level": "一般",
+    "description": "重用一个已经创建的对象比创建一个新的对象要好得多,除非确实需要重新创建。创建重复不必要的对象会导致资源浪费,严重时可能会导致性能问题。",
+    "fix_suggestion": "对于基本数据类型,建议避免使用封装类型导致的重复创建冗余对象；对于字符串常量避免使用`new String(\"xxx\")`操作。",
+    "code": "G.PRM.05"
+  },
+  {
+    "rule_id": "634",
+    "title": "进行IO类操作时,必须在try-with-resource或finally里关闭资源",
+    "language": "Java",
+    "level": "严重",
+    "description": "申请的资源不再使用时,需要及时释放,否则会导致资源泄露问题。释放后的资源不要继续使用,否则可能导致系统抛出异常或其他未知不安全行为。",
+    "fix_suggestion": "系统异常可能导致资源释放操作被跳过,因此对于IO、数据库操作等需要显式调用关闭方法(如`close()`)来释放资源的场景,必须在try-catch-finally的finally中调用关闭方法。如果有多个资源需要`close()`,需要分别对每个资源`close()`时的异常进行try-catch处理,防止某个资源关闭失败导致其他资源无法正常关闭,最终保证所有资源都能被正确释放。\nJava 7有自动资源管理的特性try-with-resource,不需手动关闭。该方式应该优先于try-finally,这样得到的代码将更加简洁、清晰,产生的异常也更有价值。特别是对于多个资源关闭发生异常时,try-finally可能丢失掉前面的异常,而try-with-resource会保留第一个异常,并把后续的异常作为Suppressed exceptions,可通过`getSuppressed()`获取这些异常信息。",
+    "code": "G.PRM.07"
+  },
+  {
+    "rule_id": "635",
+    "title": "禁止使用主动GC(除非在密码、RMI等方面),尤其是在频繁/周期性的逻辑中",
+    "language": "Java",
+    "level": "严重",
+    "description": "虽然主动调用GC方法时JVM规范不承诺立即进行垃圾回收操作,但是Oracle Java SE JVM在绝大多数情况下响应此方法调用,会触发JVM的全量GC操作,这会增加GC的次数,也就增加了程序因为GC而停顿的时间；而且在GC过程中的某些阶段程序会完全停顿,这会让程序失去响应,对系统造成非常大的风险。在频率/周期性的逻辑(for循环、定时器)中更要尽量避免主动GC的调用。",
+    "fix_suggestion": "避免主动执行GC操作,尤其是不能在循环中频繁调用GC操作。",
+    "code": "G.PRM.08"
+  },
+  {
+    "rule_id": "636",
+    "title": "禁止使用finalize()方法",
+    "language": "Java",
+    "level": "一般",
+    "description": "finalize()方法的调用时机是不可预测的,常常也是危险的。使用finalize()方法可能会导致不稳定的行为,更差的性能,以及带来移植性问题。",
+    "fix_suggestion": "禁止使用finalize()方法",
+    "code": "G.PRM.09"
+  },
+  {
+    "rule_id": "637",
+    "title": "禁止使用Finalizer机制",
+    "language": "Java",
+    "level": "一般",
+    "description": "finalize()方法的调用时机是不可预测的,常常也是危险的。使用finalize()方法可能会导致不稳定的行为,更差的性能,以及带来移植性问题。",
+    "fix_suggestion": "禁止使用finalize()方法",
+    "code": "G.PRM.09"
+  },
+  {
+    "rule_id": "638",
+    "title": "不要创建临时变量作为return语句的返回值",
+    "language": "Java",
+    "level": "一般",
+    "description": "不要创建临时变量作为return语句的返回值,保持代码简洁。\n工具检查场景:\n-检查变量赋值后是否直接被返回。",
+    "fix_suggestion": "去除临时变量和赋值,直接内联到return语句中",
+    "code": "G.PRM.10"
+  },
+  {
+    "rule_id": "639",
+    "title": "进行安全检查的方法必须声明为private或final",
+    "language": "Java",
+    "level": "严重",
+    "description": "如果一个方法被子类覆盖,则该子类可绕过其父类中的安全检查。",
+    "fix_suggestion": "请确保所有执行安全操作的方法都已在 final 类中声明,或者这些方法本身已声明为最终。",
+    "code": "G.SEC.01"
+  },
+  {
+    "rule_id": "640",
+    "title": "自定义类加载器覆写getPermission()时,必须先调用父类的getPermission()方法",
+    "language": "Java",
+    "level": "严重",
+    "description": "自定义类加载器,如果需要重写 getPermissions() 方法时,在给其它代码设置权限之前,必须要先调 用父类的 getPermissions() 方法来应用默认的安全策略。自定义类加载器如果忽略调用父类的 getPermissions() 方法,该类加载器可以加载提升权限的不可信类",
+    "fix_suggestion": "继承URLClassLoader类时,重载getPermissions(CodeSource)方法时需要调用super.getPermissions()",
+    "code": "G.SEC.02"
+  },
+  {
+    "rule_id": "641",
+    "title": "尽量避免实现Serializable接口",
+    "language": "Java",
+    "level": "提示",
+    "description": "对于支持序列化操作的类,其实例属性如果不支持序列化操作,在对该类进行序列化操作时会出异常。class中的静态属性、transient修饰的非静态属性不会进行序列化操作。",
+    "fix_suggestion": "对于支持序列化操作的类,其实例属性需支持序列化操作,不需要进行序列化操作的属性可以设置为transient。",
+    "code": "G.SER.01"
+  },
+  {
+    "rule_id": "642",
+    "title": "实现Serializable接口的可序列化类应该显式声明serialVersionUID",
+    "language": "Java",
+    "level": "一般",
+    "description": "如果可序列化类未显式声明serialVersionUID,则序列化运行时将基于该类的各个方面计算该类的默认serialVersionUID值,如“Java(TM) 对象序列化规范”中所述。但是,强烈建议所有可序列化类都显式声明serialVersionUID值,原因是计算默认的serialVersionUID对类的详细信息具有较高的敏感性,根据编译器实现的不同可能千差万别,这样在反序列化过程中可能会导致意外的`InvalidClassException`。因此,为保证serialVersionUID值跨不同java编译器实现的一致性,序列化类必须声明一个明确的serialVersionUID值。\n同时强烈建议使用private显式声明serialVersionUID,原因是这种声明仅应用于当前声明类,serialVersionUID作为继承成员没有用处。",
+    "fix_suggestion": "对于需要实现序列化接口的Class,应该显式声明serialVersionUID。\n推荐使用Huawei CodeCheck插件[https://3ms.huawei.com/km/groups/3946724/blogs/details/15159305]的自动修复/一键格式化功能,详细使用说明见。",
+    "code": "G.SER.02"
+  },
+  {
+    "rule_id": "643",
+    "title": "禁止直接序列化指向系统资源的信息",
+    "language": "Java",
+    "level": "严重",
+    "description": "当序列化结果中含有指向系统的资源时,这些信息很容易被篡改。当恶意用户篡改了指向系统的资源时,反序列化的对象会直接操作这些被攻击者指定的系统资源,导致任意文件读取或修改。",
+    "fix_suggestion": "禁止直接序列化指向系统资源的信息,如实现Serializable的类,其成员变量为File或FileDescriptor时,用transient修饰,避免这些对象被序列化。",
+    "code": "G.SER.04"
+  },
+  {
+    "rule_id": "644",
+    "title": "禁止序列化非静态的内部类",
+    "language": "Java",
+    "level": "致命",
+    "description": "内部类是一个没有显示或隐式声明为静态的嵌套类。对内部类(包括本地类和匿名类)进行序列化非常容易出错。",
+    "fix_suggestion": "在使用内部类时,不应对其进行序列化,否则它们将变为静态嵌套类,由此就不会出现对非静态内部类执行序列化时会出现的问题。如果嵌套类为静态类型,则其本质上与实例变量并无关联(包括外部类的实例变量),并且不会导致对外部类执行序列化。",
+    "code": "G.SER.05"
+  },
+  {
+    "rule_id": "645",
+    "title": "防止反序列化被利用来绕过构造方法中的安全操作",
+    "language": "Java",
+    "level": "致命",
+    "description": "可序列化的类如果在其构造函数中执行 SecurityManager 检查,那么它还需要在其 readObject() 和 readObjectNoData 方法中执行相同的检查。",
+    "fix_suggestion": "如果可序列化的类的构造函数中存在 SecurityManager 检查,请确保 readObject() 和 readObjectNoData() 方法中存在相同的 SecurityManager 检查。",
+    "code": "G.SER.07"
+  },
+  {
+    "rule_id": "646",
+    "title": "禁止直接将外部数据进行反序列化",
+    "language": "Java",
+    "level": "严重",
+    "description": "许多平台支持动态执行代码,例如JavaScript的eval函数可以执行JavaScript语句,Java的反射机制可以根据字符串形式的类名和方法名动态生成类实例并执行方法,反序列化操作可以动态构造Java对象并执行其`readObject()`方法。如果用户输入被合入可动态执行的代码中,那么攻击者就可以提交精心构造的数据、混入自己的代码,让服务器执行。",
+    "fix_suggestion": "1、对于使用`ScriptEngineManager`执行脚本代码的场景:\n- 推荐使用`nashornsandbox`沙箱机制执行执行脚本代码。\n2、对于不安全反序列化场景:\n2.1、对于Json字符串的反序列化操作:\n1) Fastjson组件:\n- 对于使用Fastjson 1.2.68以前版本,通过`ParserConfig.getGlobalInstance().setAutoTypeSupport(true)`方式开启type功能时,存在安全风险,需要删除该行代码(默认值为false)或`setAutoTypeSupport(false)`；\n- 对于使用Fastjson 1.2.68及以上版本,Fastjson在1.2.68及以后版本引入SafeMode,通过开启SafeMode模式,规避不安全反序列化风险,具体设置方式:全局配置`ParserConfig.getGlobalInstance().setSafeMode(true)`,针对某个解析配置`JSON.ParseObject(str, xx.class, Feature.SafeMode)`.\n2) Jackson组件:\n通过`ObjectMapper.enableDefaultTyping()`方法类似fastjson中的autotype功能,容易导致不安全反序列化风险。该方法从2.10.0开始被标注为`@Deprecated`,推荐使用`activateDefaultTyping()`方法替代。针对Jackson不安全反序列化问题的防护:\n- 对于2.10.0以前的版本,将`ObjectMapper.enableDefaultTyping()`改为`ObjectMapper.disableDefaultTyping()`；\n- 对于2.10.0及新版本,将`ObjectMapper.enableDefaultTyping()`改为使用`activateDefaultTyping()`方法。\n2.2、对于XML字符串的反序列化操作:\n1) 使用XStream:\n- 使用白名单校验方式对反序列化操作的目标class进行校验；\n- 对于使用1.4.10及以上版本,设置默认安全校验。\n2) 使用XMLDecoder\n- java原生的XMLDecoder类常被用来序列化反序列化XML格式数据,但是这个类也存在严重安全问题,这里解析任意xml文件可以导致反序列化命令执行,oracle官方未提供任何针对此问题的安全措施,所以在反序列化不可信xml数据时,应该使用XStream替代XMLDecoder。\n2.3、对于yaml字符串的反序列化操作:\n- 使用白名单校验方式对反序列化操作的目标class进行校验。",
+    "code": "G.SER.08"
+  },
+  {
+    "rule_id": "647",
+    "title": "进行数值运算时,避免整数溢出",
+    "language": "Java",
+    "level": "一般",
+    "description": "在进行数值运算过程中,确保运算结果在特定的整数类型的数据范围内,避免溢出,导致非预期的结果。\n内置的整数运算符不会以任何方式来标识运算结果的上溢或下溢。常见的加、减、乘、除都可能会导致整数溢出。另外,Java数据类型的合法取值范围是不对称的(最小值的绝对值比最大值大1),所以对最小值取绝对值(java.lang.Math.abs())时,也会导致溢出。\n对于整数溢出问题,可以通过先决条件检测、使用Math类的安全方法、向上类型转换或者使用BigInteger等方法进行规避。",
+    "fix_suggestion": "对于整数溢出问题,可以通过先决条件检测、使用Math类的安全方法、向上类型转换或者使用BigInteger等方法进行规避。",
+    "code": "G.TYP.01"
+  },
+  {
+    "rule_id": "648",
+    "title": "确保除法运算和模运算中的除数不为0",
+    "language": "Java",
+    "level": "一般",
+    "description": "如果除法或模运算中的除数为零可能会导致程序终止或拒绝服务(DoS),因此需要在运算前保证除数不为0。\n202406新增一个场景:BigDecimal的divide方法调用前先保证除数不为0,该场景目前仅能通过正确示例中的写法消除告警,其他方式误报可申请屏蔽。",
+    "fix_suggestion": "用作除数的整数,在运算前保证其不为0。",
+    "code": "G.TYP.02"
+  },
+  {
+    "rule_id": "649",
+    "title": "禁止使用浮点数作为循环计数器",
+    "language": "Java",
+    "level": "严重",
+    "description": "由于浮点数存在精度问题,用作循环计数器可能会导致非预期的结果(如循环次数与预期不符、导致死循环等)。",
+    "fix_suggestion": "使用整数作为循环计数器。",
+    "code": "G.TYP.03"
+  },
+  {
+    "rule_id": "650",
+    "title": "浮点型数据判断相等不要直接使用==,浮点型包装类型不要用equals()或者 flt.compareTo(another) == 0作相等的比较",
+    "language": "Java",
+    "level": "严重",
+    "description": "浮点型数据判断相等不要直接使用==,浮点型包装类型不要用equals()或者 flt.compareTo(another) == 0作相等的比较\n2021年4月8日:新增两个浮点变量==比较的场景\n工具检查场景:\n- 检查浮点型数据使用==、!=来判断相等。\n- 检查浮点型数据使用equals或compareTo来判断相等",
+    "fix_suggestion": "使用误差判等",
+    "code": "G.TYP.05"
+  },
+  {
+    "rule_id": "651",
+    "title": "禁止尝试与NaN进行比较运算,相等操作使用Double或Float的isNaN()方法",
+    "language": "Java",
+    "level": "严重",
+    "description": "当任意一个操作数是NaN(Not a Number)时,数值比较运算符<、<=、>、>=会返回false,运算符==会返回false,运算符!=会返回true。因为无序的特性常常会导致意外结果,所以不能直接与NaN进行比较。",
+    "fix_suggestion": "用Double或Float的`isNaN()`方法判断浮点数是否为`NaN`。",
+    "code": "G.TYP.06"
+  },
+  {
+    "rule_id": "652",
+    "title": "避免在代码中硬编码用于表示换行、文件路径分隔的字符",
+    "language": "Java",
+    "level": "一般",
+    "description": "回车换行符(\"\\r\"、\"\n\")、文件路径分隔符(\"\\\"、\"/\")在不同操作系统下是有区别的。如果需要换行,尽量用PrintStream、PrintWriter的println()来代替在字符串中使用硬编码换行符,也可以使用**System.lineSeparator()**获取运行时环境的换行符。文件路径分割符可以使用java.io.File中的separator和pathSeparator静态字段。\n工具检查场景:\n-检查代码中使用换行(回车“\\r”、换行“\n”)\n-检查代码中文件路径分隔(“\\\\”、“/”)的字符",
+    "fix_suggestion": "使用系统API获取回车换行符和文件路径分割符",
+    "code": "G.TYP.07"
+  },
+  {
+    "rule_id": "653",
+    "title": "字符串大小写转换、数字格式化为西方数字时,必须加上Locale.ROOT或Locale.ENGLISH",
+    "language": "Java",
+    "level": "一般",
+    "description": "字符串大小写转换时要考虑地区语言上的差异。`String`类的`toUpperCase()`、`toLowerCase()`方法、`format()`方法,如果不指定输入参数,则会按当前系统默认的编码模式转换,可能会导致非预期的转换结果。\n字符对区域不敏感的,例如协议关键字、HTML的tags等优先用ROOT,字符对区域敏感或者强调英文习惯的应使用ENGLISH。\n如果确实需要在本地化GUI显示本地语言数字文字,也允许使用:\n- Locale.getDefault(Locale.Category.DISPLAY)\n- mystr.getBytes(StandardCharsets.UTF_8)",
+    "fix_suggestion": "数字格式化为西方数字或字符串大小写转换时,加上`Locale.ROOT`或`Locale.ENGLISH`；",
+    "code": "G.TYP.08"
+  },
+  {
+    "rule_id": "654",
+    "title": "字符与字节的互相转换操作,要指明正确的编码方式",
+    "language": "Java",
+    "level": "一般",
+    "description": "Java虚拟机采用编码方式默认与操作系统的字符编码方式相同,String的编码方式、`String.getBytes()`默认采用Java虚拟机编码。当跨平台实现字符与字节之间的转换,可能会导致乱码,所以字符与字节之间转换时要明确指定编码方式,推荐优先采用UTF-8编码。",
+    "fix_suggestion": "字符与字节的互相转换操作,要指明编码方式,推荐优先采用UTF_8编码。\n推荐使用Huawei CodeCheck插件[https://3ms.huawei.com/km/groups/3946724/blogs/details/15159305]的自动修复/一键格式化功能,详细使用说明见。",
+    "code": "G.TYP.09"
+  },
+  {
+    "rule_id": "655",
+    "title": "基本类型优于包装类型,注意合理使用包装类型",
+    "language": "Java",
+    "level": "一般",
+    "description": "Java有两种类型,基本类型(Primitive type)和引用类型(Reference type)。基本类型如`boolean`、`int`、`double`,引用类型如`String`、`List`。每一种基本类型都有其对应的包装类型(Wrapper classes),如对应`int`的是`Integer`。\n检查如下场景:\n1,for循环变量使用封装类\n2,封装类直接使用`==`比较",
+    "fix_suggestion": "尽量直接使用基本类型\n推荐使用Huawei CodeCheck插件[https://3ms.huawei.com/km/groups/3946724/blogs/details/15159305]的自动修复/一键格式化功能,详细使用说明见。",
+    "code": "G.TYP.11"
+  },
+  {
+    "rule_id": "656",
+    "title": "明确地进行类型转换,避免依赖隐式类型转换",
+    "language": "Java",
+    "level": "提示",
+    "description": "明确的类型转换表明程序员知道混合运算中所涉及的不同类型。通过明确的类型转换引导程序员考虑数据类型转换导致的数据截断、数据精度损失问题,提升系统的可靠性。\n除了常见的将取值范围宽的类型转为取值范围较窄的类型导致数据截断问题之外,还要考虑如下两类问题:\n1) **意外地**浮点数转换截取会导致误差被逐步放大；\n2) 将整数转为浮点数时可能存在精度损失问题,包括`int`、`long`转`float`,`long`转`double`这三种场景。\n- **在运算符的右边,要小心地使用更宽的操作数。尽量不要把复合赋值运算符应用于`byte`、`short`、`char`类型的变量。**",
+    "fix_suggestion": "当参与运算的数值或变量为不同类型时,直接明确进行类型转换",
+    "code": "G.TYP.12"
+  },
+  {
+    "rule_id": "657",
+    "title": "在引用类型向下转换前用instanceof进行判断",
+    "language": "Java",
+    "level": "一般",
+    "description": "没有判断类型直接进行类型转换,可能会因类型不匹配而导致运行时异常`java.lang.ClassCastException`。简单的修改方法是在强制转换之前使用`instanceof`进行判断,确认转换操作的可行性,除此之外其他的类型检查方式也是可行的(如直接判断Class类型),只要能保证类型可正确转换即可。\n当集合或数组中保存多种类型的对象,当遍历这些数据使用时可以使用instanceof对每个元素的类型进行判断。但是运行时类型检查是一项耗时的操作,另外还可能带来修改点过多、工作量巨大的问题,同时维护的工作量也会倍增。最佳实现方式是改善设计,使集合/数组中只有同一种类型的对象。",
+    "fix_suggestion": "引用类型向下转换前用`instanceof`进行判断；除此之外其他的类型检查方式也是可行的(如直接判断Class类型),只要能保证类型可正确转换即可。",
+    "code": "G.TYP.13"
+  },
+  {
+    "rule_id": "658",
+    "title": "外部数据使用前必须进行合法性校验",
+    "language": "Java",
+    "level": "严重",
+    "description": "外部数据的定义请参考**【编程规范】**:外部数据的范围包括但不限于:网络、用户输入(包括命令行、界面)、命令行、文件(包括程序的配置文件)、环境变量、进程间通信(包括管道、消息、共享内存、socket等、RPC)、跨信任域方法参数(对于API)等。\nJava语言中EL(Expression Language)框架常用的有JSTL、OGNL、MVEL、SPEL、JEXL等,使用表达式可以实现获取数据、执行运算、获取Java对象、调用Java方法等功能。直接使用外部数据构造表达式时,恶意用户通过精心构造,可以篡改表达式的逻辑,执行任意Java代码,导致系统数据被恶意删除/修改/泄露风险,甚至执行任意系统命令。",
+    "fix_suggestion": "避免使用外部数据构造EL表达式,如果需要用户指定表达式,建议采用间接对象引用方式,用户只能选择要使用的表达式代号,在代码中映射为要执行的EL表达式；\n如果需要使用外部数据拼接EL表达式,需使用白名单校验方式对外部数据进行校验。",
+    "code": "P.05"
+  },
+  {
+    "rule_id": "659",
+    "title": "数组数据引用前需校验长度",
+    "language": "Java",
+    "level": "一般",
+    "description": "获取的外部Intent列表或数组数据引用前,校验长度合法性,最好能够增加try-catch异常捕获块。如果未对长度做合法性校验就直接引用,可能导致数组越界异常。",
+    "fix_suggestion": "获取的外部Intent列表或数组数据引用前,校验长度合法性,最好能够增加try-catch异常捕获块,增加ArrayIndexOutOfBoundsException|IndexOutOfBoundsException|Exception的异常保护。",
+    "code": "G.VAR.S.048"
+  },
+  {
+    "rule_id": "660",
+    "title": "日志中禁止输出敏感信息",
+    "language": "Java",
+    "level": "一般",
+    "description": "在日志中不能输出口令、密钥和其他敏感信息,口令包括明文口令和密文口令,敏感信息包括系统等隐私信息。",
+    "fix_suggestion": "不要调用printStackTrace方法。",
+    "code": "G.VAR.S.049"
+  },
+  {
+    "rule_id": "661",
+    "title": "重载getPermissions需调用父类方法",
+    "language": "Java",
+    "level": "一般",
+    "description": "继承URLClassLoader类时,重载getPermissions(CodeSource)函数时没有调用super.getPermissions(...)。",
+    "fix_suggestion": "",
+    "code": "G.VAR.S.050"
+  },
+  {
+    "rule_id": "662",
+    "title": "父类构造方法中禁止调用可被子类覆写的方法",
+    "language": "Java",
+    "level": "一般",
+    "description": "当在父类的构造方法中调用可能被子类覆写的方法时,构造方法的表现是不可预知的,很可能会导致异常。而问题出现后,往往难以快速定位。 这是由于在Java中,当子类初始化时,会调用父类的构造方法,当父类构造方法调用了被子类覆写的方法,往往会由于子类的初始化未完成而导致异常。",
+    "fix_suggestion": "不要在父类的构造方法中调用可能被子类覆写的方法",
+    "code": "G.VAR.S.051"
+  },
+  {
+    "rule_id": "663",
+    "title": "Cookie需设置secure标记",
+    "language": "Java",
+    "level": "一般",
+    "description": "现今的 Web 浏览器支持每个 cookie 的secure标记。如果设置了该标记,那么浏览器只会通过 HTTPS 发送 cookie。通过未加密的通道发送 cookie 将使其受到网络截取攻击,因此安全标记有助于保护 cookie 值的保密性。如果 cookie 包含私人数据或带有会话标识符,那么该标记尤其重要。",
+    "fix_suggestion": "创建cookie时,将secure 标记设置为 true。",
+    "code": "G.VAR.S.052"
+  },
+  {
+    "rule_id": "664",
+    "title": "Cookie需设置安全路径",
+    "language": "Java",
+    "level": "一般",
+    "description": "Path(路径)用于设置可以读取一个cookie的最顶层的目录。如果要限定只有/service/test/目录及其子目录下的页面可以访问该cookie,要把cookies的path属性设置成“/service/test/”,如果不正确的设置,会导致这个cookie的作用域过大。\n- 用户可以根据业务需要设置PATH范围,如果业务需要也可以设置为根目录。\n- 当前规则关注会话cookie和存储敏感信息cookie是否设置了path,如果是其他cookie可以根据需要选择修改或屏蔽。",
+    "fix_suggestion": "创建一个javax.servlet.http.Cookie对象,使用setPath()方法设置cookie的path",
+    "code": "G.VAR.S.053"
+  },
+  {
+    "rule_id": "665",
+    "title": "删除无效或永不执行的代码",
+    "language": "Java",
+    "level": "一般",
+    "description": "无效或永不执行的代码(即无效代码或无法访问的代码)通常是编程错误的结果,并且可能导致意外行为。通常在编译时,编译器会对此类代码进行优化。但是,为了提高可读性并确保解决逻辑错误,应该将这类代码直接删除。",
+    "fix_suggestion": "删除无效或从未执行代码；或者修改逻辑,以保障代码能够执行到。",
+    "code": "G.VAR.S.054"
+  },
+  {
+    "rule_id": "666",
+    "title": "删除未使用的字段",
+    "language": "Java",
+    "level": "一般",
+    "description": "程序包含永远不会执行到的代码。",
+    "fix_suggestion": "移除未使用的Field。",
+    "code": "G.VAR.S.055"
+  },
+  {
+    "rule_id": "667",
+    "title": "删除未使用的方法",
+    "language": "Java",
+    "level": "一般",
+    "description": "程序包含永远不会执行到的代码。",
+    "fix_suggestion": "删除程序中永远不会执行到的方法或者确定其能被调用。",
+    "code": "G.VAR.S.056"
+  },
+  {
+    "rule_id": "668",
+    "title": "禁止空catch块",
+    "language": "Java",
+    "level": "一般",
+    "description": "未处理异常",
+    "fix_suggestion": "当捕获异常后,根据业务需要作出相应的处理,比如返回错误提示信息、使用日志记录异常信息等",
+    "code": "G.VAR.S.057"
+  },
+  {
+    "rule_id": "669",
+    "title": "finally块不应为空",
+    "language": "Java",
+    "level": "一般",
+    "description": "不正确的风格",
+    "fix_suggestion": "",
+    "code": "G.VAR.S.058"
+  },
+  {
+    "rule_id": "670",
+    "title": "if语句不应为空",
+    "language": "Java",
+    "level": "一般",
+    "description": "不正确的风格",
+    "fix_suggestion": "",
+    "code": "G.VAR.S.059"
+  },
+  {
+    "rule_id": "671",
+    "title": "语句块不应为空",
+    "language": "Java",
+    "level": "一般",
+    "description": "不正确的风格",
+    "fix_suggestion": "",
+    "code": "G.VAR.S.060"
+  },
+  {
+    "rule_id": "672",
+    "title": "循环外语句不应为空",
+    "language": "Java",
+    "level": "一般",
+    "description": "不正确的风格",
+    "fix_suggestion": "",
+    "code": "G.VAR.S.061"
+  },
+  {
+    "rule_id": "673",
+    "title": "switch语句不应为空",
+    "language": "Java",
+    "level": "一般",
+    "description": "不正确的风格",
+    "fix_suggestion": "",
+    "code": "G.VAR.S.062"
+  },
+  {
+    "rule_id": "674",
+    "title": "synchronized块不应为空",
+    "language": "Java",
+    "level": "一般",
+    "description": "不正确的风格",
+    "fix_suggestion": "",
+    "code": "G.VAR.S.063"
+  },
+  {
+    "rule_id": "675",
+    "title": "try块不应为空",
+    "language": "Java",
+    "level": "一般",
+    "description": "程序包含永远不会执行到的代码。",
+    "fix_suggestion": "",
+    "code": "G.VAR.S.064"
+  },
+  {
+    "rule_id": "676",
+    "title": "while语句不应为空",
+    "language": "Java",
+    "level": "一般",
+    "description": "不正确的风格",
+    "fix_suggestion": "",
+    "code": "G.VAR.S.065"
+  },
+  {
+    "rule_id": "677",
+    "title": "禁止序列化非静态内部类",
+    "language": "Java",
+    "level": "一般",
+    "description": "对内部类进行序列化会导致对外部类也执行序列化,因此,如果外部类是不可序列化的,则可能会造成信息泄露或出现运行时错误。此外,由于 Java 编译器创建了合成字段以便实施内部类,因此对内部类执行序列化会导致出现平台依赖,但是依据不同的实施方法和不同的编译器,出现的情况也会有所不同。",
+    "fix_suggestion": "在使用内部类时,不应对其进行序列化,否则它们将变为静态嵌套类,由此就不会出现对非静态内部类执行序列化时会出现的问题。如果嵌套类为静态类型,则其本质上与实例变量并无关联(包括外部类的实例变量),并且不会导致对外部类执行序列化。",
+    "code": "G.VAR.S.066"
+  },
+  {
+    "rule_id": "678",
+    "title": "禁止硬编码密码",
+    "language": "Java",
+    "level": "一般",
+    "description": "当密码以明文形式存储在应用程序的属性文件或其他配置文件中时,会发生 password management 漏洞。",
+    "fix_suggestion": "不能采用明文的形式存储密码。",
+    "code": "G.VAR.S.067"
+  },
+  {
+    "rule_id": "679",
+    "title": "HashMap获取对象需判空",
+    "language": "Java",
+    "level": "一般",
+    "description": "在Java代码实现时,通过Hashmap的get方法获取对象,并且不是使用Hashmap的Iterator获取,如果key不存在时获取的对象为null,在使用此对象可能出现java.lang.NullPointerException的异常,app出现Crash。",
+    "fix_suggestion": "HashMap获取值后,对value为null的场景进行提前判空处理。",
+    "code": "G.VAR.S.068"
+  },
+  {
+    "rule_id": "680",
+    "title": "禁止忽略方法返回值",
+    "language": "Java",
+    "level": "一般",
+    "description": "检测方法的返回值被忽略。\n返回值被忽略通常是错误地实现,会导致程序无法发现意外状况和情况。",
+    "fix_suggestion": "总是处理方法的返回值。",
+    "code": "G.VAR.S.069"
+  },
+  {
+    "rule_id": "681",
+    "title": "实例锁无法同步静态共享变量",
+    "language": "Java",
+    "level": "一般",
+    "description": "实例锁的同步效果仅限于此实例本身,无法用来同步静态共享变量；如果试图使用实例锁来同步静态共享变量,在多实例情况下无法实现符合预期的同步效果",
+    "fix_suggestion": "实例锁无法保护静态数据,应该使用类锁保护静态共享数据\n[具体解释](https://blog.csdn.net/cs408/article/details/48930803)",
+    "code": "G.VAR.S.070"
+  },
+  {
+    "rule_id": "682",
+    "title": "外部进程调用需正确处理输入输出流",
+    "language": "Java",
+    "level": "严重",
+    "description": "不正确地处理这些外部程序可能会导致一些意外的异常、\nDoS,及其他安全问题。一个进程如果试图从一个空的输入流中读取输入,则会一直阻塞,直到为其提供输入。因\n此,在调用这样的进程时,必须为其提供输入。一个外部进程的输出可能会耗尽该进程输出流与错误流的缓冲区。\n当发生这种情况时,Java 程序可能会阻塞外部进程,同时阻碍Java程序与外部程序的继续运行。",
+    "fix_suggestion": "",
+    "code": "G.VAR.S.071"
+  },
+  {
+    "rule_id": "683",
+    "title": "同步块禁止使用public静态锁对象",
+    "language": "Java",
+    "level": "一般",
+    "description": "如果同步代码块(Synchronized)使用静态public的锁对象,或者锁对象被通过公有方法获得,攻击者可以获取该锁对象,最终引发DoS攻击。检查点:\n1、检查同步块中的锁对象声明是否是public的,如果是则报告警。\n2、检查同步块中的锁对象是否通过公有方法暴露给外部,如果是则报告警。",
+    "fix_suggestion": "1、同步块中的锁对象需使用私有锁。\n2、同步块中的锁对象禁止通过公有方法暴露给外部。",
+    "code": "G.VAR.S.072"
+  },
+  {
+    "rule_id": "684",
+    "title": "XML文档需进行DTD或schema校验",
+    "language": "Java",
+    "level": "一般",
+    "description": "不经过 DTD 或 XML schema 的校验,就直接接受 XML 文档,这样一来,程序员就会为攻击者打开了一扇大门,可以向程序提供无法预测、不合理或是恶意的输入。",
+    "fix_suggestion": "解析 XML 时,需要启用验证功能。",
+    "code": "G.VAR.S.073"
+  },
+  {
+    "rule_id": "685",
+    "title": "XML返回类型需进行校验",
+    "language": "Java",
+    "level": "一般",
+    "description": "不经过 DTD 或 XML schema 的校验,就直接接受 XML 文档,这样一来,程序员就会为攻击者打开了一扇大门,可以向程序提供无法预测、不合理或是恶意的输入。\n本用例用于检查是否对XML 返回类型进行了校验。",
+    "fix_suggestion": "创建 XML 解析器或解析器代理时,使用setReturnType启用校验返回值功能",
+    "code": "G.VAR.S.074"
+  },
+  {
+    "rule_id": "686",
+    "title": "敏感数据传输需加密和签名",
+    "language": "Java",
+    "level": "一般",
+    "description": "敏感数据传输过程中要防止被窃取和恶意篡改。使用安全的加密算法加密传输对象可以保护数据。这就是所谓的对对象进行密封。而对密封的对象进行数字签名则可以防止对象被非法篡改,保持其完整性。",
+    "fix_suggestion": "",
+    "code": "G.VAR.S.075"
+  },
+  {
+    "rule_id": "687",
+    "title": "注释中禁止出现密码",
+    "language": "Java",
+    "level": "一般",
+    "description": "注释中不能出现密码相关的描述",
+    "fix_suggestion": "避免在注释中以明文形式存储密码或密码详细信息。应确保注释中不包含任何敏感信息,尤其是与密码相关的信息",
+    "code": "G.VAR.S.076"
+  },
+  {
+    "rule_id": "688",
+    "title": "配置文件中禁止明文存储密码",
+    "language": "Java",
+    "level": "一般",
+    "description": "当密码以明文形式或者含有password字样存储在应用程序的属性文件或其他配置文件中时,会发生 password management 漏洞。",
+    "fix_suggestion": "不能采用明文的形式存储密码；不要使用password/passwd的等字样在应用程序的属性文件或其他配置文件中。",
+    "code": "G.VAR.S.077"
+  },
+  {
+    "rule_id": "689",
+    "title": "禁止硬编码密码",
+    "language": "Java",
+    "level": "一般",
+    "description": "当密码以明文形式存储在应用程序的属性文件或其他配置文件中时,会发生 password management 漏洞。",
+    "fix_suggestion": "不能采用明文的形式存储密码。",
+    "code": "G.VAR.S.078"
+  },
+  {
+    "rule_id": "690",
+    "title": "禁止多余的空指针判断",
+    "language": "Java",
+    "level": "一般",
+    "description": "多余的空指针判断,已知对象不为空或者已使用对象,后面再对对象做判空操作则会触发此规则。",
+    "fix_suggestion": "已知对象不为null则可不用检查空指针；不能确定对象是否为null,则在使用对象前进行空指针检查。",
+    "code": "G.VAR.S.079"
+  },
+  {
+    "rule_id": "691",
+    "title": "finally块中禁止使用return语句",
+    "language": "Java",
+    "level": "一般",
+    "description": "在finally代码块中,直接使用return语句会导致finally代码块无法正常结束。非正常结束的finally代码块会影响try或catch代码块中异常的抛出,也可能会影响方法的返回值。所以要保证finally代码块正常结束。",
+    "fix_suggestion": "将返回指令移到 finally 块之外。如果必须要 finally 块返回一个值,可以简单地将该返回值赋给一个本地变量,然后在 finally 块执行完毕后返回该变量。",
+    "code": "G.VAR.S.080"
+  },
+  {
+    "rule_id": "692",
+    "title": "SQLite数据库操作需进行try-catch处理",
+    "language": "Java",
+    "level": "一般",
+    "description": "在Java程序中针对SQLite数据库操作可能出现的问题。它主要关注在调用数据库操作时,可能出现数据库连接已关闭的情况,这可能由于多线程实现不当,导致了状态的改变。这种情况下会抛出java.lang.IllegalStateException异常。如果在特定位置不进行异常处理,这个异常会一层层上传,直到有代码捕获和处理它。这可能导致应用程序崩溃",
+    "fix_suggestion": "在进行数据库操作时,使用try-catch块捕获可能抛出的IllegalStateException异常,并在catch块中进行适当的处理",
+    "code": "G.VAR.S.081"
+  },
+  {
+    "rule_id": "693",
+    "title": "String.split结果数组访问需校验索引",
+    "language": "Java",
+    "level": "一般",
+    "description": "对使用String.split得到的结果数组访问时,需要对索引值进行合法性检查,避免数组越界异常:java.lang.IndexOutOfBoundsException",
+    "fix_suggestion": "对使用String.split得到的结果数组访问时,需要对索引值进行合法性检查",
+    "code": "G.VAR.S.082"
+  },
+  {
+    "rule_id": "694",
+    "title": "禁止通过日志输出系统数据",
+    "language": "Java",
+    "level": "一般",
+    "description": "当系统数据或调试信息通过输出流或者日志功能流出程序时,就会发生信息泄漏。",
+    "fix_suggestion": "不使用System.out或System.err输出任何信息,应该使用程序自带的日志模块\n例外场景: 部分前端控制台输出,无法使用专有日志模块时,可以例外",
+    "code": "G.VAR.S.083"
+  },
+  {
+    "rule_id": "695",
+    "title": "try块中禁止使用return导致异常丢失",
+    "language": "Java",
+    "level": "一般",
+    "description": "块中的返回指令会导致从 try 块中抛出的异常丢失。",
+    "fix_suggestion": "",
+    "code": "G.VAR.S.084"
+  },
+  {
+    "rule_id": "696",
+    "title": "禁止硬编码加密salt",
+    "language": "Java",
+    "level": "一般",
+    "description": "采用硬编码处理 salt 绝非一个好方法。这不仅是因为所有项目开发人员都可以使用 hardcoded salt 来查看该 salt,而且还会使解决这一问题变得极其困难。一旦将该代码投入生产,则无法轻易更改该 salt。如果攻击者知道该 salt 的值,他们就可以计算出该应用程序的“彩虹表”,并更轻松地确定散列值。",
+    "fix_suggestion": "salt 始终不能为硬编码",
+    "code": "G.VAR.S.085"
+  },
+  {
+    "rule_id": "697",
+    "title": "哈希迭代次数需符合安全规范",
+    "language": "Java",
+    "level": "一般",
+    "description": "迭代次数默认推荐10,000,000次,对于性能有特殊要求(比如嵌入式系统)的产品最低可迭代1000次。",
+    "fix_suggestion": "使用一个基于密码的密钥派生函数时,迭代计数应至少为 10,000,000。这将大幅增加穷尽式密码搜索的代价,而对派生各个密钥的代价不会产生显著影响",
+    "code": "G.VAR.S.086"
+  },
+  {
+    "rule_id": "698",
+    "title": "禁止硬编码加密salt",
+    "language": "Java",
+    "level": "一般",
+    "description": "采用硬编码处理 salt 绝非一个好方法。这不仅是因为所有项目开发人员都可以使用 hardcoded salt 来查看该 salt,而且还会使解决这一问题变得极其困难。一旦将该代码投入生产,则无法轻易更改该 salt。如果攻击者知道该 salt 的值,他们就可以计算出该应用程序的“彩虹表”,并更轻松地确定散列值。",
+    "fix_suggestion": "salt 始终不能为硬编码",
+    "code": "G.VAR.S.087"
+  },
+  {
+    "rule_id": "699",
+    "title": "RSA加密需使用填充模式",
+    "language": "Java",
+    "level": "一般",
+    "description": "实际中,使用 RSA 公钥的加密通常与某种填充模式结合使用。该填充模式的目的在于防止一些针对 RSA 的攻击,这些攻击仅在执行不带填充模式的加密时才起作用。",
+    "fix_suggestion": "为安全使用RSA,在执行加密时推荐使用OAEP(最优非对称加密填充模式)。",
+    "code": "G.VAR.S.088"
+  },
+  {
+    "rule_id": "700",
+    "title": "dismiss()方法调用前需判断状态",
+    "language": "Java",
+    "level": "一般",
+    "description": "在调用系统的dismiss()方法前,没有对状态进行判断,导致抛出NullPointerException异常。",
+    "fix_suggestion": "在调用系统的dismiss()方法前,提前进行判空检查。",
+    "code": "G.VAR.S.089"
+  },
+  {
+    "rule_id": "701",
+    "title": "解压zip文件需检查条目大小",
+    "language": "Java",
+    "level": "一般",
+    "description": "从java.util.zip.ZipInputStream中解压文件时,zip压缩算法可能有很大的压缩比,可以把超大文件压缩成很小的zip文件(例如可以将上G的文件压缩为几K大小),这样的文件解压可能会导致zip炸弹(zip bomb)攻击。所以zip文件解压时,要对解压的实际文件大小进行检查,若解压之后的文件大小超过一定的限制,必须拒绝解压。具体的大小限制根据实际情况来确定。除此之外,解压时,还需要对解压出来的文件数量进行限制,防止zip压缩包中是数量巨大的小文件。",
+    "fix_suggestion": "在解压每个文件之前对其文件名进行校验,如果校验失败,终止整个解压过程；不要使用ZipEntry.getSize统计大小,边读边统计实际解压出的文件总大小,如果达到指定的阈值,抛出异常终止解压操作；统计解压出来的文件的数量,如果达到指定阈值,会抛出异常终止解压操作。",
+    "code": "G.VAR.S.090"
+  },
+  {
+    "rule_id": "702",
+    "title": "防止LDAP注入攻击",
+    "language": "Java",
+    "level": "一般",
+    "description": "LDAP注入是一种针对LDAP(轻量级目录访问协议)服务器的攻击手段,攻击者通过在查询参数中插入恶意代码,以获取敏感信息或执行未经授权的操作。",
+    "fix_suggestion": "为了防止LDAP注入,可以采取以下措施:\n- 对用户输入进行验证和过滤,确保只接受预期的字符和格式。\n- 使用预编译语句和参数化查询,避免将用户输入直接拼接到SQL查询中。\n- 对LDAP查询结果进行适当的处理和过滤,避免泄露敏感信息。",
+    "code": "G.VAR.S.091"
+  },
+  {
+    "rule_id": "703",
+    "title": "防止SQL注入攻击",
+    "language": "Java",
+    "level": "严重",
+    "description": "SQL注入是一种网络安全漏洞,攻击者通过在应用程序的输入框中插入恶意的SQL代码,来干扰应用程序对其数据库的正常查询。这种攻击方式主要利用了设计不良的程序在处理用户输入时忽略了字符检查的弱点,从而使得注入的恶意指令被数据库服务器误认为是正常指令并执行。\nSQL注入错误在以下情况下发生:\n1. 数据从一个不可信赖的数据源进入程序；\n2. 数据用于动态地构造一个 SQL 查询。",
+    "fix_suggestion": "防护措施主要有以下三类:\n+ 使用参数化查询:最有效的防护手段,但对SQL语句中的表名、字段名等不适用；\n+ 对外部数据进行白名单校验:适用于拼接SQL语句中的表名、字段名；\n+ 对外部数据中的与SQL注入相关的特殊字符(参考附录A)进行转义:适用于必须通过字符串拼接构造SQL语句的场景,转义仅对由引号限制的字段有效。",
+    "code": "G.VAR.S.092"
+  },
+  {
+    "rule_id": "704",
+    "title": "异常中禁止输出敏感信息",
+    "language": "Java",
+    "level": "严重",
+    "description": "在异常中不能输出口令、密钥和其他敏感信息,口令包括明文口令和密文口令,敏感信息包括系统等隐私信息。当敏感信息通过输出流或者日志功能流出程序时,就会发生信息泄漏",
+    "fix_suggestion": "对于敏感信息建议采取以下方法:\n- 不直接打印敏感信息。\n- 若因为特殊原因必须要打印,对敏感信息进行脱敏处理,例如:用固定长度的星号(*)代替输出的敏感信息。\n- 需要对敏感进行校验,比如白名单或者正则校验,使用valid开头的方法做校验。",
+    "code": "G.VAR.S.093"
+  },
+  {
+    "rule_id": "705",
+    "title": "SSL/TLS连接使用默认的预加载系统证书颁发机构 (CA) 创建",
+    "language": "Java",
+    "level": "一般",
+    "description": "getAcceptedIssuers函数是Java中用于获取SSL证书中可接受的颁发者列表的方法。它可以帮助客户端判断服务器证书的可信度,从而确保SSL通信的安全性。在实际应用中,getAcceptedIssuers方法常用于自定义SSL证书验证,以确保SSL通信的安全性。该方法返回一个X509Certificate数组,其中包含了所有可接受的颁发者的证书。客户端可以通过比对服务器证书中的颁发者信息和本地可接受的颁发者列表,来判断服务器证书的可信度  。自定义实现X509TrustManager接口时getAcceptedIssuers方法不能为空,若为空则存在中间人攻击风险",
+    "fix_suggestion": "getAcceptedIssuers方法中不要返回空,要返回特定的预加载系统证书",
+    "code": "G.VAR.SE.014"
+  },
+  {
+    "rule_id": "706",
+    "title": "不安全的SSL验证检查",
+    "language": "Java",
+    "level": "严重",
+    "description": "secBrella告警清理指导链接:http://dfx.huawei.com/itembased/doc?ibid=SPE1000000989&navid=NVI1000072714\n不安全的SSL校验",
+    "fix_suggestion": "不要放弃SSL的验证检查。",
+    "code": "G.VAR.SE.015"
+  },
+  {
+    "rule_id": "707",
+    "title": "忽略SSL证书验证错误漏洞",
+    "language": "Java",
+    "level": "一般",
+    "description": "浏览器能够验证证书的合法性,因此使用权威证书颁发机构颁发的SSL服务器端证书,且证书未过期、没有被撤销、和域名匹配,能够帮助用户确认当前所访问的网站是否合法。备注:由于开发阶段往往无法确认部署时的域名和有效期,所以只能使用开发人员临时生成SSL证书,需要在用户资料中要求客户从权威证书颁发机构购买正式的SSL证书,替换临时SSL证书,并提供相应的实施指导。",
+    "fix_suggestion": "用户可以根据自己业务需要,决定是否需要校验证书,如果不需要校验建议由安全SE或其他资质的角色审核屏蔽。",
+    "code": "G.VAR.SE.016"
+  },
+  {
+    "rule_id": "708",
+    "title": "未显式地处理SSL 异常",
+    "language": "Java",
+    "level": "一般",
+    "description": "未处理的 SSL 异常会在以下情况中发生:1)抛出特定的 SSL 异常；2)未显式地处理异常。\n特定 SSL 异常 、 和  都可以传达与 SSL 连接相关的重要错误。如果没有显式地处理这些错误,连接会被处于一种意想不到的、潜在不安全的状态。",
+    "fix_suggestion": "对SSL异常进行显式处理。",
+    "code": "G.VAR.SE.017"
+  }
+]

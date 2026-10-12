@@ -1,0 +1,839 @@
+[
+  {
+    "rule_id": "709",
+    "title": "禁止使用 eval()",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "使用eval()不仅会使程序的可读性变差,而且,当 eval() 里面包含用户输入的话存在安全风险。在不可信的代码里使用 eval() 有可能使程序受到不同的注入攻击。",
+    "fix_suggestion": "移除eval()函数,建议用其它更佳、更清晰、更安全的方式写代码,比如,使用JSON的parse方法来分析JSON字符串。",
+    "code": "G.AOD.01"
+  },
+  {
+    "rule_id": "710",
+    "title": "禁止使用隐式的 eval()",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "setTimeout()、setInterval() 或者 execScript() (仅限IE浏览器)可以把一个javaScript字符串解析为javaScript代码来执行,当javaScript字符串中包含用户不可信输入时,则可能会使程序受到注入攻击。",
+    "fix_suggestion": "setTimeout()、setInterval() 或者 execScript() 的第一个参数不直接使用JavaScript 字符串代码,建议封装成函数。",
+    "code": "G.AOD.02"
+  },
+  {
+    "rule_id": "711",
+    "title": "尽量避免使用console",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "在 JavaScript,虽然console 被设计为在浏览器中执行的,但避免使用 console 的方法被认为是一种最佳实践。这样的消息被认为是用于调试的,因此不适合输出到客户端。通常,在发布正式交付的产品之前尽量删除不必要 \n 的 console 调用。",
+    "fix_suggestion": "尽量避免使用console。",
+    "code": "G.AOD.03"
+  },
+  {
+    "rule_id": "712",
+    "title": "禁止使用 alert",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "JavaScript 的 alert、confirm 和 prompt 被广泛认为是突兀的 UI 元素,应该被一个更合适的自定义的 UI 界面代替。此外,alert 经常被用于调试代码,部署到生产环境之前应该全部删除。",
+    "fix_suggestion": "禁止使用 alert。",
+    "code": "G.AOD.04"
+  },
+  {
+    "rule_id": "713",
+    "title": "禁止使用 debugger",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "debugger 语句用于告诉 JavaScript 执行环境停止执行并在代码的当前位置启动调试器。随着现代调试和开发工具的出现,使用调试器已不是最佳实践。部署到生产环境之前应该删除。",
+    "fix_suggestion": "禁止使用 debugger。",
+    "code": "G.AOD.05"
+  },
+  {
+    "rule_id": "714",
+    "title": "代码注释置于对应代码的上方或右边",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "针对代码的注释,应该置于对应代码的上方或右边。\n代码上方的注释:与代码行间无空行,保持与代码一样的缩进。\n代码右边的注释:与代码之间,至少留有一个空格。\n通常右边的注释内容不宜过多,当注释超过行宽时,考虑将注释置于代码上方。",
+    "fix_suggestion": "代码注释置于对应代码的上方或右边",
+    "code": "G.CMT.01"
+  },
+  {
+    "rule_id": "715",
+    "title": "注释符和注释内容之间留有一个空格",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "注释符(`//`和`/*  */`)与注释内容之间留有一个空格,这会让注释看起来清晰美观。",
+    "fix_suggestion": "1、**使用 `/* */ `**注释时,注释符要和注释内容之间有一个空格\n```javascript\n/* 单行注释 */\n```\n```javascript\n/*\n * 多行注释\n * 第二行\n */\n```\n2、**使用`//`**注释时,注释符要和注释内容之间有一个空格\n```javascript\n// 单行注释  \n```\n```javascript\n// 多行注释\n// 第二行\n```",
+    "code": "G.CMT.02"
+  },
+  {
+    "rule_id": "716",
+    "title": "正式交付给客户的代码不应包含 TODO/FIXME 注释",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "TODO注释一般用来描述已知待改进、待补充的修改点。FIXME注释一般用来描述已知缺陷。在版本开发阶段可以使用这两类标签标注一些待处理的问题。\n对于版本交付的代码中不应存在这两类标签,否则可能会被误解为代码中存在未实现的功能或已知的缺陷。",
+    "fix_suggestion": "正式交付的代码中,排查所有的TODO、FIXME注释,保证功能是完整的,已知缺陷都已经被修复,并将所有的TODO、FIXME注释删除。",
+    "code": "G.CMT.03"
+  },
+  {
+    "rule_id": "717",
+    "title": "使用postMessage方法实现跨域时,应严格校验Origin",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "HTML5增加了window.postMessage(message,targetOrigin,[transfer])方法,该方法可以实现跨域通信,以允许不同来源的Window对象之间进行消息交换。因为任何窗口都可以从其他窗口发送/接收消息,所以验证发送者/接收者的来源很重要,如果目标来源设置的过于宽松,恶意脚本就能趁机采用不当方式与受害者窗口进行通信,从而导致发送欺骗、数据被盗、转发及其他攻击。\n因此,无论是作为消息的发送方还是接受方,都应该对目标源进行最小化校验,推荐使用白名单的方式,禁止使用indexOf()来校验目标源。",
+    "fix_suggestion": "谨慎使用postMessage方法实现跨域",
+    "code": "G.CORS.01"
+  },
+  {
+    "rule_id": "718",
+    "title": "每个 switch 语句都应包含一个 default 分支",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "开发人员可能会忘记定义默认分支而导致程序发生错误,所以在 每个switch 语句中都应包含一个 default 分支。或者也可以在最后一个 case 分支下,使用 // no default 来表明此处不需要 default 分支。注释可以任何形式出现,比如 // No Default。",
+    "fix_suggestion": "每个 switch 语句都应包含一个 default 分支。",
+    "code": "G.CTL.01"
+  },
+  {
+    "rule_id": "719",
+    "title": "在 switch 语句的每一个有内容的 case 中都应放置一条 break 语句",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "在 switch 语句的每一个有内容的 case 中都应放置一条 break 语句,遗漏break,可能导致程序误入下一个case分支,执行了预期之外的代码,导致异常。而且,不推荐做出有意不写break的设计。",
+    "fix_suggestion": "switch 语句的每一个有内容的 case 中都应放置一条 break 语句。",
+    "code": "G.CTL.02"
+  },
+  {
+    "rule_id": "720",
+    "title": "case 语句中需要词法声明时, 大括号{}不能省略",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "词法声明在整个 switch 语句块中是可见的,但是它只有在运行到它定义的 case 语句时,才会进行初始化操作。为了保证词法声明语句只在当前 case 语句中有效,应该将语句包裹在块中。",
+    "fix_suggestion": "case 语句中需要词法声明时, 大括号{}不能省略。",
+    "code": "G.CTL.03"
+  },
+  {
+    "rule_id": "721",
+    "title": "含else if分支的条件判断应在最后加一个else分支",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "多个else if条件组合的判断逻辑,往往会出现开发人员忽略的分支,需要设置else默认操作(类似中switch-case语句要有default分支) 。",
+    "fix_suggestion": "if-else if(有多个 else if)类型的条件判断,最后应包含一个 else分支",
+    "code": "G.CTL.04"
+  },
+  {
+    "rule_id": "722",
+    "title": "不要用逻辑运算符代替控制语句",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "使用逻辑运算符的特性,来达到控制语句的目的,是非常不利于读者理解的。因此,不要用逻辑运算符代替控制语句。",
+    "fix_suggestion": "不要用逻辑运算符代替控制语句",
+    "code": "G.CTL.05"
+  },
+  {
+    "rule_id": "723",
+    "title": "不要在控制性条件表达式中执行赋值操作",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "控制性条件表达式常用于if、while、for、?:等条件判断中。\n在控制性条件表达式中执行赋值,常常导致意料之外的行为,且代码的可读性非常差。",
+    "fix_suggestion": "不要在控制性条件表达式中执行赋值操作。",
+    "code": "G.CTL.06"
+  },
+  {
+    "rule_id": "724",
+    "title": "避免在条件/循环控制语句中包含过多的条件",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "控制性条件表达式if语句中如果包含过多的条件,会对阅读者造成理解与记忆上的困难,也会在修改时更容易出错。\n因此,建议在if语句中的表达式尽量清晰直接,避免陷入具体的条件判断细节。条件判断细节可以在使用if条件判断之前用bool变量代替或封装函数/方法。\nif语句中的表达式应清晰直接,并且建议不超过3个,可以根据具体逻辑决定。",
+    "fix_suggestion": "避免在条件/循环控制语句中包含过多的条件",
+    "code": "G.CTL.07"
+  },
+  {
+    "rule_id": "725",
+    "title": "声明变量时要求使用 const 或 let 而不是 var(ECMAScript 6)",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "var声明的变量,会被提升到该作用域的顶端。与var不同,let和const是块级作用域,它们声明的变量不会被提升到作用域顶端,这可以帮助程序员避免错误。",
+    "fix_suggestion": "在 ECMAScript 6中,只读变量用const定义,其他变量用let定义。",
+    "code": "G.DCL.01"
+  },
+  {
+    "rule_id": "726",
+    "title": "每个语句只声明一个变量",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "一个语句声明多个多变量时,在添加新变量时,还需要将`;`变成`,`,比较容易引入错误；另外,这种声明方式也不利于使用debugger逐行调试,会一次跳过这些变量。",
+    "fix_suggestion": "每个语句的变量声明都应只声明一个变量。",
+    "code": "G.DCL.03"
+  },
+  {
+    "rule_id": "727",
+    "title": "禁止连续赋值",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "对变量连续赋值可能会创建隐藏的全局变量,从而导致意想不到的结果。",
+    "fix_suggestion": "一条语句只对一个变量赋值。",
+    "code": "G.DCL.04"
+  },
+  {
+    "rule_id": "728",
+    "title": "不要使用 undefined 初始化变量",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "在 JavaScript 中,声明一个变量但未初始化,变量会自动获得 undefined 作为初始值。因此,初始化变量值为 undefined 是多余的。",
+    "fix_suggestion": "不使用 undefined 初始化变量。",
+    "code": "G.DCL.05"
+  },
+  {
+    "rule_id": "729",
+    "title": "使用字面量风格的声明",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "SFTP链接未正常释放,大量session会话残留,内存缓慢泄漏直至溢出",
+    "fix_suggestion": "在使用sftp连接时,在其使用完毕后,按先关闭sftp后关闭session的顺序关闭channel对象和session对象\n另外可使用池化技术管理sftp连接,避免创建大量的sftp连接对象",
+    "code": "G.DCL.06"
+  },
+  {
+    "rule_id": "730",
+    "title": "避免当前作用域中的变量覆盖更外层作用域的变量",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "当前作用域中的变量覆盖了更外层作用域的变量时,这不仅会给阅读者带来困扰,还会导致无法获取和使用外出作用域的变量。",
+    "fix_suggestion": "应当避免当前作用域中的变量覆盖更外层作用域的变量。",
+    "code": "G.DCL.07"
+  },
+  {
+    "rule_id": "731",
+    "title": "合理使用异常",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "抛出的异常应该是Error错误或Error的子类,建议不要抛出字符串或其他对象。构造异常时应始终使用new。\n自定义异常是在函数中传递附加错误信息的好方法,应在默认异常的错误类型不满足的情况下使用自定义异常。\n有时候捕获了异常,什么也不做是正确的,但是应该增加注释说明原因。",
+    "fix_suggestion": "合理使用异常",
+    "code": "G.ERR.01"
+  },
+  {
+    "rule_id": "732",
+    "title": "应使用 Error 对象作为 Promise 拒绝的原因",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "在 Promise 中只传递内置的 Error 对象实例给 reject() 函数作为自定义错误,被认为是个很好的实践。Error 对象会自动存储堆栈跟踪,在调试时,通过它可以用来确定错误是从哪里来的。如果 Promise 使用了非 Error 的值 \n 作为拒绝原因,那么就很难确定 reject 在哪里产生。",
+    "fix_suggestion": "应使用 Error 对象作为 Promise 拒绝的原因。",
+    "code": "G.ERR.02"
+  },
+  {
+    "rule_id": "733",
+    "title": "不要使用return、break、continue或抛出异常使finally块非正常结束",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "在finally代码块中,直接使用return、break、continue、throw语句,会导致finally代码块无法正常结束。非正常结束的finally代码块会影响try或catch代码块中异常的抛出,也可能会影响方法的返回值。",
+    "fix_suggestion": "移除finally块中的return、break、continue、throw语句。",
+    "code": "G.ERR.03"
+  },
+  {
+    "rule_id": "734",
+    "title": "表达式的比较,倾向于不变的值应该置于右侧",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "当变量或方法调用与常量比较时,如果常量放左边,如 if (MAX == v) 不符合阅读习惯,而 if (MAX > v) 更是难于理解。应该按人的正常阅读、表达习惯,将常量放右边。",
+    "fix_suggestion": "表达式的比较,倾向于不变的值应该置于右侧",
+    "code": "G.EXP.01"
+  },
+  {
+    "rule_id": "735",
+    "title": "表达式的比较,应该遵循左侧倾向于变化、右侧倾向于不变的原则",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "当变量或方法调用与常量比较时,如果常量放左边,如 if (MAX == v) 不符合阅读习惯,而 if (MAX > v) 更是难于理解。应该按人的正常阅读、表达习惯,将常量放右边。",
+    "fix_suggestion": "表达式的比较,倾向于不变的值应该置于右侧。",
+    "code": "G.EXP.01"
+  },
+  {
+    "rule_id": "736",
+    "title": "判断相等时应使用 === 和 !== ,而不是 == 和 !=",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "JavaScript 中使用双等 == 做相等判断时会自动做类型转换,如:[] == false、[] == ![]、3 == '03’都是true,当类型确定时使用全等 === 做比较可以提高效率。",
+    "fix_suggestion": "判断相等时应使用 === 和 !== ,而不是 == 和 !=。",
+    "code": "G.EXP.02"
+  },
+  {
+    "rule_id": "737",
+    "title": "禁止使用嵌套的三元表达式",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "嵌套的三元表达式使代码更加难以理解。因此,应使用条件语句来代替嵌套的三元表达式。",
+    "fix_suggestion": "使用条件语句来代替嵌套的三元表达式。",
+    "code": "G.EXP.03"
+  },
+  {
+    "rule_id": "738",
+    "title": "在混合使用不同的操作符时,采用括号明确运算的优先级",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "在混合使用不同的操作符中,使用括号说明优先级,以方便阅读和理解。即使代码优先级正确,也应该考虑到后续阅读或者修改这段代码的其他人员的方便,最好加上括号。",
+    "fix_suggestion": "在混合使用不同的操作符时,采用括号明确运算的优先级。",
+    "code": "G.EXP.04"
+  },
+  {
+    "rule_id": "739",
+    "title": "正则表达式字面量中,应显式指出重复的空白字符个数",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "在使用正则表达式时, 如果使用了多个重复的空白字符,会很容易出错,且不易阅读。因此,在正则表达式字面量中,应显式指出重复的空白字符个数。",
+    "fix_suggestion": "正则表达式字面量中,应显式指出重复的空白字符个数。",
+    "code": "G.EXP.05"
+  },
+  {
+    "rule_id": "740",
+    "title": "建议在正则表达式中使用命名捕获组",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "随着 ECMAScript 2018 的发布,命名捕获组可以用于正则表达式中,这可以提高正则表达式的可读性。",
+    "fix_suggestion": "建议在正则表达式中使用命名捕获组",
+    "code": "G.EXP.06"
+  },
+  {
+    "rule_id": "741",
+    "title": "使用空格进行缩进",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "只允许使用空格(space)进行缩进。",
+    "fix_suggestion": "只允许使用空格(space)进行缩进2个。",
+    "code": "G.FMT.01"
+  },
+  {
+    "rule_id": "742",
+    "title": "行宽不宜过长",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "代码行宽不宜过长,否则不利于阅读。建议每行字符数不要超过 160个；除非超过 160 能显著增加可读性,并且不会隐藏信息。",
+    "fix_suggestion": "较长的语句、表达式或参数以及注释行(大于160个字符)要进行换行处理。",
+    "code": "G.FMT.02"
+  },
+  {
+    "rule_id": "743",
+    "title": "换行时将操作符留在行末",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "当语句过长,或者可读性不佳时,需要在合适的地方换行。换行时将操作符放在行末,表示“未结束,后续还有”,保持与常用的格式化工具的默认配置一致。",
+    "fix_suggestion": "换行时将操作符放在行末,保持与常用的格式化工具的默认配置一致。",
+    "code": "G.FMT.03"
+  },
+  {
+    "rule_id": "744",
+    "title": "对象字面量属性超过 4 个, 需要都换行",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "对象字面量要么每个属性都换行, 要么所有属性都在同一行。当对象字面量属性超过4个的时候,建议统一换行。",
+    "fix_suggestion": "对象字面量属性超过 4 个, 需要都换行",
+    "code": "G.FMT.04"
+  },
+  {
+    "rule_id": "745",
+    "title": "链式调用对象方法时,一行最多调用 4 次,否则需要换行",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "链式调用对象方法时,一行最多调用 4 次,否则需要换行。换行的时候,需要按照缩进章节的要求进行缩进,并且在前面加点. 强调这是方法调用而不是新语句。",
+    "fix_suggestion": "1、链式调用对象方法时,当方法个数没有超过4个时,要么每个方法单独一行,要么所有方法在同一行。\n2、链式调用对象方法时,当方法个数超过4个时,建议换行,每个方法单独一行,并且换行时,需要按照缩进章节的要求进行缩进,并且在前面加点`.` 。",
+    "code": "G.FMT.05"
+  },
+  {
+    "rule_id": "746",
+    "title": "把 else/catch 放在 if/try 代码块关闭括号的同一行",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "在写条件语句时,建议把 else 放在 if 代码块关闭括号的同一行。同样 ,在写异常处理语句时,建议把catch 也放在 try 代码块关闭括号的同一行。",
+    "fix_suggestion": "在写条件语句时,建议把 else 放在 if 代码块关闭括号的同一行。同样 ,在写异常处理语句时,建议把catch 也放在 try 代码块关闭括号的同一行。",
+    "code": "G.FMT.06"
+  },
+  {
+    "rule_id": "747",
+    "title": "合理安排空行",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "使用空行可以凸显出代码块的相关程度,能提升代码的可读性。",
+    "fix_suggestion": "使用空行可以凸显出代码块的相关程度,能提升代码的可读性。",
+    "code": "G.FMT.07"
+  },
+  {
+    "rule_id": "748",
+    "title": "用空格突出关键字和重要信息",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "空格应该突出关键字和重要信息。",
+    "fix_suggestion": "空格应该突出关键字和重要信息。",
+    "code": "G.FMT.08"
+  },
+  {
+    "rule_id": "749",
+    "title": "建议 if、for、do、while 等语句的执行体加大括号 {}",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "在if、for、do、while 等语句的执行体加大括号 {}是一种最佳实践,因为省略大括号容易导致错误,并且降低代码的清晰度。",
+    "fix_suggestion": "建议 if、for、do、while 等语句的执行体加大括号 {}。",
+    "code": "G.FMT.09"
+  },
+  {
+    "rule_id": "750",
+    "title": "大括号 { 和语句在同一行",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "大括号 { 和语句在同一行",
+    "fix_suggestion": "大括号 { 和语句在同一行",
+    "code": "G.FMT.10"
+  },
+  {
+    "rule_id": "751",
+    "title": "使用拖尾逗号",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "最终元素和结束括号之间存在换行符时,应包含尾后逗号。在上一行已经使用了尾后逗号的情况下,如果要添加新的属性,可以仅仅添加新的一行,而不需要修改上一行。另一个支持拖尾逗号的原因是,当对象或数组添加或删除元素时,它提高了代码差异的清晰度。",
+    "fix_suggestion": "定义数组或对象时,最后一个元素与结束括号之间存在换行符时,应在最后一个元素后面加上拖尾逗号。",
+    "code": "G.FMT.11"
+  },
+  {
+    "rule_id": "752",
+    "title": "每句代码后加分号",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "建议任何时候都不要省略它。",
+    "fix_suggestion": "建议任何时候都不要省略它。",
+    "code": "G.FMT.12"
+  },
+  {
+    "rule_id": "753",
+    "title": "函数长度不宜过长",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "简短的函数易理解、易维护、易扩展、易测试。函数长度建议不超过100行,函数内的业务逻辑处理建议最好不超过50行(非空非注释)(即:尽量让一个函数能在一个电脑屏幕内看完)。",
+    "fix_suggestion": "函数长度不宜过长",
+    "code": "G.MET.01"
+  },
+  {
+    "rule_id": "754",
+    "title": "圈复杂度不超过 20",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "圈复杂度数量上表现为覆盖所有代码的独立现行路径条数。为了代码的可读性,圈复杂度建议不要超过20。",
+    "fix_suggestion": "圈复杂度不超过 20",
+    "code": "G.MET.02"
+  },
+  {
+    "rule_id": "755",
+    "title": "块语句的最大可嵌套深度不要超过 4 层",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "很多开发者认为如果块语句嵌套深度超过某个值,代码就很难阅读。建议块语句的最大可嵌套深度不超过4层,以达到降低代码复杂性的目的。",
+    "fix_suggestion": "块语句的最大可嵌套深度不要超过 4 层。",
+    "code": "G.MET.03"
+  },
+  {
+    "rule_id": "756",
+    "title": "回调函数嵌套的层数不超过 4 层",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "很多 JavaScript 类库是使用回调模式处理异步操作。一个最常见的隐患就是嵌套的回调,代码嵌套层级越深越难以阅读。",
+    "fix_suggestion": "回调函数嵌套的层数不超过 4 层。",
+    "code": "G.MET.04"
+  },
+  {
+    "rule_id": "757",
+    "title": "函数的参数个数不建议超过 5 个",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "如果参数超过5个,则维护的难度很大,建议减少参数个数。",
+    "fix_suggestion": "函数的参数个数不建议超过 5 个",
+    "code": "G.MET.05"
+  },
+  {
+    "rule_id": "758",
+    "title": "始终将默认参数放在最后",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "将默认参数放在最后,在调用函数时,若默认参数没有值,就可以不传入这个参数,让调用代码更简单。",
+    "fix_suggestion": "当函数有多个参数时,应将默认参数放在最后。",
+    "code": "G.MET.06"
+  },
+  {
+    "rule_id": "759",
+    "title": "建议使用一致的 return 语句",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "函数内,应使用一致的return语句。",
+    "fix_suggestion": "必须使用一致的 return 语句",
+    "code": "G.MET.07"
+  },
+  {
+    "rule_id": "760",
+    "title": "不要动态创建函数",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "采用函数声明、Function构造函数和函数表达式定义函数时,它们都是Function对象的实例,并将继承Function对象所有默认或自定义的方法和属性。以函数构造器创建函数的方式类似于函数eval(),可以接受任何字符串形式作为它的函数体,这就会有安全漏洞的风险。",
+    "fix_suggestion": "使用函数声明或函数表达式的方式来创建函数。",
+    "code": "G.MET.08"
+  },
+  {
+    "rule_id": "761",
+    "title": "不要给函数的入参重新赋值",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "对函数参数中的变量重新赋值可能会误导读者,导致混乱,也会改变 arguments 对象。",
+    "fix_suggestion": "不要给函数的入参重新赋值。",
+    "code": "G.MET.09"
+  },
+  {
+    "rule_id": "762",
+    "title": "不要使用 arguments,可以选择 rest 语法替代",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "rest 参数是一个真正的数组,也就是说能够在它上面直接使用所有的数组方法,比如 sort,map,forEach或pop,而 arguments 是一个类数组。因此,应选择使用rest语法替代arguments。另外,rest参数必须是列表中的最后一个参数。",
+    "fix_suggestion": "不要使用 arguments,可以选择 rest 语法替代。",
+    "code": "G.MET.10"
+  },
+  {
+    "rule_id": "763",
+    "title": "用到匿名函数时优先使用箭头函数,替代保存this引用的方式",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "箭头函数提供了更简洁的语法,并且箭头函数中的this对象指向是不变的,this绑定到定义时所在的对象,有更好的代码可读性。而保存this引用的方式,容易让开发人员搞混。",
+    "fix_suggestion": "用到匿名函数时优先使用箭头函数。",
+    "code": "G.MET.12"
+  },
+  {
+    "rule_id": "764",
+    "title": "需要导出的变量必须是不可变的类型",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "不要导出var或let变量,如果避免不了的话,应该导出对该变量进行读和写的函数。",
+    "fix_suggestion": "需要导出的变量必须是不可变的类型",
+    "code": "G.MOD.01"
+  },
+  {
+    "rule_id": "765",
+    "title": "构造器函数、类应采用大驼峰风格命名",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "构造器函数、类采用首字母大写的驼峰命名法。\n构造器函数、类名通常是名词或名词短语,例如 Person 、 Student 、 Worker。不应使用动词,也应该避免类似Data、Info这样的模糊词。",
+    "fix_suggestion": "构造器函数、类采用首字母大写的驼峰命名法。",
+    "code": "G.NAM.01"
+  },
+  {
+    "rule_id": "766",
+    "title": "函数应采用小驼峰风格命名",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "函数的命名通常是动词或动词短语,采用小驼峰命名",
+    "fix_suggestion": "函数的命名通常是动词或动词短语,采用小驼峰命名",
+    "code": "G.NAM.02"
+  },
+  {
+    "rule_id": "767",
+    "title": "变量应采用小驼峰风格命名",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "变量的名字通常是名词或名词短语,应采用小驼峰命名,以便于理解其含义。如果用于自定义组件名的变量(比如React函数组件名等),可申请误报屏蔽。",
+    "fix_suggestion": "变量命名应采用小驼峰风格命名。",
+    "code": "G.NAM.03"
+  },
+  {
+    "rule_id": "768",
+    "title": "避免使用否定的布尔变量名",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "布尔型的局部变量建议加上表达是非意义的前缀,比如is,也可以是has、can、should等。但是,当使用逻辑非运算符,并出现双重否定时,会出现理解问题,比如 !isNotError,意味着什么,不是很好理解。因此,应避免定义否定的布尔变量名。",
+    "fix_suggestion": "避免定义否定的布尔变量名。",
+    "code": "G.NAM.04"
+  },
+  {
+    "rule_id": "769",
+    "title": "不要用保留字做为变量名,可使用保留字的同义词",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "保留字在某种意思上是为将来的关键字而保留的单词,因此,不要使用保留字,请用保留字的同义词。",
+    "fix_suggestion": "不要使用保留字,请用保留字的同义词。",
+    "code": "G.NAM.05"
+  },
+  {
+    "rule_id": "770",
+    "title": "使用统一的文件命名风格,文件扩展名应小写",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "使用统一的文件命名风格,文件扩展名应小写",
+    "fix_suggestion": "文件扩展名小写",
+    "code": "G.NAM.07"
+  },
+  {
+    "rule_id": "771",
+    "title": "解压文件必须进行安全检查",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "攻击者有可能上传一个很小的zip文件,但是完全解压缩之后达到几百万GB甚至更多,消耗完磁盘空间导致系统或程序无法正常运行。",
+    "fix_suggestion": "在解压前最少进行以下几点基础安全检查:\n1.文件个数是否超出业务预期个数；\n2.文件大小是否超出业务预期大小。\n建议根据需要,依赖其它工程手段加强防范,这些工程手段包括并不限于:\n1.为解压文件单独分区,限定大小；\n2.对压缩包做健康检查,包括其中内容是否符合业务预期。\n以上两点建议非强制执行,正例中展示的是常用的校验方法,不能规避所有问题。\n具体问题还需要结合产品特点具体分析,最终使解压后的文件大小在可控范围内。",
+    "code": "G.NOD.04"
+  },
+  {
+    "rule_id": "772",
+    "title": "禁止日志泄露敏感信息",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "禁止在日志中记录系统的敏感数据(例如用户密码、秘钥、敏感异常等),防止产生敏感信息泄露风险。",
+    "fix_suggestion": "禁止在日志中记录系统的敏感数据(例如用户密码、秘钥、敏感异常等),防止产生敏感信息泄露风险。",
+    "code": "G.NOD.05"
+  },
+  {
+    "rule_id": "773",
+    "title": "通过 new 调用构造函数时,应始终使用圆括号",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "通过 new 调用构造函数时,如果不带参数,可以省略后面的圆括号。但这样会造成与整体的代码风格不一致,建议团队约定使用圆括号。",
+    "fix_suggestion": "通过 new 调用构造函数时,应始终使用圆括号。",
+    "code": "G.OBJ.01"
+  },
+  {
+    "rule_id": "774",
+    "title": "对象字面量的属性名称使用标识符",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "对象字面量的属性名称建议使用标识符,一般来说,标识符号在主观上更容易阅读。它改进了语法突出显示,并且更容易被许多JavaScript引擎优化。\n不要混合使用标识符和字符串,除非必须使用引号,如:属性名中使用非标识符的字符,或者这属性中间有一个空格,像 “one-two”、“one two” 这样。",
+    "fix_suggestion": "1、对象字面量的属性名称建议使用标识符。\n2、若属性名中使用非标识符的字符,或者这属性中间有一个空格,像 “one-two”、“one two” 这样,则必须使用引号。",
+    "code": "G.OBJ.02"
+  },
+  {
+    "rule_id": "775",
+    "title": "优先使用点号来访问对象的属性,只有计算属性使用 []",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "访问对象属性时,点号通常是首选,因为它更加易读,简洁,也更适于 JavaScript 压缩。",
+    "fix_suggestion": "使用点号来访问对象的属性,只有计算属性使用 []。",
+    "code": "G.OBJ.04"
+  },
+  {
+    "rule_id": "776",
+    "title": "使用点号来访问对象的属性,只有计算属性使用 []",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "在 JavaScript 中,可以使用点号 (foo.bar) 或者方括号 (foo['bar'])来访问属性。然而,点号通常是首选,因为它更加易读,简洁,也更适于 JavaScript 压缩。",
+    "fix_suggestion": "使用点号来访问对象的属性,只有计算属性使用 []",
+    "code": "G.OBJ.04"
+  },
+  {
+    "rule_id": "777",
+    "title": "禁止在对象实例上直接使用 hasOwnProperty、isPrototypeOf、propertyIsEnumerable方法",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "对象实例可以具有属性,这些属性可以将 Object.prototype 的内建函数隐藏,可能导致意外行为或拒绝服务安全漏洞。例如,web 服务器解析来自客户机的 JSON 输入并直接在结果对象上调用 hasOwnProperty 是不安全的,因为恶意客户机可能发送一个JSON值,如 { hasOwnProperty: 1 },并导致服务器崩溃。因此,禁止在对象实例上直接使用 hasOwnProperty、isPrototypeOf、propertyIsEnumerable方法。",
+    "fix_suggestion": "不在对象实例上直接使用 hasOwnProperty、isPrototypeOf、propertyIsEnumerable方法,使用Object.prototype.hasOwnProperty.call,Object.prototype.isPrototypeOf.call,Object.prototype.propertyIsEnumerable.call来代替。",
+    "code": "G.OBJ.05"
+  },
+  {
+    "rule_id": "778",
+    "title": "需要约束 for-in",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "在使用 for-in 遍历对象时,会把从原型链继承来的属性也包括进来。这样会导致意想不到的项出现。",
+    "fix_suggestion": "应该在 for-in 循环中使用Object.prototype.hasOwnProperty来排除不需要的原型属性。也可以使用Object.keys()替代for-in进行遍历。",
+    "code": "G.OBJ.06"
+  },
+  {
+    "rule_id": "779",
+    "title": "不要修改内置对象的原型,或向原型添加方法",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "修改内置对象的原型,可能会破坏接口语义,引入意想不到的问题。",
+    "fix_suggestion": "永远不要修改内置对象的原型,或向原型添加方法。",
+    "code": "G.OBJ.07"
+  },
+  {
+    "rule_id": "780",
+    "title": "安全场景下必须使用密码学意义上的安全随机数",
+    "language": "JavaScript",
+    "level": "严重",
+    "description": "不安全的随机数可能被部分或全部预测到,导致系统存在安全隐患,安全场景下使用的随机数必须是密码学意义上的安全随机数。",
+    "fix_suggestion": "使用密码学意义上的安全随机数",
+    "code": "G.OTH.01"
+  },
+  {
+    "rule_id": "781",
+    "title": "不用的代码段直接删除,不要注释掉",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "不需要的代码直接删除掉,被注释掉的代码无法被正常维护。",
+    "fix_suggestion": "失效代码不应放在注释里",
+    "code": "G.OTH.03"
+  },
+  {
+    "rule_id": "782",
+    "title": "正式发布的代码及注释内容不应包含开发者个人信息",
+    "language": "JavaScript",
+    "level": "严重",
+    "description": "正式发布的代码及注释内容如果包含开发者个人信息,可能会泄露具体的开发人员信息,存在引发社会工程学方面的风险。",
+    "fix_suggestion": "注释内容不应包含开发者个人信息",
+    "code": "G.OTH.04"
+  },
+  {
+    "rule_id": "783",
+    "title": "禁止代码中包含公网地址",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "代码或脚本中包含用户不可见,不可知的公网地址,可能会引起客户质疑。",
+    "fix_suggestion": "禁止代码中包含公网地址",
+    "code": "G.OTH.05"
+  },
+  {
+    "rule_id": "784",
+    "title": "源文件编码格式(包括注释)应该是 UTF-8",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "对于源文件,应统一采用UTF-8进行编码。",
+    "fix_suggestion": "对于源文件,应统一采用UTF-8进行编码。",
+    "code": "G.PRJ.01"
+  },
+  {
+    "rule_id": "785",
+    "title": "控制文件的长度,最好不要超过 2000 行",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "过长的文件往往意味着文件(模块)功能不单一,过于复杂。很多开源项目都表明,文件长度越短,越容易理解和维护。",
+    "fix_suggestion": "控制文件的长度,最好不要超过 2000 行",
+    "code": "G.PRJ.03"
+  },
+  {
+    "rule_id": "786",
+    "title": "避免在全局作用域下声明变量和函数",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "对于浏览器中的脚本,每个script块的顶层都运行在全局作用域中,在全局作用域下变量和函数声明都会变成全局变量。建议全局变量应该使用一个唯一的,与工程/库相关的名字作为命名空间。否则,局部变量应该包裹在 IIFE 中。",
+    "fix_suggestion": "不要在全局作用域下声明变量和函数",
+    "code": "G.SCO.01"
+  },
+  {
+    "rule_id": "787",
+    "title": "禁止省略浮点数小数点前后的 0",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "省略浮点数小数点前后的 0,虽然不是一个语法错误,但这种格式的数字使真正的小数和点操作符变的难以区分。因此,必须在小数点前面和后面有一个数字,以明确表明是要创建一个小数。",
+    "fix_suggestion": "不要省略浮点数小数点前后的 0,必须在小数点前面和后面有一个数字,以明确表明是要创建一个小数。",
+    "code": "G.TYP.01"
+  },
+  {
+    "rule_id": "788",
+    "title": "判断变量是否为NaN时必须使用 isNaN() 方法",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "因为在 JavaScript 中 NaN 独特之处在于它不等于任何值,包括它本身,与 NaN 进行比较的结果是令人困惑:NaN !== NaN or NaN != NaN 的值都是 true。\n因此,必须使用 Number.isNaN() 或 全局的 isNaN() 函数来测试一个值是否是 NaN。",
+    "fix_suggestion": "使用 Number.isNaN() 或 全局的 isNaN() 函数来测试一个值是否是 NaN。",
+    "code": "G.TYP.02"
+  },
+  {
+    "rule_id": "789",
+    "title": "浮点型数据判断相等不要直接使用== 或===",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "由于浮点数在计算机表示中存在精度的问题,数学上相等的数字,经过运算后,其浮点数表示可能不再相等,因而不能使用相等运算符== 或===判断浮点数是否相等。",
+    "fix_suggestion": "由于浮点数在计算机表示中存在精度的问题,数学上相等的数字,经过运算后,其浮点数表示可能不再相等,因而不能使用相等运算符== 或===判断浮点数是否相等。",
+    "code": "G.TYP.03"
+  },
+  {
+    "rule_id": "790",
+    "title": "建议字符串使用单引号",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "单引号优于双引号,比如,当创建一个包含 HTML 代码的字符串时可以避免转义字符串中的双引号。",
+    "fix_suggestion": "建议字符串使用单引号。",
+    "code": "G.TYP.04"
+  },
+  {
+    "rule_id": "791",
+    "title": "使用模板字符串(`)实现字符串拼接",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "在ECMAScript 6中,动态构建字符串时建议使用模板字符串而不是使用+拼接,主要是因为模板字符串有可读性强,语法明确,换行合理和字符串插值的特点。",
+    "fix_suggestion": "动态构建字符串时建议使用模板字符串而不是使用+拼接。",
+    "code": "G.TYP.05"
+  },
+  {
+    "rule_id": "792",
+    "title": "不应使用字符串的行连续符号",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "使用反斜杠作为连续符号时,如果在反斜杠之后还有空格,则会导致错误,并且该错误不容易被发现。",
+    "fix_suggestion": "不要使用反斜杠作为连续符号,建议使用+作为字符串的连接符号。",
+    "code": "G.TYP.06"
+  },
+  {
+    "rule_id": "793",
+    "title": "不要在数组上定义或使用非数字属性(length 除外)",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "在JavaScript中,数组也是对象,可以往数组上添加属性,但为了处理方便和避免出错,数组只应该用来存储有序(即索引连续)的一组数据。必须要添加属性时,考虑用Map或者Object替代。",
+    "fix_suggestion": "不要在数组上定义或使用非数字属性(length 除外)",
+    "code": "G.TYP.07"
+  },
+  {
+    "rule_id": "794",
+    "title": "数组遍历优先使用 Array 对象方法",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "对于数组的遍历处理,应该优先使用Array对象方法",
+    "fix_suggestion": "数组遍历优先使用 Array 对象方法",
+    "code": "G.TYP.08"
+  },
+  {
+    "rule_id": "795",
+    "title": "不要在数组遍历中对其进行元素的 remove/add 操作",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "在forEach循环中删除、增加元素,会破坏原本的遍历顺序,可能导致意料之外的结果。",
+    "fix_suggestion": "不要在数组遍历中进行元素的 remove/add 操作",
+    "code": "G.TYP.09"
+  },
+  {
+    "rule_id": "796",
+    "title": "使用展开语法 … 或concat复制数组",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "展开语法可以通过减少赋值语句的使用,或者减少通过下标访问数组或对象的方式,使代码更加简洁优雅,可读性更佳。",
+    "fix_suggestion": "使用展开语法 ... 复制数组",
+    "code": "G.TYP.11"
+  },
+  {
+    "rule_id": "797",
+    "title": "使用显式的类型转换",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "在JavaScript中,有许多不同的方式进行类型转换。其中有些可能难于阅读和理解,因此,应该使用显式的类型转换。",
+    "fix_suggestion": "使用显式的类型转换。",
+    "code": "G.TYP.14"
+  },
+  {
+    "rule_id": "798",
+    "title": "其它类型转化为数字使用Number(),并且应显式检查返回值是否为NaN",
+    "language": "JavaScript",
+    "level": "提示",
+    "description": "不推荐使用parseInt函数来做转换数字的操作,因为parseInt只处理字符串的前缀数字,这可能与预期不一致。其他类型转化为数字建议使用Number(),紧接着应该显式检查返回值是否为NaN。",
+    "fix_suggestion": "Number() 将其它类型转换为数字的规则如下:\n - boolean值,true和false被转换为1和0；\n- 数值,不变(会识别十进制/八进制-0开头/十六进制-0x开头)\n- null,返回0\n- undefined,返回NaN\n- 字符串 :\n    1. 如果字符串中只包含数字(包括正负号),转换为十进制数值,数值前面有0的会去掉0;\n    2. 浮点数,转换为相应的浮点数,但是后面小数位只含0的会去掉0;\n    3. 十六进制格式‘0x’,转换为有效的十进制值(Number()会自动把字符串形式的十进制数和十六进制数都转换为十进制,但是不识别八进制,会被当做十进制数处理。);\n    4. 字符串为空或空白符,转换为0;\n    5. 包含除上述之外的字符,转换为NaN;\n    \n按上述规则转换后,要显式检查返回值是否为NaN。",
+    "code": "G.TYP.15"
+  },
+  {
+    "rule_id": "799",
+    "title": "禁止在 Web SQL database和Indexed database数据库中存储敏感数据",
+    "language": "JavaScript",
+    "level": "致命",
+    "description": "Web SQL database和Indexed database存储的数据是明文的,客户端上有本地访问权限的操作系统用户都能访问,容易泄露。而且,利用XSS漏洞,攻击者可以构造脚本对Web SQL database和Indexed database数据库进行操纵,数据容易被窃取,即使对敏感数据加密,一旦密钥泄露,也将导致敏感数据泄露。因此,禁止在WebSQL database和Indexed database数据库中存储敏感数据。",
+    "fix_suggestion": "禁止在 Web SQL database和Indexed database数据库中存储敏感数据",
+    "code": "G.WSQ.01"
+  },
+  {
+    "rule_id": "800",
+    "title": "禁止在 localStorage和sessionStorage中存储敏感数据",
+    "language": "JavaScript",
+    "level": "严重",
+    "description": "localStorage和sessionStorage本身无防XSS的机制,数据容易被窃取,即使对敏感数据加密,一旦密钥泄露,也将导致敏感数据泄露。",
+    "fix_suggestion": "禁止在 localStorage和sessionStorage中存储敏感数据",
+    "code": "G.WST.01"
+  },
+  {
+    "rule_id": "801",
+    "title": "如果数据仅需要临时存储在客户端,使用非持久性会话cookie或者sessionStorage而不是localStorage",
+    "language": "JavaScript",
+    "level": "一般",
+    "description": "localStorage是持久性(没有时间限制)的数据存储,会导致数据长期存留,增加数据泄露的风险。存储于非持久性会话cookie或sessionStorage中的数据会被及时清除。",
+    "fix_suggestion": "如果数据仅需要临时存储在客户端,使用非持久性会话cookie或者sessionStorage而不是localStorage",
+    "code": "G.WST.02"
+  }
+]
