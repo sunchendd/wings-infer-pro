@@ -1,0 +1,50 @@
+# Wings YAML v2 demo — 兜底资产（不写 context_length，最泛化）
+#
+# 本文件是 YAML V2 泛化/特化能力的演示例子，位于 `_demo` 目录（仅作物理组织，不参与匹配）。
+# 本资产**不声明** `context_length`，按偏序引擎语义视为"全集"（最泛化）：
+#   - 任何写了 context_length 的资产（如 `TestModel-generic.yaml` 的 `>=0`、
+#     `TestModel-longctx.yaml` 的 `>=131072`）都比本资产更特化；
+#   - 当 ctx 未下发 context_length 时，只有本资产命中（写了 context_length 的资产
+#     因 ctx 缺值不命中），作为兜底。
+#
+# 与同目录两个资产配合，演示"不写 context_length = 最泛化"的偏序语义。
+#
+# 说明：`_demo` 目录下的资产会被 v2 扫描器递归遍历。模型名 `TestModel` 为演示专用，
+# 不会与真实模型冲突；如需真实使用，请按 `config/v2/{engine}/{version}/{hardware}/{model}/{variant}.yaml`
+# 约定组织并补充 hardware_table.yaml 登记。
+schema: v2
+profile:
+  engine: vllm-ascend
+  version: "v0.99.0"
+  hardware: {Ascend910C_64G}
+  model: TestModel
+model:
+  name: TestModel
+  variant_name: TestModel
+  match:
+    - name_pattern: "(?i)testmodel"
+scenarios:
+  standalone:
+    source_ref: "demo#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: /root/.cache/modelscope/hub/models/TestModel
+          max_model_len: 2048
+          max_num_batched_tokens: 512
+          served_model_name: testmodel
+          gpu_memory_utilization: 0.7
+          max_num_seqs: 16
+          tensor_parallel_size: 4
+          data_parallel_size: 1
+          quantization: ascend
+          port: 8900
+          block_size: 128
+        env:
+          OMP_NUM_THREADS: 2
+          HCCL_BUFFSIZE: 256

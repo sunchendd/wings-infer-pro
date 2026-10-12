@@ -1,0 +1,32 @@
+# 合法硬件表 — v2 资产 profile.hardware 的合法 raw string 登记表。
+# 离线校验脚本检查 yaml 的 hardware 集合 ⊆ 本表（`_`→`-` 归一 + casefold 比较）。
+# 新增硬件在此加一行（紧挨 config 目录维护）。
+#
+# 重要：
+# 1. 本表是【增量维护的登记表】，不追求完整。具体有哪些硬件作为遗留问题，
+#    在新增 v2 YAML 时补充。
+# 2. 本表只收录【调用方下发的 hardware_family 原值】（hardware_info.json 的
+#    hardware_family 字段），即 resourceCardName 形态。**不收录** resolve_family_dir
+#    归一化后的 config 目录名（如 ascend910b-x86_64 是 x86_64 平台把下发 ascend910b
+#    映射到的目录名，调用方不会下发它；_generic 是保底目录，调用方不会下发）。
+# 3. 匹配执行 `_`→`-` 归一 + casefold 等宽松手段（不做后缀剥离/别名映射）。
+#    故同一物理硬件若调用方有多种下发形态（下划线目录名 / 短横杠卡型名），
+#    需分别登记。
+# 4. 下发硬件未出现在本表 → 不报错退出，只是不匹配任何 v2 YAML → 默认走 V1 回退。
+#
+# 设计与归一化说明见 docs/design/wings-yaml-v2.md（§5.5）。
+hardware:
+  - Ascend910B_64G
+  - Ascend910C_64G
+  - L20_48G
+  - RTX-PRO-5000-72GB-Blackwell_72G
+  - H20-3e_141G
+  - H20_96G
+  - H800_80G
+  - A800-SXM4-80GB_80G
+
+# 别名系统：调用方下发的别名 → 归一化目标硬件（合法 hardware 之一）。
+# 匹配时，ctx 的 hardware 若命中别名，先归一化到目标硬件再匹配资产 profile.hardware。
+# 别名 key 用 `_`→`-` 归一 + casefold 存储/比较。
+aliases:
+  Ascend910_64G: Ascend910C_64G

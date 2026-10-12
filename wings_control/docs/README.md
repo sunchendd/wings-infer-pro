@@ -8,6 +8,8 @@
 | --- | --- |
 | MaaS 参数、PD 字段、placement 和端口 | [MaaS 接口参数契约](guideline/Maas侧与wins-control侧交互接口参数锲约说明.md) |
 | 已支持能力、限制和验证边界 | [支持边界](capabilities/support-boundaries.md) |
+| YAML V2 profile 泛化/特化能力示例 | [YAML V2 profile 泛化/特化能力示例](capabilities/yaml-v2-profile-demo.md) |
+| YAML V2 解析流程（图解） | [YAML V2 解析流程](capabilities/yaml-v2-resolution-flow.html) |
 | 启动脚本、审计、日志和共享卷文件 | [配置、产物与日志](contracts/configuration-artifacts-and-logs.md) |
 | Proxy 请求转发、排队、健康和监控 | [Proxy 服务](contracts/proxy-service.md) |
 | Wings Accel 输入、返回内容、安装和启动前命令 | [Wings Accel 接口](contracts/wings-accel-interface.md) |

@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wings YAML v2 裁决流程 — 用户下发 → 候选 → 偏序 → 歧义/最终参数</title>
+<style>
+  :root {
+    --bg: #f6f8fa;
+    --card: #ffffff;
+    --border: #d0d7de;
+    --text: #1f2328;
+    --muted: #57606a;
+    --accent: #0969da;
+    --accent-bg: #ddf4ff;
+    --green: #1a7f37;
+    --green-bg: #dafbe1;
+    --red: #cf222e;
+    --red-bg: #ffebe9;
+    --amber: #9a6700;
+    --amber-bg: #fff8c5;
+    --code-bg: #f6f8fa;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+  .container { max-width: 1000px; margin: 0 auto; padding: 24px 20px 60px; }
+  header.hero {
+    background: linear-gradient(135deg, #0969da 0%, #1f6feb 100%);
+    color: #fff;
+    border-radius: 12px;
+    padding: 28px 32px;
+    margin-bottom: 28px;
+  }
+  header.hero h1 { margin: 0 0 8px; font-size: 26px; }
+  header.hero p { margin: 0; opacity: 0.92; font-size: 15px; }
+  h2 {
+    font-size: 21px;
+    margin: 40px 0 12px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--border);
+  }
+  h3 { font-size: 17px; margin: 24px 0 8px; }
+  p { margin: 8px 0; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin: 16px 0;
+  }
+  .step-badge {
+    display: inline-block;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 20px;
+    padding: 2px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    margin-right: 8px;
+  }
+  .step-badge.green { background: var(--green); }
+  .step-badge.amber { background: var(--amber); }
+  .step-badge.red { background: var(--red); }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  code {
+    font-family: var(--mono);
+    background: var(--code-bg);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 0.92em;
+  }
+  pre code { background: none; padding: 0; }
+  .yaml-key { color: #0550ae; }
+  .yaml-str { color: #0a3069; }
+  .yaml-num { color: #0550ae; }
+  .yaml-comment { color: #6e7781; font-style: italic; }
+  .yaml-op { color: #cf222e; font-weight: 600; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 14px;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    text-align: left;
+  }
+  th { background: #f0f3f6; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafbfc; }
+  .tag {
+    display: inline-block;
+    border-radius: 4px;
+    padding: 1px 8px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .tag.hit { background: var(--green-bg); color: var(--green); }
+  .tag.miss { background: var(--red-bg); color: var(--red); }
+  .tag.warn { background: var(--amber-bg); color: var(--amber); }
+  .tag.info { background: var(--accent-bg); color: var(--accent); }
+  .note {
+    background: var(--accent-bg);
+    border-left: 4px solid var(--accent);
+    border-radius: 0 6px 6px 0;
+    padding: 10px 14px;
+    margin: 12px 0;
+    font-size: 14px;
+  }
+  .note.warn { background: var(--amber-bg); border-left-color: var(--amber); }
+  .note.red { background: var(--red-bg); border-left-color: var(--red); }
+  .flow-svg { width: 100%; height: auto; display: block; margin: 12px 0; }
+  .legend { display: flex; gap: 20px; flex-wrap: wrap; font-size: 13px; margin: 8px 0; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend .swatch { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 700px) { .grid-2 { grid-template-columns: 1fr; } }
+  .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header class="hero">
+  <h1>Wings YAML v2 裁决流程</h1>
+  <p>用户下发 → 候选 → 偏序 → 歧义 / 最终参数 —— 用 demo 资产举例说明 profile 泛化/特化（偏序裁决）的完整过程</p>
+</header>
+
+<!-- ===================== 流程总览 ===================== -->
+<h2>流程总览</h2>
+<p>一次 v2 资产查找（<code>locate_v2</code>）经历四个阶段：<strong>用户下发</strong>构造查找上下文（ctx）→ <strong>候选</strong>逐 key 匹配筛选 → <strong>偏序</strong>按匹配集合包含选最特化者 → <strong>歧义 / 最终参数</strong>裁决并渲染启动参数。</p>
+
+<svg class="flow-svg" viewBox="0 0 960 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="裁决流程总览图">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#57606a"/>
+    </marker>
+  </defs>
+  <!-- 阶段 1 -->
+  <rect x="20" y="60" width="180" height="90" rx="10" fill="#ddf4ff" stroke="#0969da" stroke-width="2"/>
+  <text x="110" y="90" text-anchor="middle" font-size="15" font-weight="bold" fill="#0969da">① 用户下发</text>
+  <text x="110" y="112" text-anchor="middle" font-size="12" fill="#1f2328">构造 ctx</text>
+  <text x="110" y="130" text-anchor="middle" font-size="11" fill="#57606a">engine/version/hardware</text>
+  <text x="110" y="144" text-anchor="middle" font-size="11" fill="#57606a">model/context_length</text>
+  <!-- 箭头 1 -->
+  <line x1="200" y1="105" x2="250" y2="105" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <!-- 阶段 2 -->
+  <rect x="250" y="60" width="180" height="90" rx="10" fill="#dafbe1" stroke="#1a7f37" stroke-width="2"/>
+  <text x="340" y="90" text-anchor="middle" font-size="15" font-weight="bold" fill="#1a7f37">② 候选</text>
+  <text x="340" y="112" text-anchor="middle" font-size="12" fill="#1f2328">evaluate_profile</text>
+  <text x="340" y="130" text-anchor="middle" font-size="11" fill="#57606a">逐 key 匹配</text>
+  <text x="340" y="144" text-anchor="middle" font-size="11" fill="#57606a">命中 → 候选集合</text>
+  <!-- 箭头 2 -->
+  <line x1="430" y1="105" x2="480" y2="105" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <!-- 阶段 3 -->
+  <rect x="480" y="60" width="180" height="90" rx="10" fill="#fff8c5" stroke="#9a6700" stroke-width="2"/>
+  <text x="570" y="90" text-anchor="middle" font-size="15" font-weight="bold" fill="#9a6700">③ 偏序</text>
+  <text x="570" y="112" text-anchor="middle" font-size="12" fill="#1f2328">is_more_specific</text>
+  <text x="570" y="130" text-anchor="middle" font-size="11" fill="#57606a">匹配集合包含</text>
+  <text x="570" y="144" text-anchor="middle" font-size="11" fill="#57606a">选最特化者</text>
+  <!-- 箭头 3 -->
+  <line x1="660" y1="105" x2="710" y2="105" stroke="#57606a" stroke-width="2" marker-end="url(#arrow)"/>
+  <!-- 阶段 4 -->
+  <rect x="710" y="60" width="230" height="90" rx="10" fill="#ffebe9" stroke="#cf222e" stroke-width="2"/>
+  <text x="825" y="90" text-anchor="middle" font-size="15" font-weight="bold" fill="#cf222e">④ 歧义 / 最终参数</text>
+  <text x="825" y="112" text-anchor="middle" font-size="12" fill="#1f2328">resolve 裁决</text>
+  <text x="825" y="130" text-anchor="middle" font-size="11" fill="#57606a">唯一最特化 → 选中</text>
+  <text x="825" y="144" text-anchor="middle" font-size="11" fill="#57606a">等价/互不偏序 → 告警+选第一个</text>
+  <!-- 底部说明 -->
+  <text x="480" y="200" text-anchor="middle" font-size="12" fill="#57606a">最终：渲染 engine 启动命令 + 环境变量（dry-run 预览 / 正常启动写脚本）</text>
+</svg>
+
+<div class="legend">
+  <span><span class="swatch" style="background:#ddf4ff"></span> 输入</span>
+  <span><span class="swatch" style="background:#dafbe1"></span> 匹配</span>
+  <span><span class="swatch" style="background:#fff8c5"></span> 裁决</span>
+  <span><span class="swatch" style="background:#ffebe9"></span> 输出</span>
+</div>
+
+<!-- ===================== 阶段 1 ===================== -->
+<h2><span class="step-badge">①</span>用户下发：构造查找上下文（ctx）</h2>
+<p>调用方（MaaS / CLI）下发模型名、硬件、引擎版本等，Wings Control 组装成查找上下文 <code>ctx</code>。必填四要素（<code>engine</code>/<code>version</code>/<code>hardware</code>/<code>model</code>）始终存在；<code>context_length</code> 是可选 key，由用户下发的 <code>max_model_len</code>（= input + output 总上下文窗口）派生。</p>
+
+<div class="grid-2">
+  <div class="card">
+    <h3>CLI 下发</h3>
+    <pre><code>ENGINE_VERSION=v0.99.0 python -m wings_ctl \
+  --model-name TestModel \
+  --hardware-info hardware_info.json \
+  --engine vllm-ascend \
+  --dry-run \
+  --input-length 200000 \
+  --output-length 0</code></pre>
+    <p class="note">dry-run 只做启动前推演，不写文件、不启动 engine。</p>
+  </div>
+  <div class="card">
+    <h3>组装后的 ctx</h3>
+    <pre><code>ctx = {
+  <span class="yaml-key">"engine"</span>: <span class="yaml-str">"vllm-ascend"</span>,
+  <span class="yaml-key">"version"</span>: <span class="yaml-str">"v0.99.0"</span>,
+  <span class="yaml-key">"hardware"</span>: <span class="yaml-str">"Ascend910C_64G"</span>,
+  <span class="yaml-key">"model"</span>: <span class="yaml-str">"TestModel"</span>,
+  <span class="yaml-key">"context_length"</span>: <span class="yaml-num">200000</span>,
+}</code></pre>
+    <p class="note">硬件别名会先归一化（如 <code>Ascend910_64G</code> → <code>Ascend910C_64G</code>）再匹配。</p>
+  </div>
+</div>
+
+<!-- ===================== 阶段 2 ===================== -->
+<h2><span class="step-badge green">②</span>候选：逐 key 匹配（evaluate_profile）</h2>
+<p>扫描器递归遍历 v2 资产树（目录仅作物理组织，不参与匹配），对每个 yaml 的 <code>profile</code> 块逐 key 用 ctx 求值。所有 key 命中才进入候选集合；任一未命中（含 ctx 缺值）→ 拒绝。</p>
+
+<div class="card">
+  <h3>三个候选资产（demo：TestModel）</h3>
+  <div class="grid-2">
+    <pre><code><span class="yaml-comment"># TestModel-fallback.yaml（不写 context_length）</span>
+profile:
+  <span class="yaml-key">engine</span>: <span class="yaml-str">vllm-ascend</span>
+  <span class="yaml-key">version</span>: <span class="yaml-str">"v0.99.0"</span>
+  <span class="yaml-key">hardware</span>: {<span class="yaml-str">Ascend910C_64G</span>}
+  <span class="yaml-key">model</span>: <span class="yaml-str">TestModel</span>
+  <span class="yaml-comment"># 不写 context_length → 最泛化</span></code></pre>
+    <pre><code><span class="yaml-comment"># TestModel-generic.yaml（context_length >= 0）</span>
+profile:
+  <span class="yaml-key">engine</span>: <span class="yaml-str">vllm-ascend</span>
+  <span class="yaml-key">version</span>: <span class="yaml-str">"v0.99.0"</span>
+  <span class="yaml-key">hardware</span>: {<span class="yaml-str">Ascend910C_64G</span>}
+  <span class="yaml-key">model</span>: <span class="yaml-str">TestModel</span>
+  <span class="yaml-key">context_length</span>: { <span class="yaml-op">">="</span>: <span class="yaml-num">0</span> }</code></pre>
+    <pre><code><span class="yaml-comment"># TestModel-longctx.yaml（context_length >= 131072）</span>
+profile:
+  <span class="yaml-key">engine</span>: <span class="yaml-str">vllm-ascend</span>
+  <span class="yaml-key">version</span>: <span class="yaml-str">"v0.99.0"</span>
+  <span class="yaml-key">hardware</span>: {<span class="yaml-str">Ascend910C_64G</span>}
+  <span class="yaml-key">model</span>: <span class="yaml-str">TestModel</span>
+  <span class="yaml-key">context_length</span>: { <span class="yaml-op">">="</span>: <span class="yaml-num">131072</span> }</code></pre>
+  </div>
+</div>
+
+<h3>ctx = { context_length: 200000 } 时的匹配结果</h3>
+<table>
+  <thead>
+    <tr><th>资产</th><th>engine</th><th>version</th><th>hardware</th><th>model</th><th>context_length</th><th>结果</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>TestModel-fallback.yaml</code></td>
+      <td>✅</td><td>✅</td><td>✅</td><td>✅</td>
+      <td><span class="tag info">未声明，不校验</span></td>
+      <td><span class="tag hit">命中</span></td>
+    </tr>
+    <tr>
+      <td><code>TestModel-generic.yaml</code></td>
+      <td>✅</td><td>✅</td><td>✅</td><td>✅</td>
+      <td>200000 ≥ 0 ✅</td>
+      <td><span class="tag hit">命中</span></td>
+    </tr>
+    <tr>
+      <td><code>TestModel-longctx.yaml</code></td>
+      <td>✅</td><td>✅</td><td>✅</td><td>✅</td>
+      <td>200000 ≥ 131072 ✅</td>
+      <td><span class="tag hit">命中</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <strong>关键点：</strong>不写 <code>context_length</code> 的资产在候选阶段<strong>不校验该 key</strong>（for 循环不遍历它），只要必填四要素命中就进入候选。写了 <code>context_length</code> 的资产若 ctx 缺该值则直接拒绝。
+</div>
+
+<!-- ===================== 阶段 3 ===================== -->
+<h2><span class="step-badge amber">③</span>偏序：选最特化者（is_more_specific）</h2>
+<p>候选集合内，偏序引擎按<strong>匹配集合包含</strong>判定特化程度：A 比 B 更特化 ⟺ A 的匹配集合 ⊆ B 的匹配集合（且至少一个参与偏序的 key 严格包含）。仅 <code>partial_order=True</code> 的 key（<code>hardware</code> 集合包含、<code>context_length</code> 区间包含）参与偏序。</p>
+
+<h3>context_length 区间包含</h3>
+<p>三个候选的匹配集合关系：<strong>不写（全集）⊇ <code>&gt;=0</code> ⊇ <code>&gt;=131072</code></strong>，故 <code>&gt;=131072</code> 最特化。</p>
+
+<svg class="flow-svg" viewBox="0 0 960 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="context_length 区间包含偏序图">
+  <!-- 数轴 -->
+  <line x1="60" y1="150" x2="900" y2="150" stroke="#57606a" stroke-width="2"/>
+  <text x="60" y="170" font-size="11" fill="#57606a">0</text>
+  <text x="900" y="170" font-size="11" fill="#57606a">+∞</text>
+  <!-- 全集（不写） -->
+  <rect x="60" y="30" width="840" height="26" rx="6" fill="#ddf4ff" stroke="#0969da" stroke-width="1.5"/>
+  <text x="480" y="48" text-anchor="middle" font-size="12" fill="#0969da">不写 context_length（全集，最泛化）</text>
+  <!-- >=0 -->
+  <rect x="60" y="70" width="840" height="26" rx="6" fill="#dafbe1" stroke="#1a7f37" stroke-width="1.5"/>
+  <text x="480" y="88" text-anchor="middle" font-size="12" fill="#1a7f37">context_length &gt;= 0</text>
+  <!-- >=131072 -->
+  <rect x="300" y="110" width="600" height="26" rx="6" fill="#ffebe9" stroke="#cf222e" stroke-width="1.5"/>
+  <text x="600" y="128" text-anchor="middle" font-size="12" fill="#cf222e">context_length &gt;= 131072（最特化）</text>
+  <!-- 标记 200000 -->
+  <line x1="760" y1="140" x2="760" y2="155" stroke="#9a6700" stroke-width="2"/>
+  <text x="760" y="185" text-anchor="middle" font-size="11" fill="#9a6700">ctx=200000</text>
+  <!-- 包含箭头 -->
+  <text x="30" y="48" font-size="11" fill="#57606a">⊇</text>
+  <text x="30" y="88" font-size="11" fill="#57606a">⊇</text>
+</svg>
+
+<div class="note">
+  <strong>偏序链：</strong>不写（最泛化） <code>&lt;</code> <code>&gt;=0</code> <code>&lt;</code> <code>&gt;=131072</code>（最特化）。ctx=200000 落在 <code>&gt;=131072</code> 区间内，故 <code>TestModel-longctx.yaml</code> 最特化。
+</div>
+
+<h3>hardware 集合包含（另一维度）</h3>
+<p><code>hardware</code> 用集合包含判定：<code>{Ascend910C_64G}</code> ⊆ <code>{Ascend910C_64G, Ascend910B_64G}</code>，故单硬件资产更特化。</p>
+
+<svg class="flow-svg" viewBox="0 0 960 170" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="hardware 集合包含偏序图">
+  <!-- 大集合 -->
+  <ellipse cx="480" cy="80" rx="300" ry="55" fill="#dafbe1" stroke="#1a7f37" stroke-width="2"/>
+  <text x="480" y="70" text-anchor="middle" font-size="13" fill="#1a7f37">hardware: {Ascend910C_64G, Ascend910B_64G}</text>
+  <text x="480" y="90" text-anchor="middle" font-size="11" fill="#57606a">泛化（大集合）</text>
+  <!-- 小集合 -->
+  <ellipse cx="480" cy="80" rx="150" ry="35" fill="#ffebe9" stroke="#cf222e" stroke-width="2"/>
+  <text x="480" y="80" text-anchor="middle" font-size="12" fill="#cf222e">hardware: {Ascend910C_64G}</text>
+  <text x="480" y="100" text-anchor="middle" font-size="10" fill="#57606a">特化（小集合）</text>
+  <!-- 标注 -->
+  <text x="480" y="150" text-anchor="middle" font-size="12" fill="#57606a">下发 Ascend910C_64G → 特化胜出；下发 Ascend910B_64G → 只有泛化命中</text>
+</svg>
+
+<!-- ===================== 阶段 4 ===================== -->
+<h2><span class="step-badge red">④</span>歧义 / 最终参数（resolve 裁决）</h2>
+<p><code>resolve</code> 从候选集合中淘汰被更特化者覆盖的候选，选出唯一最特化者。若多个候选<strong>等价</strong>（重复资产）或<strong>互不偏序</strong>，则报歧义 → <code>locate_v2</code> 告警 + 确定性选第一个（按资产路径排序，可复现）。</p>
+
+<h3>正常路径：唯一最特化 → 选中</h3>
+<div class="card">
+  <p>ctx = { context_length: 200000 }，三个候选都命中。偏序淘汰：<code>fallback</code>（最泛化）和 <code>generic</code>（<code>&gt;=0</code>）都被 <code>longctx</code>（<code>&gt;=131072</code>）覆盖 → 选中 <code>TestModel-longctx.yaml</code>。</p>
+  <table>
+    <thead><tr><th>候选</th><th>匹配集合</th><th>是否被更特化者覆盖</th><th>结果</th></tr></thead>
+    <tbody>
+      <tr><td><code>TestModel-fallback.yaml</code></td><td>全集</td><td>被 generic / longctx 覆盖</td><td><span class="tag miss">淘汰</span></td></tr>
+      <tr><td><code>TestModel-generic.yaml</code></td><td><code>&gt;=0</code></td><td>被 longctx 覆盖</td><td><span class="tag miss">淘汰</span></td></tr>
+      <tr><td><code>TestModel-longctx.yaml</code></td><td><code>&gt;=131072</code></td><td>无</td><td><span class="tag hit">选中</span></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h3>最终参数渲染</h3>
+<p>选中资产后，其 <code>scenarios.standalone.strategies.single_node.engine_config</code> 与 <code>env</code> 参与 trace-first 合并，渲染出 engine 启动命令与环境变量。dry-run 打印预览：</p>
+
+<pre><code><span class="yaml-comment"># Environment Variables</span>
+export OMP_NUM_THREADS=10
+export HCCL_BUFFSIZE=1024
+export RAG_ACC_ENABLED=false
+
+vllm serve /root/.cache/modelscope/hub/models/TestModel \
+  --host 0.0.0.0 --port 8900 \
+  --max-model-len 200000 \
+  --max-num-batched-tokens 8192 \
+  --served-model-name TestModel \
+  --gpu-memory-utilization 0.9 \
+  --max-num-seqs 64 \
+  --tensor-parallel-size 4 \
+  --data-parallel-size 1 \
+  --quantization ascend \
+  --block-size 128</code></pre>
+
+<div class="note">
+  <strong>对比：</strong>若 ctx = { context_length: 4096 }，则 <code>longctx</code>（<code>&gt;=131072</code>）不命中，<code>generic</code>（<code>&gt;=0</code>）胜出，渲染出通用参数（<code>--max-num-batched-tokens 1024</code>、<code>--gpu-memory-utilization 0.8</code>、<code>--max-num-seqs 32</code>）。这就是"不同上下文长度 → 不同启动参数"的泛化/特化。
+</div>
+
+<h3>歧义路径：等价 / 互不偏序 → 告警 + 选第一个</h3>
+<div class="grid-2">
+  <div class="card">
+    <h4>等价重复资产</h4>
+    <pre><code><span class="yaml-comment"># AmbiguityDemo.yaml 与 AmbiguityDemo-dup.yaml</span>
+<span class="yaml-comment"># profile 完全相同 → 匹配集合相同 → 等价</span>
+profile:
+  <span class="yaml-key">model</span>: <span class="yaml-str">AmbiguityDemo</span>
+  <span class="yaml-key">context_length</span>: { <span class="yaml-op">">="</span>: <span class="yaml-num">0</span> }</code></pre>
+    <p class="note red">告警 + 选第一个（按路径排序，<code>-dup</code> 在前）。</p>
+  </div>
+  <div class="card">
+    <h4>互不偏序</h4>
+    <pre><code><span class="yaml-comment"># IncomparableDemo-a.yaml</span>
+<span class="yaml-key">context_length</span>: { <span class="yaml-op">">="</span>: <span class="yaml-num">100</span> }
+
+<span class="yaml-comment"># IncomparableDemo-b.yaml</span>
+<span class="yaml-key">context_length</span>: { <span class="yaml-op">"&lt;="</span>: <span class="yaml-num">200</span> }</code></pre>
+    <p class="note red"><code>&gt;=100</code> 与 <code>&lt;=200</code> 互不严格包含（谁都不比对方更特化）→ 互不偏序 → 告警 + 选第一个。</p>
+  </div>
+</div>
+
+<pre><code><span class="yaml-comment"># 歧义告警示例（节选，实际末尾含候选 profile 列表）</span>
+WARNING v2 asset ambiguity; picking the first matched asset:
+ambiguous profile resolution: 2 candidates are equally specific
+(duplicate assets or incomparable profiles)</code></pre>
+
+<div class="note warn">
+  <strong>歧义需资产作者离线人工比对解决</strong>（声明更特化配置或合并；离线校验脚本只做单资产合法性检查，不检测跨资产等价/互不偏序）；运行时先跑起来，避免因数据歧义阻断启动。
+</div>
+
+<!-- ===================== 附录 ===================== -->
+<h2>附录：demo 资产清单</h2>
+<p>所有 demo 资产位于 <code>config/v2/vllm-ascend/v0.99.0/_demo/</code>，使用 <code>v0.99.0</code> 版本，与生产资产（<code>v0.23.0</code>）隔离，不会误匹配。</p>
+<table>
+  <thead><tr><th>模型</th><th>资产</th><th>演示行为</th></tr></thead>
+  <tbody>
+    <tr><td rowspan="3"><code>TestModel</code></td><td><code>TestModel-fallback.yaml</code></td><td>不写 context_length → 最泛化兜底</td></tr>
+    <tr><td><code>TestModel-generic.yaml</code></td><td>context_length &gt;= 0 → 泛化</td></tr>
+    <tr><td><code>TestModel-longctx.yaml</code></td><td>context_length &gt;= 131072 → 特化</td></tr>
+    <tr><td rowspan="2"><code>HardwareDemo</code></td><td><code>HardwareDemo-generic.yaml</code></td><td>hardware 多硬件泛化</td></tr>
+    <tr><td><code>HardwareDemo-a3.yaml</code></td><td>hardware 单硬件特化</td></tr>
+    <tr><td><code>AmbiguityDemo</code></td><td><code>AmbiguityDemo.yaml</code> / <code>-dup.yaml</code></td><td>等价重复资产 → 歧义</td></tr>
+    <tr><td><code>IncomparableDemo</code></td><td><code>IncomparableDemo-a.yaml</code> / <code>-b.yaml</code></td><td>互不偏序 → 歧义</td></tr>
+  </tbody>
+</table>
+
+<div class="footer">
+  本文档为 YAML v2 泛化/特化能力的示例说明，配合 <code>docs/capabilities/yaml-v2-profile-demo.md</code> 阅读。设计细节见 <code>docs/design/wings-yaml-v2.md</code>。
+</div>
+
+</div>
+</body>
+</html>
