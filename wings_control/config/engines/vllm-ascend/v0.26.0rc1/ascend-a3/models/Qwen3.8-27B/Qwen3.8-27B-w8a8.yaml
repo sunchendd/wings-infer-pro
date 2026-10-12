@@ -1,0 +1,75 @@
+# Source provenance
+upstream_sources:
+  - id: vllm_ascend_qwen3.8-27b_w8a8_manual
+    kind: manual
+    repo: null
+    file: null
+    url: null
+    note: User-provided vLLM Ascend standalone launch command, manually recorded.
+
+# Model metadata
+model:
+  name: Qwen3.8-27B
+  provider: Eco-Tech
+  model_id: Eco-Tech/Qwen3.8-27B-w8a8
+  min_engine_version: v0.26.0rc1
+  match:
+    - name_pattern: '(?i)^Qwen3\.8\-27B\-w8a8$'
+  variant_name: Qwen3.8-27B-w8a8
+
+# Ascend 910C standalone hardware profile
+hardware_profile:
+  gpu_count: 16
+  vram_gb: 1024
+  multi_node: false
+
+# Optional model features extracted from the launch command
+features:
+  tool_calling:
+    description: Enable automatic tool/function calling with the Qwen3 Coder parser.
+    args: [--enable-auto-tool-choice, --tool-call-parser, qwen3_coder]
+  reasoning:
+    description: Enable the Qwen3 reasoning-content parser.
+    args: [--reasoning-parser, qwen3]
+  spec_decoding:
+    description: Qwen MTP speculative decoding with two speculative tokens.
+    args: [--speculative-config, "{\"method\": \"qwen3_5_mtp\", \"num_speculative_tokens\": 2, \"enforce_eager\": true}"]
+  kv_offloading:
+    description: Native SimpleOffload with 100 GiB host-memory capacity.
+    args: [--kv-offloading-backend, native, --kv-offloading-size, "100"]
+
+# Deployment scenarios
+scenarios:
+  standalone:
+    source_ref: "vllm_ascend_qwen3.8-27b_w8a8_manual#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: Eco-Tech/Qwen3.8-27B-w8a8
+          host: "0.0.0.0"
+          port: 8000
+          data_parallel_size: 1
+          tensor_parallel_size: 2
+          quantization: ascend
+          served_model_name: qwen3.8
+          max_num_seqs: 64
+          max_model_len: 133072
+          max_num_batched_tokens: 16384
+          trust_remote_code: true
+          enable_prefix_caching: true
+          gpu_memory_utilization: 0.9
+          compilation_config:
+            cudagraph_mode: FULL_DECODE_ONLY
+            cudagraph_capture_sizes: [1, 2, 4, 8, 16, 24, 32, 40, 48, 56, 64]
+          additional_config:
+            enable_cpu_binding: true
+        env:
+          VLLM_USE_MODELSCOPE: "True"
+          HCCL_BUFFSIZE: "512"
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          VLLM_USE_SIMPLE_KV_OFFLOAD: "1"

@@ -339,6 +339,7 @@ architectures:
       Qwen3.6-27B-nvfp4: {vllm: qwen3, vllm_ascend: qwen3}
       Qwen3.6-35B-A3B-fp8: {vllm: qwen3, vllm_ascend: qwen3}
       Qwen3.6-35B-A3B-nvfp4: {vllm: qwen3, vllm_ascend: qwen3}
+      Qwen3.8-27B-w8a8: {vllm: qwen3, vllm_ascend: qwen3}
       Qwen3.8-Flash-Next: {vllm: qwen3, vllm_ascend: qwen3}
       Qwen3.8-Flash-Next-w8a8-mtp: {vllm: qwen3, vllm_ascend: qwen3}
       Trinity-Large-Thinking: {vllm: deepseek_r1, vllm_ascend: deepseek_r1}

@@ -45,6 +45,8 @@ ASSETS = [
     "vllm-ascend/v0.26.0rc1/ascend-a3/models/GLM-5.3/GLM-5.3-w8a8c8.yaml",
     "vllm-ascend/v0.26.0rc1/ascend-a3/models/DeepSeek-V4-Pro/DeepSeek-V4-Pro-0813-w4a8.yaml",
     "vllm-ascend/v0.26.0rc1/ascend-a2/models/Qwen3.8-27B/Qwen3.8-27B-w8a8.yaml",
+    "vllm-ascend/v0.26.0rc1/ascend-a3/models/Qwen3.8-27B/Qwen3.8-27B-w8a8.yaml",
+    "vllm-ascend/v0.26.0rc1/ascend-a3/models/Qwen3.6-27B/Qwen3.6-27B-w8a8.yaml",
     "vllm-ascend/v0.26.0rc1/ascend-a2/models/Qwen3.6-35B-A3B/Qwen3.6-35B-A3B-w8a8.yaml",
     "vllm-ascend/v0.26.0rc1/ascend-a2/models/Qwen3.5-9B/Qwen3.5-9B.yaml",
     "vllm-ascend/v0.26.0rc1/ascend-a2/models/GLM-4.7/GLM-4.7-W8A8-floatmtp.yaml",
