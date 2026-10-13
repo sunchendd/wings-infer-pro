@@ -41,7 +41,7 @@ def _norm_str(value: Any) -> str:
 
 
 def _norm_set(values: Any) -> Set[str]:
-    """把 hardware 集合值归一为 casefold 的 raw string 集合。
+    """把 set 类型 profile 值（hardware / cpu_arch）归一为 casefold 的 raw string 集合。
 
     支持三种 YAML 形态：
     - 列表/元组：``[a, b]``
@@ -56,7 +56,7 @@ def _norm_set(values: Any) -> Set[str]:
         return {_norm_str(v) for v in values}
     if isinstance(values, str):
         return {_norm_str(values)}
-    raise ProfileError(f"hardware value must be a set/list/string, got {type(values).__name__}")
+    raise ProfileError(f"set-type value must be a set/list/string, got {type(values).__name__}")
 
 
 # ── 各 key 类型的 match（单请求是否命中）───────────────────────────────────
@@ -72,7 +72,7 @@ def _prefix_cmp(declared: Any, ctx: Any) -> bool:
 
 
 def _set_mem(declared: Any, ctx: Any) -> bool:
-    """集合成员匹配（hardware）：ctx 的 raw string ∈ 集合（casefold 精确）。"""
+    """集合成员匹配（hardware / cpu_arch）：ctx 的 raw string ∈ 集合（casefold 精确）。"""
     return _norm_str(ctx) in _norm_set(declared)
 
 
@@ -232,10 +232,20 @@ def _range_subset(declared_a: Any, declared_b: Any) -> bool:
     return _parse_range(declared_a).is_subset_of(_parse_range(declared_b))
 
 
-# ── 集合偏序（hardware）────────────────────────────────────────────────────
+# ── 集合偏序（hardware / cpu_arch）────────────────────────────────────────
 
 def _set_subset(declared_a: Any, declared_b: Any) -> bool:
-    """集合包含（hardware 偏序）：A ⊆ B。"""
+    """集合包含（hardware / cpu_arch 偏序）：A ⊆ B。
+
+    未声明（None）视为全集（最泛化），与 :meth:`_Range.is_subset_of` 同语义：
+    全集 ⊄ 任何有约束的集合；任何集合 ⊆ 全集。
+    """
+    if declared_a is None:
+        # A 未声明 = 全集：只有 B 也未声明（同为全集）才 ⊆。
+        return declared_b is None
+    if declared_b is None:
+        # B 未声明 = 全集：A ⊆ 全集 恒成立。
+        return True
     return _norm_set(declared_a) <= _norm_set(declared_b)
 
 
@@ -281,6 +291,14 @@ PROFILE_KEYS: Dict[str, ProfileKey] = {
         value_type=int,
         match=_num_cmp,
         is_subset=_range_subset,
+    ),
+    "cpu_arch": ProfileKey(
+        "cpu_arch",
+        required=False,
+        partial_order=True,
+        value_type=set,
+        match=_set_mem,
+        is_subset=_set_subset,
     ),
 }
 

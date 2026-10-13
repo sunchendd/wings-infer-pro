@@ -20,7 +20,14 @@ from wings_ctl.loaders.profile_registry import (
 # ── 注册表结构 ──────────────────────────────────────────────────────────────
 
 def test_registry_contains_expected_keys():
-    assert set(PROFILE_KEYS) == {"engine", "model", "version", "hardware", "context_length"}
+    assert set(PROFILE_KEYS) == {
+        "engine",
+        "model",
+        "version",
+        "hardware",
+        "context_length",
+        "cpu_arch",
+    }
 
 
 def test_required_and_partial_order_flags():
@@ -31,6 +38,8 @@ def test_required_and_partial_order_flags():
     assert PROFILE_KEYS["hardware"].partial_order is True
     assert PROFILE_KEYS["context_length"].required is False
     assert PROFILE_KEYS["context_length"].partial_order is True
+    assert PROFILE_KEYS["cpu_arch"].required is False
+    assert PROFILE_KEYS["cpu_arch"].partial_order is True
 
 
 # ── match 语义 ──────────────────────────────────────────────────────────────
@@ -62,6 +71,35 @@ def test_hardware_yaml_flow_mapping_as_set():
     # YAML `hardware: {b200, B200}` 解析为 dict {"b200": None, "B200": None}
     profile = {"engine": "vllm", "model": "m", "version": "v", "hardware": {"b200": None, "B200": None}}
     assert evaluate_profile(profile, {"engine": "vllm", "model": "m", "version": "v", "hardware": "b200"})
+
+
+def test_cpu_arch_set_membership_casefold():
+    profile = {"engine": "vllm", "model": "m", "version": "v", "hardware": {"h"}, "cpu_arch": {"aarch64", "x86_64"}}
+    assert evaluate_profile(
+        profile, {"engine": "vllm", "model": "m", "version": "v", "hardware": "h", "cpu_arch": "AArch64"}
+    )
+    assert not evaluate_profile(
+        profile, {"engine": "vllm", "model": "m", "version": "v", "hardware": "h", "cpu_arch": "ppc64le"}
+    )
+
+
+def test_cpu_arch_yaml_flow_mapping_as_set():
+    # YAML `cpu_arch: {aarch64, x86_64}` 解析为 dict {"aarch64": None, "x86_64": None}
+    profile = {
+        "engine": "vllm",
+        "model": "m",
+        "version": "v",
+        "hardware": {"h"},
+        "cpu_arch": {"aarch64": None, "x86_64": None},
+    }
+    assert evaluate_profile(
+        profile, {"engine": "vllm", "model": "m", "version": "v", "hardware": "h", "cpu_arch": "x86_64"}
+    )
+
+
+def test_cpu_arch_ctx_missing_rejected():
+    profile = {"engine": "vllm", "model": "m", "version": "v", "hardware": {"h"}, "cpu_arch": {"aarch64"}}
+    assert not evaluate_profile(profile, _ctx())  # ctx 无 cpu_arch
 
 
 def test_context_length_inequality():
@@ -126,6 +164,29 @@ def test_hardware_specificity():
     assert is_more_specific(specific, generic)
     assert not is_more_specific(generic, specific)
     assert not is_more_specific(specific, _hw_profile({"h20_141G"}))  # 等价
+
+
+# ── 偏序：cpu_arch 集合包含 ────────────────────────────────────────────────
+
+def _arch_profile(arch):
+    return {"engine": "vllm", "model": "m", "version": "v", "hardware": {"h"}, "cpu_arch": arch}
+
+
+def test_cpu_arch_specificity():
+    generic = _arch_profile({"aarch64", "x86_64"})
+    specific = _arch_profile({"x86_64"})
+    assert is_more_specific(specific, generic)
+    assert not is_more_specific(generic, specific)
+    assert not is_more_specific(specific, _arch_profile({"x86_64"}))  # 等价
+
+
+def test_cpu_arch_undeclared_is_most_generic():
+    """未声明 cpu_arch 视为最泛化（全集），写了 cpu_arch 的资产更特化。"""
+    undeclared = {"engine": "vllm", "model": "m", "version": "v", "hardware": {"h"}}
+    specific = _arch_profile({"x86_64"})
+    assert is_more_specific(specific, undeclared)
+    assert not is_more_specific(undeclared, specific)
+    assert not is_more_specific(undeclared, dict(undeclared))
 
 
 # ── 偏序：context_length 区间包含 ──────────────────────────────────────────

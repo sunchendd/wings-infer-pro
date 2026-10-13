@@ -160,7 +160,8 @@ def _validate_key_value(
             return
         # hardware 值 ∉ 合法硬件表 → warning（不阻断）。硬件表是增量维护的登记表，
         # 不完整是预期；下发硬件不在表中不报错，只是不匹配任何 v2 YAML → 走 V1 回退。
-        if ctx.legal_hardware is not None:
+        # 仅 hardware key 做此校验；其他 set 类型 key（如 cpu_arch）不属于硬件表范围。
+        if key == "hardware" and ctx.legal_hardware is not None:
             legal_norm = {_norm_str(h) for h in ctx.legal_hardware}
             unknown = values - legal_norm
             if unknown:

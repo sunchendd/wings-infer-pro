@@ -19,6 +19,7 @@ from __future__ import annotations
 import functools
 import logging
 import os
+import platform
 from copy import deepcopy
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
@@ -2479,6 +2480,20 @@ def _resolve_accel_policy(
     return True, notes
 
 
+def _detect_cpu_arch() -> str:
+    """探测运行本进程的 CPU 架构，作为 v2 ``cpu_arch`` profile key 的 ctx 值。
+
+    与 V1 ``resolve_family_dir``（``locator.py``）的 x86_64 判定口径一致：运行时
+    用 ``platform.machine()`` 探测，不依赖调用方下发字段。``amd64`` 归一为
+    ``x86_64``，其余（如 ``aarch64``）casefold 后原样返回。
+
+    Returns:
+        归一化后的 CPU 架构字符串（如 ``x86_64`` / ``aarch64``）。
+    """
+    machine = platform.machine().casefold()
+    return "x86_64" if machine in {"x86_64", "amd64"} else machine
+
+
 def resolve_config(
     env: ResolvedEnv,
     target: Target,
@@ -2598,6 +2613,9 @@ def resolve_config(
         "version": engine_version.requested or engine_version.resolved or "",
         "hardware": hardware.hardware_family,
         "model": model_name,
+        # cpu_arch 是 v2 profile 的可选索引 key（集合偏序）：运行时 platform.machine()
+        # 探测（与 V1 locator.py 的 x86_64 判定同口径），不声明 cpu_arch 的资产天然最泛化兜底。
+        "cpu_arch": _detect_cpu_arch(),
     }
     if _ctx_context_length is not None:
         _v2_ctx["context_length"] = _ctx_context_length

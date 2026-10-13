@@ -69,6 +69,28 @@ def test_hardware_yaml_flow_mapping_as_set():
     assert result.valid
 
 
+def test_cpu_arch_set_value_valid():
+    profile = {**_valid_profile(), "cpu_arch": {"aarch64", "x86_64"}}
+    result = validate_profile(profile, legal_hardware=LEGAL)
+    assert result.valid
+
+
+def test_cpu_arch_not_checked_against_hardware_table():
+    # cpu_arch 不属于硬件表范围：即使值不在合法硬件表内，也不产生「未登记硬件」warning。
+    profile = {**_valid_profile(), "cpu_arch": {"aarch64"}}
+    result = validate_profile(profile, legal_hardware=LEGAL)
+    assert result.valid
+    assert not any("未登记硬件" in i.message for i in result.issues)
+
+
+def test_cpu_arch_invalid_value():
+    # cpu_arch 值必须是集合/列表/字符串；标量 int → error。
+    profile = {**_valid_profile(), "cpu_arch": 123}
+    result = validate_profile(profile, legal_hardware=LEGAL)
+    assert not result.valid
+    assert any("cpu_arch" in i.message for i in result.issues)
+
+
 def test_validate_assets_batch():
     assets = [
         {"path": "a.yaml", "profile": _valid_profile()},
