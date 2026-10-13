@@ -1,0 +1,76 @@
+# Source provenance
+upstream_sources:
+  - id: vllm_ascend_qwen3.6-27b_w8a8_manual
+    kind: manual
+    repo: null
+    file: null
+    url: "https://modelscope.cn/models/Eco-Tech/Qwen3.6-27B-w8a8"
+    note: User-provided vLLM Ascend standalone launch command, manually recorded.
+
+# Model metadata
+model:
+  name: Qwen3.6-27B
+  provider: Qwen
+  model_id: Eco-Tech/Qwen3.6-27B-w8a8
+  min_engine_version: v0.26.0rc1
+  match:
+    - name_pattern: '(?i)^Qwen3\.6\-27B\-w8a8$'
+  variant_name: Qwen3.6-27B-w8a8
+
+# Ascend 910C standalone hardware profile
+hardware_profile:
+  gpu_count: 16
+  vram_gb: 1024
+  multi_node: false
+
+# Optional model features extracted from the launch command
+features:
+  tool_calling:
+    description: Enable automatic tool/function calling with the Qwen3 Coder parser.
+    args: [--enable-auto-tool-choice, --tool-call-parser, qwen3_coder]
+  reasoning:
+    description: Enable the Qwen3 reasoning-content parser.
+    args: [--reasoning-parser, qwen3]
+  spec_decoding:
+    description: Qwen MTP speculative decoding with three speculative tokens.
+    args: [--speculative_config, "{\"method\": \"qwen3_5_mtp\", \"num_speculative_tokens\": 3, \"enforce_eager\": true}"]
+
+# Deployment scenarios
+scenarios:
+  standalone:
+    source_ref: "vllm_ascend_qwen3.6-27b_w8a8_manual#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: Eco-Tech/Qwen3.6-27B-w8a8
+          host: "0.0.0.0"
+          port: 12000
+          data_parallel_size: 1
+          tensor_parallel_size: 2
+          seed: 1024
+          served_model_name: qwen3.6
+          max_num_seqs: 32
+          max_model_len: 262144
+          max_num_batched_tokens: 8096
+          trust_remote_code: true
+          gpu_memory_utilization: "0.90"
+          additional_config:
+            enable_cpu_binding: true
+            ascend_compilation_config:
+              enable_npugraph_ex: true
+          compilation_config:
+            cudagraph_mode: FULL_DECODE_ONLY
+          enable_prefix_caching: true
+          async_scheduling: true
+        env:
+          VLLM_USE_MODELSCOPE: "True"
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          HCCL_BUFFSIZE: "512"
+          OMP_PROC_BIND: "false"
+          OMP_NUM_THREADS: "1"
+          TASK_QUEUE_ENABLE: "1"
