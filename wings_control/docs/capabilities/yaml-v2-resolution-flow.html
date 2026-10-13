@@ -195,7 +195,7 @@
 
 <!-- ===================== 阶段 1 ===================== -->
 <h2><span class="step-badge">①</span>用户下发：构造查找上下文（ctx）</h2>
-<p>调用方（MaaS / CLI）下发模型名、硬件、引擎版本等，Wings Control 组装成查找上下文 <code>ctx</code>。必填四要素（<code>engine</code>/<code>version</code>/<code>hardware</code>/<code>model</code>）始终存在；<code>context_length</code> 是可选 key，由用户下发的 <code>max_model_len</code>（= input + output 总上下文窗口）派生。</p>
+<p>调用方（MaaS / CLI）下发模型名、硬件、引擎版本等，Wings Control 组装成查找上下文 <code>ctx</code>。必填四要素（<code>engine</code>/<code>version</code>/<code>hardware</code>/<code>model</code>）始终存在；<code>context_length</code> 是可选 key，由用户下发的 <code>max_model_len</code>（= input + output 总上下文窗口）派生；<code>cpu_arch</code> 是可选 key，由运行时 <code>platform.machine()</code> 探测派生。</p>
 
 <div class="grid-2">
   <div class="card">
@@ -286,7 +286,7 @@ profile:
 
 <!-- ===================== 阶段 3 ===================== -->
 <h2><span class="step-badge amber">③</span>偏序：选最特化者（is_more_specific）</h2>
-<p>候选集合内，偏序引擎按<strong>匹配集合包含</strong>判定特化程度：A 比 B 更特化 ⟺ A 的匹配集合 ⊆ B 的匹配集合（且至少一个参与偏序的 key 严格包含）。仅 <code>partial_order=True</code> 的 key（<code>hardware</code> 集合包含、<code>context_length</code> 区间包含）参与偏序。</p>
+<p>候选集合内，偏序引擎按<strong>匹配集合包含</strong>判定特化程度：A 比 B 更特化 ⟺ A 的匹配集合 ⊆ B 的匹配集合（且至少一个参与偏序的 key 严格包含）。仅 <code>partial_order=True</code> 的 key（<code>hardware</code> 集合包含、<code>cpu_arch</code> 集合包含、<code>context_length</code> 区间包含）参与偏序。</p>
 
 <h3>context_length 区间包含</h3>
 <p>三个候选的匹配集合关系：<strong>不写（全集）⊇ <code>&gt;=0</code> ⊇ <code>&gt;=131072</code></strong>，故 <code>&gt;=131072</code> 最特化。</p>

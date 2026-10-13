@@ -278,3 +278,71 @@ def test_locate_v2_context_length_generic_vs_specific(tmp_path):
     assert hit is not None and "longctx" in hit.path.name
     # ctx 缺 context_length → 两个资产都声明了 context_length，均不命中
     assert locate_v2(root, base) is None
+
+
+def test_locate_v2_cpu_arch_generic_vs_specific(tmp_path):
+    """cpu_arch 泛化/特化：集合包含偏序取最特化者。
+
+    泛化资产声明 `{aarch64, x86_64}`（匹配两种架构），特化资产声明 `{x86_64}`。
+    x86_64 ctx 命中特化；aarch64 ctx 命中泛化；未声明 cpu_arch 的资产最泛化兜底。
+    """
+    root = tmp_path / "config"
+    asset_dir = root / "v2" / "vllm" / "v0.30.0" / "h20_141G" / "ArchDemo"
+    asset_dir.mkdir(parents=True)
+    # 泛化资产：cpu_arch {aarch64, x86_64}
+    (asset_dir / "ArchDemo-generic.yaml").write_text(
+        "schema: v2\n"
+        "profile:\n"
+        "  engine: vllm\n"
+        "  version: \"v0.30.0\"\n"
+        "  hardware: [h20_141G]\n"
+        "  model: ArchDemo\n"
+        "  cpu_arch: {aarch64, x86_64}\n"
+        "model:\n"
+        "  name: ArchDemo\n"
+        "  variant_name: ArchDemo\n"
+        "scenarios:\n"
+        "  standalone:\n"
+        "    strategies:\n"
+        "      single_node:\n"
+        "        default_strategy: true\n"
+        "        engine_config:\n"
+        "          model: /m/ArchDemo\n",
+        encoding="utf-8",
+    )
+    # 特化资产：cpu_arch {x86_64}
+    (asset_dir / "ArchDemo-x86.yaml").write_text(
+        "schema: v2\n"
+        "profile:\n"
+        "  engine: vllm\n"
+        "  version: \"v0.30.0\"\n"
+        "  hardware: [h20_141G]\n"
+        "  model: ArchDemo\n"
+        "  cpu_arch: {x86_64}\n"
+        "model:\n"
+        "  name: ArchDemo\n"
+        "  variant_name: ArchDemo\n"
+        "scenarios:\n"
+        "  standalone:\n"
+        "    strategies:\n"
+        "      single_node:\n"
+        "        default_strategy: true\n"
+        "        engine_config:\n"
+        "          model: /m/ArchDemo\n",
+        encoding="utf-8",
+    )
+    (root / "v2" / "hardware_table.yaml").write_text(
+        "hardware:\n"
+        "  - h20_141G\n",
+        encoding="utf-8",
+    )
+
+    base = {"engine": "vllm", "version": "v0.30.0", "hardware": "h20_141G", "model": "ArchDemo"}
+    # x86_64 → 特化资产（{x86_64} ⊆ {aarch64, x86_64}）
+    hit = locate_v2(root, {**base, "cpu_arch": "x86_64"})
+    assert hit is not None and "x86" in hit.path.name
+    # aarch64 → 只有泛化命中
+    hit = locate_v2(root, {**base, "cpu_arch": "aarch64"})
+    assert hit is not None and "generic" in hit.path.name
+    # ctx 缺 cpu_arch → 两个资产都声明了 cpu_arch，均不命中
+    assert locate_v2(root, base) is None
