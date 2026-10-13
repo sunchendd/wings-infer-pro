@@ -29,7 +29,7 @@ _CLI_ARGS = (
     "--device-count",
     "8",
     "--engine-port",
-    "17002",
+    "17000",
     "--enable-auto-tool-choice",
     "--enable-auto-think-choice",
     "--dry-run",
@@ -66,6 +66,7 @@ _EXPECTED_OPTION_VALUES = {
     "--reasoning-parser": "deepseek_v41",
     "--tensor-parallel-size": "8",
     "--kv-cache-dtype": "fp8",
+    "--mm-encoder-tp-mode": "data",
     "--block-size": "256",
     "--swa-block-size": "128",
     "--max-model-len": "133120",
@@ -81,15 +82,15 @@ _EXPECTED_OPTION_VALUES = {
     "--prefill-compute-share": "0.4",
     "--generation-config": "vllm",
     "--host": "0.0.0.0",
-    "--port": "17002",
+    "--port": "17000",
 }
 _EXPECTED_FLAGS = (
-    "--language-model-only",
     "--async-scheduling",
     "--no-scheduler-reserve-full-isl",
     "--enable-prefix-caching",
     "--enable-chunked-prefill",
     "--enable-auto-tool-choice",
+    "--trust-remote-code",
 )
 _EXPECTED_ENV_LINES = (
     "export INSTANTTENSOR_BACKEND=BUFFERED",
@@ -152,6 +153,7 @@ def _assert_dry_run_output(output):
         assert json.loads(_option_value(argv, flag)) == expected
     for flag in _EXPECTED_FLAGS:
         assert flag in argv
+    assert "--language-model-only" not in argv
     capture_index = argv.index("--cudagraph-capture-sizes")
     assert argv[capture_index + 1: capture_index + 9] == [
         "1",

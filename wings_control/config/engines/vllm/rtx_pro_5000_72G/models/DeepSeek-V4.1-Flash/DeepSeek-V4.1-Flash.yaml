@@ -58,7 +58,7 @@ scenarios:
           model: deepseek-ai/DeepSeek-V4.1-Flash
           tensor_parallel_size: 8
           kv_cache_dtype: fp8
-          language_model_only: true
+          mm_encoder_tp_mode: data
           block_size: 256
           swa_block_size: 128
           max_model_len: 133120
@@ -91,6 +91,7 @@ scenarios:
           override_generation_config:
             temperature: 1.0
             top_p: 0.95
+          trust_remote_code: true
           host: "0.0.0.0"
           port: 17002
         env:
