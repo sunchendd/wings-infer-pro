@@ -1,0 +1,174 @@
+# vLLM 0.31.0 / RTX PRO 5000 72GB unified recipe and SmartAccel.
+schema: v2
+profile:
+  engine: vllm
+  version: v0.31.0
+  hardware:
+  - RTX-PRO-5000-72GB-Blackwell_72G
+  model: DeepSeek-V4.1-Flash
+upstream_sources:
+- id: official_dsv41_recipe
+  kind: manual
+  url: https://recipes.vllm.ai/deepseek-ai/DeepSeek-V4.1-Flash
+  date_updated: '2026-10-12'
+  note: 官方 Blackwell 原生参数；TP8/SM120、text-only FULL_DECODE_ONLY 及 LMCacheMP 是本地适配组合，须实机复验。
+model:
+  name: DeepSeek-V4.1-Flash
+  slug: deepseek-v4.1-flash
+  provider: DeepSeek
+  description: DeepSeek-V4.1-Flash，SM120 TP8，Engram CPU offload，text-only，LMCacheMP KV offload。
+  model_id: deepseek-ai/DeepSeek-V4.1-Flash
+  architecture: DeepseekV41ForCausalLM
+  context_length: 1048576
+  tasks:
+  - text
+  min_engine_version: 0.31.0
+  date_updated: '2026-10-12'
+  match:
+  - name_pattern: (?i)deepseek[-.]?v4[.-]?1[-.]?flash
+  variant_name: DeepSeek-V4.1-Flash
+  parameter_count: 552B
+  active_parameters: 8-16B
+  vram_minimum_gb: 384
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 576
+  multi_node: false
+features:
+  tool_calling:
+    description: Enable DeepSeek V4.1 tokenizer and tool-call parsing with automatic tool choice.
+    args:
+    - --tokenizer-mode
+    - deepseek_v41
+    - --enable-auto-tool-choice
+    - --tool-call-parser
+    - deepseek_v41
+  reasoning:
+    description: Enable reasoning output parsing with the DeepSeek V4.1 parser.
+    args:
+    - --reasoning-parser
+    - deepseek_v41
+  spec_decoding:
+    description: Official NVIDIA DSpark five-token probabilistic block verification.
+    args:
+    - --speculative-config
+    - '{"method":"dspark","num_speculative_tokens":5,"draft_sample_method":"probabilistic","rejection_sample_method":"block","enable_adaptive_verification":false}'
+scenarios:
+  standalone:
+    source_ref: official_dsv41_recipe#sm120_tp8_text_only_offload
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: deepseek-ai/DeepSeek-V4.1-Flash
+          host: 0.0.0.0
+          port: 8000
+          trust_remote_code: true
+          tensor_parallel_size: 8
+          tokenizer_mode: deepseek_v41
+          tool_call_parser: deepseek_v41
+          enable_auto_tool_choice: true
+          reasoning_parser: deepseek_v41
+          language_model_only: true
+          kv_cache_dtype: fp8
+          attention_config:
+            backend: FLASHINFER_MLA_SPARSE_DSV41
+            indexer_kv_dtype: mxfp4
+            indexer_sparse_logits: false
+          engram_config:
+            cpu_offload: true
+          gpu_memory_utilization: 0.92
+          max_model_len: auto
+          max_num_seqs: 128
+          max_num_batched_tokens: 8192
+          enable_prefix_caching: true
+          no_enable_flashinfer_autotune: true
+          compilation_config:
+            mode: 0
+            cudagraph_mode: FULL_DECODE_ONLY
+            cudagraph_capture_sizes:
+            - 5
+            - 6
+            - 10
+            - 12
+            - 15
+            - 18
+            - 20
+            - 24
+            - 25
+            - 30
+            - 35
+            - 36
+            - 40
+            - 42
+            - 45
+            - 48
+            - 50
+            - 54
+            - 55
+            - 60
+            - 65
+            - 66
+            - 70
+            - 72
+            - 75
+            - 78
+            - 80
+            - 84
+            - 90
+            - 96
+        env:
+          NCCL_P2P_LEVEL: SYS
+          NCCL_SHM_DISABLE: 1
+          VLLM_ENGINE_READY_TIMEOUT_S: 3600
+          VLLM_USE_RUST_FRONTEND: 0
+          PYTHONHASHSEED: 0
+smart_accel:
+  standalone:
+    source_ref: official_dsv41_recipe#dspark-and-local-lmcache-mp
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+        - name: dspark
+          packages:
+            flashinfer-sm120: 0.7.0.post1+sm120.1
+          cli_params:
+            speculative_config:
+              method: dspark
+              num_speculative_tokens: 5
+              draft_sample_method: probabilistic
+              rejection_sample_method: block
+              enable_adaptive_verification: false
+          envs: {}
+        kv_offload:
+        - name: cpu
+          packages:
+            lmcache: 0.5.5+sm120.mp
+            flashinfer-sm120: 0.7.0.post1+sm120.1
+          cli_params:
+            kv_transfer_config:
+              kv_connector: LMCacheMPConnector
+              kv_role: kv_both
+              kv_connector_extra_config:
+                lmcache.mp.port: 5557
+                lmcache.mp.mq_timeout: 300
+                lmcache.mp.sync_retrieve_before_forward: true
+          envs: {}
+          files:
+          - path: start_kv_serve.sh
+            mode: '0755'
+            scope: master
+            content: "#!/usr/bin/env bash\nexport LD_LIBRARY_PATH=\"/usr/local/lib/python3.12/dist-packages/torch/lib:/usr/local/lib/python3.12/dist-packages/nvidia/cu13/lib:${LD_LIBRARY_PATH:-}\"\
+              \nexec lmcache server \\\n  --port 5557 \\\n  --http-port 8082 \\\n  --l1-size-gb {memory_capacity_gb}\
+              \ \\\n  --l1-init-size-gb 20 \\\n  --max-gpu-workers 1 \\\n  --max-cpu-workers 8 \\\n  --chunk-size\
+              \ 1024 \\\n  --l1-align-bytes 16384 \\\n  --eviction-trigger-watermark 0.85 \\\n  --eviction-ratio\
+              \ 0.10 \\\n  --eviction-policy LRU \\\n  --supported-transfer-mode lmcache_driven\n"

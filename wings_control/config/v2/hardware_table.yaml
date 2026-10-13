@@ -30,3 +30,4 @@ hardware:
 # 别名 key 用 `_`→`-` 归一 + casefold 存储/比较。
 aliases:
   Ascend910_64G: Ascend910C_64G
+  rtx_pro_5000_72G: RTX-PRO-5000-72GB-Blackwell_72G

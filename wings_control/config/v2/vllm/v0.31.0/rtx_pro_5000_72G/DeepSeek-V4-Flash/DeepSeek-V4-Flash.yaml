@@ -1,0 +1,253 @@
+# vLLM 0.31.0 / RTX PRO 5000 72GB unified recipe and SmartAccel.
+schema: v2
+profile:
+  engine: vllm
+  version: v0.31.0
+  hardware:
+  - RTX-PRO-5000-72GB-Blackwell_72G
+  model: DeepSeek-V4-Flash
+upstream_sources:
+- id: deepseek-v4-flash_fp8_manual
+  kind: manual
+  repo: null
+  file: null
+  url: https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash
+  date_updated: 2026-07-28
+  note: 手工录入
+model:
+  name: DeepSeek-V4-Flash
+  slug: deepseek-v4-flash
+  provider: DeepSeek
+  description: DeepSeek V4 MoE model with hybrid CSA+HCA attention, manifold-constrained hyper-connections,
+    and three-tier reasoning (Non-think / Think High / Think Max).
+  model_id: deepseek-ai/DeepSeek-V4-Flash
+  architecture: moe
+  parameter_count: 284B
+  active_parameters: 13B
+  context_length: 1048576
+  vram_minimum_gb: 384
+  tasks:
+  - text
+  min_engine_version: 0.31.0
+  date_updated: 2026-07-28
+  match:
+  - name_pattern: (?i)deepseek[-.]?v4[-.]?flash
+  variant_name: DeepSeek-V4-Flash
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 576
+  multi_node: true
+features:
+  tool_calling:
+    description: Enable tool calling with the DeepSeek V4 chat-template tool parser.
+    args:
+    - --tokenizer-mode
+    - deepseek_v4
+    - --tool-call-parser
+    - deepseek_v4
+    - --enable-auto-tool-choice
+  reasoning:
+    description: Enable reasoning/thinking mode via the DeepSeek V4 reasoning parser.
+    args:
+    - --reasoning-parser
+    - deepseek_v4
+  spec_decoding:
+    description: Multi-Token Prediction speculative decoding with 2 speculative tokens.
+    args:
+    - --speculative-config
+    - '{"method":"mtp","num_speculative_tokens":2}'
+  sparse_index:
+    description: Sparse attention top-k frequency configuration via HF overrides.
+    args:
+    - --hf-overrides
+    - '{"index_topk_freq":4}'
+scenarios:
+  standalone:
+    source_ref: deepseek-v4-flash_fp8_manual#single_node_tep
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tep:
+        display_name: Tensor + Expert Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: deepseek-ai/DeepSeek-V4-Flash
+          host: 0.0.0.0
+          port: 5685
+          attention_backend: FLASHINFER_MLA_SPARSE_DSV4
+          kv_cache_dtype: fp8
+          block_size: 256
+          tensor_parallel_size: 4
+          gpu_memory_utilization: 0.9
+          max_model_len: 140000
+          no_enable_flashinfer_autotune: true
+          enable_prefix_caching: true
+          compilation_config:
+            cudagraph_mode: FULL_AND_PIECEWISE
+            custom_ops:
+            - all
+            max_cudagraph_capture_size: 768
+          async_scheduling: true
+          enable_expert_parallel: true
+          all2all_backend: allgather_reducescatter
+          enable_eplb: true
+          eplb_config:
+            num_redundant_experts: 2
+            use_async: true
+        env:
+          NCCL_P2P_LEVEL: SYS
+          NCCL_SHM_DISABLE: 1
+  multi_node:
+    source_ref: deepseek-v4-flash_fp8_manual#multi_node_tp
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        head:
+          engine_config:
+            model: deepseek-ai/DeepSeek-V4-Flash
+            host: 0.0.0.0
+            port: 5685
+            attention_backend: FLASHINFER_MLA_SPARSE_DSV4
+            kv_cache_dtype: fp8
+            block_size: 256
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+            gpu_memory_utilization: 0.9
+            max_model_len: 140000
+            no_enable_flashinfer_autotune: true
+            enable_prefix_caching: true
+            compilation_config:
+              cudagraph_mode: FULL_AND_PIECEWISE
+              custom_ops:
+              - all
+              max_cudagraph_capture_size: 768
+            async_scheduling: true
+            enable_expert_parallel: true
+            all2all_backend: allgather_reducescatter
+            enable_eplb: true
+            eplb_config:
+              num_redundant_experts: 2
+              use_async: true
+          env:
+            NCCL_P2P_LEVEL: SYS
+            NCCL_SHM_DISABLE: 1
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:
+          engine_config:
+            model: deepseek-ai/DeepSeek-V4-Flash
+            host: 0.0.0.0
+            port: 5685
+            attention_backend: FLASHINFER_MLA_SPARSE_DSV4
+            kv_cache_dtype: fp8
+            block_size: 256
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+            gpu_memory_utilization: 0.9
+            max_model_len: 140000
+            no_enable_flashinfer_autotune: true
+            enable_prefix_caching: true
+            compilation_config:
+              cudagraph_mode: FULL_AND_PIECEWISE
+              custom_ops:
+              - all
+              max_cudagraph_capture_size: 768
+            async_scheduling: true
+            enable_expert_parallel: true
+            all2all_backend: allgather_reducescatter
+            enable_eplb: true
+            eplb_config:
+              num_redundant_experts: 2
+              use_async: true
+          env:
+            NCCL_P2P_LEVEL: SYS
+            NCCL_SHM_DISABLE: 1
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+smart_accel:
+  standalone:
+    source_ref: deepseek-v4-flash_fp8_manual#single_node_tep
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+        - name: mtp
+          cli_params:
+            speculative_config:
+              method: mtp
+              num_speculative_tokens: 2
+          envs: {}
+          packages:
+            flashinfer-sm120: 0.7.0.post1+sm120.1
+        sparse:
+        - name: performance_first
+          cli_params:
+            hf_overrides:
+              index_topk_freq: 8
+          envs: {}
+          packages:
+            flashinfer-sm120: 0.7.0.post1+sm120.1
+        - name: accuracy_first
+          cli_params:
+            hf_overrides:
+              index_topk_freq: 4
+          envs: {}
+          packages:
+            flashinfer-sm120: 0.7.0.post1+sm120.1
+        custom_features:
+        - name: sm120_dsv4_patch
+          cli_params: {}
+          envs:
+            XFUSION_DSV4_ON_SM120: '1'
+  multi_node:
+    source_ref: vllm-v0.31.0-migration#multi-node-indexcache-and-dspark
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_tp:
+        default_strategy: true
+        decoding:
+        - name: mtp
+          cli_params:
+            speculative_config:
+              method: mtp
+              num_speculative_tokens: 2
+          envs: {}
+          packages:
+            flashinfer-sm120: 0.7.0.post1+sm120.1
+        sparse:
+        - name: performance_first
+          cli_params:
+            hf_overrides:
+              index_topk_freq: 8
+          envs: {}
+          packages:
+            flashinfer-sm120: 0.7.0.post1+sm120.1
+        - name: accuracy_first
+          cli_params:
+            hf_overrides:
+              index_topk_freq: 4
+          envs: {}
+          packages:
+            flashinfer-sm120: 0.7.0.post1+sm120.1
+        custom_features:
+        - name: sm120_dsv4_patch
+          cli_params: {}
+          envs:
+            XFUSION_DSV4_ON_SM120: '1'

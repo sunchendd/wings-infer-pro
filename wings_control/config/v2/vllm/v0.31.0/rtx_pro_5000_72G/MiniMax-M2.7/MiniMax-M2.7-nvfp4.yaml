@@ -1,0 +1,304 @@
+# vLLM 0.31.0 / RTX PRO 5000 72GB unified recipe and SmartAccel.
+schema: v2
+profile:
+  engine: vllm
+  version: v0.31.0
+  hardware:
+  - RTX-PRO-5000-72GB-Blackwell_72G
+  model: MiniMax-M2.7-NVFP4
+upstream_sources:
+- id: minimax_m2.7_nvfp4_manual
+  kind: manual
+  repo: null
+  file: null
+  url: https://huggingface.co/nvidia/MiniMax-M2.7-NVFP4
+  date_updated: 2026-07-14
+  note: 手工录入
+model:
+  name: MiniMax-M2.7
+  slug: minimax-m2.7
+  provider: MiniMax
+  description: MiniMax-M2.7 MoE 模型（230B 总参 / 10B 激活），NVFP4 量化，面向编码、agent 工具链与长上下文推理。
+  model_id: nvidia/MiniMax-M2.7-NVFP4
+  architecture: moe
+  parameter_count: 230B
+  active_parameters: 10B
+  context_length: 196608
+  vram_minimum_gb: 384
+  tasks:
+  - text
+  min_engine_version: 0.31.0
+  date_updated: 2026-07-14
+  match:
+  - name_pattern: (?i)minimax[-.]?m2.7
+  variant_name: MiniMax-M2.7-NVFP4
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 576
+  multi_node: true
+features:
+  tool_calling:
+    description: Enable tool calling with MiniMax M2 tool parser.
+    args:
+    - --tool-call-parser
+    - minimax_m2
+    - --enable-auto-tool-choice
+  reasoning:
+    description: Enable reasoning/thinking mode via MiniMax M2 reasoning parser.
+    args:
+    - --reasoning-parser
+    - minimax_m2
+  spec_decoding:
+    description: Suffix-based speculative decoding.
+    args:
+    - --speculative-config
+    - '{"method":"suffix","num_speculative_tokens":10}'
+  lmcache:
+    description: LMCache KV cache acceleration.
+    kv_transfer:
+      description: KV transfer configuration for LMCache.
+      args:
+      - --kv-transfer-config
+      - '{"kv_connector":"LMCacheConnectorV1","kv_role":"kv_both","kv_load_failure_policy":"recompute"}'
+scenarios:
+  standalone:
+    source_ref: minimax_m2.7_nvfp4_manual#single_node_tp
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: nvidia/MiniMax-M2.7-NVFP4
+          trust_remote_code: true
+          kv_cache_dtype: fp8
+          tensor_parallel_size: 4
+          port: 5611
+          moe_backend: flashinfer_cutlass
+        env:
+          PYTHONHASHSEED: '0'
+          VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: '900'
+          LMCACHE_MAX_LOCAL_CPU_SIZE: '15'
+          LMCACHE_LOCAL_CPU: 'True'
+          LMCACHE_CHUNK_SIZE: '256'
+          LMCACHE_EXTRA_CONFIG: '{"use_odirect": true}'
+          LMCACHE_PRE_CACHING_HASH_ALGORITHM: sha256_cbor_64bit
+          LMCACHE_LOCAL_DISK: /mnt/kvcache_offload/kvcache
+          LMCACHE_MAX_LOCAL_DISK_SIZE: '600.0'
+          NCCL_P2P_LEVEL: SYS
+          NCCL_SHM_DISABLE: 1
+  multi_node:
+    source_ref: minimax_m2.7_nvfp4_manual#multi_node_tp
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        head:
+          engine_config:
+            model: nvidia/MiniMax-M2.7-NVFP4
+            trust_remote_code: true
+            kv_cache_dtype: fp8
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+            port: 5611
+            moe_backend: flashinfer_cutlass
+          env:
+            PYTHONHASHSEED: '0'
+            VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: '900'
+            LMCACHE_MAX_LOCAL_CPU_SIZE: '15'
+            LMCACHE_LOCAL_CPU: 'True'
+            LMCACHE_CHUNK_SIZE: '256'
+            LMCACHE_EXTRA_CONFIG: '{"use_odirect": true}'
+            LMCACHE_PRE_CACHING_HASH_ALGORITHM: sha256_cbor_64bit
+            LMCACHE_LOCAL_DISK: /mnt/kvcache_offload/kvcache
+            LMCACHE_MAX_LOCAL_DISK_SIZE: '600.0'
+            NCCL_P2P_LEVEL: SYS
+            NCCL_SHM_DISABLE: 1
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:
+          engine_config:
+            model: nvidia/MiniMax-M2.7-NVFP4
+            trust_remote_code: true
+            kv_cache_dtype: fp8
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+            port: 5611
+            moe_backend: flashinfer_cutlass
+          env:
+            PYTHONHASHSEED: '0'
+            VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: '900'
+            LMCACHE_MAX_LOCAL_CPU_SIZE: '15'
+            LMCACHE_LOCAL_CPU: 'True'
+            LMCACHE_CHUNK_SIZE: '256'
+            LMCACHE_EXTRA_CONFIG: '{"use_odirect": true}'
+            LMCACHE_PRE_CACHING_HASH_ALGORITHM: sha256_cbor_64bit
+            LMCACHE_LOCAL_DISK: /mnt/kvcache_offload/kvcache
+            LMCACHE_MAX_LOCAL_DISK_SIZE: '600.0'
+            NCCL_P2P_LEVEL: SYS
+            NCCL_SHM_DISABLE: 1
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+smart_accel:
+  standalone:
+    source_ref: smart_accel#standalone
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+        - name: suffix
+          cli_params:
+            speculative_config:
+              method: suffix
+              num_speculative_tokens: 10
+          envs:
+            ARCTIC_INFERENCE_ENABLED: '0'
+          packages:
+            arctic-inference: 0.1.1
+        kv_offload:
+        - name: cpu
+          cli_params:
+            kv_transfer_config:
+              kv_connector: LMCacheConnectorV1
+              kv_role: kv_both
+              kv_load_failure_policy: recompute
+          envs:
+            LMCACHE_LOCAL_CPU: 'True'
+            LMCACHE_MAX_LOCAL_CPU_SIZE: '{= memory_capacity_gb // gpu_count}'
+            LMCACHE_CHUNK_SIZE: '256'
+            LMCACHE_EXTRA_CONFIG: '{"use_odirect": true}'
+            LMCACHE_PRE_CACHING_HASH_ALGORITHM: sha256_cbor_64bit
+        - name: cpu_disk
+          cli_params:
+            kv_transfer_config:
+              kv_connector: LMCacheConnectorV1
+              kv_role: kv_both
+              kv_load_failure_policy: recompute
+          envs:
+            LMCACHE_LOCAL_CPU: 'True'
+            LMCACHE_MAX_LOCAL_CPU_SIZE: '{= memory_capacity_gb // gpu_count}'
+            LMCACHE_CHUNK_SIZE: '256'
+            LMCACHE_EXTRA_CONFIG: '{"use_odirect": true}'
+            LMCACHE_PRE_CACHING_HASH_ALGORITHM: sha256_cbor_64bit
+            LMCACHE_LOCAL_DISK: '{disk_path}'
+            LMCACHE_MAX_LOCAL_DISK_SIZE: '{= disk_capacity_gb // gpu_count}'
+        sparse:
+        - name: performance_first
+          cli_params:
+            kv_cache_dtype: fp8
+          envs: {}
+        - name: accuracy_first
+          cli_params:
+            kv_cache_dtype: fp8
+          envs: {}
+  multi_node:
+    source_ref: smart_accel#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dp:
+        default_strategy: true
+        decoding:
+        - name: suffix
+          cli_params:
+            speculative_config:
+              method: suffix
+              num_speculative_tokens: 10
+          envs:
+            ARCTIC_INFERENCE_ENABLED: '0'
+          packages:
+            arctic-inference: 0.1.1
+        kv_offload:
+        - name: cpu
+          cli_params:
+            kv_transfer_config:
+              kv_connector: LMCacheConnectorV1
+              kv_role: kv_both
+              kv_load_failure_policy: recompute
+          envs:
+            LMCACHE_LOCAL_CPU: 'True'
+            LMCACHE_MAX_LOCAL_CPU_SIZE: '{= memory_capacity_gb // gpu_count}'
+            LMCACHE_CHUNK_SIZE: '256'
+            LMCACHE_EXTRA_CONFIG: '{"use_odirect": true}'
+            LMCACHE_PRE_CACHING_HASH_ALGORITHM: sha256_cbor_64bit
+        - name: cpu_disk
+          cli_params:
+            kv_transfer_config:
+              kv_connector: LMCacheConnectorV1
+              kv_role: kv_both
+              kv_load_failure_policy: recompute
+          envs:
+            LMCACHE_LOCAL_CPU: 'True'
+            LMCACHE_MAX_LOCAL_CPU_SIZE: '{= memory_capacity_gb // gpu_count}'
+            LMCACHE_CHUNK_SIZE: '256'
+            LMCACHE_EXTRA_CONFIG: '{"use_odirect": true}'
+            LMCACHE_PRE_CACHING_HASH_ALGORITHM: sha256_cbor_64bit
+            LMCACHE_LOCAL_DISK: '{disk_path}'
+            LMCACHE_MAX_LOCAL_DISK_SIZE: '{= disk_capacity_gb // gpu_count}'
+        sparse:
+        - name: performance_first
+          cli_params:
+            kv_cache_dtype: fp8
+          envs: {}
+        - name: accuracy_first
+          cli_params:
+            kv_cache_dtype: fp8
+          envs: {}
+  pd_disaggregation:
+    source_ref: smart_accel#pd_cluster
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        default_strategy: true
+        nodes:
+        - role: prefill
+          index: 0
+          sparse:
+          - name: performance_first
+            cli_params:
+              kv_cache_dtype: fp8
+            envs: {}
+          - name: accuracy_first
+            cli_params:
+              kv_cache_dtype: fp8
+            envs: {}
+        - role: decode
+          index: 0
+          decoding:
+          - name: suffix
+            cli_params:
+              speculative_config:
+                method: suffix
+                num_speculative_tokens: 10
+            envs:
+              ARCTIC_INFERENCE_ENABLED: '0'
+            packages:
+              arctic-inference: 0.1.1
+          sparse:
+          - name: performance_first
+            cli_params:
+              kv_cache_dtype: fp8
+            envs: {}
+          - name: accuracy_first
+            cli_params:
+              kv_cache_dtype: fp8
+            envs: {}

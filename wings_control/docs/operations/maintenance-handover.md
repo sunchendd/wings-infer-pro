@@ -12,6 +12,40 @@
 
 ## 排障顺序
 
+### GLM-5.3：vLLM 0.31.0 / RTX PRO 5000 72GB
+
+配置使用 `config/v2/vllm/v0.31.0/rtx_pro_5000_72G/GLM-5.3/` 下的合一资产，
+只保留 `GLM-5.3.yaml`，同时包含原生 FP8 基础参数和 SmartAccel；模型名使用 `GLM-5.3`。
+审计结果应显示 `asset_source=v2`，模型来源指向对应合一 YAML。
+
+- 单机 TP16 / EP，原生 FP8 权重、FP8 KV、`FLASHINFER_MLA_SPARSE_SM120`。
+- 调度参数为 `max_model_len=auto`、`max_num_seqs=128`、`max_num_batched_tokens=8192`。
+- 投机开关启用内置 MTP5；CPU 卸载开关启用 `LMCacheMPConnector` 和
+  `lmcache:0.5.5+sm120.mp`，chunk 为1024，检索在 forward 前同步。
+- 图模式为 `FULL_DECODE_ONLY`，主模型 prefill 使用 eager；捕获档位为
+  `n` 与 `6*n` 的并集（n=1..16，最大96），超出档位的请求不能据此宣称进入图。
+- 派生镜像须包含 FlashInfer SM120 包的 H4 prefill 与无效候选 gather 修复；
+  仅安装社区 FlashInfer 0.7.0.post1 不能代表包含这些修复。
+- 生成文件 `start_kv_serve.sh` 写入共享卷，启动脚本在 master 启动该服务。
+  配置解析通过不代表整模型生成、长上下文并发或 LMCache 回读通过。
+
+GLM-5.3-Flash 只保留 `GLM-5.3-Flash-fp8-kv-nvfp4.yaml`，模型名
+`GLM-5.3-Flash` 精确匹配该文件，使用 FP8 权重、`nvfp4_ds_mla` KV、TP4/DP2/EP。
+
+### 通用排障
+
+vLLM 0.31.0 / RTX PRO 5000 72GB 派生镜像统一预装
+`flashinfer-sm120:0.7.0.post1+sm120.1`。DeepSeek V4/V4.1、GLM-5.2、
+GLM-5.3 和 GLM-5.3-Flash 的 v2 资产在投机、卸载及稀疏 scheme 中显式声明
+该版本，特性开启时安装清单按包去重。关闭全部特性时不会从 scheme 收集包，
+这些模型的基础稀疏 MLA 路径仍要求镜像预装该定制 wheel。
+其他收编模型不因这些稀疏 MLA 补丁而增加 scheme 包依赖，继续使用统一派生镜像。
+
+vLLM 0.31.0 / RTX PRO 5000 72GB 的 `Qwen3.5-397B-A17B-NVFP4`、
+`MiniMax-M2.7-NVFP4`、`MiniMax-M2.5-NVFP4` 各只维护一份 `-nvfp4.yaml` 合一资产。
+调用方使用完整模型变体名匹配 `profile.model`；该名称与 `model.variant_name` 一致，
+默认权重指向对应 NVFP4 checkpoint。
+
 1. 先看 Pod state、Last State、退出码、events 和 `kubectl logs --previous`，判断是镜像、资源、节点还是应用问题。
 2. 在 standalone 或 master/head Pod 中查看 `engine.log`。worker Pod 不落盘 engine 日志，直接执行 `kubectl logs -c engine <worker-pod>`。两类日志都要检查 traceback、OOM、HCCL/CANN、依赖和参数错误。
 3. 查看 `wings_start.log`，确认本次启动使用的硬件、引擎版本、模型和配置入口。
