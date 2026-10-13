@@ -23,6 +23,17 @@ function log() {
 
 # 这个是个阻塞性的进程
 function start_server() {
+  # 磁盘卸载开关由 master.env 的 ENABLE_KV_DISK_OFFLOAD 决定(env.yaml 默认 false,MaaS 覆盖)
+  local enable_offload=false
+  case "${ENABLE_KV_DISK_OFFLOAD:-false}" in
+    true|TRUE|True|1) enable_offload=true ;;
+    false|FALSE|False|0|"") enable_offload=false ;;
+    *)
+      log error "master.env非法值: ENABLE_KV_DISK_OFFLOAD=${ENABLE_KV_DISK_OFFLOAD} (期望 true/false)"
+      exit 1
+      ;;
+  esac
+  log info "mooncake_master enable-offload=${enable_offload} (ENABLE_KV_DISK_OFFLOAD=${ENABLE_KV_DISK_OFFLOAD:-})"
   mooncake_master \
     --enable_http_metadata_server=true \
     --http_metadata_server_host=0.0.0.0 \
@@ -30,7 +41,7 @@ function start_server() {
     --rpc_thread_num=64 \
     --metrics_port=9003 \
     --enable_metric_reporting=true \
-    --enable-offload=true \
+    --enable-offload=${enable_offload} \
     --log_dir=${LOG_PATH} \
     --logtostderr=false \
     --eviction_high_watermark_ratio=0.7 \
