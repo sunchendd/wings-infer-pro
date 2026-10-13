@@ -1,0 +1,47 @@
+# Wings YAML v2 demo — 泛化资产（context_length >= 0，覆盖所有上下文长度）
+#
+# 本文件是 YAML V2 泛化/特化能力的演示例子，位于 `_demo` 目录（仅作物理组织，不参与匹配）。
+# 泛化资产声明 `context_length: {">=": 0}`，匹配所有上下文长度，使用通用启动参数。
+# 与同目录 `TestModel-longctx.yaml`（特化资产，`context_length: {">=": 131072}`）配合，
+# 演示偏序引擎如何按区间包含自动判定最特化者并选中。
+#
+# 说明：`_demo` 目录下的资产会被 v2 扫描器递归遍历。模型名 `TestModel` 为演示专用，
+# 不会与真实模型冲突；如需真实使用，请按 `config/v2/{engine}/{version}/{hardware}/{model}/{variant}.yaml`
+# 约定组织并补充 hardware_table.yaml 登记。
+schema: v2
+profile:
+  engine: vllm-ascend
+  version: "v0.99.0"
+  hardware: {Ascend910C_64G}
+  model: TestModel
+  context_length: { ">=": 0 }
+model:
+  name: TestModel
+  variant_name: TestModel
+  match:
+    - name_pattern: "(?i)testmodel"
+scenarios:
+  standalone:
+    source_ref: "demo#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: /root/.cache/modelscope/hub/models/TestModel
+          max_model_len: 4096
+          max_num_batched_tokens: 1024
+          served_model_name: testmodel
+          gpu_memory_utilization: 0.8
+          max_num_seqs: 32
+          tensor_parallel_size: 4
+          data_parallel_size: 1
+          quantization: ascend
+          port: 8900
+          block_size: 128
+        env:
+          OMP_NUM_THREADS: 4
+          HCCL_BUFFSIZE: 512

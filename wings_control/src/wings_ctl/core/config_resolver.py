@@ -30,6 +30,7 @@ from wings_ctl.accel.smart_accel import (
     collect_accel_switches,
     enabled_feature_switch_names,
 )
+from wings_ctl.accel.smart_accel_v2 import apply_smart_accel_v2
 from wings_ctl.core.constants import DEFAULT_ENGINE_PORT
 from wings_ctl.core.models import (
     ClusterPlacement,
@@ -89,7 +90,9 @@ from wings_ctl.loaders.locator import (
     resolve_family_dir,
     resolve_version_dir,
 )
+from wings_ctl.loaders.profile_registry import ProfileAmbiguityError
 from wings_ctl.loaders.reasoning_table import ReasoningTableError, load_reasoning_table
+from wings_ctl.loaders.v2_loader import locate_v2
 from wings_ctl.pd.planner import resolve_pd_topology
 from wings_ctl.pd.recipe import select_pd_recipe_pair
 from wings_ctl.strategy.feature_inject import feature_inject_transform
@@ -2582,15 +2585,50 @@ def resolve_config(
     )
     platform_absent = platform_path is None
     platform_path_str = str(platform_path) if platform_path is not None else "<absent>"
-    # 2. 加载模型配置(ret: data|None, yaml_path|None, matched_pattern)
-    model_data, model_path, matched_pattern = load_model_config(
-        config_root,
-        resolved_family_dir,
-        engine,
-        engine_version.resolved,
-        model_name,
-        has_version_dir=engine_version.has_version_dir,
-    )
+    # 2. 加载模型配置（双轨路由：v2 优先 + 告警，v2 未命中回退 v1）。
+    #    v2 资产按 profile 匹配（目录仅物理组织，不参与匹配）；v2 命中 → 用合一文件，
+    #    v1 命中 → 用 v1 目录匹配。v2 与 v1 同时命中 → v2 优先 + 告警。
+    v2_asset = None
+    # context_length 是 v2 profile 的可选索引 key（区间偏序，泛化/特化由区间包含判定）。
+    # 取 user_cli 层派生的 max_model_len（= input+output 总上下文窗口）作为 ctx 值；
+    # 未显式下发时缺省，v2 资产若声明 context_length 则因 ctx 缺值不命中（registry.md §3.1）。
+    _ctx_context_length = (user_cli_overrides or {}).get("max_model_len")
+    _v2_ctx: Dict[str, Any] = {
+        "engine": engine,
+        "version": engine_version.requested or engine_version.resolved or "",
+        "hardware": hardware.hardware_family,
+        "model": model_name,
+    }
+    if _ctx_context_length is not None:
+        _v2_ctx["context_length"] = _ctx_context_length
+    try:
+        v2_asset = locate_v2(config_root, _v2_ctx)
+    except ProfileAmbiguityError as exc:
+        # locate_v2 内部已把歧义降级为「告警 + 选第一个」；此处仅防御性兜底，
+        # 不再 fail-fast，回退 v1 继续启动。
+        logger.warning("v2 asset resolution failed; falling back to v1: %s", exc)
+        v2_asset = None
+
+    if v2_asset is not None:
+        # v2 命中：model_data 用合一文件（含 scenarios/features/model 块），
+        # model_path 用 v2 资产路径（trace 溯源），smart_accel 块单独取出。
+        model_data = v2_asset.data
+        model_path = v2_asset.path
+        matched_pattern = "v2_profile"
+        logger.warning(
+            "v2 asset matched: %s (v2 takes priority over v1)",
+            v2_asset.path,
+        )
+    else:
+        # v1 流程：目录匹配（variant_name → name_pattern → default）。
+        model_data, model_path, matched_pattern = load_model_config(
+            config_root,
+            resolved_family_dir,
+            engine,
+            engine_version.resolved,
+            model_name,
+            has_version_dir=engine_version.has_version_dir,
+        )
 
     # ── 3. 组装各合并输入层(user_cli / feature / accel)+ 版本校验 ──
     user_layer = user_cli_overrides or {}
@@ -2671,24 +2709,36 @@ def resolve_config(
         node_ips=node_ips,
         master_ip=master_ip,
     )
-    accel = apply_smart_accel(
-        hardware_family=resolved_family_dir,
-        gpu_count=device_count,
-        enabled=not drop_accel,
-        model_path=None,
-        model_name=model_name,
-        engine=engine,
-        # smart-accel 资产按【实际引擎版本 = ENGINE_VERSION】命名(如 v0.23.0);用 requested,
-        # 不用 resolved —— resolved 是 wings-control config 目录版本,引擎无版本目录时(如 vllm)为空。
-        engine_version=engine_version.requested or engine_version.resolved,
-        config_root=str(config_root),
-        pd_role=os.getenv("PD_ROLE"),
-        # topology 由大策略层(pre_template)推导(已聚合 PD_ROLE/DISTRIBUTED/NODE_IPS),
-        # 直接传入;适配层不再从 env 重复推导(消除 _resolve_topology 滥用 env.get)。
-        topology=topology.value,
-        tp_size=recipe_tp,
-        dp_size=recipe_dp,
-    )
+    if v2_asset is not None:
+        # v2 命中：加速块从合一文件读取，复用 func_smart_accel（不再走 v1 独立扫描）。
+        accel = apply_smart_accel_v2(
+            v2_asset,
+            enabled=not drop_accel,
+            topology=topology.value,
+            tp_size=recipe_tp,
+            dp_size=recipe_dp,
+            gpu_count=device_count,
+            pd_role=os.getenv("PD_ROLE"),
+        )
+    else:
+        accel = apply_smart_accel(
+            hardware_family=resolved_family_dir,
+            gpu_count=device_count,
+            enabled=not drop_accel,
+            model_path=None,
+            model_name=model_name,
+            engine=engine,
+            # smart-accel 资产按【实际引擎版本 = ENGINE_VERSION】命名(如 v0.23.0);用 requested,
+            # 不用 resolved —— resolved 是 wings-control config 目录版本,引擎无版本目录时(如 vllm)为空。
+            engine_version=engine_version.requested or engine_version.resolved,
+            config_root=str(config_root),
+            pd_role=os.getenv("PD_ROLE"),
+            # topology 由大策略层(pre_template)推导(已聚合 PD_ROLE/DISTRIBUTED/NODE_IPS),
+            # 直接传入;适配层不再从 env 重复推导(消除 _resolve_topology 滥用 env.get)。
+            topology=topology.value,
+            tp_size=recipe_tp,
+            dp_size=recipe_dp,
+        )
     accel_layer = accel.engine_config  # strategy_accel 合并层(空 dict = 无产出 → trace_merge no-op)
     accel_env = accel.env  # 环境变量在各解析路径中作为 strategy_accel 层并入 env_traces。
 
@@ -2924,6 +2974,7 @@ def resolve_config(
     if reasoning_table_source:
         resolution_notes["reasoning.table_source"] = reasoning_table_source
     resolution_notes["matched_name_pattern"] = matched_pattern
+    resolution_notes["asset_source"] = "v2" if v2_asset is not None else "v1"
     resolution_notes["fallback"] = no_model_fallback
     model_schema_version = (
         str(model_data.get("schema_version"))

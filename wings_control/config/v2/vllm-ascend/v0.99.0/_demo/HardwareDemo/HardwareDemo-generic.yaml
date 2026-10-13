@@ -1,0 +1,50 @@
+# Wings YAML v2 demo — hardware 集合偏序：多硬件泛化资产
+#
+# 本文件演示 `hardware` 集合的泛化/特化偏序（registry.md §2.2）：
+#   - 泛化资产声明 `hardware: {Ascend910C_64G, Ascend910B_64G}`（大集合），
+#     匹配两种硬件，使用通用启动参数；
+#   - 同目录 `HardwareDemo-a3.yaml`（特化资产，`hardware: {Ascend910C_64G}`）只匹配
+#     Ascend910C_64G，使用该硬件专用参数。
+#
+# 偏序判定：`{Ascend910C_64G}` ⊆ `{Ascend910C_64G, Ascend910B_64G}`，故特化资产更特化；
+# 下发 Ascend910C_64G 时特化资产胜出，下发 Ascend910B_64G 时只有泛化资产命中。
+#
+# 说明：`_demo` 目录下的资产会被 v2 扫描器递归遍历。模型名 `HardwareDemo` 为演示专用，
+# 不会与真实模型冲突；如需真实使用，请按 `config/v2/{engine}/{version}/{hardware}/{model}/{variant}.yaml`
+# 约定组织并补充 hardware_table.yaml 登记。
+schema: v2
+profile:
+  engine: vllm-ascend
+  version: "v0.99.0"
+  hardware: {Ascend910C_64G, Ascend910B_64G}
+  model: HardwareDemo
+model:
+  name: HardwareDemo
+  variant_name: HardwareDemo
+  match:
+    - name_pattern: "(?i)hardwaredemo"
+scenarios:
+  standalone:
+    source_ref: "demo#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: /root/.cache/modelscope/hub/models/HardwareDemo
+          max_model_len: 4096
+          max_num_batched_tokens: 1024
+          served_model_name: hardwaredemo
+          gpu_memory_utilization: 0.8
+          max_num_seqs: 32
+          tensor_parallel_size: 4
+          data_parallel_size: 1
+          quantization: ascend
+          port: 8900
+          block_size: 128
+        env:
+          OMP_NUM_THREADS: 4
+          HCCL_BUFFSIZE: 512

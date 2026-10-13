@@ -51,7 +51,13 @@ hr "pytest test_wings_start_sh (软;子进程依赖)"
   && echo "  ✓ 通过" \
   || echo "  ⚠️ 未通过(子进程 python 是否装 proxy 依赖;不阻断本 gate)"
 
-# 5) ruff format(软:仅提示)——全量整形留作一次性提交后再纳入硬关
+# 5) v2 资产合法性离线校验(硬):profile 块必填/未注册 key/值类型/多算子/合法硬件表。
+#    纳入人 / CI / pre-commit 共用口径(registry.md §5)。
+hr "v2 资产合法性校验"
+"$PY" scripts/validate_v2_assets.py \
+  && echo "  ✓ v2 资产合法" || { echo "  ❌ v2 资产存在 error 级问题"; FAIL=1; }
+
+# 6) ruff format(软:仅提示)——全量整形留作一次性提交后再纳入硬关
 hr "ruff format --check (软提示)"
 if [ -n "$RUFF" ] && "$RUFF" format --check . >/dev/null 2>&1; then
   echo "  ✓ 已符合 ruff format"

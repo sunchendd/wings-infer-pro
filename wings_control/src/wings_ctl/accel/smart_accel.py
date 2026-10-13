@@ -460,6 +460,61 @@ def collect_output(output) -> AccelResult:
     )
 
 
+def build_load_flags(
+    mod,
+    switches: dict,
+    *,
+    topology: str | None,
+    tp_size: int = 0,
+    dp_size: int = 0,
+    gpu_count: int | None = None,
+    pd_role: str | None = None,
+):
+    """构造 wings_accel 的 ``LoadFlags``（MaaS 开关 → flags 的单一映射点）。
+
+    从 :func:`collect_accel_switches` 的归一开关字典构造 ``LoadFlags``，供
+    v1（:func:`apply_smart_accel`）与 v2（:func:`apply_smart_accel_v2`）共用，
+    避免两处重复维护开关→flags 映射。
+
+    Args:
+        mod: wings_accel 模块（需含 ``LoadFlags``）。
+        switches: :func:`collect_accel_switches` 产出的归一开关字典。
+        topology: 部署拓扑（standalone/multi_node/pd_prefill/pd_decode）。
+        tp_size: TP 大小（供 KV 内存 auto 估算 worker_count）。
+        dp_size: DP 大小。
+        gpu_count: 卡数。
+        pd_role: PD 角色（P/D/none）。
+
+    Returns:
+        ``mod.LoadFlags`` 实例。
+    """
+    return mod.LoadFlags(
+        kv=switches["kv_offload_enabled"],
+        sparse=switches["sparse_enabled"],
+        disk=switches["kv_disk_enabled"],
+        qat=switches["kv_qat_enabled"],
+        disk_gb=switches["kv_disk_size_gb"],
+        disk_path=switches["kv_disk_path"],
+        qat_devices=switches["kv_qat_instance_num"],
+        qat_level=switches["kv_qat_compress_level"],
+        decoding_enabled=switches["speculative_enabled"],
+        decoding_model_path=switches["speculative_model_path"],
+        sparse_level=switches["sparse_level"],
+        pd_role=switches["pd_role"],
+        topology=topology,
+        memory_offload_size_mode=switches["kv_mem_size_mode"],
+        pod_available_memory_gb=switches["available_pod_mem_gb"],
+        tp_size=tp_size,
+        dp_size=dp_size,
+        distributed_kv=switches["distributed_kv_enabled"],
+        distributed_protocol=switches["distributed_kv_protocol"],
+        serving_config_id=switches["serving_config_id"],
+        distributed_local_buffer_size=switches["distributed_kv_local_buffer_size"],
+        install_xcache=switches["xcache_install_enabled"],
+        gpu_count=gpu_count or 1,
+    )
+
+
 def apply_smart_accel(
     *,
     hardware_family: str,
@@ -508,30 +563,13 @@ def apply_smart_accel(
         # MaaS 开关为唯一驱动(框架已无 auto 机制):kv/sparse/decoding 是否启用 100% 由
         # switches 决定,smart_accel YAML 仅作全量占位模板,块存在不再自动启用任何特性。
         # 全关 → 全 no-op,由 tests/integration/test_accel_enabled_e2e.py::test_accel_disabled_is_no_op 守。
-        flags = mod.LoadFlags(
-            kv=switches["kv_offload_enabled"],
-            sparse=switches["sparse_enabled"],
-            disk=switches["kv_disk_enabled"],
-            qat=switches["kv_qat_enabled"],
-            disk_gb=switches["kv_disk_size_gb"],
-            disk_path=switches["kv_disk_path"],
-            qat_devices=switches["kv_qat_instance_num"],
-            qat_level=switches["kv_qat_compress_level"],
-            decoding_enabled=switches["speculative_enabled"],
-            decoding_model_path=switches["speculative_model_path"],
-            sparse_level=switches["sparse_level"],
-            pd_role=switches["pd_role"],
+        flags = build_load_flags(
+            mod,
+            switches,
             topology=topology,
-            memory_offload_size_mode=switches["kv_mem_size_mode"],
-            pod_available_memory_gb=switches["available_pod_mem_gb"],
             tp_size=tp_size,
             dp_size=dp_size,
-            distributed_kv=switches["distributed_kv_enabled"],
-            distributed_protocol=switches["distributed_kv_protocol"],
-            serving_config_id=switches["serving_config_id"],
-            distributed_local_buffer_size=switches["distributed_kv_local_buffer_size"],
-            install_xcache=switches["xcache_install_enabled"],
-            gpu_count=gpu_count or 1,
+            gpu_count=gpu_count,
         )
         output = mod.resolve_smart_accel_from_config(
             config_root=config_root,

@@ -1,0 +1,49 @@
+# Wings YAML v2 demo — 歧义处理：等价重复资产（B）
+#
+# 本文件演示偏序裁决的歧义处理（registry.md §3.2）：
+#   - 本资产与同目录 `AmbiguityDemo.yaml` 的 profile **完全等价**（重复资产）；
+#   - 两者匹配集合相同，偏序引擎无法区分 → 报歧义 → `locate_v2` 告警 + 确定性选第一个
+#     （按资产路径排序，可复现）。
+#
+# 歧义由资产作者在离线校验阶段解决（声明更特化配置或合并）；运行时先跑起来。
+#
+# 说明：`_demo` 目录下的资产会被 v2 扫描器递归遍历。模型名 `AmbiguityDemo` 为演示专用，
+# 不会与真实模型冲突；如需真实使用，请按 `config/v2/{engine}/{version}/{hardware}/{model}/{variant}.yaml`
+# 约定组织并补充 hardware_table.yaml 登记。
+schema: v2
+profile:
+  engine: vllm-ascend
+  version: "v0.99.0"
+  hardware: {Ascend910C_64G}
+  model: AmbiguityDemo
+  context_length: { ">=": 0 }
+model:
+  name: AmbiguityDemo
+  variant_name: AmbiguityDemo
+  match:
+    - name_pattern: "(?i)ambiguitydemo"
+scenarios:
+  standalone:
+    source_ref: "demo#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: /root/.cache/modelscope/hub/models/AmbiguityDemo
+          max_model_len: 4096
+          max_num_batched_tokens: 1024
+          served_model_name: ambiguitydemo
+          gpu_memory_utilization: 0.8
+          max_num_seqs: 32
+          tensor_parallel_size: 4
+          data_parallel_size: 1
+          quantization: ascend
+          port: 8900
+          block_size: 128
+        env:
+          OMP_NUM_THREADS: 4
+          HCCL_BUFFSIZE: 512
