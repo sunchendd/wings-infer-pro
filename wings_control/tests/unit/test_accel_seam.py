@@ -501,6 +501,22 @@ def test_install_mooncake_script_assets_fails_fast_on_pyc_only_assets(tmp_path, 
     assert not (shared / "distributed_offload" / "mooncake_cuda").exists()
 
 
+def _pin_repo_mooncake_assets(monkeypatch) -> None:
+    """env 默认值来源固定为仓库随包资产,与镜像烘焙的 /opt 旧副本解耦。
+
+    生产镜像把资产烘焙到 /opt/distributed_offload_assets(_resolve_mooncake_assets_dir
+    优先读取);开发容器里该目录可能是旧构建,env 默认值断言必须以仓库资产为准。
+    """
+    from pathlib import Path
+
+    import wings_accel.distributed_offload as distributed_offload
+
+    monkeypatch.setenv(
+        "DISTRIBUTED_OFFLOAD_ASSETS_PATH",
+        str(Path(distributed_offload.__file__).parent / "distributed_offload"),
+    )
+
+
 def test_write_mooncake_master_env_renders_defaults_and_maas_override(tmp_path, monkeypatch):
     """master.env 由 env.yaml 默认值 + MaaS 同名 env 覆盖渲染;覆盖值必须落到文件。"""
     from wings_ctl.common.settings import settings
@@ -541,6 +557,57 @@ def test_write_mooncake_client_env_accel_override_beats_maas_raw(tmp_path, monke
     assert "export KV_MEM_OFFLOAD_SIZE=171" in content
     assert "auto" not in content  # 原始 "auto" 字面量被估算值替换(脚本侧只认纯数值)
     assert "export KV_PROTOCOL=rdma" in content  # 其余变量仍走 env.yaml + MaaS 链路
+
+
+@pytest.mark.parametrize("runtime", ["mooncake_cuda", "mooncake_npu"])
+def test_write_mooncake_client_env_mem_only_keeps_disk_offload_closed(tmp_path, monkeypatch, runtime):
+    """仅开内存卸载(MaaS 不下发磁盘变量)→ client.env 磁盘开关/容量保持关闭态。
+
+    回归锚点:env.yaml 容量默认曾是 "11",前端仅开内存卸载时 client.env 落到
+    默认 11,store 脚本按 size 非空误开磁盘卸载。
+    """
+    from wings_ctl.common.settings import settings
+    from wings_ctl.rendering.script_builder import _write_mooncake_client_env
+
+    shared = tmp_path / "shared"
+    monkeypatch.setattr(settings, "SHARED_VOLUME_PATH", str(shared))
+    _pin_repo_mooncake_assets(monkeypatch)
+    for name in ("ENABLE_KV_DISK_OFFLOAD", "KV_DISK_OFFLOAD_SIZE", "ENABLE_KV_MEM_OFFLOAD", "KV_MEM_OFFLOAD_SIZE"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("ENABLE_KV_MEM_OFFLOAD", "true")
+    monkeypatch.setenv("KV_MEM_OFFLOAD_SIZE", "32")
+
+    _write_mooncake_client_env(runtime)
+
+    content = (shared / "distributed_offload" / runtime / "client.env").read_text(encoding="utf-8")
+    assert "export ENABLE_KV_MEM_OFFLOAD=true" in content
+    assert "export KV_MEM_OFFLOAD_SIZE=32" in content
+    assert "export ENABLE_KV_DISK_OFFLOAD=false" in content
+    assert "export KV_DISK_OFFLOAD_SIZE=0" in content
+
+
+@pytest.mark.parametrize("runtime", ["mooncake_cuda", "mooncake_npu"])
+@pytest.mark.parametrize("maas_value,expected", [(None, "false"), ("true", "true"), ("false", "false")])
+def test_write_mooncake_master_env_carries_disk_offload_switch(tmp_path, monkeypatch, runtime, maas_value, expected):
+    """master.env 必须携带 ENABLE_KV_DISK_OFFLOAD 且随 MaaS 覆盖。
+
+    start_mooncake_master.sh 依赖该变量决定 --enable-offload;env.yaml master 段
+    缺失此键时 master.env 永远没有开关,master 侧只能落到缺省 false。
+    """
+    from wings_ctl.common.settings import settings
+    from wings_ctl.rendering.script_builder import _write_mooncake_master_env
+
+    shared = tmp_path / "shared"
+    monkeypatch.setattr(settings, "SHARED_VOLUME_PATH", str(shared))
+    _pin_repo_mooncake_assets(monkeypatch)
+    monkeypatch.delenv("ENABLE_KV_DISK_OFFLOAD", raising=False)
+    if maas_value is not None:
+        monkeypatch.setenv("ENABLE_KV_DISK_OFFLOAD", maas_value)
+
+    _write_mooncake_master_env(runtime)
+
+    content = (shared / "distributed_offload" / runtime / "master.env").read_text(encoding="utf-8")
+    assert f"export ENABLE_KV_DISK_OFFLOAD={expected}" in content
 
 
 def test_build_scripts_injects_resolved_size_into_mooncake_env(tmp_path, monkeypatch):

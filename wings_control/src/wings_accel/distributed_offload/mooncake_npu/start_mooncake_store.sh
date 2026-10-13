@@ -32,6 +32,17 @@ SERVING_CONFIG_ID="${SERVING_CONFIG_ID}"
 KV_MEM_OFFLOAD_SIZE="${KV_MEM_OFFLOAD_SIZE}"
 # 磁盘大小GB
 KV_DISK_OFFLOAD_SIZE="${KV_DISK_OFFLOAD_SIZE}"
+# 磁盘卸载开关:由 ENABLE_KV_DISK_OFFLOAD 决定,不再以 KV_DISK_OFFLOAD_SIZE 非空判断
+# (env.yaml 容量默认 0,size 非空/非 0 不能代表用户开启了磁盘卸载)
+DISK_OFFLOAD_ENABLED=false
+case "${ENABLE_KV_DISK_OFFLOAD:-}" in
+  true|TRUE|True|1) DISK_OFFLOAD_ENABLED=true ;;
+  false|FALSE|False|0|"") DISK_OFFLOAD_ENABLED=false ;;
+  *)
+    log error "client.env非法值: ENABLE_KV_DISK_OFFLOAD=${ENABLE_KV_DISK_OFFLOAD} (期望 true/false)"
+    exit 1
+    ;;
+esac
 
 # 其他参数
 OFFLOAD_CLEANUP_DIR="/tmp/kvcacheoffload"
@@ -65,10 +76,14 @@ function check_param() {
     exit 1
   fi
 
-  # KV_DISK_OFFLOAD_SIZE 为可选参数：未传时不启用 offload，跳过校验
-  if [ -n "$KV_DISK_OFFLOAD_SIZE" ]; then
+  # 磁盘卸载开启时容量必填且必须为正整数(GB);关闭时不校验容量
+  if [ "$DISK_OFFLOAD_ENABLED" = "true" ]; then
+    if [ -z "$KV_DISK_OFFLOAD_SIZE" ]; then
+      log error "client.env未设置: KV_DISK_OFFLOAD_SIZE (ENABLE_KV_DISK_OFFLOAD=true 时必填)"
+      exit 1
+    fi
     if ! [[ "$KV_DISK_OFFLOAD_SIZE" =~ ^[0-9]+$ ]] || [ "$KV_DISK_OFFLOAD_SIZE" -le 0 ]; then
-      echo "Error: KV_DISK_OFFLOAD_SIZE must be a positive integer."
+      log error "Error: KV_DISK_OFFLOAD_SIZE must be a positive integer when ENABLE_KV_DISK_OFFLOAD=true."
       exit 1
     fi
   fi
@@ -76,12 +91,12 @@ function check_param() {
 
 # 设置环境变量
 function set_env() {
-  # 配置存储
   export MOONCAKE_OFFLOAD_SLICE_ENABLE=true
   export MOONCAKE_OFFLOAD_OFFSET_ALLOCATOR_EVICTION_POLICY=fifo
   export MOONCAKE_OFFLOAD_STORAGE_BACKEND_DESCRIPTOR="bucket_storage_backend"
-  # 传了 KV_DISK_OFFLOAD_SIZE 才启用 offload 相关容量配置，否则不配置
-  if [ -n "$KV_DISK_OFFLOAD_SIZE" ]; then
+  export MOONCAKE_OFFLOAD_FILE_STORAGE_PATH="${OFFLOAD_CLEANUP_DIR}"
+  # 配置存储:offload 专属环境变量仅在 ENABLE_KV_DISK_OFFLOAD=true 时导出
+  if [ "$DISK_OFFLOAD_ENABLED" = "true" ]; then
     export MOONCAKE_OFFLOAD_TOTAL_SIZE_LIMIT_BYTES=$((KV_DISK_OFFLOAD_SIZE * 1024 * 1024 * 1024))
     export MOONCAKE_OFFLOAD_BUCKET_MAX_TOTAL_SIZE=$((KV_DISK_OFFLOAD_SIZE * 1024 * 1024 * 1024))
     export MOONCAKE_OFFLOAD_LOCAL_BUFFER_SIZE_BYTES=$((12 * 1024 * 1024 * 1024))
@@ -94,11 +109,8 @@ function set_env() {
 
   # 启动mooncake_store
   export RANK_IP=$(hostname -i | awk '{for(i=1;i<=NF;i++) if($i!="127.0.0.1") print $i; exit}')
-
   # offload路径固定为 /tmp/kvcacheoffload，无需拼接路径
   export MC_STORE_HTTP_PORT=9300
-  export MOONCAKE_OFFLOAD_FILE_STORAGE_PATH="${OFFLOAD_CLEANUP_DIR}"
-
   # global-segment-size 单位转换为 MB (mooncake_store.py 期望单位为 MB，如 25GB -> 25600MB)
   export GLOBAL_SEGMENT_SIZE_MB=$((KV_MEM_OFFLOAD_SIZE * 1024))
   # 设置服务名称
@@ -170,13 +182,16 @@ function log_param() {
   # 启动服务前参数打印
   log info "RANK_IP=$RANK_IP"
   log info "MC_STORE_HTTP_PORT=$MC_STORE_HTTP_PORT"
-  log info "MOONCAKE_OFFLOAD_FILE_STORAGE_PATH=$MOONCAKE_OFFLOAD_FILE_STORAGE_PATH"
   log info "KV_PROTOCOL=$KV_PROTOCOL"
   log info "SERVICE_NAME=$SERVICE_NAME"
   log info "KV_MEM_OFFLOAD_SIZE=$KV_MEM_OFFLOAD_SIZE (${GLOBAL_SEGMENT_SIZE_MB}MB)"
-  log info "KV_DISK_OFFLOAD_SIZE=$KV_DISK_OFFLOAD_SIZE (${MOONCAKE_OFFLOAD_TOTAL_SIZE_LIMIT_BYTES} Bytes)"
-  log info "MOONCAKE_OFFLOAD_SLICE_ENABLE=$MOONCAKE_OFFLOAD_SLICE_ENABLE"
-  log info "MOONCAKE_OFFLOAD_LOCAL_BUFFER_SIZE_BYTES=$MOONCAKE_OFFLOAD_LOCAL_BUFFER_SIZE_BYTES"
+  log info "ENABLE_KV_DISK_OFFLOAD=${ENABLE_KV_DISK_OFFLOAD:-} (disk offload ${DISK_OFFLOAD_ENABLED})"
+  if [ "$DISK_OFFLOAD_ENABLED" = "true" ]; then
+    log info "MOONCAKE_OFFLOAD_FILE_STORAGE_PATH=$MOONCAKE_OFFLOAD_FILE_STORAGE_PATH"
+    log info "KV_DISK_OFFLOAD_SIZE=$KV_DISK_OFFLOAD_SIZE (${MOONCAKE_OFFLOAD_TOTAL_SIZE_LIMIT_BYTES} Bytes)"
+    log info "MOONCAKE_OFFLOAD_SLICE_ENABLE=$MOONCAKE_OFFLOAD_SLICE_ENABLE"
+    log info "MOONCAKE_OFFLOAD_LOCAL_BUFFER_SIZE_BYTES=$MOONCAKE_OFFLOAD_LOCAL_BUFFER_SIZE_BYTES"
+  fi
 }
 
 # 等待 mooncake master 就绪:store 依赖 master 的 RPC/metadata 服务,未就绪时启动会失败。
@@ -202,8 +217,8 @@ function wait_for_master() {
 }
 
 function start_server() {
-  # 服务启动：仅当传了 KV_DISK_OFFLOAD_SIZE 才带 --offload-dir，否则不启用卸载存储
-  if [ -n "$KV_DISK_OFFLOAD_SIZE" ]; then
+  # 服务启动：仅当 ENABLE_KV_DISK_OFFLOAD=true 才带 --offload-dir，否则不启用卸载存储
+  if [ "$DISK_OFFLOAD_ENABLED" = "true" ]; then
     python3 ${STORE_PY_FILE} \
       --local-host "$RANK_IP" \
       --protocol "$KV_PROTOCOL" \
