@@ -39,7 +39,7 @@ RUN echo "Types: deb" > /etc/apt/sources.list.d/debian.sources && \
     echo "Components: main" >> /etc/apt/sources.list.d/debian.sources && \
     echo "Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg" >> /etc/apt/sources.list.d/debian.sources 
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y \
     curl \
     netcat-openbsd \
     pciutils \

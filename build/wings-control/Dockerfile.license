@@ -25,7 +25,7 @@ RUN echo "Types: deb" > /etc/apt/sources.list.d/debian.sources && \
     echo "Suites: trixie trixie-updates" >> /etc/apt/sources.list.d/debian.sources && \
     echo "Components: main" >> /etc/apt/sources.list.d/debian.sources && \
     echo "Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg" >> /etc/apt/sources.list.d/debian.sources && \
-    apt-get update && apt-get install -y build-essential cmake unzip wget && \
+    apt-get update && apt-get upgrade -y && apt-get install -y build-essential cmake unzip wget && \
     rm -rf /var/lib/apt/lists/*
 
 COPY ./wings_control/src/wings_ctl/license.py /staged-license/license.py
