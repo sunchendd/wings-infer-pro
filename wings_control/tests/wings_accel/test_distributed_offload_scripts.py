@@ -87,6 +87,11 @@ def _prepare_script(runtime: str, script_name: str, work: Path) -> Path:
     """拷贝随包脚本并把日志/环境探测改指到 tmp_path;替换命中处带防御断言。"""
     text = (_ASSETS / runtime / script_name).read_text(encoding="utf-8")
     text = text.replace("LOG_PATH=/var/log/wings", f"LOG_PATH={work}")
+    text = text.replace(
+        "function monitor_server() {",
+        "function monitor_server() { start_server; }\nfunction _stubbed_monitor_server() {",
+    )
+    assert "_stubbed_monitor_server" in text, "monitor_server stub did not apply"
     if runtime == "mooncake_npu":
         if script_name == "start_mooncake_store.sh":
             # 单测环境无 master/NPU:屏蔽等待与 ascend 探测(均非被测逻辑)
@@ -100,15 +105,12 @@ def _prepare_script(runtime: str, script_name: str, work: Path) -> Path:
             )
             assert "_stubbed_wait_for_master" in text and "_stubbed_set_ascend_env" in text
         else:
-            # 剔除容器/单测环境不存在的 ascend so 镜像适配拷贝(非被测逻辑)
-            skip_prefixes = (
-                "cp /usr/local/python3.12.13",
-                "cp /usr/local/Ascend/cann-9.1.0",
+            # 单测不依赖容器内 Ascend so，按函数边界屏蔽镜像适配拷贝。
+            text = text.replace(
+                "function pre_handler() {",
+                "function pre_handler() { return 0; }\nfunction _stubbed_pre_handler() {",
             )
-            text = "\n".join(
-                line for line in text.splitlines() if not line.startswith(skip_prefixes)
-            ) + "\n"
-            assert "cp /usr/local/" not in text
+            assert "_stubbed_pre_handler" in text, "pre_handler stub did not apply"
     assert f"LOG_PATH={work}" in text, "log path patch did not apply"
     target = work / script_name
     target.write_text(text, encoding="utf-8")

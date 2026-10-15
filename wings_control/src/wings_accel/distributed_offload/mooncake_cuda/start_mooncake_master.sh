@@ -4,6 +4,7 @@ set -o xtrace
 
 # 日志  对应  /var/log/fusiononecenter/aispace/serving-pod/${POD_NAME}
 LOG_PATH=/var/log/wings
+enable_offload=false
 
 CUR_PATH=$(cd "$(dirname "$0")" || exit; pwd)
 
@@ -21,10 +22,11 @@ function log() {
   echo $timestamp [$1] [$exec_hostname] [$2] >>$LOG_PATH/mooncake_master_setup.log
 }
 
-# 这个是个阻塞性的进程
-function start_server() {
+function set_env() {
+  export MOONCAKE_MASTER_EVICTION_HIGH_WATERMARK_RATIO="${MOONCAKE_MASTER_EVICTION_HIGH_WATERMARK_RATIO:-0.9}"
+  export MOONCAKE_MASTER_EVICTION_RATIO="${MOONCAKE_MASTER_EVICTION_RATIO:-0.05}"
+
   # 磁盘卸载开关由 master.env 的 ENABLE_KV_DISK_OFFLOAD 决定(env.yaml 默认 false,MaaS 覆盖)
-  local enable_offload=false
   case "${ENABLE_KV_DISK_OFFLOAD:-false}" in
     true|TRUE|True|1) enable_offload=true ;;
     false|FALSE|False|0|"") enable_offload=false ;;
@@ -34,6 +36,12 @@ function start_server() {
       ;;
   esac
   log info "mooncake_master enable-offload=${enable_offload} (ENABLE_KV_DISK_OFFLOAD=${ENABLE_KV_DISK_OFFLOAD:-})"
+  log info "MOONCAKE_MASTER_EVICTION_HIGH_WATERMARK_RATIO=$MOONCAKE_MASTER_EVICTION_HIGH_WATERMARK_RATIO"
+  log info "MOONCAKE_MASTER_EVICTION_RATIO=$MOONCAKE_MASTER_EVICTION_RATIO"
+}
+
+# 这个是个阻塞性的进程
+function start_server() {
   mooncake_master \
     --enable_http_metadata_server=true \
     --http_metadata_server_host=0.0.0.0 \
@@ -44,16 +52,31 @@ function start_server() {
     --enable-offload=${enable_offload} \
     --log_dir=${LOG_PATH} \
     --logtostderr=false \
-    --eviction_high_watermark_ratio=0.7 \
-    --eviction_ratio=0.2 \
+    --eviction_high_watermark_ratio="$MOONCAKE_MASTER_EVICTION_HIGH_WATERMARK_RATIO" \
+    --eviction_ratio="$MOONCAKE_MASTER_EVICTION_RATIO" \
     --promotion_on_hit=true \
     >>${LOG_PATH}/mooncake_master_setup.log 2>&1
 }
 
+# 进程退出后的重启间隔(秒), 可通过环境变量 RESTART_INTERVAL 覆盖
+RESTART_INTERVAL="${RESTART_INTERVAL:-5}"
+
+# 进程守护: 监听 start_server, 退出后自动重启
+function monitor_server() {
+  local restart_count=0
+  while true; do
+    # start_server 退出(无论正常/异常)都重启; 用 || true 屏蔽 errexit, 避免脚本随进程一起退出
+    start_server || true
+    restart_count=$((restart_count + 1))
+    log warn "mooncake_master process exited, restarting (count=${restart_count}) in ${RESTART_INTERVAL}s"
+    sleep "${RESTART_INTERVAL}"
+  done
+}
+
 function main() {
   log info "================ Starting mooncake_master ================"
-  start_server
-  log info "================ Finish mooncake_master ================"
+  set_env
+  monitor_server
 }
 
 main
