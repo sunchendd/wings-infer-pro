@@ -1,0 +1,110 @@
+# SmartAccel 加速配置(decoding=mtp[moe_backend=triton] / kv_offload=cpu)
+# 模型身份(docs/48:variant_name 精确优先 + name_pattern 家族兜底;variant_name = MaaS 下发的完整 --model-name)
+model:
+  name: Qwen3.6-35B-A3B
+  variant_name: "Qwen3.6-35B-A3B"
+  match:
+    - name_pattern: "(?i)qwen3[-.]?6[-.]?35b[-.]?a3b"
+smart_accel:
+  standalone:
+    source_ref: smart_accel#standalone
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+        - name: mtp
+          cli_params:
+            speculative_config:
+              method: mtp
+              num_speculative_tokens: 3
+              moe_backend: triton
+          envs: {}
+        kv_offload:
+        - name: cpu
+          cli_params:
+            kv_offloading_backend: native
+            kv_offloading_size: '{memory_capacity_gb}'
+          envs: {}
+        sparse:
+        - name: performance_first
+          cli_params:
+            kv_cache_dtype: fp8
+          envs: {}
+        - name: accuracy_first
+          cli_params:
+            kv_cache_dtype: fp8
+          envs: {}
+  multi_node:
+    source_ref: smart_accel#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dp:
+        default_strategy: true
+        decoding:
+        - name: mtp
+          cli_params:
+            speculative_config:
+              method: mtp
+              num_speculative_tokens: 3
+              moe_backend: triton
+          envs: {}
+        kv_offload:
+        - name: cpu
+          cli_params:
+            kv_offloading_backend: native
+            kv_offloading_size: '{memory_capacity_gb}'
+          envs: {}
+        sparse:
+        - name: performance_first
+          cli_params:
+            kv_cache_dtype: fp8
+          envs: {}
+        - name: accuracy_first
+          cli_params:
+            kv_cache_dtype: fp8
+          envs: {}
+  pd_disaggregation:
+    source_ref: smart_accel#pd_cluster
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        default_strategy: true
+        nodes:
+        - role: prefill
+          index: 0
+          sparse:
+          - name: performance_first
+            cli_params:
+              kv_cache_dtype: fp8
+            envs: {}
+          - name: accuracy_first
+            cli_params:
+              kv_cache_dtype: fp8
+            envs: {}
+        - role: decode
+          index: 0
+          decoding:
+          - name: mtp
+            cli_params:
+              speculative_config:
+                method: mtp
+                num_speculative_tokens: 3
+                moe_backend: triton
+            envs: {}
+          sparse:
+          - name: performance_first
+            cli_params:
+              kv_cache_dtype: fp8
+            envs: {}
+          - name: accuracy_first
+            cli_params:
+              kv_cache_dtype: fp8
+            envs: {}
