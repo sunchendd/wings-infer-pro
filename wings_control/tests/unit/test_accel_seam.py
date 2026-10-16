@@ -534,7 +534,7 @@ def test_write_mooncake_master_env_renders_defaults_and_maas_override(tmp_path, 
     assert "export MOONCAKE_MASTER_DEFAULT_KV_LEASE_TTL=22000" in content
     # 未被 MaaS 覆盖的变量保留 env.yaml 默认值
     assert "export MOONCAKE_MASTER_EVICTION_HIGH_WATERMARK_RATIO=0.9" in content
-    assert "export MOONCAKE_MASTER_EVICTION_RATIO=0.1" in content
+    assert "export MOONCAKE_MASTER_EVICTION_RATIO=0.05" in content
     assert "export MOONCAKE_MASTER_LOG_PATH=/var/log/wings" in content
 
 

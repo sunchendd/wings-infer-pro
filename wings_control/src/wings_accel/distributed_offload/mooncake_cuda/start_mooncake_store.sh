@@ -158,13 +158,27 @@ function start_server() {
   fi
 }
 
+# 进程退出后的重启间隔(秒), 可通过环境变量 RESTART_INTERVAL 覆盖
+RESTART_INTERVAL="${RESTART_INTERVAL:-5}"
+
+# 进程守护: 监听 start_server, 退出后自动重启
+function monitor_server() {
+  local restart_count=0
+  while true; do
+    # start_server 退出(无论正常/异常)都重启; 用 || true 屏蔽 errexit, 避免脚本随进程一起退出
+    start_server || true
+    restart_count=$((restart_count + 1))
+    log warn "mooncake_store process exited, restarting (count=${restart_count}) in ${RESTART_INTERVAL}s"
+    sleep "${RESTART_INTERVAL}"
+  done
+}
+
 function main() {
   log info "================ Starting mooncake_store ================"
   check_param
   set_env
   log_param
-  start_server
-  log info "================ Finish mooncake_store ================"
+  monitor_server
 }
 
 main
