@@ -12,8 +12,9 @@ import json
 from pathlib import Path
 
 from wings_ctl.core.config_resolver import resolve_config
-from wings_ctl.core.models import ResolvedEnv, Target, Topology, UserInput
+from wings_ctl.core.models import ClusterPlacement, ResolvedEnv, Target, Topology, UserInput
 from wings_ctl.engines.version_resolver import resolve_engine_version
+from wings_ctl.engines.vllm_adapter import build_argv
 from wings_ctl.hardware.resolver import resolve_hardware
 
 
@@ -52,3 +53,54 @@ def test_v2_miss_falls_back_to_v1(config_root_real, tmp_path, monkeypatch):
     target = Target(model_name="GLM-5-w8a8", topology=Topology.STANDALONE, engine="vllm-ascend")
     resolved = resolve_config(env, target, UserInput())
     assert resolved.resolution_notes.get("asset_source") == "v1"
+
+
+def test_v2_qwen38_2_4t_four_node_worker_recipe(config_root_real, tmp_path, monkeypatch):
+    """Qwen3.8-2.4T W8A8 resolves to the supplied four-node v0.30.0rc2 recipe."""
+    monkeypatch.setenv("ENGINE_VERSION", "v0.30.0rc2")
+    monkeypatch.setenv("ENABLE_SPECULATIVE_DECODE", "true")
+    monkeypatch.setattr("wings_ctl.core.config_resolver._detect_cpu_arch", lambda: "aarch64")
+    hw = _write_hardware(tmp_path, "Ascend910C_64G")
+    env = _make_env(config_root_real, hw)
+    target = Target(
+        model_name="Qwen3.8-2.4T-A95B-w8a8",
+        topology=Topology.MULTI_NODE,
+        engine="vllm-ascend",
+    )
+    resolved = resolve_config(
+        env,
+        target,
+        UserInput(cli_overrides={"model": "/models/Qwen3.8-2.4T-A95B-w8a8"}),
+        placement=ClusterPlacement(
+            rank_ip="10.0.0.3",
+            node_ips=["10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4"],
+            master_ip="10.0.0.1",
+        ),
+    )
+
+    assert resolved.resolution_notes.get("asset_source") == "v2"
+    assert resolved.resolution_notes["multi_node_role"] == "worker"
+    assert resolved.resolution_notes["multi_node_index"] == "2"
+    assert resolved.engine_config_traces["headless"].final_value is True
+    assert resolved.engine_config_traces["model"].final_value == "/models/Qwen3.8-2.4T-A95B-w8a8"
+    assert resolved.engine_config_traces["tensor_parallel_size"].final_value == 16
+    assert resolved.engine_config_traces["data_parallel_size"].final_value == 4
+    assert resolved.engine_config_traces["data_parallel_start_rank"].final_value == 2
+    assert resolved.engine_config_traces["data_parallel_address"].final_value == "10.0.0.1"
+    assert resolved.engine_config_traces["speculative_config"].final_value == {
+        "method": "qwen3_5_mtp",
+        "num_speculative_tokens": 1,
+    }
+    assert resolved.engine_config_traces["additional_config"].final_value == {
+        "enable_cpu_binding": True,
+        "enable_fused_mc2": 1,
+    }
+    assert resolved.accel.audit["smart_decoding_scheme"] == "qwen3_5_mtp"
+    argv = build_argv(resolved.engine_config_traces, engine="vllm-ascend")
+    assert argv[:3] == ["vllm", "serve", "/models/Qwen3.8-2.4T-A95B-w8a8"]
+    assert argv[argv.index("--speculative-config") + 1] == (
+        '{"method":"qwen3_5_mtp","num_speculative_tokens":1}'
+    )
+    assert argv[argv.index("--additional-config") + 1] == (
+        '{"enable_cpu_binding":true,"enable_fused_mc2":1}'
+    )
