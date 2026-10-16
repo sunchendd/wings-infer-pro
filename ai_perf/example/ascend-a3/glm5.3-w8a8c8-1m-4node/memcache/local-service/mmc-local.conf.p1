@@ -1,0 +1,36 @@
+# Per-node override for p1 (takes precedence over the shared mmc-local.conf).
+# Edit for this node hardware:
+#   ubsio.disk.path                   dedicated unmounted raw devices (colon-separated)
+#   ock.mmc.local_service.dram.size   DRAM tier (default per shared conf; lower it on smaller-RAM hosts)
+#   ubsio.mem.size_in_gb              L2.5 memory tier (default per shared conf)
+ock.mmc.meta_service_url = tcp://@META_HOST@:5000
+
+ock.mmc.local_service.config_store_url = tcp://@META_HOST@:6000
+
+ock.mmc.log_level = info
+
+ock.mmc.local_service.world_size = 1024
+ock.mmc.local_service.protocol = device_sdma
+
+ock.mmc.local_service.dram.size = 384GB
+
+ock.mmc.local_service.max.dram.size = 512GB
+
+## Enable the UBS IO backend so KV evicted from the MemCache DRAM tier stays reusable
+ock.mmc.local_service.storage.enabled = true
+
+## Dedicated, unmounted block devices used exclusively by UBS IO; edit per node
+ubsio.disk.path = /dev/nvme3n1:/dev/nvme1n1
+
+## Per-process UBS IO L2.5 memory tier (GB); one standalone LocalService per node
+ubsio.mem.size_in_gb = 100
+ubsio.standalone.device_count = 1
+
+## The current UBS IO release does not support disk metadata recovery
+ubsio.standalone.force_new_disk = true
+
+## Keep hot evicted KV in L2.5 memory, then spill it to the L3 SSD tier at 85% usage
+ubsio.wcache.evict_water_level = 85
+
+## A3 standalone disk reads require the scratch pool
+ubsio.bdm.batch_read.standalone.use_scratch_pool = true

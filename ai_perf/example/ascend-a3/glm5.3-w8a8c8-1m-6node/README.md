@@ -6,8 +6,19 @@ Source: `45-46-47-48-glm5.3-0.26.0.rc1-1M` role parameters (2026-09 refresh, ali
 - Decode: one DP4/TP8 Decode instance (D0/D1).
 - Every host uses 16 Ascend NPU devices.
 - `This example starts MemCache Meta/Local services before engines.`
-- MemCache spills evicted KV to SSD via UBS IO; edit `ubsio.disk.path` in `memcache/local-service/mmc-local.conf` on each node to that node's dedicated unmounted block devices.
+- MemCache spills evicted KV to SSD via UBS IO. Each node reads its own
+  `memcache/local-service/mmc-local.conf.<node>` (`p0`/`p1`/`d0`/`d1`, shipped as copies of the shared
+  `mmc-local.conf`): set that node's dedicated unmounted `ubsio.disk.path` devices there and, when hosts
+  differ in RAM, the DRAM/L2.5 tier sizes. Delete a node's file to fall back to the shared `mmc-local.conf`.
 - Proxy runs on P0 port `8000`.
+
+## Prerequisites (every host)
+
+- Docker 26+ with the Compose v2 plugin at v2.20 or newer (`--wait-timeout` requires it). Offline install: `ai_perf/install/`.
+- Passwordless root SSH from P0 to every other node; the deploy scripts use `ssh -o BatchMode=yes`.
+- Model weights present on every node at `MODEL_PATH`, and both images named in `env/common.env` loadable.
+- Hosts must be clean (or rebooted) if engines were force-killed before — see Operational notes.
+- If `/tmp` is tmpfs-backed, point `IMAGE_ARCHIVE` at a disk-backed path before `deploy.sh image`; the export is tens of GB.
 
 ## Configure
 
@@ -34,6 +45,18 @@ to accept connections before serving (`PROXY_BACKEND_TIMEOUT`, default 3600s).
 After MetaService and every LocalService are running, an individual node's Control/Engine containers may be
 started with `bash deploy.sh <node>`, where nodes are: `p0 p1 p2 p3 d0 d1`. This command does not start MemCache.
 Stop all services with `bash deploy.sh stop`.
+
+
+## Operational notes
+
+- `all` starts MemCache before the engines on purpose: the DRAM tier must win the host
+  memory race, so never interrupt a LocalService mid-initialization.
+- Restart engines pairwise: the two sides of each Prefill (or Decode) group rendezvous at
+  startup, and restarting one side makes the other side's wait abort.
+- If the proxy gives up waiting for backends (`PROXY_BACKEND_TIMEOUT`, default 3600s),
+  just run `bash deploy.sh proxy` again.
+- SIGKILLed engines can leak CANN devmm pinned pages. If a node's MemCache then fails its
+  DRAM allocation (dmesg `alloc_contig_range: PFNs busy`), reboot that node before redeploying.
 
 ## Expected ranks
 

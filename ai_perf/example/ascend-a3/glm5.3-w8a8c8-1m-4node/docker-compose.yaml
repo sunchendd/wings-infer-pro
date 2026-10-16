@@ -24,7 +24,9 @@ services:
     ulimits:
       memlock: {soft: -1, hard: -1}
     environment:
-      MMC_LOCAL_CONFIG_PATH: /wings-deploy/rendered/local-service/mmc-local.conf
+      # NODE_NAME comes from env/<node>.env, so each node reads its own rendered conf
+      # (nodes whose disks/memory tiers differ ship memcache/local-service/mmc-local.conf.<node>).
+      MMC_LOCAL_CONFIG_PATH: /wings-deploy/rendered/local-service/${NODE_NAME}/mmc-local.conf
       WINGS_LOG_DIR: /wings-deploy
     volumes:
       - /usr/local/Ascend/driver:/usr/local/Ascend/driver:ro

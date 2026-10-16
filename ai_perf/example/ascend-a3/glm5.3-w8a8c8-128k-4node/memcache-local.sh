@@ -29,9 +29,11 @@ sed "s/@META_HOST@/$META_NODE/g" "$HERE/memcache/model-client/mmc-local.conf" > 
 
 LOCAL_IP=""
 for _addr in $(hostname -I 2>/dev/null); do
-  case " $NODE_P0 $NODE_P1 $NODE_D0 $NODE_D1 " in *" $_addr "*) LOCAL_IP="$_addr"; break;; esac
+  for _name in "${!NODE_@}"; do
+    [ "${!_name}" = "$_addr" ] && { LOCAL_IP="$_addr"; break 2; }
+  done
 done
-[ -n "$LOCAL_IP" ] || echo "NOTICE: this host matches none of the configured nodes ($NODE_P0 $NODE_P1 $NODE_D0 $NODE_D1); $NODE will be reached over SSH." >&2
+[ -n "$LOCAL_IP" ] || echo "NOTICE: this host matches none of the configured NODE_* addresses ($(hostname -I 2>/dev/null)); nodes will be reached over SSH." >&2
 # Refuse missing or mounted devices: UBS IO owns the raw disk and destroys existing data on it.
 disk_path="$(sed -n 's/^ubsio.disk.path *= *//p' "$HERE/rendered/local-service/$NODE/mmc-local.conf" | head -n1)"
 [[ -n "$disk_path" ]] || { echo "ubsio.disk.path is missing in memcache/local-service/mmc-local.conf" >&2; exit 1; }

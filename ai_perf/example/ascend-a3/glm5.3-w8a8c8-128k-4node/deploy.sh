@@ -20,9 +20,12 @@ set +a
 # remote node, breaking every local branch with ssh-to-self failures.
 local_ip=""
 for _addr in $(hostname -I 2>/dev/null); do
-  case " $NODE_P0 $NODE_P1 $NODE_D0 $NODE_D1 " in *" $_addr "*) local_ip="$_addr"; break;; esac
+  for _n in "${NODES[@]}"; do
+    _k="NODE_${_n^^}"
+    [ "${!_k}" = "$_addr" ] && { local_ip="$_addr"; break 2; }
+  done
 done
-[ -n "$local_ip" ] || echo "NOTICE: none of NODE_P0/P1/D0/D1 matches this host's addresses ($(hostname -I 2>/dev/null)); all nodes will be reached over SSH." >&2
+[ -n "$local_ip" ] || echo "NOTICE: none of the configured NODE_* addresses matches this host ($(hostname -I 2>/dev/null)); every node will be reached over SSH." >&2
 run_on() { local host=$1; shift; if [[ "$host" == "$local_ip" ]]; then "$@"; else "${SSH[@]}" root@"$host" "$@"; fi; }
 node_host() { local key="NODE_${1^^}"; printf '%s' "${!key}"; }
 prepare_deploy() { rm -f "$PACKAGE"; tar czf "$PACKAGE" --exclude=generated --exclude=rendered --exclude=logs -C "$HERE" .; }
