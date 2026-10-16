@@ -1,10 +1,12 @@
-# vLLM-Ascend v0.30.0rc2 parameter baseline for the Kimi-K3 W4A8 recipe.
+# vLLM-Ascend v0.30.0rc2 parameter baseline for validated Ascend A3 recipes.
 #
 # This is intentionally a verified recipe-level allowlist, rather than a
 # copied list from another engine release. Extend it from the v0.30.0rc2
 # runtime --help output when adding more model assets under this version.
 --block-size
 --additional-config
+--async-scheduling
+--api-server-count
 --compilation-config
 --data-parallel-address
 --data-parallel-rpc-port
@@ -16,13 +18,22 @@
 --enable-chunked-prefill
 --enable-expert-parallel
 --enable-prefix-caching
+--enforce-eager
+--engram-config
 --gpu-memory-utilization
 --headless
 --host
+--hf-overrides
 --kv-cache-dtype
+--kv-transfer-config
+--limit-mm-per-prompt
 --max-model-len
 --max-num-batched-tokens
 --max-num-seqs
+--model-loader-extra-config
+--mamba-cache-mode
+--no-disable-hybrid-kv-cache-manager
+--no-enable-prefix-caching
 --port
 --quantization
 --quantization-param-path
