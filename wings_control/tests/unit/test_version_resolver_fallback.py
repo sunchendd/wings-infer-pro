@@ -97,6 +97,18 @@ def test_directory_name_prefix_match_not_fallback(tmp_path, monkeypatch):
     assert ev.is_fallback is False
 
 
+def test_v030_kimi_asset_version_has_exact_engine_metadata(config_root_real, monkeypatch):
+    """Kimi-K3 v2 资产要求 v0.30.0rc2 不得回退到旧版引擎目录。"""
+    monkeypatch.setenv("ENGINE_VERSION", "v0.30.0rc2")
+
+    ev = resolve_engine_version(config_root_real, "Ascend910C_64G", engine="vllm-ascend")
+
+    assert ev.requested == "v0.30.0rc2"
+    assert ev.resolved == "v0.30.0rc2"
+    assert ev.is_fallback is False
+    assert ev.has_version_dir is True
+
+
 def test_requested_not_found_is_fallback(tmp_path, monkeypatch):
     """请求的版本不存在 → 回退 latest 且 is_fallback=True(§2.7 requested≠resolved)。"""
     monkeypatch.setenv("ENGINE_VERSION", "9.9.9")

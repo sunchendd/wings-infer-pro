@@ -1,0 +1,13 @@
+# Engine-level defaults for vLLM-Ascend v0.30.0rc2 on Ascend A3 / 910C.
+#
+# Model-specific settings are provided by YAML v2 assets. This file establishes
+# the exact engine-version directory so version resolution and audit do not
+# fall back to an older vLLM-Ascend release.
+hardware:
+  gpu_count: 16
+  vram_gb: 1024
+  multi_node: true
+
+engine:
+  name: vllm-ascend
+  version: v0.30.0rc2
