@@ -13,10 +13,15 @@ set +a
 mkdir -p "$HERE/logs" "$HERE/rendered/meta"
 sed "s/@META_HOST@/$META_NODE/g" "$HERE/memcache/meta/mmc-meta.conf" > "$HERE/rendered/meta/mmc-meta.conf"
 
-LOCAL_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+LOCAL_IP=""
+for _addr in $(hostname -I 2>/dev/null); do
+  case " $NODE_P0 $NODE_P1 $NODE_D0 $NODE_D1 " in *" $_addr "*) LOCAL_IP="$_addr"; break;; esac
+done
+[ -n "$LOCAL_IP" ] || echo "NOTICE: this host matches none of the configured nodes ($NODE_P0 $NODE_P1 $NODE_D0 $NODE_D1); $NODE_P0 will be reached over SSH." >&2
 if [[ "$NODE_P0" != "$LOCAL_IP" ]]; then
   rm -f "$PACKAGE"
-  tar czf "$PACKAGE" --exclude=generated --exclude=rendered --exclude=logs -C "$HERE" .
+  # Same as memcache-local.sh: rendered/ must ship or the remote node never gets its conf.
+  tar czf "$PACKAGE" --exclude=generated --exclude=logs -C "$HERE" .
   scp -o BatchMode=yes -q "$PACKAGE" root@"$NODE_P0:$PACKAGE"
   ssh -o BatchMode=yes root@"$NODE_P0" mkdir -p "$HERE"
   ssh -o BatchMode=yes root@"$NODE_P0" tar xzf "$PACKAGE" -C "$HERE"
