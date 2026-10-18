@@ -1,0 +1,193 @@
+# runtime_validated: false
+schema: v2
+profile:
+  engine: vllm-ascend
+  version: "v0.30.0rc2"
+  hardware: {Ascend910C_64G}
+  model: GLM-5.3-Flash-w8a8
+  cpu_arch: {aarch64}
+
+upstream_sources:
+  - id: glm53_flash_rc2_single_mtp5_memcache
+    kind: manual
+    repo: null
+    file: 负责场景/task/调优-GLM-5.3-Flash.md
+    url: null
+    note: User-validated 2026-10-15 GLM-5.3-Flash-W8A8 command on Ascend 910C, DP1/TP16/EP16, MTP5, checkpoint-native sparse/KPool and MemCache 1.3.0. Wings runtime validation remains pending.
+
+model:
+  name: GLM-5.3-Flash
+  provider: null
+  model_id: null
+  min_engine_version: v0.30.0rc2
+  match:
+    - name_pattern: "(?i)^glm[-.]?5[.]3[-.]?flash[-.]?w8a8$"
+  variant_name: GLM-5.3-Flash-w8a8
+
+hardware_profile:
+  gpu_count: 16
+  vram_gb: 1024
+  multi_node: false
+
+features:
+  tool_calling:
+    description: Enable automatic tool/function calling through the GLM tool-call parser.
+    args: [--tool-call-parser, glm47, --enable-auto-tool-choice]
+  reasoning:
+    description: Enable the GLM reasoning-content parser.
+    args: [--reasoning-parser, glm45]
+  spec_decoding:
+    description: Enable checkpoint-integrated DeepSeek MTP with five speculative tokens.
+    args: [--speculative-config, "{\"num_speculative_tokens\":5,\"method\":\"deepseek_mtp\",\"enforce_eager\":true}"]
+  memcache_offloading:
+    description: Enable the MemCache KV pool when the page opens local KV offload.
+    args: [--kv-transfer-config, "{\"kv_connector\":\"AscendStoreConnector\",\"kv_role\":\"kv_both\",\"kv_load_failure_policy\":\"fail\",\"kv_connector_extra_config\":{\"backend\":\"memcache\",\"lookup_rpc_port\":\"0\",\"use_layerwise\":false}}"]
+
+scenarios:
+  standalone:
+    source_ref: glm53_flash_rc2_single_mtp5_memcache#single_node
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: /var/ai-model/GLM-5.3-Flash-w8a8
+          host: "0.0.0.0"
+          port: 17000
+          served_model_name: glm
+          data_parallel_size: 1
+          tensor_parallel_size: 16
+          enable_expert_parallel: true
+          quantization: ascend
+          enable_prefix_caching: true
+          enable_chunked_prefill: true
+          no_disable_hybrid_kv_cache_manager: true
+          mamba_cache_mode: align
+          max_model_len: 133120
+          max_num_seqs: 32
+          max_num_batched_tokens: 8192
+          gpu_memory_utilization: 0.92
+          safetensors_load_strategy: prefetch
+          trust_remote_code: true
+          limit_mm_per_prompt:
+            image: 1
+            video: 0
+          compilation_config:
+            cudagraph_mode: FULL_DECODE_ONLY
+          additional_config:
+            multistream_overlap_shared_expert: true
+          api_server_count: 1
+          seed: 1024
+        env:
+          TZ: Asia/Shanghai
+          PYTHONHASHSEED: "0"
+          VLLM_USE_V2_MODEL_RUNNER: "0"
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          HCCL_OP_EXPANSION_MODE: AIV
+          HCCL_BUFFSIZE: "400"
+          VLLM_SERVER_DEV_MODE: "1"
+          HCCL_IF_IP: 7.6.28.252
+          GLOO_SOCKET_IFNAME: enp196s0f0
+          TP_SOCKET_IFNAME: enp196s0f0
+          HCCL_SOCKET_IFNAME: enp196s0f0
+          MMC_LOCAL_CONFIG_PATH: ""
+          MMC_META_CONFIG_PATH: ""
+          ACL_OP_INIT_MODE: "1"
+          ASCEND_ENABLE_USE_FABRIC_MEM: "1"
+        system_setup:
+          commands:
+            - source /usr/local/Ascend/ascend-toolkit/set_env.sh
+            - source /usr/local/Ascend/nnal/atb/set_env.sh
+            - source /shared-volume/mmc-engine-prepare.sh
+
+smart_accel:
+  standalone:
+    source_ref: glm53_flash_rc2_single_mtp5_memcache#single_node
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+          - name: deepseek_mtp
+            cli_params:
+              speculative_config:
+                num_speculative_tokens: 5
+                method: deepseek_mtp
+                enforce_eager: true
+            envs: {}
+        kv_offload:
+          - name: cpu
+            cli_params:
+              kv_transfer_config:
+                kv_connector: AscendStoreConnector
+                kv_role: kv_both
+                kv_load_failure_policy: fail
+                kv_connector_extra_config:
+                  backend: memcache
+                  lookup_rpc_port: "0"
+                  use_layerwise: false
+            envs:
+              MMC_LOCAL_CONFIG_PATH: /shared-volume/mmc_local.conf
+              MMC_META_CONFIG_PATH: /shared-volume/mmc_meta.conf
+            files:
+              - path: mmc_meta.conf
+                scope: master
+                content: |
+                  ock.mmc.meta_service_url = tcp://127.0.0.1:15000
+                  ock.mmc.meta_service.config_store_url = tcp://127.0.0.1:16000
+                  ock.mmc.meta_service.metrics_url = http://127.0.0.1:18080
+                  ock.mmc.log_level = info
+                  ock.mmc.log_output_target = screen
+              - path: mmc_local.conf
+                scope: all
+                content: |
+                  ock.mmc.meta_service_url = tcp://127.0.0.1:15000
+                  ock.mmc.local_service.config_store_url = tcp://127.0.0.1:16000
+                  ock.mmc.log_level = info
+                  ock.mmc.local_service.world_size = 256
+                  ock.mmc.local_service.protocol = device_sdma
+                  ock.mmc.local_service.dram.size = {= memory_capacity_gb // gpu_count}GB
+                  ock.mmc.local_service.max.dram.size = {= memory_capacity_gb // gpu_count}GB
+                  ock.mmc.local_service.storage.enabled = false
+              - path: mmc-engine-prepare.sh
+                scope: all
+                mode: "0644"
+                content: |
+                  #!/usr/bin/env bash
+                  if [[ -n "${MMC_LOCAL_CONFIG_PATH:-}" && -n "${MMC_META_CONFIG_PATH:-}" ]]; then
+                    MMC_DIR=$(python3 -c 'import pathlib,memcache_hybrid; print(pathlib.Path(memcache_hybrid.__file__).parent)')
+                    PYTHON_LIB_DIR=$(python3 -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))')
+                    export LD_LIBRARY_PATH="$MMC_DIR/lib:$PYTHON_LIB_DIR:${LD_LIBRARY_PATH:-}"
+                    python3 - <<'PY'
+                  import socket
+                  import time
+
+                  for _ in range(60):
+                      try:
+                          with socket.create_connection(("127.0.0.1", 15000), timeout=1):
+                              break
+                      except OSError:
+                          time.sleep(0.5)
+                  else:
+                      raise RuntimeError("MemCache MetaService not ready")
+                  PY
+                  fi
+              - path: start_kv_serve.sh
+                scope: master
+                mode: "0755"
+                content: |
+                  #!/usr/bin/env bash
+                  set -eo pipefail
+                  source /usr/local/Ascend/ascend-toolkit/set_env.sh
+                  source /usr/local/Ascend/nnal/atb/set_env.sh
+                  set -u
+                  mkdir -p /work/logs
+                  MMC_DIR=$(python3 -c 'import pathlib,memcache_hybrid; print(pathlib.Path(memcache_hybrid.__file__).parent)')
+                  PYTHON_LIB_DIR=$(python3 -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))')
+                  export LD_LIBRARY_PATH="$MMC_DIR/lib:$PYTHON_LIB_DIR:${LD_LIBRARY_PATH:-}"
+                  exec python3 -c 'from memcache_hybrid import MetaService; MetaService.main()' > /work/logs/meta.log 2>&1

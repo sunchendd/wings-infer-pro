@@ -1,0 +1,96 @@
+# runtime_validated: false
+# Dual-910C Mooncake offload reuses the shared mooncake_npu fallback assets.
+model:
+  name: GLM-5.3
+  variant_name: GLM-5.3-w8a8c8
+  match:
+    - name_pattern: "(?i)^glm[-.]?5[.]3[-.]?w8a8c8$"
+
+smart_accel:
+  multi_node:
+    source_ref: wings_rc2_xcache_standalone_store_dual_20261017#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        default_strategy: true
+        decoding:
+        - name: deepseek_mtp
+          cli_params:
+            speculative_config:
+              method: deepseek_mtp
+              num_speculative_tokens: 3
+              enforce_eager: true
+          envs: {}
+        distributed_kv_offload:
+        - name: mooncake_standalone_store
+          packages:
+            xcache_npu: v0.3.12.post1
+          runtime: mooncake_npu
+          delivery:
+            mode: fallback
+            envs:
+              ASCEND_GLOBAL_RESOURCE_CONFIG: '{"comm_resource_config.listen_port":16666,"comm_resource_config.protocol_desc":["roce:device"]}'
+          client:
+            rpc_port: 50052
+            master_rpc_port: 50051
+            metadata_port: 10080
+            metadata_path: /metadata
+            device_names: ''
+          cli_params:
+            kv_transfer_config:
+              kv_connector: AscendStoreConnector
+              kv_role: kv_both
+              kv_load_failure_policy: recompute
+              kv_connector_extra_config:
+                backend: mooncake
+                lookup_rpc_port: '0'
+                register_buffer: true
+                use_layerwise: false
+                load_async: true
+          envs:
+            MOONCAKE_GLOBAL_SEGMENT_SIZE: '0'
+
+  pd_disaggregation:
+    source_ref: vllm_ascend_glm-5.2-pd-roce#pd_cluster
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        default_strategy: true
+        nodes:
+          - role: prefill
+            index: 0
+          - role: prefill
+            index: 1
+          - role: decode
+            index: 0
+            decoding:
+              - name: deepseek_mtp
+                cli_params:
+                  compilation_config:
+                    cudagraph_mode: FULL_DECODE_ONLY
+                    max_cudagraph_capture_size: 32
+                  speculative_config:
+                    num_speculative_tokens: 5
+                    method: deepseek_mtp
+                    enforce_eager: true
+                envs:
+                  TORCH_GLOO_LAZY_INIT: "1"
+          - role: decode
+            index: 1
+            decoding:
+              - name: deepseek_mtp
+                cli_params:
+                  compilation_config:
+                    cudagraph_mode: FULL_DECODE_ONLY
+                    max_cudagraph_capture_size: 32
+                  speculative_config:
+                    num_speculative_tokens: 5
+                    method: deepseek_mtp
+                    enforce_eager: true
+                envs:
+                  TORCH_GLOO_LAZY_INIT: "1"
