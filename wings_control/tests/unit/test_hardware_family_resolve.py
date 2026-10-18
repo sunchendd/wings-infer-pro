@@ -192,6 +192,34 @@ def test_resolve_family_dir_910b_non_x86_keeps_default(config_root_real, monkeyp
     )
 
 
+@pytest.mark.parametrize("machine", ["x86_64", "AMD64"])
+def test_resolve_family_dir_ascend910c_x86_64_variant(config_root_real, monkeypatch, machine):
+    """带显存后缀的 910C 在 x86_64/AMD64 上优先使用专属硬件目录。"""
+    monkeypatch.setattr(locator.platform, "machine", lambda: machine)
+    assert (
+        resolve_family_dir(config_root_real, "vllm-ascend", "Ascend910C_64G", "v0.30.0rc2", True)
+        == "ascend910c-x86_64"
+    )
+
+
+def test_resolve_family_dir_910c_non_x86_keeps_default(config_root_real, monkeypatch):
+    """非 x86_64 平台继续把 Ascend 910C 映射到 ascend-a3。"""
+    monkeypatch.setattr(locator.platform, "machine", lambda: "aarch64")
+    assert (
+        resolve_family_dir(config_root_real, "vllm-ascend", "Ascend910C_64G", "v0.23.0", True)
+        == "ascend-a3"
+    )
+
+
+def test_resolve_family_dir_910c_x86_without_variant_keeps_default(config_root_real, monkeypatch):
+    """目标版本没有 910C x86 专属目录时仍回退到 ascend-a3。"""
+    monkeypatch.setattr(locator.platform, "machine", lambda: "x86_64")
+    assert (
+        resolve_family_dir(config_root_real, "vllm-ascend", "Ascend910C_64G", "v0.23.0", True)
+        == "ascend-a3"
+    )
+
+
 def test_resolve_family_dir_alias_bad_target_warns_and_fail(config_root_real, monkeypatch, caplog):
     """别名目标目录不存在(_ALIAS 配错)→ 记 WARNING 并 fail-fast,不静默兜底。"""
     monkeypatch.setitem(locator._ALIAS, "mycard", "nonexistent-dir")

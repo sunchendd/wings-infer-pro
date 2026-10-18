@@ -1,0 +1,126 @@
+# 硬件 + 引擎公共默认值
+
+hardware:
+  gpu_count: 16  # 单节点 NPU 数量
+  vram_gb: 1024  # 单节点总显存(GB)
+  multi_node: true  # 是否支持多节点
+
+engine:
+  name: vllm-ascend  # 推理引擎
+  version: v0.30.0rc2  # 引擎版本
+
+scenarios:
+  standalone:
+    source_ref: default#single_node
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Single Node
+        default_strategy: true
+        engine_config:
+          trust_remote_code: true
+          max_model_len: 4096
+          tensor_parallel_size: 16
+  multi_node:
+    source_ref: default#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        display_name: Multi-Node
+        default_strategy: true
+        head:
+          engine_config:
+            trust_remote_code: true
+            max_model_len: 4096
+            tensor_parallel_size: 16
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 0
+            data_parallel_address: $local_ip
+            data_parallel_rpc_port: 12321
+          env:
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            HCCL_OP_EXPANSION_MODE: AIV
+            PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+        worker:
+          engine_config:
+            trust_remote_code: true
+            max_model_len: 4096
+            tensor_parallel_size: 16
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 1
+            data_parallel_address: $node0_ip
+            data_parallel_rpc_port: 12321
+            headless: true
+          env:
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            HCCL_OP_EXPANSION_MODE: AIV
+            PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+
+  pd_disaggregation:
+    source_ref: default#pd_cluster
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        orientation: production
+        default_strategy: true
+        nodes:
+          - role: prefill
+            index: 0
+            engine_config:
+              trust_remote_code: true
+              max_model_len: 4096
+              tensor_parallel_size: 8
+              enforce_eager: true
+              kv_transfer_config:
+                kv_connector: MooncakeConnectorV2
+                kv_role: kv_producer
+                kv_port: 36579
+                kv_connector_extra_config:
+                  prefill: {dp_size: 2, tp_size: 8}
+                  decode: {dp_size: 8, tp_size: 2}
+            env:
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              TP_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+              HCCL_OP_EXPANSION_MODE: AIV
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+
+          - role: decode
+            index: 0
+            engine_config:
+              trust_remote_code: true
+              max_model_len: 4096
+              tensor_parallel_size: 2
+              compilation_config:
+                cudagraph_mode: FULL_DECODE_ONLY
+              kv_transfer_config:
+                kv_connector: MooncakeConnectorV2
+                kv_role: kv_consumer
+                kv_port: 36580
+                kv_connector_extra_config:
+                  prefill: {dp_size: 2, tp_size: 8}
+                  decode: {dp_size: 8, tp_size: 2}
+            env:
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              TP_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+              HCCL_OP_EXPANSION_MODE: AIV
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              TASK_QUEUE_ENABLE: 1

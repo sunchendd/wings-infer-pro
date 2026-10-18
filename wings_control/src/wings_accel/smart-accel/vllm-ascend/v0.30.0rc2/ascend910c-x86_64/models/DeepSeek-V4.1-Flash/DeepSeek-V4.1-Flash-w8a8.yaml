@@ -1,0 +1,52 @@
+# vLLM-Ascend v0.30.0rc2 / Ascend 910C x86_64 DeepSeek-V4.1-Flash-w8a8
+# distributed Mooncake KV cache asset for standalone and colocated multi-node.
+model:
+  name: DeepSeek-V4.1-Flash
+  variant_name: "DeepSeek-V4.1-Flash-w8a8"
+  match:
+    - name_pattern: "(?i)^deepseek[-.]?v4[.]1[-.]?flash[-.]?w8a8$"
+smart_accel:
+  standalone:
+    source_ref: "vllm_ascend_deepseek_v41_flash_rc2_guide#single_node_colocated_a3"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        distributed_kv_offload:
+          - &mooncake_npu
+            name: mooncake_standalone_store
+            runtime: mooncake_npu
+            packages:
+              xcache_npu: v0.3.12.post1
+            delivery:
+              mode: fallback
+            client:
+              rpc_port: 50052
+              master_rpc_port: 50051
+              metadata_port: 10080
+              metadata_path: /metadata
+              device_names: ""
+            cli_params:
+              kv_transfer_config:
+                kv_connector: AscendStoreConnector
+                kv_role: kv_both
+                kv_load_failure_policy: recompute
+                kv_connector_extra_config:
+                  backend: mooncake
+                  lookup_rpc_port: "0"
+                  register_buffer: true
+                  use_layerwise: false
+            envs: {}
+
+  multi_node:
+    source_ref: "wings_deepseek_v41_flash_a3_multinode_adaptation#multi_node_dp"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        default_strategy: true
+        distributed_kv_offload:
+          - *mooncake_npu

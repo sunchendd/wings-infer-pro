@@ -1,0 +1,269 @@
+# Source provenance
+upstream_sources:
+  - id: vllm_ascend_glm-5.3-flash_rc2_guide
+    kind: official_doc
+    repo: vllm-ascend
+    file: docs/source/tutorials/models/GLM5.3-Flash.md
+    url: "https://github.com/vllm-project/vllm-ascend/blob/8fde6d4e335fe300e2b949aab0e31659cce0811d/docs/source/tutorials/models/GLM5.3-Flash.md"
+    note: v0.30.0rc2 tag A3 standalone and PD deployment parameters.
+  - id: vllm_ascend_glm-5.3-flash_rc2_pd
+    kind: official_doc
+    repo: vllm-ascend
+    file: docs/source/tutorials/models/GLM5.3-Flash.md
+    url: "https://github.com/vllm-project/vllm-ascend/blob/8fde6d4e335fe300e2b949aab0e31659cce0811d/docs/source/tutorials/models/GLM5.3-Flash.md#52-1p1d-pd-disaggregated-deployment"
+    note: A3 DP2/TP8 prefill and DP16/TP1 decode MooncakeConnectorV2 topology.
+  - id: wings_glm-5.3-flash_a3_multinode_adaptation
+    kind: manual
+    repo: null
+    file: null
+    url: null
+    note: The colocated A3 multi-node strategy combines the official A3 model settings with the existing Wings head/worker distributed-DP pattern; it is not an exact upstream launch example.
+
+model:
+  name: GLM-5.3-Flash
+  provider: Eco-Tech
+  model_id: Eco-Tech/GLM-5.3-Flash-w8a8
+  min_engine_version: v0.30.0rc2
+  match:
+    - name_pattern: "(?i)^glm[-.]?5[.]3[-.]?flash[-.]?w8a8$"
+  variant_name: GLM-5.3-Flash-w8a8
+
+hardware_profile:
+  gpu_count: 16
+  vram_gb: 1024
+  multi_node: true
+
+features:
+  tool_calling:
+    description: GLM-4.7 tool parser with automatic tool selection.
+    args: [--tool-call-parser, glm47, --enable-auto-tool-choice]
+  reasoning:
+    description: GLM-4.5 reasoning parser used by the upstream Ascend recipe.
+    args: [--reasoning-parser, glm45]
+
+scenarios:
+  standalone:
+    source_ref: "vllm_ascend_glm-5.3-flash_rc2_guide#single_node_a3"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone
+        default_strategy: true
+        engine_config:
+          model: Eco-Tech/GLM-5.3-Flash-w8a8
+          host: "0.0.0.0"
+          port: 8000
+          max_model_len: 133120
+          data_parallel_size: 1
+          tensor_parallel_size: 16
+          enable_expert_parallel: true
+          seed: 1024
+          served_model_name: glm
+          safetensors_load_strategy: prefetch
+          max_num_seqs: 32
+          max_num_batched_tokens: 8192
+          trust_remote_code: true
+          quantization: ascend
+          limit_mm_per_prompt: {image: 1, video: 0}
+          gpu_memory_utilization: 0.92
+          speculative_config:
+            num_speculative_tokens: 5
+            method: deepseek_mtp
+            enforce_eager: true
+          compilation_config:
+            cudagraph_mode: FULL_DECODE_ONLY
+          additional_config:
+            multistream_overlap_shared_expert: true
+          api_server_count: 1
+        env:
+          VLLM_USE_V2_MODEL_RUNNER: 0
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          HCCL_OP_EXPANSION_MODE: AIV
+          HCCL_BUFFSIZE: 400
+
+  multi_node:
+    source_ref: "wings_glm-5.3-flash_a3_multinode_adaptation#multi_node_dp"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        display_name: Multi-Node Data Parallel
+        default_strategy: true
+        head:
+          engine_config:
+            model: Eco-Tech/GLM-5.3-Flash-w8a8
+            host: "0.0.0.0"
+            port: 8000
+            max_model_len: 133120
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_address: $local_ip
+            data_parallel_rpc_port: 12321
+            tensor_parallel_size: 16
+            enable_expert_parallel: true
+            seed: 1024
+            served_model_name: glm
+            safetensors_load_strategy: prefetch
+            max_num_seqs: 32
+            max_num_batched_tokens: 8192
+            trust_remote_code: true
+            quantization: ascend
+            limit_mm_per_prompt: {image: 1, video: 0}
+            gpu_memory_utilization: 0.92
+            speculative_config:
+              num_speculative_tokens: 5
+              method: deepseek_mtp
+              enforce_eager: true
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+            additional_config:
+              multistream_overlap_shared_expert: true
+            api_server_count: 1
+          env: &multi_node_env
+            VLLM_USE_V2_MODEL_RUNNER: 0
+            PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+            HCCL_OP_EXPANSION_MODE: AIV
+            HCCL_BUFFSIZE: 400
+            VLLM_RPC_TIMEOUT: 3600000
+            VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: 3000
+            HCCL_EXEC_TIMEOUT: 3600
+            HCCL_CONNECT_TIMEOUT: 1200
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+        worker:
+          engine_config:
+            model: Eco-Tech/GLM-5.3-Flash-w8a8
+            host: "0.0.0.0"
+            port: 8000
+            headless: true
+            max_model_len: 133120
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_start_rank: 1
+            data_parallel_address: $node0_ip
+            data_parallel_rpc_port: 12321
+            tensor_parallel_size: 16
+            enable_expert_parallel: true
+            seed: 1024
+            served_model_name: glm
+            safetensors_load_strategy: prefetch
+            max_num_seqs: 32
+            max_num_batched_tokens: 8192
+            trust_remote_code: true
+            quantization: ascend
+            limit_mm_per_prompt: {image: 1, video: 0}
+            gpu_memory_utilization: 0.92
+            speculative_config:
+              num_speculative_tokens: 5
+              method: deepseek_mtp
+              enforce_eager: true
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+            additional_config:
+              multistream_overlap_shared_expert: true
+          env: *multi_node_env
+
+  pd_disaggregation:
+    source_ref: "vllm_ascend_glm-5.3-flash_rc2_pd#pd_cluster_a3"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        orientation: production
+        default_strategy: true
+        nodes:
+          - role: prefill
+            index: 0
+            engine_config:
+              model: Eco-Tech/GLM-5.3-Flash-w8a8
+              host: "0.0.0.0"
+              data_parallel_size: 2
+              data_parallel_size_local: 2
+              data_parallel_rank: 0
+              data_parallel_address: $local_ip
+              data_parallel_rpc_port: 12321
+              tensor_parallel_size: 8
+              enable_expert_parallel: true
+              seed: 1024
+              served_model_name: glm
+              safetensors_load_strategy: prefetch
+              max_num_seqs: 32
+              max_model_len: 133120
+              max_num_batched_tokens: 8192
+              trust_remote_code: true
+              enforce_eager: true
+              quantization: ascend
+              limit_mm_per_prompt: {image: 1, video: 0}
+              gpu_memory_utilization: 0.92
+              speculative_config:
+                num_speculative_tokens: 5
+                method: deepseek_mtp
+                enforce_eager: true
+              additional_config:
+                multistream_overlap_shared_expert: true
+                enable_flashcomm1: true
+              kv_transfer_config:
+                kv_connector: MooncakeConnectorV2
+                kv_role: kv_producer
+                kv_port: 36579
+                kv_connector_extra_config:
+                  prefill: {dp_size: 2, tp_size: 8}
+                  decode: {dp_size: 16, tp_size: 1}
+            env: &pd_env
+              VLLM_USE_V2_MODEL_RUNNER: 0
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              HCCL_OP_EXPANSION_MODE: AIV
+              HCCL_BUFFSIZE: 1024
+              ASCEND_GLOBAL_RESOURCE_CONFIG: '{"comm_resource_config.protocol_desc":["hccs:device"]}'
+              ASCEND_LOCAL_COMM_RES: '{"version":"1.2"}'
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              TP_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+          - role: decode
+            index: 0
+            engine_config:
+              model: Eco-Tech/GLM-5.3-Flash-w8a8
+              host: "0.0.0.0"
+              data_parallel_size: 16
+              data_parallel_size_local: 16
+              data_parallel_rank: 0
+              data_parallel_address: $local_ip
+              data_parallel_rpc_port: 12322
+              tensor_parallel_size: 1
+              enable_expert_parallel: true
+              seed: 1024
+              served_model_name: glm
+              safetensors_load_strategy: prefetch
+              max_num_seqs: 10
+              max_model_len: 133120
+              max_num_batched_tokens: 60
+              trust_remote_code: true
+              quantization: ascend
+              limit_mm_per_prompt: {image: 1, video: 0}
+              gpu_memory_utilization: 0.92
+              compilation_config:
+                cudagraph_mode: FULL_DECODE_ONLY
+              speculative_config:
+                num_speculative_tokens: 5
+                method: deepseek_mtp
+                enforce_eager: true
+              additional_config:
+                multistream_overlap_shared_expert: true
+                ascend_compilation_config:
+                  enable_static_kernel: true
+              kv_transfer_config:
+                kv_connector: MooncakeConnectorV2
+                kv_role: kv_consumer
+                kv_port: 36580
+                kv_connector_extra_config:
+                  prefill: {dp_size: 2, tp_size: 8}
+                  decode: {dp_size: 16, tp_size: 1}
+            env: *pd_env
