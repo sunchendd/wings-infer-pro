@@ -79,7 +79,7 @@ scenarios:
             enable_prefix_caching: true
             enable_chunked_prefill: true
             no_disable_hybrid_kv_cache_manager: true
-            prefix_cache_retention_interval: None
+            prefix_cache_retention_interval: null
             no_async_scheduling: true
             block_size: 32
             attention_config.indexer_kv_dtype: int8
@@ -155,7 +155,7 @@ scenarios:
             enable_prefix_caching: true
             enable_chunked_prefill: true
             no_disable_hybrid_kv_cache_manager: true
-            prefix_cache_retention_interval: None
+            prefix_cache_retention_interval: null
             no_async_scheduling: true
             block_size: 32
             attention_config.indexer_kv_dtype: int8

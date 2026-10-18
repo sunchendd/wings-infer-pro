@@ -281,13 +281,14 @@ def test_v1_deepseek_v4_pro_v030rc2_multi_node_recipe(config_root_real, tmp_path
         "enforce_eager": True,
     }
     assert resolved.engine_config_traces["additional_config"].final_value["mc2_comm_alg"] == "hierarchy"
+    assert resolved.engine_config_traces["prefix_cache_retention_interval"].final_value is None
+    assert "--prefix-cache-retention-interval" not in build_argv(
+        resolved.engine_config_traces,
+        engine="vllm-ascend",
+    )
     validate_engine_params(resolved, config_root_real)
     assert resolved.param_validation is not None
-    assert {item["param"] for item in resolved.param_validation.unsupported} == {
-        "attention_config.indexer_kv_dtype",
-        "no_async_scheduling",
-        "prefix_cache_retention_interval",
-    }
+    assert resolved.param_validation.unsupported == []
 
 
 def test_v2_glm53_flash_910c_feature_and_accel_linkage(config_root_real, tmp_path, monkeypatch):
