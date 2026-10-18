@@ -251,7 +251,7 @@ def test_v1_deepseek_v4_pro_v030rc2_multi_node_recipe(config_root_real, tmp_path
     """DeepSeek V4 Pro resolves its v0.30.0rc2 multi-node recipe through v1."""
     monkeypatch.setenv("ENGINE_VERSION", "v0.30.0rc2")
     monkeypatch.setenv("ENABLE_SPECULATIVE_DECODE", "true")
-    monkeypatch.setattr("wings_ctl.core.config_resolver._detect_cpu_arch", lambda: "aarch64")
+    monkeypatch.setattr("wings_ctl.loaders.locator.platform.machine", lambda: "aarch64")
     hw = _write_hardware(tmp_path, "Ascend910C_64G")
     env = _make_env(config_root_real, hw)
     resolved = resolve_config(
@@ -353,7 +353,7 @@ def test_v1_glm53_w8a8c8_v030rc2_multi_node_recipe(config_root_real, tmp_path, m
     """GLM-5.3 W8A8C8 resolves its v1 multi-node MTP3 configuration."""
     monkeypatch.setenv("ENGINE_VERSION", "v0.30.0rc2")
     monkeypatch.setenv("ENABLE_SPECULATIVE_DECODE", "true")
-    monkeypatch.setattr("wings_ctl.core.config_resolver._detect_cpu_arch", lambda: "aarch64")
+    monkeypatch.setattr("wings_ctl.loaders.locator.platform.machine", lambda: "aarch64")
     hw = _write_hardware(tmp_path, "Ascend910C_64G")
     env = _make_env(config_root_real, hw)
     resolved = resolve_config(

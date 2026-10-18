@@ -1,0 +1,343 @@
+# Source provenance
+upstream_sources:
+  - id: vllm_ascend_deepseek_v41_flash_rc2_guide
+    kind: official_doc
+    repo: vllm-ascend
+    file: docs/source/tutorials/models/DeepSeek-V4.1-Flash.md
+    url: "https://github.com/vllm-project/vllm-ascend/blob/8fde6d4e335fe300e2b949aab0e31659cce0811d/docs/source/tutorials/models/DeepSeek-V4.1-Flash.md"
+    note: Reused for the 1017 variant because the user confirmed the model architecture is identical; validates the source variant's A3 standalone and 1P1D parameters.
+  - id: vllm_ascend_deepseek_v41_flash_rc2_pd_e2e
+    kind: source_code
+    repo: vllm-ascend
+    file: tests/e2e/cases/models/configs/DeepSeek/DeepSeek-V4.1-Flash-w8a8-PD-prefix.yaml
+    url: "https://github.com/vllm-project/vllm-ascend/blob/8fde6d4e335fe300e2b949aab0e31659cce0811d/tests/e2e/cases/models/configs/DeepSeek/DeepSeek-V4.1-Flash-w8a8-PD-prefix.yaml"
+    note: Reused for the 1017 variant because the user confirmed the model architecture is identical; source recipe has P=DP4/TP4 and D=DP8/TP2 with MooncakeHybridConnector.
+  - id: wings_deepseek_v41_flash_1017_a3_multinode_adaptation
+    kind: manual
+    repo: null
+    file: null
+    url: null
+    note: The two-node A3 strategy uses local DP2/TP8 on each 16-device node and global DP4 with Wings head/worker DP semantics; TP8 is the largest topology accepted by the vLLM-Ascend Engram validator, and upstream documents the same colocated flow only for A2.
+
+model:
+  name: DeepSeek-V4.1-Flash-1017
+  provider: Eco-Tech
+  model_id: Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8
+  min_engine_version: v0.30.0rc2
+  match:
+    - name_pattern: "(?i)^deepseek[-.]?v4[.]1[-.]?flash[-.]?1017[-.]?w8a8$"
+  variant_name: DeepSeek-V4.1-Flash-1017-w8a8
+
+hardware_profile:
+  gpu_count: 16
+  vram_gb: 1024
+  multi_node: true
+
+features:
+  tool_calling:
+    description: DeepSeek V4.1 automatic tool calling.
+    args: [--tokenizer-mode, deepseek_v41, --tool-call-parser, deepseek_v41, --enable-auto-tool-choice]
+  reasoning:
+    description: DeepSeek V4.1 reasoning parser.
+    args: [--reasoning-parser, deepseek_v41]
+
+scenarios:
+  standalone:
+    source_ref: "vllm_ascend_deepseek_v41_flash_1017_rc2_guide#single_node_colocated_a3"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone Colocated
+        default_strategy: true
+        engine_config:
+          model: Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8
+          host: "0.0.0.0"
+          port: 8900
+          max_model_len: 150000
+          max_num_batched_tokens: 8192
+          max_num_seqs: 32
+          served_model_name: dsv41
+          gpu_memory_utilization: 0.9
+          data_parallel_size: 4
+          tensor_parallel_size: 4
+          enable_expert_parallel: true
+          tokenizer_mode: deepseek_v41
+          reasoning_parser: deepseek_v41
+          tool_call_parser: deepseek_v41
+          enable_auto_tool_choice: true
+          safetensors_load_strategy: lazy
+          model_loader_extra_config:
+            enable_multithread_load: true
+            num_threads: 128
+          quantization: ascend
+          block_size: 128
+          compilation_config:
+            cudagraph_mode: FULL_DECODE_ONLY
+          speculative_config:
+            method: dspark
+            num_speculative_tokens: 5
+            enforce_eager: true
+          async_scheduling: true
+          engram_config:
+            cpu_offload: true
+            dp_shared_memory: true
+          additional_config:
+            ascend_compilation_config:
+              enable_npugraph_ex: true
+              enable_static_kernel: false
+            enable_cpu_binding: true
+            enable_fused_mc2: 1
+            enable_dsa_cp: true
+            enable_flashcomm1: true
+            enable_shared_expert_dp: true
+        env:
+          VLLM_USE_V2_MODEL_RUNNER: 0
+          VLLM_ENGINE_READY_TIMEOUT_S: 36000
+          HCCL_BUFFSIZE: 1024
+          HCCL_OP_EXPANSION_MODE: AIV
+
+  multi_node:
+    source_ref: "wings_deepseek_v41_flash_1017_a3_multinode_adaptation#multi_node_dp"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        display_name: Multi-Node Data Parallel
+        default_strategy: true
+        head:
+          engine_config:
+            model: Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8
+            host: "0.0.0.0"
+            port: 8000
+            data_parallel_address: $local_ip
+            data_parallel_rpc_port: 13399
+            data_parallel_size: 4
+            data_parallel_size_local: 2
+            tensor_parallel_size: 8
+            enable_expert_parallel: true
+            served_model_name: deepseek-v41
+            max_model_len: 1048576
+            max_num_batched_tokens: 4096
+            max_num_seqs: 32
+            gpu_memory_utilization: 0.9
+            block_size: 128
+            tokenizer_mode: deepseek_v41
+            reasoning_parser: deepseek_v41
+            tool_call_parser: deepseek_v41
+            enable_auto_tool_choice: true
+            trust_remote_code: true
+            model_loader_extra_config:
+              enable_multithread_load: true
+              num_threads: 128
+            safetensors_load_strategy: lazy
+            quantization: ascend
+            engram_config:
+              cpu_offload: true
+              dp_shared_memory: true
+            additional_config:
+              enable_cpu_binding: true
+              ascend_compilation_config:
+                enable_npugraph_ex: false
+                enable_static_kernel: false
+            speculative_config:
+              method: dspark
+              num_speculative_tokens: 5
+              enforce_eager: true
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+          env: &multi_node_env
+            VLLM_USE_V2_MODEL_RUNNER: 0
+            VLLM_ENGINE_READY_TIMEOUT_S: 36000
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            HCCL_BUFFSIZE: 1024
+            VLLM_RPC_TIMEOUT: 3600000
+            VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: 3000
+            HCCL_EXEC_TIMEOUT: 3600
+            HCCL_CONNECT_TIMEOUT: 1200
+        worker:
+          engine_config:
+            model: Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8
+            host: "0.0.0.0"
+            port: 8000
+            headless: true
+            data_parallel_address: $node0_ip
+            data_parallel_rpc_port: 13399
+            data_parallel_size: 4
+            data_parallel_size_local: 2
+            data_parallel_start_rank: 2
+            tensor_parallel_size: 8
+            enable_expert_parallel: true
+            served_model_name: deepseek-v41
+            max_model_len: 1048576
+            max_num_batched_tokens: 4096
+            max_num_seqs: 32
+            gpu_memory_utilization: 0.9
+            block_size: 128
+            tokenizer_mode: deepseek_v41
+            reasoning_parser: deepseek_v41
+            tool_call_parser: deepseek_v41
+            enable_auto_tool_choice: true
+            trust_remote_code: true
+            model_loader_extra_config:
+              enable_multithread_load: true
+              num_threads: 128
+            safetensors_load_strategy: lazy
+            quantization: ascend
+            engram_config:
+              cpu_offload: true
+              dp_shared_memory: true
+            additional_config:
+              enable_cpu_binding: true
+              ascend_compilation_config:
+                enable_npugraph_ex: false
+                enable_static_kernel: false
+            speculative_config:
+              method: dspark
+              num_speculative_tokens: 5
+              enforce_eager: true
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+          env: *multi_node_env
+
+  pd_disaggregation:
+    source_ref: "vllm_ascend_deepseek_v41_flash_1017_rc2_pd_e2e#pd_cluster_a3"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        orientation: production
+        default_strategy: true
+        nodes:
+          - role: prefill
+            index: 0
+            engine_config:
+              model: Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8
+              host: "0.0.0.0"
+              data_parallel_size: 4
+              data_parallel_size_local: 4
+              data_parallel_rank: 0
+              data_parallel_address: $local_ip
+              data_parallel_rpc_port: 12321
+              tensor_parallel_size: 4
+              enable_expert_parallel: true
+              seed: 1024
+              served_model_name: dsv41
+              max_model_len: 1048576
+              max_num_batched_tokens: 8192
+              max_num_seqs: 16
+              speculative_config:
+                num_speculative_tokens: 5
+                method: dspark
+              trust_remote_code: true
+              block_size: 128
+              tokenizer_mode: deepseek_v41
+              reasoning_parser: deepseek_v41
+              tool_call_parser: deepseek_v41
+              enable_auto_tool_choice: true
+              model_loader_extra_config:
+                enable_multithread_load: true
+                num_threads: 128
+              safetensors_load_strategy: lazy
+              gpu_memory_utilization: 0.9
+              quantization: ascend
+              enforce_eager: true
+              enable_prefix_caching: true
+              engram_config:
+                cpu_offload: true
+                dp_shared_memory: true
+              additional_config:
+                enable_cpu_binding: true
+                enable_fused_mc2: 1
+                enable_dsa_cp: true
+                enable_flashcomm1: true
+                enable_shared_expert_dp: true
+              kv_transfer_config:
+                kv_connector: MooncakeHybridConnector
+                kv_role: kv_producer
+                kv_port: 30000
+                kv_connector_extra_config:
+                  prefill: {dp_size: 4, tp_size: 4}
+                  decode: {dp_size: 8, tp_size: 2}
+            env:
+              VLLM_USE_V2_MODEL_RUNNER: 0
+              VLLM_ENGINE_READY_TIMEOUT_S: 36000
+              HCCL_BUFFSIZE: 1024
+              HCCL_OP_EXPANSION_MODE: AIV
+              ASCEND_GLOBAL_RESOURCE_CONFIG: '{"comm_resource_config.protocol_desc":["hccs:device"]}'
+              ASCEND_LOCAL_COMM_RES: '{"version":"1.2"}'
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              TP_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+          - role: decode
+            index: 0
+            engine_config:
+              model: Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8
+              host: "0.0.0.0"
+              data_parallel_size: 8
+              data_parallel_size_local: 8
+              data_parallel_rank: 0
+              data_parallel_address: $local_ip
+              data_parallel_rpc_port: 12322
+              tensor_parallel_size: 2
+              enable_expert_parallel: true
+              seed: 1024
+              served_model_name: dsv41
+              max_model_len: 1048576
+              max_num_batched_tokens: 400
+              max_num_seqs: 32
+              async_scheduling: true
+              block_size: 128
+              no_enable_prefix_caching: true
+              trust_remote_code: true
+              tokenizer_mode: deepseek_v41
+              reasoning_parser: deepseek_v41
+              tool_call_parser: deepseek_v41
+              enable_auto_tool_choice: true
+              model_loader_extra_config:
+                enable_multithread_load: true
+                num_threads: 128
+              safetensors_load_strategy: lazy
+              gpu_memory_utilization: 0.95
+              quantization: ascend
+              speculative_config:
+                num_speculative_tokens: 5
+                method: dspark
+                enforce_eager: true
+              compilation_config:
+                cudagraph_mode: FULL_DECODE_ONLY
+              engram_config:
+                cpu_offload: true
+                dp_shared_memory: true
+              additional_config:
+                ascend_compilation_config:
+                  enable_npugraph_ex: true
+                  enable_static_kernel: false
+                enable_cpu_binding: true
+                multistream_overlap_shared_expert: true
+                recompute_scheduler_enable: true
+              kv_transfer_config:
+                kv_connector: MooncakeHybridConnector
+                kv_role: kv_consumer
+                kv_port: 30100
+                kv_connector_extra_config:
+                  prefill: {dp_size: 4, tp_size: 4}
+                  decode: {dp_size: 8, tp_size: 2}
+            env:
+              VLLM_USE_V2_MODEL_RUNNER: 0
+              VLLM_ENGINE_READY_TIMEOUT_S: 36000
+              HCCL_BUFFSIZE: 1800
+              ASCEND_GLOBAL_RESOURCE_CONFIG: '{"comm_resource_config.protocol_desc":["hccs:device"]}'
+              ASCEND_LOCAL_COMM_RES: '{"version":"1.2"}'
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              TP_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name

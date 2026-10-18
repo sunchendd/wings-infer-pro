@@ -48,6 +48,13 @@ _ALIAS: Dict[str, str] = {
     "rtx-pro-5000-72gb-blackwell": "rtx_pro_5000_72G",  # RTX-PRO-5000-72GB-Blackwell
 }
 
+# x86_64 主机上的昇腾专属配置目录。仅当目标版本实际包含该目录时生效，
+# 否则继续走 _ALIAS，保持其他版本与 aarch64 的既有行为。
+_X86_HARDWARE_VARIANTS: Dict[str, str] = {
+    "ascend910b": "ascend910b-x86_64",
+    "ascend910c": "ascend910c-x86_64",
+}
+
 
 def resolve_version_dir(engine_root: Path, version: str) -> Path:
     """返回 resolver 提供的磁盘真实版本目录。"""
@@ -115,14 +122,11 @@ def resolve_family_dir(
     ):
         return candidates[hardware_family.casefold()]
 
-    # ② 仅在 x86_64 环境且当前版本包含专属目录时使用 910B 配置;
-    # 其他环境继续沿用原有 ascend-a2 映射。
-    if (
-        card.casefold() == "ascend910b"
-        and platform.machine().casefold() in {"x86_64", "amd64"}
-    ):
-        x86_family = "ascend910b-x86_64"
-        if x86_family.casefold() in candidates:
+    # ② x86_64 专属变体:当前版本包含专属目录时优先使用;
+    # 目录不存在或非 x86_64 时继续沿用原有架构代别名。
+    if platform.machine().casefold() in {"x86_64", "amd64"}:
+        x86_family = _X86_HARDWARE_VARIANTS.get(card.casefold())
+        if x86_family and x86_family.casefold() in candidates:
             logger.info(
                 "resolve_family_dir: '%s' on x86_64 → %s",
                 hardware_family,
