@@ -4,7 +4,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
+
+from tests.asset_yaml_cache import load_asset_yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SMART_ROOT = REPO_ROOT / "src" / "wings_accel" / "smart-accel"
@@ -12,7 +13,7 @@ ENGINE_ROOT = REPO_ROOT / "config" / "engines"
 
 
 def _load(path: Path) -> dict[str, Any]:
-    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return load_asset_yaml(path) or {}
 
 
 def _draft_assets() -> list[Path]:

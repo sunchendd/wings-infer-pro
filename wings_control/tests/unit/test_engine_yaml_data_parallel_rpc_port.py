@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import yaml
+from tests.asset_yaml_cache import load_asset_yaml
 
 
 REPOSITORY_ROOT = Path(__file__).parents[3]
@@ -41,7 +41,7 @@ def test_all_repository_yamls_use_integer_data_parallel_rpc_port() -> None:
     yaml_paths.sort()
 
     for yaml_path in yaml_paths:
-        document = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+        document = load_asset_yaml(yaml_path)
         errors.extend(
             f"{yaml_path.relative_to(REPOSITORY_ROOT)}:{error}"
             for error in _find_non_integer_ports(document, "")
