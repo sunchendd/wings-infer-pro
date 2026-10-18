@@ -1,0 +1,219 @@
+# runtime_validated: false
+# The recorded unpatched K7/K3/K1 comparison failed; the engine needs its guarded fixes.
+# Use the caller's --model-path for the prepared 74-shard model-compatible-v2
+# overlay. This asset does not repair weight descriptions or modify weights.
+# KV_MEM_OFFLOAD_SIZE=128 with 16 devices reproduces the recorded 8GB per worker.
+# Wings uses backend port 17000; the manual validation used port 8000.
+schema: v2
+profile:
+  engine: vllm-ascend
+  version: "v0.30.0rc2"
+  hardware: {Ascend910C_64G}
+  model: DeepSeek-V4-Flash-0731-w8a8
+  cpu_arch: {aarch64}
+
+upstream_sources:
+  - id: day0_flash0731_rc2_memcache
+    kind: manual
+    repo: null
+    file: "负责场景/task/调优-DeepSeek-V4-Flash-0731-W8A8-Ascend-910C-单机-MemCache-DSpark对照.md"
+    url: null
+    note: "The unpatched K7/K3/K1 comparison does not supply a successful workaround. Preserve DSpark7; version-scoped engine patches select the short-tail/retention fixes internally."
+  - id: day0_flash0731_rc2_patched_acceptance
+    kind: manual
+    repo: null
+    file: "F:/zhanghui/project/DAY0/模型/deepseek-v4-flash-0731-w8a8-910c-single-node/报告/r-20261015-174221-rc2-runbook-patch-reuse/命令/patch/bundle-info.json"
+    url: null
+    note: "Recorded rc2 source compatibility and the patched DSpark7/IndexCache4/MemCache scenario; Wings-generated deployment is not yet runtime validated."
+
+model:
+  name: DeepSeek-V4-Flash
+  provider: Eco-Tech
+  model_id: Eco-Tech/DeepSeek-V4-Flash-0731-w8a8
+  min_engine_version: v0.30.0rc2
+  variant_name: DeepSeek-V4-Flash-0731-w8a8
+  match:
+    - name_pattern: "(?i)^deepseek[-.]?v4[-.]?flash[-.]?0731[-.]?w8a8$"
+
+hardware_profile:
+  gpu_count: 16
+  vram_gb: 1024
+  multi_node: false
+
+features:
+  tool_calling:
+    description: Enable DeepSeek V4 automatic tool calling.
+    args: [--tool-call-parser, deepseek_v4, --enable-auto-tool-choice]
+  reasoning:
+    description: Enable DeepSeek V4 reasoning parsing.
+    args: [--reasoning-parser, deepseek_v4]
+
+scenarios:
+  standalone:
+    source_ref: "day0_flash0731_rc2_memcache#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Standalone DP4 TP4
+        default_strategy: true
+        engine_config:
+          host: 0.0.0.0
+          port: 17000
+          served_model_name: dsv4
+          max_model_len: 1048576
+          max_num_batched_tokens: 10240
+          max_num_seqs: 64
+          gpu_memory_utilization: 0.9
+          data_parallel_size: 4
+          tensor_parallel_size: 4
+          enable_expert_parallel: true
+          enable_prefix_caching: true
+          enable_chunked_prefill: true
+          no_disable_hybrid_kv_cache_manager: true
+          prefix_cache_retention_interval: 4096
+          tokenizer_mode: deepseek_v4
+          quantization: ascend
+          model_loader_extra_config:
+            enable_multithread_load: true
+            num_threads: 128
+          block_size: 32
+          attention_config.indexer_kv_dtype: int8
+          compilation_config:
+            cudagraph_mode: FULL_DECODE_ONLY
+          additional_config:
+            ascend_compilation_config:
+              enable_npugraph_ex: true
+              enable_static_kernel: false
+            enable_cpu_binding: true
+            enable_dsa_cp: true
+            multistream_overlap_shared_expert: true
+        env:
+          PYTHONHASHSEED: "0"
+          OMP_PROC_BIND: "false"
+          OMP_NUM_THREADS: 10
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}"
+          HCCL_BUFFSIZE: 1024
+          TASK_QUEUE_ENABLE: 1
+          HCCL_OP_EXPANSION_MODE: AIV
+          HCCL_IF_IP: $local_ip
+          GLOO_SOCKET_IFNAME: $IFACE_NAME
+          TP_SOCKET_IFNAME: $IFACE_NAME
+          HCCL_SOCKET_IFNAME: $IFACE_NAME
+          VLLM_ENGINE_READY_TIMEOUT_S: 36000
+          VLLM_SERVER_DEV_MODE: "0"
+        system_setup:
+          commands:
+            - source /usr/local/Ascend/ascend-toolkit/set_env.sh
+            - source /usr/local/Ascend/nnal/atb/set_env.sh
+            - source /shared-volume/flash0731-memcache-prepare.sh
+
+smart_accel:
+  standalone:
+    source_ref: "day0_flash0731_rc2_memcache#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+          - name: dspark
+            requires_model_path: false
+            cli_params:
+              speculative_config:
+                method: dspark
+                num_speculative_tokens: 7
+                enforce_eager: true
+            envs: {}
+        sparse:
+          - name: performance_first
+            cli_params:
+              hf_overrides:
+                use_index_cache: true
+                index_topk_freq: 8
+            envs: {}
+          - name: accuracy_first
+            cli_params:
+              hf_overrides:
+                use_index_cache: true
+                index_topk_freq: 4
+            envs: {}
+        kv_offload:
+          - name: cpu
+            cli_params:
+              kv_transfer_config:
+                kv_connector: AscendStoreConnector
+                kv_role: kv_both
+                kv_load_failure_policy: fail
+                kv_connector_extra_config:
+                  backend: memcache
+                  lookup_rpc_port: "0"
+                  use_layerwise: false
+            envs:
+              MMC_LOCAL_CONFIG_PATH: /shared-volume/flash0731-mmc-local.conf
+              MMC_META_CONFIG_PATH: /shared-volume/flash0731-mmc-meta.conf
+            files:
+              - path: flash0731-mmc-local.conf
+                scope: all
+                mode: "0644"
+                content: |
+                  ock.mmc.meta_service_url = tcp://127.0.0.1:19500
+                  ock.mmc.local_service.config_store_url = tcp://127.0.0.1:19600
+                  ock.mmc.log_level = info
+                  ock.mmc.local_service.world_size = 256
+                  ock.mmc.local_service.protocol = host_shm
+                  ock.mmc.local_service.dram.size = {= memory_capacity_gb // gpu_count}GB
+                  ock.mmc.local_service.max.dram.size = {= memory_capacity_gb // gpu_count}GB
+                  ock.mmc.local_service.storage.enabled = false
+              - path: flash0731-mmc-meta.conf
+                scope: master
+                mode: "0644"
+                content: |
+                  ock.mmc.meta_service_url = tcp://127.0.0.1:19500
+                  ock.mmc.meta_service.config_store_url = tcp://127.0.0.1:19600
+                  ock.mmc.meta_service.metrics_url = http://127.0.0.1:18080
+                  ock.mmc.log_level = info
+              - path: flash0731-memcache-prepare.sh
+                scope: all
+                mode: "0644"
+                content: |
+                  #!/usr/bin/env bash
+                  if [[ -z "${MMC_LOCAL_CONFIG_PATH:-}" || -z "${MMC_META_CONFIG_PATH:-}" ]]; then
+                    return 0
+                  fi
+                  if [[ ! -f "$MMC_LOCAL_CONFIG_PATH" || ! -f "$MMC_META_CONFIG_PATH" ]]; then
+                    echo "MemCache configuration is missing" >&2
+                    return 1
+                  fi
+                  flash0731_mmc_lib=$(python3 -c 'import importlib.util,pathlib; print(pathlib.Path(importlib.util.find_spec("memcache_hybrid").origin).resolve().parent / "lib")') || return $?
+                  flash0731_python_lib=$(python3 -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))') || return $?
+                  export LD_LIBRARY_PATH="$flash0731_mmc_lib:$flash0731_python_lib:${LD_LIBRARY_PATH:-}"
+                  python3 - <<'PY' || return $?
+                  import socket
+                  import time
+
+                  for _ in range(60):
+                      try:
+                          with socket.create_connection(("127.0.0.1", 19500), timeout=1):
+                              break
+                      except OSError:
+                          time.sleep(0.5)
+                  else:
+                      raise RuntimeError("MemCache MetaService not ready on port 19500")
+                  PY
+              - path: start_kv_serve.sh
+                scope: master
+                mode: "0755"
+                content: |
+                  #!/usr/bin/env bash
+                  set -eo pipefail
+                  source /usr/local/Ascend/ascend-toolkit/set_env.sh
+                  source /usr/local/Ascend/nnal/atb/set_env.sh
+                  set -u
+                  flash0731_mmc_lib=$(python3 -c 'import importlib.util,pathlib; print(pathlib.Path(importlib.util.find_spec("memcache_hybrid").origin).resolve().parent / "lib")')
+                  flash0731_python_lib=$(python3 -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))')
+                  export LD_LIBRARY_PATH="$flash0731_mmc_lib:$flash0731_python_lib:${LD_LIBRARY_PATH:-}"
+                  exec python3 -c 'from memcache_hybrid import MetaService; MetaService.main()' > /shared-volume/flash0731-memcache-meta.log 2>&1

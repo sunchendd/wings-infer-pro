@@ -89,7 +89,7 @@ scenarios:
             enable_prefix_caching: true
             enable_chunked_prefill: true
             no_disable_hybrid_kv_cache_manager: true
-            prefix_cache_retention_interval: None
+            prefix_cache_retention_interval: null
             no_async_scheduling: true
             seed: 1024
             trust_remote_code: true
@@ -164,7 +164,7 @@ scenarios:
             enable_prefix_caching: true
             enable_chunked_prefill: true
             no_disable_hybrid_kv_cache_manager: true
-            prefix_cache_retention_interval: None
+            prefix_cache_retention_interval: null
             no_async_scheduling: true
             seed: 1024
             trust_remote_code: true
