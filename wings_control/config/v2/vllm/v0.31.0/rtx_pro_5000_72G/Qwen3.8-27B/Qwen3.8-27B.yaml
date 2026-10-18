@@ -1,0 +1,112 @@
+# vLLM 0.31.0 / RTX PRO 5000 72GB unified recipe and SmartAccel.
+schema: v2
+profile:
+  engine: vllm
+  version: v0.31.0
+  hardware:
+  - RTX-PRO-5000-72GB-Blackwell_72G
+  model: Qwen3.8-27B
+upstream_sources:
+- id: qwen3.8_27b_local
+  kind: manual
+  file: Qwen3.8-27B/config.json
+  url: https://huggingface.co/Qwen/Qwen3.8-27B
+  date_updated: '2026-10-12'
+  note: 本地 BF16 权重使用 Qwen3_5ForConditionalGeneration，MTP 采用 vLLM qwen3_5_mtp。
+model:
+  name: Qwen3.8-27B
+  slug: qwen3.8-27b
+  provider: Qwen
+  description: Qwen3.8-27B BF16，单机 TP2，支持原生 MTP 与 LMCacheMP 卸载。
+  model_id: Qwen/Qwen3.8-27B
+  architecture: Qwen3_5ForConditionalGeneration
+  parameter_count: 27B
+  active_parameters: 27B
+  context_length: 262144
+  vram_minimum_gb: 96
+  tasks:
+  - text
+  - multimodal
+  min_engine_version: 0.31.0
+  date_updated: '2026-10-12'
+  match:
+  - name_pattern: (?i)qwen3[.-]8[-.]?27b
+  variant_name: Qwen3.8-27B
+hardware_profile:
+  gpu_count: 2
+  vram_gb: 144
+  multi_node: false
+features:
+  spec_decoding:
+    description: Qwen3.8 MTP speculative decoding.
+    args:
+    - --speculative-config
+    - '{"method":"qwen3_5_mtp","num_speculative_tokens":2}'
+  lmcache:
+    description: Patched LMCache MP hybrid KV offloading.
+    args:
+    - --kv-transfer-config
+    - '{"kv_connector":"LMCacheMPConnector","kv_role":"kv_both","kv_connector_extra_config":{"lmcache.mp.port":5556,"lmcache.mp.sync_retrieve_before_forward":true}}'
+scenarios:
+  standalone:
+    source_ref: qwen3.8_27b_local#single_node_tp
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: Qwen/Qwen3.8-27B
+          host: 0.0.0.0
+          port: 7698
+          trust_remote_code: true
+          tensor_parallel_size: 2
+          gpu_memory_utilization: 0.9
+          max_model_len: 65536
+          seed: 1024
+          enable_prefix_caching: true
+          mamba_cache_mode: align
+        env:
+          NCCL_P2P_LEVEL: SYS
+          NCCL_SHM_DISABLE: 1
+smart_accel:
+  standalone:
+    source_ref: smart_accel#standalone
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+        - name: qwen3_5_mtp
+          cli_params:
+            speculative_config:
+              method: qwen3_5_mtp
+              num_speculative_tokens: 2
+          envs: {}
+        kv_offload:
+        - name: cpu
+          packages:
+            lmcache: 0.5.5+sm120.mp
+          cli_params:
+            kv_transfer_config:
+              kv_connector: LMCacheMPConnector
+              kv_role: kv_both
+              kv_connector_extra_config:
+                lmcache.mp.port: 5556
+                lmcache.mp.mq_timeout: 300
+                lmcache.mp.sync_retrieve_before_forward: true
+          envs: {}
+          files:
+          - path: start_kv_serve.sh
+            mode: '0755'
+            scope: master
+            content: "#!/usr/bin/env bash\nexec lmcache server \\\n  --port 5556 \\\n  --http-port 8081\
+              \ \\\n  --l1-size-gb {memory_capacity_gb} \\\n  --l1-init-size-gb 20 \\\n  --max-gpu-workers\
+              \ 1 \\\n  --max-cpu-workers 8 \\\n  --chunk-size 1600 \\\n  --l1-align-bytes 16384 \\\n\
+              \  --eviction-trigger-watermark 0.85 \\\n  --eviction-ratio 0.10 \\\n  --eviction-policy\
+              \ LRU \\\n  --supported-transfer-mode lmcache_driven\n"

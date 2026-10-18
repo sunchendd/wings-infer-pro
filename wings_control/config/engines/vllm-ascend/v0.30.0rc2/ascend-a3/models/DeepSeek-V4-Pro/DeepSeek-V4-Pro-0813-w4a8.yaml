@@ -1,0 +1,521 @@
+# runtime_validated: false
+# Native Mooncake evidence does not validate the Wings/xcache runtime.
+upstream_sources:
+- id: vllm_ascend_deepseek-v4-pro-0813-w4a8
+  kind: official_doc
+  repo: vllm-ascend
+  file: docs/source/tutorials/models/DeepSeek-V4-Pro.md
+  url: https://github.com/vllm-project/vllm-ascend/blob/v0.26.0rc1/docs/source/tutorials/models/DeepSeek-V4-Pro.md
+  note: vLLM Ascend official A3 DSpark PD deployment tutorial.
+- id: wings_rc2_xcache_standalone_store_dual_20261017
+  kind: local_recipe
+  repo: DAY0
+  file: e-20261017-180711-standalone-store-single-master-runtime
+  note: Standalone Store and unified Master parameters from the user-provided dual-910C commands. Native Mooncake NPU 0.3.11.post1
+    was tested separately. Wings/xcache_npu:v0.3.12.post1 runtime_validated=false; function/tool protocol acceptance remains
+    separate.
+model:
+  name: DeepSeek-V4-Pro
+  provider: Eco-Tech
+  model_id: Eco-Tech/DeepSeek-V4-Pro-0813-w4a8
+  min_engine_version: v0.30.0rc2
+  match:
+  - name_pattern: (?i)^deepseek[-.]?v4[-.]?pro[-.]?0813[-.]?w4a8$
+  variant_name: DeepSeek-V4-Pro-0813-w4a8
+hardware_profile:
+  gpu_count: 16
+  vram_gb: 1024
+  multi_node: true
+features:
+  tool_calling:
+    description: Enable automatic tool/function calling via the DeepSeek-V4 tool-call parser.
+    args:
+    - --tokenizer-mode
+    - deepseek_v4
+    - --tool-call-parser
+    - deepseek_v4
+    - --enable-auto-tool-choice
+  reasoning:
+    description: Enable the DeepSeek-V4 reasoning-content parser.
+    args:
+    - --reasoning-parser
+    - deepseek_v4
+  spec_decoding:
+    description: Enable DSpark speculative decoding with the checkpoint-integrated draft weights.
+    args:
+    - --speculative-config
+    - '{"method":"dspark","num_speculative_tokens":5,"enforce_eager":true}'
+  sparse_index:
+    description: Configure the DeepSeek sparse index cache.
+    args:
+    - --hf-overrides
+    - '{"use_index_cache":true,"index_topk_freq":4}'
+scenarios:
+  multi_node:
+    source_ref: wings_rc2_xcache_standalone_store_dual_20261017#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node:
+        display_name: Multi-Node
+        default_strategy: true
+        head:
+          engine_config:
+            host: 0.0.0.0
+            port: 8000
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_address: $node0_ip
+            data_parallel_rpc_port: 13399
+            tensor_parallel_size: 16
+            enable_expert_parallel: true
+            served_model_name: dsv4
+            max_model_len: 135000
+            max_num_batched_tokens: 4096
+            max_num_seqs: 16
+            gpu_memory_utilization: 0.9
+            quantization: ascend
+            enable_prefix_caching: true
+            enable_chunked_prefill: true
+            no_disable_hybrid_kv_cache_manager: true
+            prefix_cache_retention_interval: None
+            no_async_scheduling: true
+            block_size: 32
+            attention_config.indexer_kv_dtype: int8
+            model_loader_extra_config:
+              enable_multithread_load: true
+              num_threads: 128
+            additional_config:
+              ascend_compilation_config:
+                enable_npugraph_ex: true
+                enable_static_kernel: false
+              enable_cpu_binding: true
+              enable_flashcomm1: true
+              multistream_overlap_shared_expert: true
+              mc2_comm_alg: hierarchy
+              enable_fused_mc2: 0
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+            model: Eco-Tech/DeepSeek-V4-Pro-0813-w4a8
+          env:
+            PYTHONHASHSEED: '0'
+            VLLM_USE_V2_MODEL_RUNNER: '0'
+            VLLM_HOST_IP: $local_ip
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            HCCL_INTER_HCCS_DISABLE: 'TRUE'
+            HCCL_INTRA_ROCE_ENABLE: '1'
+            HCCL_OP_EXPANSION_MODE: AIV
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+            OMP_PROC_BIND: 'false'
+            ACL_OP_INIT_MODE: '1'
+            ASCEND_BASE_PORT: '22000'
+            ASCEND_BUFFER_POOL: 0:0
+            ASCEND_CONNECT_TIMEOUT: '10000'
+            ASCEND_TRANSFER_TIMEOUT: '10000'
+            HCCL_BUFFSIZE: '1024'
+            HCCL_CONNECT_TIMEOUT: '7200'
+            OMP_NUM_THREADS: '10'
+            TASK_QUEUE_ENABLE: '0'
+            VLLM_ENGINE_READY_TIMEOUT_S: '3600'
+            VLLM_LOGGING_LEVEL: WARNING
+            VLLM_ASCEND_KVPOOL_RANGE_DEBUG: '0'
+            GLOG_v: '0'
+            GLOG_minloglevel: '1'
+            ASCEND_GLOBAL_LOG_LEVEL: '2'
+            ASCEND_SLOG_PRINT_TO_STDOUT: '0'
+            ASCEND_TRANSPORT_PRINT: '0'
+            MOONCAKE_CONFIG_PATH: ''
+            MOONCAKE_GLOBAL_SEGMENT_SIZE: ''
+            VLLM_RPC_TIMEOUT: '1800000'
+            LD_PRELOAD: /usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}
+          system_setup:
+            commands:
+            - source /usr/local/Ascend/ascend-toolkit/set_env.sh
+            - source /usr/local/Ascend/nnal/atb/set_env.sh
+        worker:
+          engine_config:
+            host: 0.0.0.0
+            port: 8000
+            data_parallel_size: 2
+            data_parallel_size_local: 1
+            data_parallel_address: $node0_ip
+            data_parallel_rpc_port: 13399
+            tensor_parallel_size: 16
+            enable_expert_parallel: true
+            served_model_name: dsv4
+            max_model_len: 135000
+            max_num_batched_tokens: 4096
+            max_num_seqs: 16
+            gpu_memory_utilization: 0.9
+            quantization: ascend
+            enable_prefix_caching: true
+            enable_chunked_prefill: true
+            no_disable_hybrid_kv_cache_manager: true
+            prefix_cache_retention_interval: None
+            no_async_scheduling: true
+            block_size: 32
+            attention_config.indexer_kv_dtype: int8
+            model_loader_extra_config:
+              enable_multithread_load: true
+              num_threads: 128
+            additional_config:
+              ascend_compilation_config:
+                enable_npugraph_ex: true
+                enable_static_kernel: false
+              enable_cpu_binding: true
+              enable_flashcomm1: true
+              multistream_overlap_shared_expert: true
+              mc2_comm_alg: hierarchy
+              enable_fused_mc2: 0
+            compilation_config:
+              cudagraph_mode: FULL_DECODE_ONLY
+            model: Eco-Tech/DeepSeek-V4-Pro-0813-w4a8
+            data_parallel_start_rank: 1
+            headless: true
+          env:
+            PYTHONHASHSEED: '0'
+            VLLM_USE_V2_MODEL_RUNNER: '0'
+            VLLM_HOST_IP: $local_ip
+            HCCL_IF_IP: $local_ip
+            GLOO_SOCKET_IFNAME: $nic_name
+            TP_SOCKET_IFNAME: $nic_name
+            HCCL_SOCKET_IFNAME: $nic_name
+            HCCL_INTER_HCCS_DISABLE: 'TRUE'
+            HCCL_INTRA_ROCE_ENABLE: '1'
+            HCCL_OP_EXPANSION_MODE: AIV
+            PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+            OMP_PROC_BIND: 'false'
+            ACL_OP_INIT_MODE: '1'
+            ASCEND_BASE_PORT: '22000'
+            ASCEND_BUFFER_POOL: 0:0
+            ASCEND_CONNECT_TIMEOUT: '10000'
+            ASCEND_TRANSFER_TIMEOUT: '10000'
+            HCCL_BUFFSIZE: '1024'
+            HCCL_CONNECT_TIMEOUT: '7200'
+            OMP_NUM_THREADS: '10'
+            TASK_QUEUE_ENABLE: '0'
+            VLLM_ENGINE_READY_TIMEOUT_S: '3600'
+            VLLM_LOGGING_LEVEL: WARNING
+            VLLM_ASCEND_KVPOOL_RANGE_DEBUG: '0'
+            GLOG_v: '0'
+            GLOG_minloglevel: '1'
+            ASCEND_GLOBAL_LOG_LEVEL: '2'
+            ASCEND_SLOG_PRINT_TO_STDOUT: '0'
+            ASCEND_TRANSPORT_PRINT: '0'
+            MOONCAKE_CONFIG_PATH: ''
+            MOONCAKE_GLOBAL_SEGMENT_SIZE: ''
+            VLLM_RPC_TIMEOUT: '1800000'
+            LD_PRELOAD: /usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}
+          system_setup:
+            commands:
+            - source /usr/local/Ascend/ascend-toolkit/set_env.sh
+            - source /usr/local/Ascend/nnal/atb/set_env.sh
+  pd_disaggregation:
+    source_ref: "vllm_ascend_deepseek-v4-pro-0813-w4a8#pd_cluster"
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        orientation: production
+        default_strategy: true
+        nodes:
+          - role: prefill
+            index: 0
+            engine_config:
+              model: Eco-Tech/DeepSeek-V4-Pro-0813-w4a8
+              host: "0.0.0.0"
+              port: $2
+              data_parallel_size: $3
+              data_parallel_rank: $4
+              data_parallel_address: $5
+              data_parallel_rpc_port: 12321
+              tensor_parallel_size: $7
+              enable_expert_parallel: true
+              seed: 1024
+              served_model_name: dsv4-pro
+              max_model_len: 150000
+              max_num_batched_tokens: 4096
+              max_num_seqs: 16
+              no_disable_hybrid_kv_cache_manager: true
+              model_loader_extra_config:
+                enable_multithread_load: true
+                num_threads: 128
+              trust_remote_code: true
+              gpu_memory_utilization: 0.94
+              quantization: ascend
+              block_size: 32
+              enforce_eager: true
+              speculative_config:
+                num_speculative_tokens: 5
+                method: dspark
+                enforce_eager: true
+              additional_config:
+                enable_cpu_binding: true
+                enable_dsa_cp: true
+                enable_fused_mc2: 0
+                enable_flashcomm1: true
+                enable_mc2_hierarchy_comm: true
+              kv_transfer_config:
+                kv_connector: MooncakeHybridConnector
+                kv_role: kv_producer
+                kv_port: 30100
+                engine_id: 0
+                kv_connector_extra_config:
+                  prefill:
+                    dp_size: 4
+                    tp_size: 8
+                  decode:
+                    dp_size: 16
+                    tp_size: 2
+            env:
+              LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:/usr/local/lib/"
+              LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              TP_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+              VLLM_RPC_TIMEOUT: 3600000
+              VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: 30000
+              HCCL_TRANSFER_TIMEOUT: 600
+              HCCL_EXEC_TIMEOUT: 204
+              HCCL_CONNECT_TIMEOUT: 6000
+              OMP_PROC_BIND: "false"
+              OMP_NUM_THREADS: 10
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              HCCL_BUFFSIZE: 1024
+              TASK_QUEUE_ENABLE: 1
+              HCCL_OP_EXPANSION_MODE: AIV
+              VLLM_PREFIX_CACHE_RETENTION_INTERVAL: 4096
+              ASCEND_BUFFER_POOL: "4:8"
+              HCCL_INTER_HCCS_DISABLE: true
+              HCCL_INTRA_ROCE_ENABLE: 1
+            system_setup:
+              commands: ["nic_name=\"xxxx\" # change to the NIC that owns local_ip", "local_ip=\"xx.xx.xx.x\" # use the IP of the current Prefill node"]
+          - role: prefill
+            index: 1
+            engine_config:
+              model: Eco-Tech/DeepSeek-V4-Pro-0813-w4a8
+              host: "0.0.0.0"
+              port: $2
+              data_parallel_size: $3
+              data_parallel_rank: $4
+              data_parallel_address: $5
+              data_parallel_rpc_port: 12321
+              tensor_parallel_size: $7
+              enable_expert_parallel: true
+              seed: 1024
+              served_model_name: dsv4-pro
+              max_model_len: 150000
+              max_num_batched_tokens: 4096
+              max_num_seqs: 16
+              no_disable_hybrid_kv_cache_manager: true
+              model_loader_extra_config:
+                enable_multithread_load: true
+                num_threads: 128
+              trust_remote_code: true
+              gpu_memory_utilization: 0.94
+              quantization: ascend
+              block_size: 32
+              enforce_eager: true
+              speculative_config:
+                num_speculative_tokens: 5
+                method: dspark
+                enforce_eager: true
+              additional_config:
+                enable_cpu_binding: true
+                enable_dsa_cp: true
+                enable_fused_mc2: 0
+                enable_flashcomm1: true
+                enable_mc2_hierarchy_comm: true
+              kv_transfer_config:
+                kv_connector: MooncakeHybridConnector
+                kv_role: kv_producer
+                kv_port: 30100
+                engine_id: 0
+                kv_connector_extra_config:
+                  prefill:
+                    dp_size: 4
+                    tp_size: 8
+                  decode:
+                    dp_size: 16
+                    tp_size: 2
+            env:
+              LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:/usr/local/lib/"
+              LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              TP_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+              VLLM_RPC_TIMEOUT: 3600000
+              VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: 30000
+              HCCL_TRANSFER_TIMEOUT: 600
+              HCCL_EXEC_TIMEOUT: 204
+              HCCL_CONNECT_TIMEOUT: 6000
+              OMP_PROC_BIND: "false"
+              OMP_NUM_THREADS: 10
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              HCCL_BUFFSIZE: 1024
+              TASK_QUEUE_ENABLE: 1
+              HCCL_OP_EXPANSION_MODE: AIV
+              VLLM_PREFIX_CACHE_RETENTION_INTERVAL: 4096
+              ASCEND_BUFFER_POOL: "4:8"
+              HCCL_INTER_HCCS_DISABLE: true
+              HCCL_INTRA_ROCE_ENABLE: 1
+            system_setup:
+              commands: ["nic_name=\"xxxx\" # change to the NIC that owns local_ip", "local_ip=\"xx.xx.xx.x\" # use the IP of the current Prefill node"]
+          - role: decode
+            index: 0
+            engine_config:
+              model: Eco-Tech/DeepSeek-V4-Pro-0813-w4a8
+              host: "0.0.0.0"
+              port: $2
+              data_parallel_size: $3
+              data_parallel_rank: $4
+              data_parallel_address: $5
+              data_parallel_rpc_port: 12321
+              tensor_parallel_size: $7
+              enable_expert_parallel: true
+              seed: 1024
+              served_model_name: dsv4-pro
+              max_model_len: 150000
+              max_num_batched_tokens: 96
+              max_num_seqs: 8
+              no_enable_prefix_caching: true
+              no_disable_hybrid_kv_cache_manager: true
+              model_loader_extra_config:
+                enable_multithread_load: true
+                num_threads: 128
+              trust_remote_code: true
+              gpu_memory_utilization: 0.95
+              quantization: ascend
+              block_size: 32
+              speculative_config:
+                num_speculative_tokens: 5
+                method: dspark
+                enforce_eager: true
+              compilation_config:
+                cudagraph_mode: FULL_DECODE_ONLY
+              additional_config:
+                ascend_compilation_config:
+                  enable_npugraph_ex: true
+                  enable_static_kernel: false
+                enable_cpu_binding: true
+                multistream_overlap_shared_expert: true
+                enable_mc2_hierarchy_comm: true
+                scheduler_config:
+                  recompute_scheduler_enable: true
+              kv_transfer_config:
+                kv_connector: MooncakeHybridConnector
+                kv_role: kv_consumer
+                kv_port: 30800
+                engine_id: 1
+                kv_connector_extra_config:
+                  prefill:
+                    dp_size: 4
+                    tp_size: 8
+                  decode:
+                    dp_size: 16
+                    tp_size: 2
+            env:
+              LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:/usr/local/lib/"
+              LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              TP_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+              VLLM_RPC_TIMEOUT: 3600000
+              VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: 30000
+              HCCL_TRANSFER_TIMEOUT: 600
+              HCCL_EXEC_TIMEOUT: 204
+              HCCL_CONNECT_TIMEOUT: 1200
+              OMP_PROC_BIND: "false"
+              OMP_NUM_THREADS: 10
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              HCCL_BUFFSIZE: 1800
+              TASK_QUEUE_ENABLE: 1
+              ASCEND_BUFFER_POOL: "4:8"
+              HCCL_INTER_HCCS_DISABLE: true
+              HCCL_INTRA_ROCE_ENABLE: 1
+            system_setup:
+              commands: ["nic_name=\"xxxx\" # change to the NIC that owns local_ip", "local_ip=\"xx.xx.xx.x\" # use the IP of the current Decode node"]
+          - role: decode
+            index: 1
+            engine_config:
+              model: Eco-Tech/DeepSeek-V4-Pro-0813-w4a8
+              host: "0.0.0.0"
+              port: $2
+              data_parallel_size: $3
+              data_parallel_rank: $4
+              data_parallel_address: $5
+              data_parallel_rpc_port: 12321
+              tensor_parallel_size: $7
+              enable_expert_parallel: true
+              seed: 1024
+              served_model_name: dsv4-pro
+              max_model_len: 150000
+              max_num_batched_tokens: 96
+              max_num_seqs: 8
+              no_enable_prefix_caching: true
+              no_disable_hybrid_kv_cache_manager: true
+              model_loader_extra_config:
+                enable_multithread_load: true
+                num_threads: 128
+              trust_remote_code: true
+              gpu_memory_utilization: 0.95
+              quantization: ascend
+              block_size: 32
+              speculative_config:
+                num_speculative_tokens: 5
+                method: dspark
+                enforce_eager: true
+              compilation_config:
+                cudagraph_mode: FULL_DECODE_ONLY
+              additional_config:
+                ascend_compilation_config:
+                  enable_npugraph_ex: true
+                  enable_static_kernel: false
+                enable_cpu_binding: true
+                multistream_overlap_shared_expert: true
+                enable_mc2_hierarchy_comm: true
+                scheduler_config:
+                  recompute_scheduler_enable: true
+              kv_transfer_config:
+                kv_connector: MooncakeHybridConnector
+                kv_role: kv_consumer
+                kv_port: 30800
+                engine_id: 1
+                kv_connector_extra_config:
+                  prefill:
+                    dp_size: 4
+                    tp_size: 8
+                  decode:
+                    dp_size: 16
+                    tp_size: 2
+            env:
+              LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:/usr/local/lib/"
+              LD_PRELOAD: "/usr/lib/aarch64-linux-gnu/libjemalloc.so.2${LD_PRELOAD:+:$LD_PRELOAD}"
+              HCCL_IF_IP: $local_ip
+              GLOO_SOCKET_IFNAME: $nic_name
+              TP_SOCKET_IFNAME: $nic_name
+              HCCL_SOCKET_IFNAME: $nic_name
+              VLLM_RPC_TIMEOUT: 3600000
+              VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS: 30000
+              HCCL_TRANSFER_TIMEOUT: 600
+              HCCL_EXEC_TIMEOUT: 204
+              HCCL_CONNECT_TIMEOUT: 1200
+              OMP_PROC_BIND: "false"
+              OMP_NUM_THREADS: 10
+              PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+              HCCL_BUFFSIZE: 1800
+              TASK_QUEUE_ENABLE: 1
+              ASCEND_BUFFER_POOL: "4:8"
+              HCCL_INTER_HCCS_DISABLE: true
+              HCCL_INTRA_ROCE_ENABLE: 1
+            system_setup:
+              commands: ["nic_name=\"xxxx\" # change to the NIC that owns local_ip", "local_ip=\"xx.xx.xx.x\" # use the IP of the current Decode node"]

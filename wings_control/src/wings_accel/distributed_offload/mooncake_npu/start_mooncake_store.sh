@@ -227,7 +227,7 @@ function start_server() {
       --global-segment-size "$GLOBAL_SEGMENT_SIZE_MB" \
       --device-name "" \
       --offload-dir "$MOONCAKE_OFFLOAD_FILE_STORAGE_PATH" \
-      >>${LOG_PATH}/mooncake_store_setup.log 2>&1 &
+      >>${LOG_PATH}/mooncake_store_setup.log 2>&1
   else
     python3 ${STORE_PY_FILE} \
       --local-host "$RANK_IP" \
@@ -236,8 +236,23 @@ function start_server() {
       --master-server "${SERVICE_NAME}:50051" \
       --global-segment-size "$GLOBAL_SEGMENT_SIZE_MB" \
       --device-name "" \
-      >>${LOG_PATH}/mooncake_store_setup.log 2>&1 &
+      >>${LOG_PATH}/mooncake_store_setup.log 2>&1
   fi
+}
+
+# 进程退出后的重启间隔(秒), 可通过环境变量 RESTART_INTERVAL 覆盖
+RESTART_INTERVAL="${RESTART_INTERVAL:-5}"
+
+# 进程守护: 监听 start_server, 退出后自动重启
+function monitor_server() {
+  local restart_count=0
+  while true; do
+    # start_server 退出(无论正常/异常)都重启; 用 || true 屏蔽 errexit, 避免脚本随进程一起退出
+    start_server || true
+    restart_count=$((restart_count + 1))
+    log warn "mooncake_store process exited, restarting (count=${restart_count}) in ${RESTART_INTERVAL}s"
+    sleep "${RESTART_INTERVAL}"
+  done
 }
 
 function main() {
@@ -247,8 +262,7 @@ function main() {
   set_ascend_env
   log_param
   wait_for_master
-  start_server
-  log info "================ Finish mooncake_store_ascend ================"
+  monitor_server
 }
 
 

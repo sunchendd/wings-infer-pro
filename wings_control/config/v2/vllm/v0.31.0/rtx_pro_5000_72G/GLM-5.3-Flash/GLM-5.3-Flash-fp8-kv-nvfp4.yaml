@@ -1,0 +1,95 @@
+# vLLM 0.31.0 / RTX PRO 5000 72GB unified recipe and SmartAccel.
+schema: v2
+profile:
+  engine: vllm
+  version: v0.31.0
+  hardware:
+  - RTX-PRO-5000-72GB-Blackwell_72G
+  model: GLM-5.3-Flash
+upstream_sources:
+- id: glm53_sm120_local
+  kind: manual
+  repo: null
+  file: /home/wgd/glm5.3_flash/vllm_fix
+  url: null
+  note: Ported from local FP8 TP8 and NVFP4 KV TP4 DP2 commands; v0.31.0 GPU acceptance tracked separately.
+model:
+  name: GLM-5.3-Flash
+  provider: Z-AI
+  model_id: zai-org/GLM-5.3-Flash
+  architecture: moe
+  context_length: 135168
+  min_engine_version: 0.31.0
+  variant_name: GLM-5.3-Flash
+  match:
+  - name_pattern: (?i)^glm[-.]?5[-.]?3[-.]?flash$
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 576
+  multi_node: false
+features:
+  tool_calling:
+    description: GLM tool calls
+    args:
+    - --tool-call-parser
+    - glm47
+    - --enable-auto-tool-choice
+  reasoning:
+    description: GLM reasoning
+    args:
+    - --reasoning-parser
+    - glm45
+scenarios:
+  standalone:
+    source_ref: glm53_sm120_local#tp4dp2ep8_nvfp4
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tp:
+        display_name: Tensor + Data + Expert Parallel
+        orientation: latency
+        default_strategy: true
+        engine_config:
+          model: zai-org/GLM-5.3-Flash
+          host: 0.0.0.0
+          port: 8001
+          tensor_parallel_size: 4
+          pipeline_parallel_size: 1
+          enable_expert_parallel: true
+          kv_cache_dtype: nvfp4_ds_mla
+          attention_backend: FLASHINFER_MLA_SPARSE_SM120
+          gpu_memory_utilization: 0.95
+          max_model_len: 135168
+          language_model_only: true
+          max_num_seqs: 128
+          compilation_config:
+            max_cudagraph_capture_size: 128
+          max_num_batched_tokens: 8192
+          data_parallel_size: 2
+          all2all_backend: allgather_reducescatter
+        env:
+          NCCL_P2P_LEVEL: SYS
+          NCCL_SHM_DISABLE: '1'
+          NCCL_CUMEM_ENABLE: '0'
+          VLLM_KV_CACHE_LAYOUT: LBHNC
+          KV_FP8_ROPE: '1'
+          FLASHINFER_EXP_QUIET: '1'
+smart_accel:
+  standalone:
+    source_ref: glm53_sm120_local#tp4dp2ep8_nvfp4
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+        - name: mtp
+          cli_params:
+            speculative_config:
+              method: mtp
+              num_speculative_tokens: 3
+          envs: {}
+          packages:
+            flashinfer-sm120: 0.7.0.post1+sm120.1

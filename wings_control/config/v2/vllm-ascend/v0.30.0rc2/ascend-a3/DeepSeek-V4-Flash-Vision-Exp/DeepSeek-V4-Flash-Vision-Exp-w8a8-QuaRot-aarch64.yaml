@@ -1,0 +1,203 @@
+# DeepSeek-V4-Flash-Vision-Exp W8A8 QuaRot, one 16-device Ascend 910C node.
+# runtime_validated: false
+# Source: e-20261015-173523-rc2-vision-swa-gather-fix-20m on the original rc2 image.
+# This Wings integration has not been validated by a new serving run.
+# Wings uses backend 17000 and proxy 18000; the manual backend used 18000.
+schema: v2
+profile:
+  engine: vllm-ascend
+  version: "v0.30.0rc2"
+  hardware: {Ascend910C_64G}
+  model: DeepSeek-V4-Flash-Vision-Exp-w8a8-QuaRot
+  cpu_arch: {aarch64}
+
+upstream_sources:
+  - id: dsv4_vision_rc2_910c_single_memcache
+    kind: manual
+    repo: null
+    file: "负责场景/task/调优-DeepSeek-V4-Flash-Vision.md"
+    url: null
+    note: Archived DSpark6, IndexCache4 and MemCache acceptance; the new Wings asset requires separate runtime validation.
+
+model:
+  name: DeepSeek-V4-Flash-Vision-Exp
+  provider: Eco-Tech
+  model_id: Eco-Tech/DeepSeek-V4-Flash-Vision-Exp-w8a8-QuaRot
+  min_engine_version: v0.30.0rc2
+  variant_name: DeepSeek-V4-Flash-Vision-Exp-w8a8-QuaRot
+  match:
+    - name_pattern: "(?i)^deepseek[-.]v4-flash-vision-exp-w8a8-quarot$"
+
+hardware_profile:
+  gpu_count: 16
+  vram_gb: 1024
+  multi_node: false
+
+features:
+  tool_calling:
+    description: Enable DeepSeek V4 automatic tool calling.
+    args: [--enable-auto-tool-choice, --tool-call-parser, deepseek_v4]
+  reasoning:
+    description: Enable DeepSeek V4 reasoning parser.
+    args: [--reasoning-parser, deepseek_v4]
+
+scenarios:
+  standalone:
+    source_ref: "dsv4_vision_rc2_910c_single_memcache#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        display_name: Single-node DP4 TP4 EP16
+        default_strategy: true
+        engine_config:
+          model: /var/ai-model/DeepSeek-V4-Flash-Vision-Exp-w8a8-QuaRot
+          host: 0.0.0.0
+          port: 17000
+          served_model_name: dsv4-vision
+          tokenizer_mode: deepseek_v4
+          quantization: ascend
+          enable_prefix_caching: true
+          enable_chunked_prefill: true
+          no_disable_hybrid_kv_cache_manager: true
+          max_model_len: 1048576
+          max_num_batched_tokens: 4096
+          max_num_seqs: 32
+          gpu_memory_utilization: 0.9
+          data_parallel_size: 4
+          tensor_parallel_size: 4
+          enable_expert_parallel: true
+          model_loader_extra_config:
+            enable_multithread_load: true
+            num_threads: 32
+          block_size: 32
+          compilation_config:
+            cudagraph_mode: FULL_DECODE_ONLY
+            cudagraph_capture_sizes: [4, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208, 216, 224]
+          limit_mm_per_prompt:
+            image: 4
+            video: 0
+          seed: 1024
+          api_server_count: 1
+        env:
+          TZ: Asia/Shanghai
+          PYTHONHASHSEED: 0
+          VLLM_USE_V2_MODEL_RUNNER: 0
+          PYTORCH_NPU_ALLOC_CONF: "expandable_segments:True"
+          HCCL_BUFFSIZE: 1024
+          VLLM_SERVER_DEV_MODE: 1
+          HCCL_IF_IP: $local_ip
+          GLOO_SOCKET_IFNAME: $NIC_NAME
+          TP_SOCKET_IFNAME: $NIC_NAME
+          HCCL_SOCKET_IFNAME: $NIC_NAME
+        system_setup:
+          commands:
+            - source /usr/local/Ascend/ascend-toolkit/set_env.sh
+            - source /usr/local/Ascend/nnal/atb/set_env.sh
+            - source /shared-volume/vision-memcache-prepare.sh
+
+smart_accel:
+  standalone:
+    source_ref: "dsv4_vision_rc2_910c_single_memcache#single_node"
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+          - name: dspark
+            cli_params:
+              speculative_config:
+                method: dspark
+                num_speculative_tokens: 6
+                enforce_eager: true
+            envs: {}
+        sparse:
+          - name: performance_first
+            cli_params:
+              hf_overrides:
+                use_index_cache: true
+                index_topk_freq: 8
+            envs: {}
+          - name: accuracy_first
+            cli_params:
+              hf_overrides:
+                use_index_cache: true
+                index_topk_freq: 4
+            envs: {}
+        kv_offload:
+          - name: cpu
+            cli_params:
+              kv_transfer_config:
+                kv_connector: AscendStoreConnector
+                kv_role: kv_both
+                kv_load_failure_policy: fail
+                kv_connector_extra_config:
+                  backend: memcache
+                  lookup_rpc_port: "0"
+                  use_layerwise: false
+            envs:
+              MMC_LOCAL_CONFIG_PATH: /shared-volume/vision-mmc-local.conf
+              MMC_META_CONFIG_PATH: /shared-volume/vision-mmc-meta.conf
+              ACL_OP_INIT_MODE: 1
+              ASCEND_ENABLE_USE_FABRIC_MEM: 1
+            files:
+              - path: vision-mmc-local.conf
+                mode: "0644"
+                scope: all
+                content: |
+                  ock.mmc.meta_service_url = tcp://127.0.0.1:15000
+                  ock.mmc.local_service.config_store_url = tcp://127.0.0.1:16000
+                  ock.mmc.log_level = info
+                  ock.mmc.local_service.world_size = 256
+                  ock.mmc.local_service.protocol = device_sdma
+                  # 128GB requested across 16 workers reproduces 8GB per worker.
+                  ock.mmc.local_service.dram.size = {= memory_capacity_gb // gpu_count}GB
+                  ock.mmc.local_service.max.dram.size = {= memory_capacity_gb // gpu_count}GB
+                  ock.mmc.local_service.storage.enabled = false
+              - path: vision-mmc-meta.conf
+                mode: "0644"
+                scope: master
+                content: |
+                  ock.mmc.meta_service_url = tcp://127.0.0.1:15000
+                  ock.mmc.meta_service.config_store_url = tcp://127.0.0.1:16000
+                  ock.mmc.meta_service.metrics_url = http://127.0.0.1:18080
+                  ock.mmc.log_level = info
+              - path: vision-memcache-prepare.sh
+                mode: "0644"
+                scope: all
+                content: |
+                  # Sourced by the parent engine shell after daemon startup.
+                  # A stale shared-volume file must be inert when offload is disabled.
+                  if [ -z "${MMC_LOCAL_CONFIG_PATH:-}" ] || [ -z "${MMC_META_CONFIG_PATH:-}" ]; then
+                    return 0
+                  fi
+                  MMC_DIR=$(python3 -c 'import importlib.util,pathlib; print(pathlib.Path(importlib.util.find_spec("memcache_hybrid").origin).parent)')
+                  PYTHON_LIB_DIR=$(python3 -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR") or "")')
+                  export LD_LIBRARY_PATH="$MMC_DIR/lib:$PYTHON_LIB_DIR:${LD_LIBRARY_PATH:-}"
+                  python3 - <<'PY'
+                  import socket
+                  import time
+                  for attempt in range(60):
+                      try:
+                          with socket.create_connection(("127.0.0.1", 15000), timeout=1):
+                              break
+                      except OSError:
+                          time.sleep(0.5)
+                  else:
+                      raise RuntimeError("MemCache MetaService not ready on 127.0.0.1:15000")
+                  PY
+              - path: start_kv_serve.sh
+                mode: "0755"
+                scope: master
+                content: |
+                  #!/usr/bin/env bash
+                  set -eo pipefail
+                  source /usr/local/Ascend/ascend-toolkit/set_env.sh
+                  source /usr/local/Ascend/nnal/atb/set_env.sh
+                  MMC_DIR=$(python3 -c 'import importlib.util,pathlib; print(pathlib.Path(importlib.util.find_spec("memcache_hybrid").origin).parent)')
+                  PYTHON_LIB_DIR=$(python3 -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR") or "")')
+                  export LD_LIBRARY_PATH="$MMC_DIR/lib:$PYTHON_LIB_DIR:${LD_LIBRARY_PATH:-}"
+                  exec python3 -c 'from memcache_hybrid import MetaService; MetaService.main()' >> /shared-volume/vision-memcache-meta.log 2>&1

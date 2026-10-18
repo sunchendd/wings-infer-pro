@@ -26,7 +26,7 @@ model:
   match:  # 模型名匹配规则
     - name_pattern: "(?i)deepseek[-.]?v4[-.]?flash"
   variant_name: DeepSeek-V4-Flash-fp8  # 模型量化版本精确名称
-  
+
 # 硬件信息
 hardware_profile:
   gpu_count: 8  # 单节点 GPU 数量

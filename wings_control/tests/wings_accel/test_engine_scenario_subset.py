@@ -433,6 +433,69 @@ def test_deepseek_v41_flash_multi_node_dspark_decoding():
     }
 
 
+def test_deepseek_v4_pro_v030rc2_multi_node_dspark_decoding():
+    """v0.30.0rc2 DeepSeek V4 Pro asset must retain its DSpark multi-node scheme."""
+    from wings_accel import resolve_smart_accel_from_config
+    from wings_accel.yaml_loader import _package_smart_accel_root
+
+    out = resolve_smart_accel_from_config(
+        config_root=_package_smart_accel_root().parent,
+        engine="vllm-ascend",
+        engine_version="v0.30.0rc2",
+        hardware_family="ascend-a3",
+        model_name="DeepSeek-V4-Pro-0813-w4a8",
+        gpu_count=16,
+        flags=LoadFlags(topology="multi_node", decoding_enabled=True),
+    )
+
+    assert out is not None
+    assert out.smart_decoding_scheme == "dspark"
+    assert out.engine_params.engine_config["speculative_config"] == {
+        "num_speculative_tokens": 5,
+        "method": "dspark",
+        "enforce_eager": True,
+    }
+
+
+def test_glm53_w8a8c8_v030rc2_multi_node_accel_asset():
+    """GLM-5.3 W8A8C8 v0.30.0rc2 resolves its declared multi-node MTP3 scheme."""
+    from wings_accel import resolve_smart_accel_from_config
+    from wings_accel.yaml_loader import _package_smart_accel_root
+
+    out = resolve_smart_accel_from_config(
+        config_root=_package_smart_accel_root().parent,
+        engine="vllm-ascend",
+        engine_version="v0.30.0rc2",
+        hardware_family="ascend-a3",
+        model_name="GLM-5.3-w8a8c8",
+        gpu_count=16,
+        flags=LoadFlags(topology="multi_node", decoding_enabled=True),
+    )
+
+    assert out is not None
+    assert out.smart_decoding_scheme == "deepseek_mtp"
+    assert out.engine_params.engine_config["speculative_config"]["num_speculative_tokens"] == 3
+
+
+def test_glm53_w8a8c8_v030rc2_pd_decode_uses_glm47_reasoning_parser():
+    """GLM-5.3 v0.30 PD decode nodes must use the same reasoning parser as its feature overlay."""
+    path = (
+        ENGINE_ROOT
+        / "vllm-ascend"
+        / "v0.30.0rc2"
+        / "ascend-a3"
+        / "models"
+        / "GLM-5.3"
+        / "GLM-5.3-w8a8c8.yaml"
+    )
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    nodes = data["scenarios"]["pd_disaggregation"]["strategies"]["pd_cluster"]["nodes"]
+    decode_nodes = [node for node in nodes if node["role"] == "decode"]
+
+    assert len(decode_nodes) == 2
+    assert all(node["engine_config"]["reasoning_parser"] == "glm47" for node in decode_nodes)
+
+
 def test_kimi_k3_multi_node_kv_per_rank_bytes():
     """Kimi-K3 multi_node KV 卸载的 per-rank 字节数按卡均分(multi_node 实际渲染断言)。
 

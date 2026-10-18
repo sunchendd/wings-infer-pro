@@ -1,0 +1,210 @@
+# vLLM 0.31.0 / RTX PRO 5000 72GB unified recipe and SmartAccel.
+schema: v2
+profile:
+  engine: vllm
+  version: v0.31.0
+  hardware:
+  - RTX-PRO-5000-72GB-Blackwell_72G
+  model: Qwen3.5-122B-A10B
+upstream_sources:
+- id: qwen3.5_122b_a10b_manual
+  kind: manual
+  repo: null
+  file: null
+  url: null
+  date_updated: 2026-07-14
+  note: 手工录入
+model:
+  name: Qwen3.5-122B-A10B
+  slug: qwen3.5-122b-a10b
+  provider: Qwen
+  description: Qwen3.5-122B-A10B 模型（本地权重），支持工具调用与投机解码。
+  model_id: Qwen/Qwen3.5-122B-A10B
+  architecture: null
+  parameter_count: null
+  active_parameters: null
+  context_length: null
+  vram_minimum_gb: 384
+  tasks:
+  - text
+  min_engine_version: 0.31.0
+  date_updated: 2026-07-14
+  match:
+  - name_pattern: (?i)qwen3.5[-.]?122b[-.]?a10b
+  variant_name: Qwen3.5-122B-A10B
+hardware_profile:
+  gpu_count: 8
+  vram_gb: 576
+  multi_node: true
+features:
+  tool_calling:
+    description: Enable tool calling with Hermes tool parser.
+    args:
+    - --enable-auto-tool-choice
+    - --tool-call-parser
+    - hermes
+  spec_decoding:
+    description: Qwen3.5 MTP speculative decoding.
+    args:
+    - --speculative-config
+    - '{"method":"qwen3_5_mtp","num_speculative_tokens":1}'
+  kv_offloading:
+    description: KV cache native offloading to reduce GPU memory usage.
+    args:
+    - --kv-offloading-backend
+    - native
+    - --kv-offloading-size
+    - '40'
+scenarios:
+  standalone:
+    source_ref: qwen3.5_122b_a10b_manual#single_node_tep
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node_tep:
+        display_name: Tensor + Expert Parallel
+        orientation: balanced
+        default_strategy: true
+        engine_config:
+          model: Qwen/Qwen3.5-122B-A10B
+          host: 0.0.0.0
+          port: 7906
+          tensor_parallel_size: 4
+          data_parallel_size: 1
+          enable_expert_parallel: true
+          max_num_seqs: 200
+          max_model_len: 65536
+          max_num_batched_tokens: 16384
+          gpu_memory_utilization: 0.95
+          seed: 1024
+          trust_remote_code: true
+          async_scheduling: true
+          enable_prefix_caching: true
+        env:
+          PYTHONHASHSEED: '0'
+          NCCL_P2P_LEVEL: SYS
+          NCCL_SHM_DISABLE: 1
+  multi_node:
+    source_ref: qwen3.5_122b_a10b_manual#multi_node_tp
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_tp:
+        display_name: Multi-Node Tensor Parallel
+        orientation: balanced
+        default_strategy: true
+        head:
+          engine_config:
+            model: Qwen/Qwen3.5-122B-A10B
+            host: 0.0.0.0
+            port: 7906
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 0
+            master_addr: $HEAD_IP
+            data_parallel_size: 1
+            enable_expert_parallel: true
+            max_num_seqs: 200
+            max_model_len: 65536
+            max_num_batched_tokens: 16384
+            gpu_memory_utilization: 0.95
+            seed: 1024
+            trust_remote_code: true
+            async_scheduling: true
+            enable_prefix_caching: true
+          env:
+            PYTHONHASHSEED: '0'
+            NCCL_P2P_LEVEL: SYS
+            NCCL_SHM_DISABLE: 1
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+        worker:
+          engine_config:
+            model: Qwen/Qwen3.5-122B-A10B
+            host: 0.0.0.0
+            port: 7906
+            tensor_parallel_size: 16
+            nnodes: 2
+            node_rank: 1
+            master_addr: $HEAD_IP
+            headless: true
+            data_parallel_size: 1
+            enable_expert_parallel: true
+            max_num_seqs: 200
+            max_model_len: 65536
+            max_num_batched_tokens: 16384
+            gpu_memory_utilization: 0.95
+            seed: 1024
+            trust_remote_code: true
+            async_scheduling: true
+            enable_prefix_caching: true
+          env:
+            PYTHONHASHSEED: '0'
+            NCCL_P2P_LEVEL: SYS
+            NCCL_SHM_DISABLE: 1
+            GLOO_SOCKET_IFNAME: $IFACE_NAME
+            NCCL_SOCKET_IFNAME: $IFACE_NAME
+smart_accel:
+  standalone:
+    source_ref: smart_accel#standalone
+    match:
+      distributed: false
+      pd_role: null
+    strategies:
+      single_node:
+        default_strategy: true
+        decoding:
+        - name: qwen3_5_mtp
+          cli_params:
+            speculative_config:
+              method: qwen3_5_mtp
+              num_speculative_tokens: 1
+          envs: {}
+        kv_offload:
+        - name: cpu
+          cli_params:
+            kv_offloading_backend: native
+            kv_offloading_size: '{memory_capacity_gb}'
+          envs: {}
+  multi_node:
+    source_ref: smart_accel#multi_node
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      multi_node_dp:
+        default_strategy: true
+        decoding:
+        - name: qwen3_5_mtp
+          cli_params:
+            speculative_config:
+              method: qwen3_5_mtp
+              num_speculative_tokens: 1
+          envs: {}
+        kv_offload:
+        - name: cpu
+          cli_params:
+            kv_offloading_backend: native
+            kv_offloading_size: '{memory_capacity_gb}'
+          envs: {}
+  pd_disaggregation:
+    source_ref: smart_accel#pd_cluster
+    match:
+      distributed: true
+      pd_role: null
+    strategies:
+      pd_cluster:
+        display_name: Prefill/Decode Disaggregation
+        default_strategy: true
+        nodes:
+        - role: decode
+          index: 0
+          decoding:
+          - name: qwen3_5_mtp
+            cli_params:
+              speculative_config:
+                method: qwen3_5_mtp
+                num_speculative_tokens: 1
+            envs: {}
