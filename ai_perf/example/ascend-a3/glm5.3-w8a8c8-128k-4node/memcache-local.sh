@@ -18,14 +18,24 @@ set +a
 
 HOST_KEY="NODE_${NODE^^}"
 HOST=${!HOST_KEY}
-mkdir -p "$HERE/logs" "$HERE/rendered/local-service" "$HERE/rendered/model-client"
+mkdir -p "$HERE/logs" "$HERE/rendered/local-service/$NODE" "$HERE/rendered/model-client"
+# Nodes with different UBS IO disks or memory tiers ship a per-node override
+# mmc-local.conf.<node>; nodes with identical hardware share the plain mmc-local.conf.
 # Only the meta address is rendered; per-node UBS IO disk settings stay in the conf file.
-sed "s/@META_HOST@/$META_NODE/g" "$HERE/memcache/local-service/mmc-local.conf" > "$HERE/rendered/local-service/mmc-local.conf"
+LOCAL_SRC="$HERE/memcache/local-service/mmc-local.conf.$NODE"
+[ -f "$LOCAL_SRC" ] || LOCAL_SRC="$HERE/memcache/local-service/mmc-local.conf"
+sed "s/@META_HOST@/$META_NODE/g" "$LOCAL_SRC" > "$HERE/rendered/local-service/$NODE/mmc-local.conf"
 sed "s/@META_HOST@/$META_NODE/g" "$HERE/memcache/model-client/mmc-local.conf" > "$HERE/rendered/model-client/mmc-local.conf"
 
-LOCAL_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+LOCAL_IP=""
+for _addr in $(hostname -I 2>/dev/null); do
+  for _name in "${!NODE_@}"; do
+    [ "${!_name}" = "$_addr" ] && { LOCAL_IP="$_addr"; break 2; }
+  done
+done
+[ -n "$LOCAL_IP" ] || echo "NOTICE: this host matches none of the configured NODE_* addresses ($(hostname -I 2>/dev/null)); nodes will be reached over SSH." >&2
 # Refuse missing or mounted devices: UBS IO owns the raw disk and destroys existing data on it.
-disk_path="$(sed -n 's/^ubsio.disk.path *= *//p' "$HERE/rendered/local-service/mmc-local.conf" | head -n1)"
+disk_path="$(sed -n 's/^ubsio.disk.path *= *//p' "$HERE/rendered/local-service/$NODE/mmc-local.conf" | head -n1)"
 [[ -n "$disk_path" ]] || { echo "ubsio.disk.path is missing in memcache/local-service/mmc-local.conf" >&2; exit 1; }
 for disk in ${disk_path//:/ }; do
   [[ "$disk" == /dev/* ]] || { echo "Invalid ubsio.disk.path entry: $disk" >&2; exit 1; }
@@ -43,7 +53,11 @@ for disk in ${disk_path//:/ }; do
 done
 if [[ "$HOST" != "$LOCAL_IP" ]]; then
   rm -f "$PACKAGE"
-  tar czf "$PACKAGE" --exclude=generated --exclude=rendered --exclude=logs -C "$HERE" .
+  # rendered/ must ship with the package: the remote memcache container and the remote
+  # engine's model-client both read $HERE/rendered/... at startup, and nothing on the
+  # remote node regenerates them (field-verified: shipping without them crash-loops the
+  # remote memcache and kills the engine's Mooncake connector init).
+  tar czf "$PACKAGE" --exclude=generated --exclude=logs -C "$HERE" .
   scp -o BatchMode=yes -q "$PACKAGE" root@"$HOST:$PACKAGE"
   ssh -o BatchMode=yes root@"$HOST" mkdir -p "$HERE"
   ssh -o BatchMode=yes root@"$HOST" tar xzf "$PACKAGE" -C "$HERE"

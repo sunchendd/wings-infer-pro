@@ -15,7 +15,17 @@ NODES=(p0 p1 p2 p3 d0 d1)
 set -a
 source "$HERE/env/common.env"
 set +a
-local_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+# Match this host against the configured node addresses instead of trusting hostname -I
+# order: extra NICs (bond, VPN, ...) can reorder it and make the deploy host look like a
+# remote node, breaking every local branch with ssh-to-self failures.
+local_ip=""
+for _addr in $(hostname -I 2>/dev/null); do
+  for _n in "${NODES[@]}"; do
+    _k="NODE_${_n^^}"
+    [ "${!_k}" = "$_addr" ] && { local_ip="$_addr"; break 2; }
+  done
+done
+[ -n "$local_ip" ] || echo "NOTICE: none of the configured NODE_* addresses matches this host ($(hostname -I 2>/dev/null)); every node will be reached over SSH." >&2
 run_on() { local host=$1; shift; if [[ "$host" == "$local_ip" ]]; then "$@"; else "${SSH[@]}" root@"$host" "$@"; fi; }
 node_host() { local key="NODE_${1^^}"; printf '%s' "${!key}"; }
 prepare_deploy() { rm -f "$PACKAGE"; tar czf "$PACKAGE" --exclude=generated --exclude=rendered --exclude=logs -C "$HERE" .; }
@@ -27,7 +37,20 @@ compose_node() {
 compose_existing() { local node=$1 host; shift; host="$(node_host "$node")"; run_on "$host" docker compose --project-directory "$HERE" --env-file "$HERE/env/common.env" --env-file "$HERE/env/$node.env" -p "glm53-128k-6node-$node" "$@"; }
 start_node() { prepare_deploy; compose_node "$1" up -d --force-recreate --wait --wait-timeout 600 control; compose_node "$1" up -d --no-deps --force-recreate engine; }
 start_proxy() { prepare_deploy; compose_node p0 up -d --no-deps --force-recreate proxy; }
-stop_all() { local failed=0; for node in "${NODES[@]}"; do compose_existing "$node" rm -sf control engine memcache proxy || failed=1; done; compose_existing p0 rm -sf meta || failed=1; return "$failed"; }
+stop_all() {
+  local failed=0 node
+  # Stop engines gracefully first: SIGKILLing a loaded engine leaks CANN devmm pinned
+  # pages (dmesg "alloc_contig_range: PFNs busy"), and the next MemCache start then
+  # fails its DRAM allocation until the node reboots.
+  for node in "${NODES[@]}"; do
+    compose_existing "$node" stop -t 60 engine >/dev/null 2>&1 || failed=1
+  done
+  sleep 10
+  for node in "${NODES[@]}"; do compose_existing "$node" rm -sf control engine memcache proxy || failed=1; done
+  compose_existing p0 rm -sf meta || failed=1
+  [ "$failed" = 0 ] || echo "WARNING: some services did not stop cleanly; check 'docker ps -a' on the nodes." >&2
+  return "$failed"
+}
 # Distribute images to selected nodes (default: all).
 #   image [nodes] [archives]
 #     nodes    comma-separated node names, e.g. p0 or p0,p1; defaults to all nodes
@@ -64,6 +87,18 @@ load_images() {
     done
   else
     images=("$ENGINE_IMAGE" "$CONTROL_IMAGE")
+    # Exporting tens of GB just to find every node already served is wasted time;
+    # check all target nodes first and bail out early when both images are present.
+    local all_present=1
+    for node in "${nodes[@]}"; do
+      if ! run_on "$(node_host "$node")" docker image inspect "${images[@]}" >/dev/null 2>&1; then
+        all_present=0; break
+      fi
+    done
+    if [ "$all_present" = 1 ]; then
+      echo "Images already present on all target nodes: ${nodes[*]}"
+      return 0
+    fi
     local image
     for image in "${images[@]}"; do
       if ! docker image inspect "$image" >/dev/null 2>&1; then
