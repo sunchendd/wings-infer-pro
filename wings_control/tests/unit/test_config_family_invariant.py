@@ -12,9 +12,9 @@ import json
 from pathlib import Path
 from typing import Any, Iterator
 
-import yaml
 from packaging.version import InvalidVersion, Version
 
+from tests.asset_yaml_cache import load_asset_yaml
 from wings_ctl.hardware.resolver import strip_gpu_mem_suffix
 
 
@@ -78,7 +78,7 @@ def _model_variant_keys(root: Path) -> set[tuple[str, str, str]]:
     """收集 ``(version, hardware, variant_name)`` 资产身份。"""
     keys: set[tuple[str, str, str]] = set()
     for path in root.glob("v*/*/models/*/*.yaml"):
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        data = load_asset_yaml(path) or {}
         model = data.get("model") if isinstance(data, dict) else None
         if not isinstance(model, dict):
             continue
@@ -115,7 +115,7 @@ def test_vllm_flashinfer_kernel_config_uses_native_dotted_key(config_root_real):
     legacy_entries: list[str] = []
     invalid_native_entries: list[str] = []
     for path in sorted((config_root_real / "engines" / "vllm").rglob("*.yaml")):
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        data = load_asset_yaml(path)
         for engine_config in _engine_config_mappings(data):
             if "kernel_config_enable_flashinfer_autotune" in engine_config:
                 legacy_entries.append(str(path))
@@ -154,7 +154,7 @@ def test_deepseek_mtp_assets_do_not_match_unsupported_models(config_root_real):
         for path in sorted(root.rglob("*.yaml")):
             if "deepseek" not in str(path).casefold():
                 continue
-            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            data = load_asset_yaml(path)
             if not _contains_mtp(data):
                 continue
             for pattern in _model_patterns(data):
@@ -182,7 +182,7 @@ def _model_variant_keys_by_hardware(root: Path) -> set[tuple[str, str]]:
         except ValueError:
             continue
         hardware = parts[models_idx - 1]
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        data = load_asset_yaml(path) or {}
         model = data.get("model") if isinstance(data, dict) else None
         if not isinstance(model, dict):
             continue
@@ -192,9 +192,8 @@ def _model_variant_keys_by_hardware(root: Path) -> set[tuple[str, str]]:
     return keys
 
 
-def _minimum_engine_version(path: Path) -> Version | None:
-    """解析 engine YAML 的最低版本；缺失或非 PEP 440 版本时不参与版本门禁。"""
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+def _minimum_engine_version(data: dict[str, Any]) -> Version | None:
+    """解析 engine 资产声明的最低版本；缺失或非 PEP 440 版本时不参与版本门禁。"""
     raw = str((data.get("model") or {}).get("min_engine_version", "")).strip().lstrip("v")
     if not raw:
         return None
@@ -266,15 +265,15 @@ def test_diffusiongemma_has_no_smart_asset_below_minimum_version(config_root_rea
     smart_root = Path(__file__).resolve().parents[2] / "src" / "wings_accel" / "smart-accel" / "vllm"
     minimums: dict[tuple[str, str], Version] = {}
     for path in engine_root.glob("**/models/*/*.yaml"):
-        minimum = _minimum_engine_version(path)
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        data = load_asset_yaml(path) or {}
+        minimum = _minimum_engine_version(data)
         variant_name = (data.get("model") or {}).get("variant_name")
         if minimum is not None and isinstance(variant_name, str) and variant_name.strip():
             minimums[(path.parts[-4], variant_name.strip().casefold())] = minimum
 
     violations: list[str] = []
     for path in smart_root.glob("v*/*/models/diffusiongemma-26B-A4B-it/*.yaml"):
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        data = load_asset_yaml(path) or {}
         variant_name = (data.get("model") or {}).get("variant_name")
         if not isinstance(variant_name, str) or not variant_name.strip():
             continue
@@ -305,7 +304,7 @@ def test_vllm_ascend_smart_speculative_configs_preserve_required_fields(config_r
         "speculative_token_range",
     }
     for engine_path in (config_root_real / "engines" / "vllm-ascend").glob("v*/**/models/*/*.yaml"):
-        engine = yaml.safe_load(engine_path.read_text(encoding="utf-8")) or {}
+        engine = load_asset_yaml(engine_path) or {}
         expected = _feature_speculative_config(engine)
         expected_fields = required_fields & expected.keys()
         if not expected_fields:
@@ -319,7 +318,7 @@ def test_vllm_ascend_smart_speculative_configs_preserve_required_fields(config_r
         version = parts[parts.index("engines") + 2]
         hardware = parts[parts.index("models") - 1]
         for smart_path in smart_root.glob(f"{engine_name}/{version}/{hardware}/models/*/*.yaml"):
-            smart = yaml.safe_load(smart_path.read_text(encoding="utf-8")) or {}
+            smart = load_asset_yaml(smart_path) or {}
             if str((smart.get("model") or {}).get("variant_name", "")).casefold() != variant:
                 continue
             for actual in _smart_decoding_configs(smart.get("smart_accel") or {}):
